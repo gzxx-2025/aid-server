@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.aid.aid.mapper.AidInviteRebateRecordMapper">
+
+    <!-- 后台返佣记录列表：aid_invite_rebate_record 联表 sys_user 聚合查询 -->
+    <resultMap id="RebateRecordVoResult" type="com.aid.aid.domain.vo.AidInviteRebateRecordVo">
+        <result property="id"              column="id"/>
+        <result property="inviterUserId"   column="inviter_user_id"/>
+        <result property="inviterNickName" column="inviter_nick_name"/>
+        <result property="inviteeUserId"   column="invitee_user_id"/>
+        <result property="inviteeNickName" column="invitee_nick_name"/>
+        <result property="orderNo"         column="order_no"/>
+        <result property="orderCredits"    column="order_credits"/>
+        <result property="payPrice"        column="pay_price"/>
+        <result property="rebateRatio"     column="rebate_ratio"/>
+        <result property="rebateAmount"    column="rebate_amount"/>
+        <result property="status"          column="status"/>
+        <result property="remark"          column="remark"/>
+        <result property="createTime"      column="create_time"/>
+    </resultMap>
+
+    <!-- 仅返回展示必要字段；邀请人/被邀请人昵称来自 sys_user 联表 -->
+    <select id="selectRebateRecordVoList" resultMap="RebateRecordVoResult">
+        SELECT t.id, t.inviter_user_id, t.invitee_user_id, t.order_no, t.order_credits,
+               t.pay_price, t.rebate_ratio, t.rebate_amount, t.status, t.remark, t.create_time,
+               iu.nick_name AS inviter_nick_name,
+               eu.nick_name AS invitee_nick_name
+        FROM aid_invite_rebate_record t
+        LEFT JOIN sys_user iu ON iu.user_id = t.inviter_user_id
+        LEFT JOIN sys_user eu ON eu.user_id = t.invitee_user_id
+        <where>
+            t.del_flag = '0'
+            <if test="inviterUserId != null">AND t.inviter_user_id = #{inviterUserId}</if>
+            <if test="inviteeUserId != null">AND t.invitee_user_id = #{inviteeUserId}</if>
+            <if test="orderNo != null and orderNo != ''">AND t.order_no = #{orderNo}</if>
+            <if test="status != null and status != ''">AND t.status = #{status}</if>
+        </where>
+        ORDER BY t.id DESC
+    </select>
+
+    <!-- C端「返佣明细」列表：仅返回展示必要字段（被邀请人昵称来自 sys_user 联表） -->
+    <resultMap id="RebateRowResult" type="com.aid.aid.domain.dto.InviteRebateRowDTO">
+        <result property="id"            column="id"/>
+        <result property="inviteeUserId" column="invitee_user_id"/>
+        <result property="nickName"      column="nick_name"/>
+        <result property="orderCredits"  column="order_credits"/>
+        <result property="rebateRatio"   column="rebate_ratio"/>
+        <result property="rebateAmount"  column="rebate_amount"/>
+        <result property="status"        column="status"/>
+        <result property="createTime"    column="create_time"/>
+    </resultMap>
+
+    <select id="selectRebateRows" resultMap="RebateRowResult">
+        SELECT t.id, t.invitee_user_id, t.order_credits, t.rebate_ratio, t.rebate_amount,
+               t.status, t.create_time,
+               u.nick_name
+        FROM aid_invite_rebate_record t
+        LEFT JOIN sys_user u ON u.user_id = t.invitee_user_id
+        WHERE t.inviter_user_id = #{inviterUserId}
+          AND t.del_flag = '0'
+        ORDER BY t.id DESC
+    </select>
+</mapper>

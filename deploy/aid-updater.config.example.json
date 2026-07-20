@@ -1,0 +1,25 @@
+{
+  "healthFile": "/var/lib/aid-updater/health.json",
+  "taskFile": "/var/lib/aid-updater/inbox/task.json",
+  "workDir": "/var/lib/aid-updater/work",
+  "backupDir": "/var/lib/aid-updater/backups",
+  "pollIntervalSeconds": 3,
+  "heartbeatIntervalSeconds": 5,
+  "downloadTimeoutSeconds": 600,
+  "install": {
+    "backendJar": "/opt/aid/aid-admin.jar",
+    "adminDist": "/opt/aid/admin-dist",
+    "webDist": "/opt/aid/web-dist",
+    "backendService": "aid",
+    "healthCheckUrl": "http://127.0.0.1:8080",
+    "healthCheckTimeoutSeconds": 180
+  },
+  "database": {
+    "enabled": false,
+    "host": "127.0.0.1",
+    "port": 3306,
+    "name": "aid",
+    "user": "root",
+    "password": ""
+  }
+}

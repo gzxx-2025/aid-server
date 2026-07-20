@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.aid</groupId>
+        <artifactId>aid-business</artifactId>
+        <version>3.9.1</version>
+    </parent>
+
+    <artifactId>aid-business-quartz</artifactId>
+
+
+    <description>
+        quartz定时任务
+    </description>
+
+    <dependencies>
+
+        <!-- 定时任务 -->
+        <dependency>
+            <groupId>org.quartz-scheduler</groupId>
+            <artifactId>quartz</artifactId>
+        </dependency>
+
+        <!-- 阿里数据库连接池（读取连接池指标，用于动态计算推荐频率） -->
+        <dependency>
+            <groupId>com.alibaba</groupId>
+            <artifactId>druid-spring-boot-3-starter</artifactId>
+        </dependency>
+
+        <!-- 通用工具-->
+        <dependency>
+            <groupId>com.aid</groupId>
+            <artifactId>aid-common</artifactId>
+        </dependency>
+
+        <!-- 支付接口模块 -->
+        <dependency>
+            <groupId>com.aid</groupId>
+            <artifactId>aid-interface-main</artifactId>
+        </dependency>
+
+    </dependencies>
+
+</project>

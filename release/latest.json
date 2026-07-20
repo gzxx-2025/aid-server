@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "product": "AID",
+  "productVersion": "0.0.1-demo.1",
+  "channel": "stable",
+  "publishedAt": "2026-07-20 18:00:00",
+  "minimumVersion": "0.0.1-demo.1",
+  "releaseNotes": "本文件为 AID 版本更新清单的正式存放位置，首个正式版本发布时由发布流程更新全部字段。",
+  "packageUrl": "",
+  "packageSha256": "",
+  "releasePages": {
+    "gitee": "https://gitee.com/gzxx-2025/aid-server/releases",
+    "github": "https://github.com/gzxx-2025/aid-server/releases"
+  },
+  "officialApi": {
+    "baseUrl": "",
+    "websiteUrl": "https://gitee.com/gzxx-2025/aid-server"
+  },
+  "updater": {
+    "version": "",
+    "downloadUrl": "https://gitee.com/gzxx-2025/aid-server/releases",
+    "packages": {}
+  },
+  "rollbackReleases": []
+}

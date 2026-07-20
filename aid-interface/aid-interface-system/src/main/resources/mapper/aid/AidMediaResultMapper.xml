@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.aid.aid.mapper.AidMediaResultMapper">
+
+    <!--
+      业务说明：
+      1) 结果表使用 MyBatis-Plus 通用 CRUD；
+      2) 该 XML 作为后续统计与聚合查询扩展点保留。
+    -->
+
+</mapper>
+

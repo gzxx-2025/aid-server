@@ -1,0 +1,6 @@
+com.aid.common.aid.core.service.ConfigService
+com.aid.common.aid.encrypt.config.EncryptorAutoConfiguration
+com.aid.common.aid.json.config.JacksonConfig
+com.aid.common.aid.mail.config.MailConfig
+com.aid.common.aid.redis.config.RedisConfig
+com.aid.common.aid.sms.config.SmsConfig

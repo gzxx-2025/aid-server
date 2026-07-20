@@ -1,0 +1,75 @@
+# Build and Release Folders
+bin-debug/
+bin-release/
+[Oo]bj/
+[Bb]in/
+
+# Maven
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+.mvn/timing.properties
+.mvn/wrapper/maven-wrapper.jar
+
+# IDE - IntelliJ IDEA
+.idea/
+*.iws
+*.iml
+*.ipr
+out/
+
+# IDE - Eclipse
+.settings/
+.classpath
+.project
+.factorypath
+
+# IDE - VSCode
+.vscode/
+*.code-workspace
+
+# Other files and folders
+*.log
+*.class
+*.jar
+*.war
+*.ear
+*.nar
+hs_err_pid*
+
+# Executables
+*.swf
+*.air
+*.ipa
+*.apk
+
+# OS
+.DS_Store
+Thumbs.db
+
+# AI 工具本地配置与指导文件（仅本地开发使用，禁止发布）
+/.cursor/
+/.agents/
+/.claude/
+/.codebuddy/
+/.codex/
+/.kiro/
+AGENTS.md
+CLAUDE.md
+
+# IDE
+/.idea/
+
+# 参考资料归档（过程文档、历史日志、内部脚本，禁止随开源仓库发布）
+/参考文件/
+
+# 内部文档目录（接口文档与上线文档仅本地维护，不入库）
+/doc/
+
+# 发布构建产物（deploy/release.ps1 输出，附件上传 Release 后即可清理）
+/release-build/

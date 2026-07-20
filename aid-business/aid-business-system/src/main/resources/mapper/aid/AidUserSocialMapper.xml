@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.aid.aid.mapper.AidUserSocialMapper">
+
+    <!-- MyBatis Plus 基本CRUD已内置，此处保留基本格式，如需自定义SQL可在此添加 -->
+
+</mapper>

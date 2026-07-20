@@ -1,0 +1,3 @@
+Application Version: ${aid.version}
+Spring Boot Version: ${spring-boot.version}
+启动中。。。
