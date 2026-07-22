@@ -1,37 +1,39 @@
 {
-    "schemaVersion":  1,
-    "product":  "AID",
-    "productVersion":  "1.0.0-rc.2",
-    "channel":  "beta",
-    "publishedAt":  "2026-07-22 13:06:31",
-    "minimumVersion":  "1.0.0-rc.2",
-    "releaseNotes":  "AID v1.0.0-rc.2",
-    "packageUrl":  "https://gitee.com/gzxx-2025/aid-server/releases/download/v1.0.0-rc.2/aid-v1.0.0-rc.2.tar.gz",
-    "packageSha256":  "fee8ce8e2b979821323b57081dcea56d270df9c1a930c29c229cb31f6b5ffae5",
-    "releasePages":  {
-                         "gitee":  "https://gitee.com/gzxx-2025/aid-server/releases/tag/v1.0.0-rc.2",
-                         "github":  "https://github.com/gzxx-2025/aid-server/releases/tag/v1.0.0-rc.2"
-                     },
-    "docsUrl":  "https://gitee.com/gzxx-2025/aid-server#%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B",
-    "promptDocsUrl":  "https://gitee.com/gzxx-2025/aid-server/blob/master/doc/%E6%8F%90%E7%A4%BA%E8%AF%8D%E5%BC%80%E5%8F%91%E6%8C%87%E5%8D%97.md",
-    "officialApi":  {
-                        "baseUrl":  null
-                    },
-    "updater":  {
-                    "version":  "1.0.0-rc.2",
-                    "downloadUrl":  "https://gitee.com/gzxx-2025/aid-server/releases",
-                    "packages":  {
-                                     "linux_amd64":  {
-                                                         "url":  "https://gitee.com/gzxx-2025/aid-server/releases/download/v1.0.0-rc.2/aid-updater_1.0.0-rc.2_linux_amd64.tar.gz",
-                                                         "sha256":  "e302e79052f8aa339033284348364a5c8a3077dcb1c04b5bc264528d903697d7"
-                                                     },
-                                     "linux_arm64":  {
-                                                         "url":  "https://gitee.com/gzxx-2025/aid-server/releases/download/v1.0.0-rc.2/aid-updater_1.0.0-rc.2_linux_arm64.tar.gz",
-                                                         "sha256":  "766b4fbde1f3e170ab73c96afd0e20d874c6079b0eca2046eb046de303941aaf"
-                                                     }
-                                 }
-                },
-    "rollbackReleases":  [
-
-                         ]
+  "channel": "beta",
+  "docsUrl": "https://gitee.com/gzxx-2025/aid-server#%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B",
+  "minimumVersion": "1.0.0-rc.2",
+  "officialApi": {
+    "baseUrl": ""
+  },
+  "packageSha256": "e3031dc2498da981a67d015c0208a858d3c9a8c08cf95f69173f0872acd124c1",
+  "packageUrl": "https://github.com/gzxx-2025/aid-server/releases/download/v1.0.0-rc.2/aid-v1.0.0-rc.2.tar.gz",
+  "product": "AID",
+  "productVersion": "1.0.0-rc.2",
+  "promptDocsUrl": "https://gitee.com/gzxx-2025/aid-server/blob/master/doc/%E6%8F%90%E7%A4%BA%E8%AF%8D%E5%BC%80%E5%8F%91%E6%8C%87%E5%8D%97.md",
+  "publishedAt": "2026-07-23 00:36:42",
+  "releaseNotes": "AID v1.0.0-rc.2",
+  "releasePages": {
+    "gitee": "https://gitee.com/gzxx-2025/aid-server/releases/tag/v1.0.0-rc.2",
+    "github": "https://github.com/gzxx-2025/aid-server/releases/tag/v1.0.0-rc.2"
+  },
+  "rollbackReleases": [],
+  "schemaVersion": 1,
+  "signature": {
+    "algorithm": "Ed25519",
+    "value": "EN3F6Uy4/aWjtlluB9pEz45y1IiiB+mw9tx6kLyayxZqJeI2vwli0RzcI7sgJppJ8oxePOg5UStK9r3yf3pxBw=="
+  },
+  "updater": {
+    "downloadUrl": "https://gitee.com/gzxx-2025/aid-server/releases",
+    "packages": {
+      "linux_amd64": {
+        "sha256": "8abff0ec8edd91623d3383000d41d12619114043bab64f4a15c6f44716351dde",
+        "url": "https://github.com/gzxx-2025/aid-server/releases/download/v1.0.0-rc.2/aid-updater_1.0.0-rc.2_linux_amd64.tar.gz"
+      },
+      "linux_arm64": {
+        "sha256": "8c3404e9e457884b9aabc87b9706ae924b0f5d5791b22b925bae32eea9f8bba4",
+        "url": "https://github.com/gzxx-2025/aid-server/releases/download/v1.0.0-rc.2/aid-updater_1.0.0-rc.2_linux_arm64.tar.gz"
+      }
+    },
+    "version": "1.0.0-rc.2"
+  }
 }
