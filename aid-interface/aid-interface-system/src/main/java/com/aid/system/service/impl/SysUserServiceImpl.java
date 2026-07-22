@@ -1,5 +1,6 @@
 package com.aid.system.service.impl;
 
+import cn.hutool.core.util.StrUtil;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -290,6 +291,7 @@ public class SysUserServiceImpl implements ISysUserService
     @Transactional
     public int insertUser(SysUser user)
     {
+        normalizeContactFields(user);
         // 新增用户信息
         int rows = userMapper.insertUser(user);
         // 新增用户岗位关联
@@ -331,6 +333,7 @@ public class SysUserServiceImpl implements ISysUserService
     @Transactional
     public boolean registerUser(SysUser user)
     {
+        normalizeContactFields(user);
         int rows = userMapper.insertUser(user);
         if (rows > 0)
         {
@@ -350,6 +353,7 @@ public class SysUserServiceImpl implements ISysUserService
     @Transactional
     public int updateUser(SysUser user)
     {
+        normalizeContactFields(user);
         Long userId = user.getUserId();
         // 删除用户与角色关联
         userRoleMapper.deleteUserRoleByUserId(userId);
@@ -397,7 +401,28 @@ public class SysUserServiceImpl implements ISysUserService
     @Override
     public int updateUserProfile(SysUser user)
     {
+        normalizeContactFields(user);
         return userMapper.updateUser(user);
+    }
+
+    /**
+     * 手机号/邮箱空串归一为 null。
+     */
+    private void normalizeContactFields(SysUser user)
+    {
+        if (user == null)
+        {
+            return;
+        }
+        // 与 SysUser setter 约定一致：空白视为未绑定
+        if (StrUtil.isBlank(user.getPhonenumber()))
+        {
+            user.setPhonenumber(null);
+        }
+        if (StrUtil.isBlank(user.getEmail()))
+        {
+            user.setEmail(null);
+        }
     }
 
     /**
@@ -578,6 +603,7 @@ public class SysUserServiceImpl implements ISysUserService
                     String password = configService.selectConfigByKey("sys.user.initPassword");
                     user.setPassword(SecurityUtils.encryptPassword(password));
                     user.setCreateBy(operName);
+                    normalizeContactFields(user);
                     userMapper.insertUser(user);
                     successNum++;
                     successMsg.append("<br/>" + successNum + "、账号 " + user.getUserName() + " 导入成功");
@@ -591,6 +617,7 @@ public class SysUserServiceImpl implements ISysUserService
                     user.setUserId(u.getUserId());
                     user.setDeptId(u.getDeptId());
                     user.setUpdateBy(operName);
+                    normalizeContactFields(user);
                     userMapper.updateUser(user);
                     successNum++;
                     successMsg.append("<br/>" + successNum + "、账号 " + user.getUserName() + " 更新成功");

@@ -1,5 +1,6 @@
 package com.aid.upgrade.service.impl;
 
+import java.net.URI;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -236,7 +237,7 @@ public class SystemUpgradeServiceImpl implements ISystemUpgradeService {
         // 升级包直链与校验值必须齐全，升级器据此下载并校验
         String packageUrl = StrUtil.trimToNull(manifest.getPackageUrl());
         String packageSha256 = StrUtil.trimToNull(manifest.getPackageSha256());
-        if (StrUtil.isBlank(packageUrl) || !isHttpUrl(packageUrl)
+        if (StrUtil.isBlank(packageUrl) || !isHttpsUrl(packageUrl)
                 || StrUtil.isBlank(packageSha256) || !packageSha256.matches("(?i)^[0-9a-f]{64}$")) {
             log.error("一键升级被拒绝, 清单缺少有效升级包信息, packageUrl={}, sha256={}", packageUrl, packageSha256);
             throw new ServiceException("升级包不可用");
@@ -313,13 +314,14 @@ public class SystemUpgradeServiceImpl implements ISystemUpgradeService {
             log.error("版本回退被拒绝, 数据库不兼容且无回退脚本, target={}", release.getVersion());
             throw new ServiceException("数据库不兼容");
         }
-        if (!isHttpUrl(StrUtil.trimToEmpty(release.getPackageUrl()))
+        if (!isHttpsUrl(StrUtil.trimToEmpty(release.getPackageUrl()))
                 || StrUtil.isBlank(release.getSha256())
                 || !release.getSha256().matches("(?i)^[0-9a-f]{64}$")) {
             log.error("版本回退被拒绝, 回退制品信息不完整, target={}", release.getVersion());
             throw new ServiceException("回退包不完整");
         }
         JSONObject task = buildTask("ROLLBACK", currentVersion, release.getVersion());
+		task.put("manifestUrl", readUpgradeConfig().get(UpgradeConfigKeys.KEY_MANIFEST_URL));
         task.put("packageUrl", release.getPackageUrl());
         task.put("sha256", release.getSha256());
         task.put("databaseCompatible", release.getDatabaseCompatible());
@@ -418,7 +420,7 @@ public class SystemUpgradeServiceImpl implements ISystemUpgradeService {
         // 页面常规保存不携带这些字段，不会误清高级用户在库中的自定义值
         if (Objects.nonNull(saveDto.getManifestUrl())) {
             String manifestUrl = saveDto.getManifestUrl().trim();
-            if (StrUtil.isNotBlank(manifestUrl) && !isHttpUrl(manifestUrl)) {
+            if (StrUtil.isNotBlank(manifestUrl) && !isHttpsUrl(manifestUrl)) {
                 log.error("保存升级源失败, 清单地址格式非法, manifestUrl={}", manifestUrl);
                 throw new ServiceException("清单地址格式错误");
             }
@@ -427,7 +429,7 @@ public class SystemUpgradeServiceImpl implements ISystemUpgradeService {
         }
         if (Objects.nonNull(saveDto.getUpdaterDownloadUrl())) {
             String updaterDownloadUrl = saveDto.getUpdaterDownloadUrl().trim();
-            if (StrUtil.isNotBlank(updaterDownloadUrl) && !isHttpUrl(updaterDownloadUrl)) {
+            if (StrUtil.isNotBlank(updaterDownloadUrl) && !isHttpsUrl(updaterDownloadUrl)) {
                 log.error("保存升级源失败, 下载地址格式非法, updaterDownloadUrl={}", updaterDownloadUrl);
                 throw new ServiceException("下载地址格式错误");
             }
@@ -628,7 +630,7 @@ public class SystemUpgradeServiceImpl implements ISystemUpgradeService {
         if (StrUtil.isBlank(manifestUrl)) {
             return new ManifestSnapshot(null, "更新地址未配置", checkedAt, now);
         }
-        if (!isHttpUrl(manifestUrl)) {
+        if (!isHttpsUrl(manifestUrl)) {
             log.error("更新地址格式非法, manifestUrl={}", manifestUrl);
             return new ManifestSnapshot(null, "更新地址格式错误", checkedAt, now);
         }
@@ -701,6 +703,20 @@ public class SystemUpgradeServiceImpl implements ISystemUpgradeService {
     private boolean isHttpUrl(String url) {
         String lower = url.toLowerCase();
         return lower.startsWith("http://") || lower.startsWith("https://");
+    }
+
+    private boolean isHttpsUrl(String url) {
+        if (StrUtil.isBlank(url)) {
+            return false;
+        }
+        try {
+            URI uri = URI.create(url);
+            return Objects.equals("https", uri.getScheme())
+                    && StrUtil.isNotBlank(uri.getHost())
+                    && Objects.isNull(uri.getUserInfo());
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
     }
 
     /**

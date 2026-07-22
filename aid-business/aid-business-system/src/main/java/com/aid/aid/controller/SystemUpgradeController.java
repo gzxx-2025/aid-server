@@ -33,6 +33,7 @@ public class SystemUpgradeController extends BaseController {
      * 查询系统版本与升级状态（走缓存，供侧边栏与升级页展示）
      */
     @GetMapping("/status")
+	@PreAuthorize("@ss.hasPermi('aidconfig:upgrade:list')")
     public AjaxResult status() {
         return success(systemUpgradeService.getStatus(false));
     }
@@ -41,6 +42,7 @@ public class SystemUpgradeController extends BaseController {
      * 手动检查更新（强制回源更新清单）
      */
     @PostMapping("/check")
+	@PreAuthorize("@ss.hasPermi('aidconfig:upgrade:list')")
     public AjaxResult check() {
         return success(systemUpgradeService.getStatus(true));
     }
@@ -49,6 +51,7 @@ public class SystemUpgradeController extends BaseController {
      * 查询官方教程文档地址（使用教程/提示词开发教程，读缓存不回源，供后台各入口跳转）
      */
     @GetMapping("/doc-links")
+	@PreAuthorize("@ss.hasPermi('aidconfig:upgrade:list')")
     public AjaxResult docLinks() {
         return success(systemUpgradeService.getDocLinks());
     }
@@ -77,6 +80,7 @@ public class SystemUpgradeController extends BaseController {
      * 查询升级器最近运行日志（安装引导弹窗与故障排查展示，最多返回最近200行）
      */
     @GetMapping("/updater/logs")
+	@PreAuthorize("@ss.hasPermi('aidconfig:upgrade:list')")
     public AjaxResult updaterLogs() {
         return success(systemUpgradeService.getUpdaterLogs());
     }
@@ -95,6 +99,7 @@ public class SystemUpgradeController extends BaseController {
      * 查询升级源配置（更新清单地址/升级器下载地址/升级器健康文件路径）
      */
     @GetMapping("/source")
+	@PreAuthorize("@ss.hasPermi('aidconfig:upgrade:list')")
     public AjaxResult getSource() {
         return success(systemUpgradeService.getUpgradeSource());
     }
@@ -114,6 +119,7 @@ public class SystemUpgradeController extends BaseController {
      * 查询官方统一网关设置（密钥脱敏返回）
      */
     @GetMapping("/official-gateway")
+	@PreAuthorize("@ss.hasPermi('aidconfig:upgrade:list')")
     public AjaxResult getOfficialGateway() {
         return success(systemUpgradeService.getOfficialGatewaySetting());
     }
@@ -133,6 +139,7 @@ public class SystemUpgradeController extends BaseController {
      * 手动获取更新清单中的官方API地址（只比对，不写入本地配置）
      */
     @PostMapping("/official-api/fetch")
+	@PreAuthorize("@ss.hasPermi('aidconfig:upgrade:list')")
     public AjaxResult fetchOfficialApi() {
         return success(systemUpgradeService.fetchOfficialApi());
     }

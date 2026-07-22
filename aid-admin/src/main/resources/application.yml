@@ -14,7 +14,7 @@ aid:
   captchaType: math
   # 系统升级（AID产品版本，发布构建时注入；更新清单地址等动态配置存于 aid_config(category=system_upgrade)）
   upgrade:
-    current-version: 0.0.1-demo.1
+    current-version: 1.0.0-rc.2
   # 媒体任务补偿调度（aid.chat.media.compensation.*）
   chat:
     media:

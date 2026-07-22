@@ -53,7 +53,7 @@ public class AuthController {
      *
      * @return 公开配置聚合对象（详见 {@link com.aid.auth.domain.vo.PublicConfigVO}）
      */
-    @Operation(summary = "查询C端公开配置", description = "聚合行为验证码状态+短信/邮箱验证码策略，前端首屏一次拉取")
+    @Operation(summary = "查询C端公开配置", description = "聚合行为验证码状态、短信/邮箱验证码策略、加密/支付/上传、营销活动等，前端首屏一次拉取")
     @Anonymous
     @PostMapping("/public-config")
     public AjaxResult publicConfig() {

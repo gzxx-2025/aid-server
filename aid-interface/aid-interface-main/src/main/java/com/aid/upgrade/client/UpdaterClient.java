@@ -4,6 +4,7 @@ import java.io.File;
 import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -164,12 +165,15 @@ public class UpdaterClient {
             temporary = Files.createTempFile(parent, "upgrade-task-", ".tmp");
             Files.writeString(temporary, task.toJSONString(), StandardCharsets.UTF_8);
             try {
-                Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+				Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE);
             } catch (AtomicMoveNotSupportedException e) {
-                Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
+				Files.move(temporary, target);
             }
             temporary = null;
-        } catch (ServiceException e) {
+        } catch (FileAlreadyExistsException e) {
+			log.error("提交升级任务失败, 已有任务待处理, path={}", taskFilePath);
+			throw new ServiceException("已有任务处理中");
+		} catch (ServiceException e) {
             throw e;
         } catch (Exception e) {
             log.error("提交升级任务失败, path={}", taskFilePath, e);

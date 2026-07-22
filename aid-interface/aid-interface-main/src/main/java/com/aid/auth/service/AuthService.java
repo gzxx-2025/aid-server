@@ -36,6 +36,7 @@ import com.aid.common.core.service.TokenService;
 import com.aid.core.service.ISysUserService;
 import com.aid.notify.wechat.service.IWechatNotifyConfigService;
 import com.aid.notify.wechat.vo.WechatNotifyPublicVO;
+import com.aid.promotion.service.IPromotionConfigService;
 import com.aid.voice.service.VoicePreviewLimitService;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
@@ -44,6 +45,7 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -118,6 +120,10 @@ public class AuthService {
     /** 微信公众号模板消息推送配置，聚合到 publicConfig 返回给 C 端 */
     @Resource
     private IWechatNotifyConfigService wechatNotifyConfigService;
+
+    /** 营销活动配置：注册送积分 / 邀请激励，聚合到 publicConfig 供登录注册页展示 */
+    @Resource
+    private IPromotionConfigService promotionConfigService;
 
     /** 基础配置分类标识（aid_config.category）。 */
     private static final String BASIC_CONFIG_CATEGORY = "basic";
@@ -269,14 +275,14 @@ public class AuthService {
         log.info("验证码发送成功: target={}, codeType={}, scene={}, ip={}", target, codeType, scene, clientIp);
     }
 
-    /** publicConfig Redis 缓存 key（全局共享，不区分用户/IP）。 */
-    private static final String PUBLIC_CONFIG_CACHE_KEY = "auth:public_config:v1";
+    /** publicConfig Redis 缓存 key（全局共享，不区分用户/IP）。结构变更时升版本避免脏缓存。 */
+    private static final String PUBLIC_CONFIG_CACHE_KEY = "auth:public_config:v2";
 
     /** publicConfig 缓存 TTL（秒）：30s 是 aid_config 改完到全局生效的最大延迟，业务可接受。 */
     private static final int PUBLIC_CONFIG_CACHE_TTL_SECONDS = 30;
 
     /**
-     * 一次性返回前端首屏所需的全部公开配置（行为验证码状态、短信/邮箱验证码策略、加密/支付/上传等），
+     * 一次性返回前端首屏所需的全部公开配置（行为验证码、短信/邮箱策略、加密/支付/上传、营销活动等），
      * 减少首屏多次匿名请求的往返；服务端 Redis 缓存 {@value #PUBLIC_CONFIG_CACHE_TTL_SECONDS}s，
      * aid_config / 行为验证码状态变更后最多 30s 内生效。
      * 缓存内容为不含密钥/会话的纯公开配置，跨用户共享读，无隐私泄露风险。
@@ -337,6 +343,8 @@ public class AuthService {
                 .estimatedMaxChars(voicePreviewLimit.estimatedMaxChars())
                 .build();
 
+        PublicConfigVO.PromotionConfig promotion = buildPromotionConfig();
+
         PublicConfigVO vo = PublicConfigVO.builder()
                 .captcha(captcha)
                 .smsPolicy(toCodePolicyVo(smsRaw))
@@ -347,6 +355,7 @@ public class AuthService {
                 .payment(payment)
                 .upload(upload)
                 .voicePreview(voicePreview)
+                .promotion(promotion)
                 .serverTime(System.currentTimeMillis())
                 .build();
 
@@ -487,6 +496,53 @@ public class AuthService {
                     .rules(java.util.Collections.emptyList())
                     .build();
         }
+    }
+
+    /**
+     * 构建营销活动公开配置块（注册送积分 + 邀请激励）。
+     * 复用 IPromotionConfigService 统一读取 aid_config，异常时按活动关闭降级，绝不阻塞其它公开配置。
+     */
+    private PublicConfigVO.PromotionConfig buildPromotionConfig() {
+        PublicConfigVO.RegisterBonusConfig registerBonus;
+        PublicConfigVO.InviteConfig invite;
+        try {
+            com.aid.promotion.domain.RegisterBonusConfig raw = promotionConfigService.getRegisterBonusConfig();
+            registerBonus = PublicConfigVO.RegisterBonusConfig.builder()
+                    .enabled(raw.isEnabled())
+                    .amount(raw.getAmount())
+                    .smsEnabled(raw.isSmsEnabled())
+                    .emailEnabled(raw.isEmailEnabled())
+                    .wechatEnabled(raw.isWechatEnabled())
+                    .build();
+        } catch (Exception e) {
+            log.error("publicConfig 注册送积分配置读取失败，按关闭降级", e);
+            registerBonus = PublicConfigVO.RegisterBonusConfig.builder()
+                    .enabled(false)
+                    .amount(BigDecimal.ZERO)
+                    .smsEnabled(false)
+                    .emailEnabled(false)
+                    .wechatEnabled(false)
+                    .build();
+        }
+        try {
+            com.aid.promotion.domain.InviteConfig raw = promotionConfigService.getInviteConfig();
+            invite = PublicConfigVO.InviteConfig.builder()
+                    .enabled(raw.isEnabled())
+                    .rebateRatio(raw.getRebateRatio())
+                    .rebateMaxPerOrder(raw.getRebateMaxPerOrder())
+                    .build();
+        } catch (Exception e) {
+            log.error("publicConfig 邀请激励配置读取失败，按关闭降级", e);
+            invite = PublicConfigVO.InviteConfig.builder()
+                    .enabled(false)
+                    .rebateRatio(BigDecimal.ZERO)
+                    .rebateMaxPerOrder(BigDecimal.ZERO)
+                    .build();
+        }
+        return PublicConfigVO.PromotionConfig.builder()
+                .registerBonus(registerBonus)
+                .invite(invite)
+                .build();
     }
 
     /**

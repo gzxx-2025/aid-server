@@ -1,5 +1,6 @@
 package com.aid.auth.domain.vo;
 
+import java.math.BigDecimal;
 import java.util.Map;
 
 import com.aid.common.aid.oss.vo.OssUploadLimitsVO;
@@ -10,7 +11,7 @@ import lombok.Data;
 
 /**
  * C 端首屏公开配置聚合 VO。
- * 将行为验证码状态、短信/邮箱验证码策略、接口加密状态、基础配置、支付渠道开关等匿名配置
+ * 将行为验证码状态、短信/邮箱验证码策略、接口加密状态、基础配置、支付渠道开关、营销活动等匿名配置
  * 合并为一个 {@code POST /auth/public-config}，前端在登录/发码页加载时一次性获取全部 UI 渲染所需配置。
  * 服务端 Redis 缓存 30s，aid_config 改动后最多 30s 内生效。
  *
@@ -66,6 +67,12 @@ public class PublicConfigVO
      * 前端使用 estimatedMaxChars 展示字数上限并设置输入框 maxLength，与后端试听校验保持一致。
      */
     private VoicePreviewConfig voicePreview;
+
+    /**
+     * 营销活动公开配置（注册送积分 + 邀请激励）。
+     * 来自 aid_config category=register_bonus / invite，供登录/注册页展示活动文案与开关。
+     */
+    private PromotionConfig promotion;
 
     @Data
     @Builder
@@ -158,5 +165,59 @@ public class PublicConfigVO
 
         /** 按正常语速预估且后端实际执行校验的最大字数 */
         private int estimatedMaxChars;
+    }
+
+    /**
+     * 营销活动公开配置块。
+     */
+    @Data
+    @Builder
+    public static class PromotionConfig
+    {
+        /** 注册送积分配置 */
+        private RegisterBonusConfig registerBonus;
+
+        /** 邀请激励配置 */
+        private InviteConfig invite;
+    }
+
+    /**
+     * 注册送积分公开配置。
+     */
+    @Data
+    @Builder
+    public static class RegisterBonusConfig
+    {
+        /** 注册送积分总开关 */
+        private boolean enabled;
+
+        /** 注册赠送积分数量 */
+        private BigDecimal amount;
+
+        /** 手机号注册是否参与 */
+        private boolean smsEnabled;
+
+        /** 邮箱注册是否参与 */
+        private boolean emailEnabled;
+
+        /** 微信注册是否参与 */
+        private boolean wechatEnabled;
+    }
+
+    /**
+     * 邀请激励公开配置。
+     */
+    @Data
+    @Builder
+    public static class InviteConfig
+    {
+        /** 邀请激励总开关 */
+        private boolean enabled;
+
+        /** 充值返佣比例(%) */
+        private BigDecimal rebateRatio;
+
+        /** 单笔返佣积分上限（0 为不限） */
+        private BigDecimal rebateMaxPerOrder;
     }
 }

@@ -23,6 +23,9 @@ func (r *Runner) runSelfUpgrade(t *Task) error {
 	if err != nil {
 		return err
 	}
+	if strings.TrimSpace(m.Updater.Version) != strings.TrimSpace(t.TargetVersion) {
+		return fmt.Errorf("清单升级器版本与任务目标不一致")
+	}
 	pkg, err := m.SelectUpdaterPackage()
 	if err != nil {
 		return err

@@ -11,6 +11,7 @@ import (
 	"aid-updater/internal/backup"
 	"aid-updater/internal/config"
 	"aid-updater/internal/health"
+	"aid-updater/internal/sysctl"
 )
 
 // Runner 消费任务文件并执行升级动作。
@@ -32,8 +33,52 @@ func (r *Runner) ExitRequested() bool {
 	return r.exitRequested
 }
 
-// RecoverInterrupted 启动时处理上次中断遗留的认领任务：标记失败并清理。
+// RecoverInterrupted 启动时优先恢复中断任务的文件与数据库，再清理认领文件。
 func (r *Runner) RecoverInterrupted() {
+	recoveryPattern := filepath.Join(r.cfg.WorkDir, "recovery-*.json")
+	recoveryFiles, _ := filepath.Glob(recoveryPattern)
+	for _, path := range recoveryFiles {
+		record, loadErr := r.loadRecovery(path)
+		if loadErr != nil {
+			log.Printf("读取中断恢复记录失败 %s: %v", path, loadErr)
+			continue
+		}
+		if record.Completed {
+			if err := os.Remove(path); err != nil {
+				log.Printf("清理已完成任务的恢复记录失败: %v", err)
+			}
+			continue
+		}
+		log.Printf("恢复中断任务 %s(%s)", record.Task.TaskID, record.Task.Action)
+		var restoreErr error
+		if record.DatabaseDirty {
+			if stopErr := sysctl.StopService(r.cfg.Install.ServiceManager, r.cfg.Install.BackendService); stopErr != nil {
+				log.Printf("恢复中断任务前停止服务失败，继续尝试恢复: %v", stopErr)
+			}
+			restoreErr = backup.RestoreDatabase(r.cfg, record.Snapshot)
+		}
+		if restoreErr == nil {
+			restoreErr = backup.Restore(r.cfg, record.Snapshot)
+		}
+		if restoreErr == nil {
+			restoreErr = startBackend(r.cfg)
+		}
+		if restoreErr != nil {
+			log.Printf("中断任务恢复失败，保留恢复记录等待人工处理: %v", restoreErr)
+			r.reporter.SetTask(record.Task.TaskID, record.Task.Action, health.TaskStateFailed,
+				trimMessage("升级中断且自动恢复失败: "+restoreErr.Error()))
+			continue
+		}
+		if err := restartAuxServices(r.cfg); err != nil {
+			log.Printf("中断恢复后重启附属服务失败: %v", err)
+		}
+		r.reporter.SetTask(record.Task.TaskID, record.Task.Action, health.TaskStateFailed,
+			"升级器中断，已自动恢复原版本")
+		if err := os.Remove(path); err != nil {
+			log.Printf("清理恢复记录失败: %v", err)
+		}
+	}
+
 	pattern := filepath.Join(r.cfg.WorkDir, "claimed-*.json")
 	matches, err := filepath.Glob(pattern)
 	if err != nil || len(matches) == 0 {
@@ -130,23 +175,32 @@ func (r *Runner) cleanupWork(paths ...string) {
 }
 
 // restoreAndReport 升级失败后还原备份并重启服务，返回给用户的失败说明。
-func (r *Runner) restoreAndReport(s *backup.Snapshot, cause error) error {
+func (r *Runner) restoreAndReport(s *backup.Snapshot, cause error, recoveryPath string, databaseDirty bool) error {
 	log.Printf("开始回滚: 原因=%v", cause)
-	restoreErr := backup.Restore(r.cfg, s)
-	startErr := startBackend(r.cfg)
-	if restoreErr != nil {
+	if databaseDirty {
+		if stopErr := sysctl.StopService(r.cfg.Install.ServiceManager, r.cfg.Install.BackendService); stopErr != nil {
+			return fmt.Errorf("升级失败(%v)，恢复数据库前停止服务失败(%v)，请人工介入，备份目录: %s", cause, stopErr, s.Dir)
+		}
+		if dbRestoreErr := backup.RestoreDatabase(r.cfg, s); dbRestoreErr != nil {
+			return fmt.Errorf("升级失败(%v)，且数据库还原失败(%v)，请人工介入，备份目录: %s", cause, dbRestoreErr, s.Dir)
+		}
+	}
+	if restoreErr := backup.Restore(r.cfg, s); restoreErr != nil {
 		return fmt.Errorf("升级失败(%v)，且备份还原失败(%v)，请人工介入，备份目录: %s", cause, restoreErr, s.Dir)
 	}
-	if startErr != nil {
+	if startErr := startBackend(r.cfg); startErr != nil {
 		return fmt.Errorf("升级失败(%v)，已还原备份但服务启动失败(%v)，请人工检查", cause, startErr)
 	}
 	// 前端产物已还原为旧版本，附属服务（用户端 SSR / nginx）同样需要重启生效
-	restartAuxServices(r.cfg)
-	dbHint := ""
-	if s.DBDumpFile != "" {
-		dbHint = fmt.Sprintf("；如数据库已变更，可用备份手动恢复: %s", s.DBDumpFile)
+	if err := restartAuxServices(r.cfg); err != nil {
+		log.Printf("自动回滚后重启附属服务失败: %v", err)
 	}
-	return fmt.Errorf("升级失败已自动回滚到原版本(%v)%s", cause, dbHint)
+	if recoveryPath != "" {
+		if err := os.Remove(recoveryPath); err != nil && !os.IsNotExist(err) {
+			log.Printf("清理恢复记录失败: %v", err)
+		}
+	}
+	return fmt.Errorf("升级失败已自动回滚到原版本(%v)", cause)
 }
 
 func trimMessage(message string) string {

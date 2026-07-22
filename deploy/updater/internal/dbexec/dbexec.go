@@ -146,3 +146,26 @@ func Dump(db config.Database, outFile string) error {
 	}
 	return nil
 }
+
+// Restore 从 mysqldump 文件恢复数据库。恢复内容通过标准输入传递，避免将 SQL 暴露到命令行。
+func Restore(db config.Database, dumpFile string) error {
+	f, err := os.Open(dumpFile)
+	if err != nil {
+		return fmt.Errorf("打开数据库备份失败: %w", err)
+	}
+	defer f.Close()
+
+	cmd := buildDBCommand(db, "mysql",
+		"--host", db.Host,
+		"--port", fmt.Sprintf("%d", db.Port),
+		"--user", db.User,
+		"--default-character-set=utf8mb4",
+		db.Name,
+	)
+	cmd.Stdin = f
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("恢复数据库失败: %v, 输出: %s", err, strings.TrimSpace(string(output)))
+	}
+	return nil
+}

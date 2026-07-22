@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,10 +19,10 @@ const maxDownloadBytes = 2 << 30
 
 // DownloadFile 下载 url 到 dst（覆盖写），返回实际写入字节数。
 func DownloadFile(url, dst string, timeout time.Duration) (int64, error) {
-	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+	if !isSecureURL(url) {
 		return 0, fmt.Errorf("非法下载地址: %s", url)
 	}
-	client := &http.Client{Timeout: timeout}
+	client := &http.Client{Timeout: timeout, CheckRedirect: secureRedirect}
 	resp, err := client.Get(url)
 	if err != nil {
 		return 0, fmt.Errorf("下载请求失败: %w", err)
@@ -48,6 +49,21 @@ func DownloadFile(url, dst string, timeout time.Duration) (int64, error) {
 		return written, fmt.Errorf("制品超过大小上限")
 	}
 	return written, nil
+}
+
+func isSecureURL(raw string) bool {
+	parsed, err := url.Parse(raw)
+	return err == nil && parsed.Scheme == "https" && parsed.Host != "" && parsed.User == nil
+}
+
+func secureRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= 10 {
+		return fmt.Errorf("重定向次数过多")
+	}
+	if !isSecureURL(req.URL.String()) {
+		return fmt.Errorf("下载地址发生非安全重定向")
+	}
+	return nil
 }
 
 // VerifySHA256 校验文件摘要（大小写不敏感）。

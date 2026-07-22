@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 )
+
+var taskIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
 
 // 任务动作常量，与后端 SystemUpgradeServiceImpl 协议一致。
 const (
@@ -59,7 +62,7 @@ func Parse(path string) (*Task, error) {
 	if t.SchemaVersion != SupportedSchemaVersion {
 		return nil, fmt.Errorf("任务结构版本不支持: %d", t.SchemaVersion)
 	}
-	if strings.TrimSpace(t.TaskID) == "" {
+	if !taskIDPattern.MatchString(strings.TrimSpace(t.TaskID)) {
 		return nil, fmt.Errorf("任务缺少 taskId")
 	}
 	switch t.Action {

@@ -1,5 +1,7 @@
 package com.aid.agent.vo;
 
+import com.aid.common.aid.oss.annotation.MediaUrl;
+
 import lombok.Data;
 
 /**
@@ -20,7 +22,8 @@ public class AgentInfoVO
     /** 智能体名称 */
     private String name;
 
-    /** 智能体图标地址 */
+    /** 智能体图标地址（相对路径，出参由 @MediaUrl 拼成全链接） */
+    @MediaUrl
     private String iconUrl;
 
     /** 副标题/简述 */

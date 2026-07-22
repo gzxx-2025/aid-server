@@ -1,5 +1,6 @@
 package com.aid.common.core.domain.entity;
 
+import cn.hutool.core.util.StrUtil;
 import java.util.Date;
 import java.util.List;
 import jakarta.validation.constraints.*;
@@ -165,7 +166,8 @@ public class SysUser extends BaseEntity
 
     public void setEmail(String email)
     {
-        this.email = email;
+        // 未绑定存 null，禁止空串写入唯一索引列
+        this.email = StrUtil.isBlank(email) ? null : email;
     }
 
     @Size(min = 0, max = 11, message = "手机号码长度不能超过11个字符")
@@ -176,7 +178,8 @@ public class SysUser extends BaseEntity
 
     public void setPhonenumber(String phonenumber)
     {
-        this.phonenumber = phonenumber;
+        // 未绑定存 null，禁止空串写入唯一索引列
+        this.phonenumber = StrUtil.isBlank(phonenumber) ? null : phonenumber;
     }
 
     public String getSex()

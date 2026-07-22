@@ -10,6 +10,11 @@ import (
 	"strings"
 )
 
+const (
+	maxExtractedBytes = int64(8 << 30)
+	maxArchiveEntries = 100000
+)
+
 // ExtractTarGz 解压 tar.gz 到 dst 目录，拒绝路径穿越与符号链接。
 func ExtractTarGz(src, dst string) error {
 	f, err := os.Open(src)
@@ -30,6 +35,8 @@ func ExtractTarGz(src, dst string) error {
 	cleanDst := filepath.Clean(dst)
 
 	reader := tar.NewReader(gz)
+	var extractedBytes int64
+	entryCount := 0
 	for {
 		header, err := reader.Next()
 		if err == io.EOF {
@@ -37,6 +44,10 @@ func ExtractTarGz(src, dst string) error {
 		}
 		if err != nil {
 			return fmt.Errorf("读取tar条目失败: %w", err)
+		}
+		entryCount++
+		if entryCount > maxArchiveEntries {
+			return fmt.Errorf("压缩包条目数量超过上限")
 		}
 		target := filepath.Join(cleanDst, filepath.FromSlash(header.Name))
 		// 防路径穿越：解压目标必须落在 dst 内
@@ -49,9 +60,13 @@ func ExtractTarGz(src, dst string) error {
 				return fmt.Errorf("创建目录失败: %w", err)
 			}
 		case tar.TypeReg:
-			if err := writeRegularFile(reader, target, header.FileInfo().Mode()); err != nil {
+			if exceedsExtractLimit(header.Size, extractedBytes) {
+				return fmt.Errorf("压缩包解压大小超过上限")
+			}
+			if err := writeRegularFile(reader, target, header.FileInfo().Mode(), header.Size); err != nil {
 				return err
 			}
+			extractedBytes += header.Size
 		default:
 			// 符号链接等特殊类型一律跳过，升级包不应包含
 			continue
@@ -59,7 +74,11 @@ func ExtractTarGz(src, dst string) error {
 	}
 }
 
-func writeRegularFile(r io.Reader, target string, mode os.FileMode) error {
+func exceedsExtractLimit(size, extracted int64) bool {
+	return size < 0 || extracted < 0 || extracted > maxExtractedBytes || size > maxExtractedBytes-extracted
+}
+
+func writeRegularFile(r io.Reader, target string, mode os.FileMode, size int64) error {
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return fmt.Errorf("创建父目录失败: %w", err)
 	}
@@ -68,8 +87,12 @@ func writeRegularFile(r io.Reader, target string, mode os.FileMode) error {
 		return fmt.Errorf("创建文件失败: %w", err)
 	}
 	defer out.Close()
-	if _, err := io.Copy(out, r); err != nil {
+	written, err := io.CopyN(out, r, size)
+	if err != nil {
 		return fmt.Errorf("写文件失败: %w", err)
+	}
+	if written != size {
+		return fmt.Errorf("文件大小不完整")
 	}
 	return nil
 }
