@@ -735,9 +735,14 @@ public class WechatNotifyServiceImpl implements IWechatNotifyService
         {
             return false;
         }
+        // 剧集下项目级资产（剧集角色，episodeId=0）恒计入，与资产列表可见性口径一致
+        Long taskEpisodeId = task.getEpisodeId();
         long total = rolePropSceneService.count(Wrappers.<AidRolePropScene>lambdaQuery()
                 .eq(AidRolePropScene::getProjectId, task.getProjectId())
-                .eq(AidRolePropScene::getEpisodeId, task.getEpisodeId())
+                .in(Objects.nonNull(taskEpisodeId) && taskEpisodeId > 0L,
+                        AidRolePropScene::getEpisodeId, 0L, taskEpisodeId)
+                .eq(Objects.nonNull(taskEpisodeId) && taskEpisodeId <= 0L,
+                        AidRolePropScene::getEpisodeId, taskEpisodeId)
                 .eq(AidRolePropScene::getUserId, task.getUserId())
                 .eq(AidRolePropScene::getAssetType, first.getAssetType())
                 .eq(AidRolePropScene::getDelFlag, DEL_FLAG_NORMAL));
@@ -765,18 +770,28 @@ public class WechatNotifyServiceImpl implements IWechatNotifyService
 
     private long countForms(AidExtractTask task)
     {
+        // 剧集下项目级形态（剧集角色，episodeId=0）恒计入，与资产列表可见性口径一致
+        Long taskEpisodeId = task.getEpisodeId();
         return rolePropSceneFormService.count(Wrappers.<AidRolePropSceneForm>lambdaQuery()
                 .eq(AidRolePropSceneForm::getProjectId, task.getProjectId())
-                .eq(AidRolePropSceneForm::getEpisodeId, task.getEpisodeId())
+                .in(Objects.nonNull(taskEpisodeId) && taskEpisodeId > 0L,
+                        AidRolePropSceneForm::getEpisodeId, 0L, taskEpisodeId)
+                .eq(Objects.nonNull(taskEpisodeId) && taskEpisodeId <= 0L,
+                        AidRolePropSceneForm::getEpisodeId, taskEpisodeId)
                 .eq(AidRolePropSceneForm::getUserId, task.getUserId())
                 .eq(AidRolePropSceneForm::getDelFlag, DEL_FLAG_NORMAL));
     }
 
     private long countFormImages(AidExtractTask task)
     {
+        // 剧集下项目级形态图（剧集角色，episodeId=0）恒计入，与资产列表可见性口径一致
+        Long taskEpisodeId = task.getEpisodeId();
         return rolePropSceneFormImageService.count(Wrappers.<AidRolePropSceneFormImage>lambdaQuery()
                 .eq(AidRolePropSceneFormImage::getProjectId, task.getProjectId())
-                .eq(AidRolePropSceneFormImage::getEpisodeId, task.getEpisodeId())
+                .in(Objects.nonNull(taskEpisodeId) && taskEpisodeId > 0L,
+                        AidRolePropSceneFormImage::getEpisodeId, 0L, taskEpisodeId)
+                .eq(Objects.nonNull(taskEpisodeId) && taskEpisodeId <= 0L,
+                        AidRolePropSceneFormImage::getEpisodeId, taskEpisodeId)
                 .eq(AidRolePropSceneFormImage::getUserId, task.getUserId())
                 .eq(AidRolePropSceneFormImage::getDelFlag, DEL_FLAG_NORMAL));
     }

@@ -4,7 +4,7 @@
   <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License">
   <img src="https://img.shields.io/badge/Java-17-orange.svg" alt="Java">
   <img src="https://img.shields.io/badge/Spring%20Boot-3.5-brightgreen.svg" alt="Spring Boot">
-  <img src="https://img.shields.io/badge/MySQL-8.x-4479A1.svg" alt="MySQL">
+  <img src="https://img.shields.io/badge/MySQL-5.7%2B-4479A1.svg" alt="MySQL">
   <img src="https://img.shields.io/badge/MyBatis--Plus-3.5-red.svg" alt="MyBatis-Plus">
 </p>
 
@@ -70,7 +70,7 @@ aid-server（Maven 多模块单体）
 | 语言 | Java | 17 |
 | 框架 | Spring Boot | 3.5.x |
 | ORM | MyBatis-Plus | 3.5.x |
-| 数据库 | MySQL | 8.x |
+| 数据库 | MySQL | 5.7+（8.x 兼容） |
 | 缓存 | Redis + Redisson | 3.x |
 | 消息队列 | RocketMQ | 4.x/5.x |
 | 定时任务 | Quartz | 2.5.x |
@@ -80,54 +80,56 @@ aid-server（Maven 多模块单体）
 
 ## 快速开始
 
-### 环境要求
+### 生产部署（推荐 Docker 一键部署）
 
-JDK 17+、Maven 3.6+、MySQL 8.x、Redis 6.x+、RocketMQ、Node.js 18+（构建前端）
+完整流程见 [部署指南](deploy/README.md)：统一管理脚本 `deploy/aid.sh`（菜单式）覆盖 Docker 与手动两种部署方式（RocketMQ 可选启用），均支持后台页面一键在线升级。
 
-### 1. 初始化数据库
+**服务器配置要求**（安装脚本自动校验，低于最低配置拒绝安装）：
 
-```sql
-CREATE DATABASE aid DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
-```
+| 部署内容 | 最低配置 | 推荐配置 |
+|---------|---------|---------|
+| Docker 全栈（不启用 RocketMQ） | 2核 4G / 40G 磁盘 | 4核 8G / 100G+ 磁盘 |
+| Docker 全栈 + RocketMQ | 4核 6G / 40G 磁盘 | 6核 12G / 100G+ 磁盘 |
+| 手动部署（中间件同机） | 2核 4G / 40G 磁盘 | 4核 8G / 100G+ 磁盘 |
+| 手动部署 + RocketMQ | 4核 6G / 40G 磁盘 | 6核 12G / 100G+ 磁盘 |
 
-导入 `sql/` 目录下的基线脚本与增量脚本（其中 `system_upgrade_official_gateway_init.sql` 为升级模块初始化，必须执行）。
+推算依据（各组件常驻内存：后端 JVM ~2.5G、MySQL ~1.5G、Redis ~0.6G、用户端 SSR ~0.4G、系统 ~1G，启用 RocketMQ 再 +2G）与调优方法见[部署指南](deploy/README.md)「配置要求」一节；媒体文件强烈建议配置 OSS/COS 对象存储，本地磁盘仅作兜底。
 
-### 2. 修改配置
+### 本地开发
 
-`aid-admin/src/main/resources/`：
-
-- `application-druid.yml`：MySQL 连接
-- `application.yml`：Redis、RocketMQ（环境变量 `ROCKETMQ_NAMESERVER`）、上传目录 `aid.profile`、JWT 密钥 `token.secret`（**必须替换为强随机值**）
-
-### 3. 构建并启动
+要求：JDK 17+、Maven 3.6+、Docker（起中间件用）。
 
 ```bash
+# 1. 一键启动开发环境（MySQL + Redis，自动导入 sql/ 初始化脚本）
+cd deploy/docker
+docker compose -f docker-compose.middleware.yml up -d
+# 需要联调 RocketMQ 时改用：
+# docker compose -f docker-compose.middleware.yml --profile mq up -d
+
+# 2. 构建并启动后端（开发默认配置与上述环境完全对齐，无需修改任何配置）
+cd ../..
 mvn clean package -DskipTests
 java -jar aid-admin/target/aid-admin.jar
 ```
 
-访问 `http://localhost:8080` 验证服务；默认管理员 `admin`（首次登录后立即修改密码）。
+访问 `http://localhost:8080` 验证服务；默认管理员 `admin / admin123`（首次登录后立即修改密码）。
 
-### 4. 部署前端与配置 AI 厂商
+后端全部环境参数支持环境变量覆盖：`DB_*`、`REDIS_*`、`TOKEN_SECRET`（**生产必须注入强随机值**）、`AID_PROFILE`、`ROCKETMQ_ENABLED`（未部署 RocketMQ 时设 `false` 可完全关闭 MQ 装配，系统走本地任务模式）、`ROCKETMQ_NAMESERVER`。
 
-前端构建部署见 [aid-admin](https://gitee.com/gzxx-2025/aid-admin) 与 [aid-web](https://gitee.com/gzxx-2025/aid-web) 仓库；完整生产部署（Nginx、HTTPS、回调地址）见 [上线部署指南](doc/上线部署指南.md)。
+### 配置 AI 厂商
 
-启动后在后台「AI模型配置」中配置至少一家厂商的密钥（或启用官方 API 统一网关）即可开始创作。
+前端构建部署见 [aid-admin](https://gitee.com/gzxx-2025/aid-admin) 与 [aid-web](https://gitee.com/gzxx-2025/aid-web) 仓库。启动后在后台「AI模型配置」中配置至少一家厂商的密钥（或启用官方 API 统一网关）即可开始创作。
 
 ## 文档导航
 
 | 文档 | 说明 |
 |------|------|
-| [上线部署指南](doc/上线部署指南.md) | 生产环境完整部署流程 |
-| [系统升级指南](doc/系统升级指南.md) | 版本检查、一键升级、升级器安装、版本回退 |
-| [发布流程指南](doc/发布流程指南.md) | 发布方：版本发布与清单维护（含发布工具） |
-| [Business-API](doc/Business-API.md) | C 端业务接口文档 |
-
-Swagger：`http://localhost:8080/swagger-ui.html`（生产环境默认关闭）
+| [部署指南](deploy/README.md) | Docker / 手动部署、生产参数调优、升级器安装、在线升级说明 |
+| Swagger 接口文档 | 启动后访问 `http://localhost:8080/swagger-ui.html`（生产环境默认关闭） |
 
 ## 在线升级
 
-系统内置完整升级体系：管理端左上角实时显示版本状态，检测到新版本后可页面一键升级；配套的独立升级器（`deploy/updater`，Go 实现）负责下载校验、自动备份、停服替换、增量 SQL 执行、健康检查与失败自动回滚，并支持回退到官方发布的历史版本。详见[系统升级指南](doc/系统升级指南.md)。
+系统内置完整升级体系：管理端左上角实时显示版本状态，检测到新版本后可页面一键升级；配套的独立升级器（`deploy/updater`，Go 实现）负责下载校验、自动备份、停服替换、增量 SQL 执行、健康检查与失败自动回滚，并支持回退到官方发布的历史版本。安装与使用详见[部署指南](deploy/README.md)。
 
 ## 参与贡献
 

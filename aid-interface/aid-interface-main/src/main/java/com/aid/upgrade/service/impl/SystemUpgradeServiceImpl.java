@@ -12,14 +12,18 @@ import org.springframework.stereotype.Service;
 
 import com.aid.aid.service.IAidConfigService;
 import com.aid.common.aid.core.service.ConfigService;
+import com.aid.common.constant.CacheConstants;
+import com.aid.common.core.redis.RedisCache;
 import com.aid.common.exception.ServiceException;
 import com.aid.common.utils.DateUtils;
 import com.aid.upgrade.client.UpdaterClient;
 import com.aid.upgrade.constant.UpgradeConfigKeys;
+import com.aid.upgrade.dto.DocLinksVo;
 import com.aid.upgrade.dto.OfficialApiStatusVo;
 import com.aid.upgrade.dto.OfficialGatewaySaveDto;
 import com.aid.upgrade.dto.OfficialGatewaySettingVo;
 import com.aid.upgrade.dto.RollbackRequestDto;
+import com.aid.upgrade.dto.UpdaterLogVo;
 import com.aid.upgrade.dto.UpdaterStatusVo;
 import com.aid.upgrade.dto.UpgradeManifest;
 import com.aid.upgrade.dto.UpgradeSourceSaveDto;
@@ -49,8 +53,11 @@ import lombok.extern.slf4j.Slf4j;
 @RequiredArgsConstructor
 public class SystemUpgradeServiceImpl implements ISystemUpgradeService {
 
-    /** 被动状态缓存TTL（毫秒）：版本发布为天/周级，1小时时效足够，同时把对更新源的回源压到最低；手动检查更新不受缓存限制 */
-    private static final long MANIFEST_CACHE_TTL_MS = 60 * 60_000L;
+    /** 被动状态缓存TTL（毫秒）：版本发布为天/周级，被动回源一天一次即可（等价于每日自动拉取）；「检查更新」按钮强制回源不受缓存限制 */
+    private static final long MANIFEST_CACHE_TTL_MS = 24 * 60 * 60_000L;
+
+    /** 拉取失败结果的缓存TTL（毫秒）：失败态只短缓存，网络恢复后尽快自动恢复版本展示，又不至于每次进后台都卡在回源超时上 */
+    private static final long MANIFEST_ERROR_TTL_MS = 5 * 60_000L;
 
     /** 更新源访问超时（毫秒） */
     private static final int FETCH_TIMEOUT_MS = 5_000;
@@ -62,6 +69,7 @@ public class SystemUpgradeServiceImpl implements ISystemUpgradeService {
     private final ConfigService configService;
     private final UpdaterClient updaterClient;
     private final OfficialGatewayConfigProvider officialGatewayConfigProvider;
+    private final RedisCache redisCache;
 
     /** 当前AID产品版本（发布构建时注入，与框架版本 aid.version 区分） */
     @Value("${aid.upgrade.current-version:1.0.0}")
@@ -79,16 +87,28 @@ public class SystemUpgradeServiceImpl implements ISystemUpgradeService {
         vo.setCurrentVersion(currentVersion);
         vo.setCheckedAt(snapshot.checkedAt);
         vo.setCheckError(snapshot.error);
-        vo.setManifestUrl(StrUtil.trimToNull(upgradeConfig.get(UpgradeConfigKeys.KEY_MANIFEST_URL)));
+        vo.setManifestUrl(resolveManifestUrl());
 
         String updaterDownloadUrl = StrUtil.trimToNull(upgradeConfig.get(UpgradeConfigKeys.KEY_UPDATER_DOWNLOAD_URL));
+        if (Objects.isNull(updaterDownloadUrl)) {
+            updaterDownloadUrl = UpgradeConfigKeys.DEFAULT_UPDATER_DOWNLOAD_URL;
+        }
         UpgradeManifest manifest = snapshot.manifest;
         if (manifest != null) {
             vo.setLatestVersion(manifest.getProductVersion());
+            // 最新版本所属渠道（stable/beta），供页面区分正式版与测试版
+            vo.setLatestChannel(StrUtil.blankToDefault(manifest.getChannel(), UpgradeConfigKeys.CHANNEL_STABLE));
             vo.setHasUpdate(VersionCompareUtil.isNewer(manifest.getProductVersion(), currentVersion));
+            // 最低直升版本透出给页面：低于该版本时引导用户先升中间版本而不是直接点一键升级
+            String minimumVersion = StrUtil.trimToNull(manifest.getMinimumVersion());
+            vo.setMinimumVersion(minimumVersion);
+            vo.setBelowMinimumVersion(StrUtil.isNotBlank(minimumVersion)
+                    && VersionCompareUtil.isNewer(minimumVersion, currentVersion));
             vo.setReleaseNotes(manifest.getReleaseNotes());
             vo.setPublishedAt(manifest.getPublishedAt());
             vo.setRollbackReleases(manifest.getRollbackReleases());
+            vo.setDocsUrl(StrUtil.trimToNull(manifest.getDocsUrl()));
+            vo.setPromptDocsUrl(StrUtil.trimToNull(manifest.getPromptDocsUrl()));
             if (manifest.getReleasePages() != null) {
                 vo.setGiteeReleaseUrl(manifest.getReleasePages().getGitee());
                 vo.setGithubReleaseUrl(manifest.getReleasePages().getGithub());
@@ -102,6 +122,71 @@ public class SystemUpgradeServiceImpl implements ISystemUpgradeService {
         vo.setUpdater(buildUpdaterStatus(manifest));
         vo.setOfficialApi(buildOfficialApiStatus(manifest));
         return vo;
+    }
+
+    @Override
+    public DocLinksVo getDocLinks() {
+        // 只读缓存：教程地址由清单拉取时静默刷新，进后台不额外回源
+        DocLinksVo cached = readDocLinksCache();
+        if (Objects.nonNull(cached)) {
+            return withDocLinkDefaults(cached);
+        }
+        // 缓存为空（首次启动或Redis被清）时尝试用内存清单快照补一次，仍无则返回内置默认地址
+        ManifestSnapshot snapshot = manifestCache.get();
+        if (Objects.nonNull(snapshot) && Objects.nonNull(snapshot.manifest)) {
+            return withDocLinkDefaults(cacheDocLinks(snapshot.manifest));
+        }
+        return withDocLinkDefaults(new DocLinksVo());
+    }
+
+    /**
+     * 读取教程地址缓存；Redis 异常时按缓存未命中处理
+     */
+    private DocLinksVo readDocLinksCache() {
+        try {
+            return redisCache.getCacheObject(CacheConstants.UPGRADE_DOC_LINKS_KEY);
+        } catch (Exception e) {
+            log.error("读取教程地址缓存失败", e);
+            return null;
+        }
+    }
+
+    /**
+     * 将清单中的教程地址静默写入缓存（地址变化时自动覆盖）
+     *
+     * @param manifest 更新清单
+     * @return 写入的教程地址集合
+     */
+    private DocLinksVo cacheDocLinks(UpgradeManifest manifest) {
+        DocLinksVo links = new DocLinksVo();
+        links.setDocsUrl(StrUtil.trimToNull(manifest.getDocsUrl()));
+        links.setPromptDocsUrl(StrUtil.trimToNull(manifest.getPromptDocsUrl()));
+        links.setRefreshedAt(DateUtils.getTime());
+        try {
+            redisCache.setCacheObject(CacheConstants.UPGRADE_DOC_LINKS_KEY, links);
+        } catch (Exception e) {
+            // 缓存写失败不影响清单主流程，下次拉取会再次刷新
+            log.error("刷新教程地址缓存失败", e);
+        }
+        return links;
+    }
+
+    /**
+     * 教程地址缺失时回填内置默认地址，保证入口始终可用
+     */
+    private DocLinksVo withDocLinkDefaults(DocLinksVo links) {
+        if (StrUtil.isBlank(links.getDocsUrl())) {
+            links.setDocsUrl(UpgradeConfigKeys.DEFAULT_DOCS_URL);
+        }
+        if (StrUtil.isBlank(links.getPromptDocsUrl())) {
+            links.setPromptDocsUrl(UpgradeConfigKeys.DEFAULT_PROMPT_DOCS_URL);
+        }
+        return links;
+    }
+
+    @Override
+    public UpdaterLogVo getUpdaterLogs() {
+        return updaterClient.readRecentLogs();
     }
 
     /**
@@ -141,6 +226,13 @@ public class SystemUpgradeServiceImpl implements ISystemUpgradeService {
             log.info("一键升级被拒绝, 已是最新版本, current={}, remote={}", currentVersion, manifest.getProductVersion());
             throw new ServiceException("已是最新版本");
         }
+        // 跨版本保护：升级包只携带自 minimumVersion 起的增量 SQL，低于该版本直升会缺中间脚本
+        String minimumVersion = StrUtil.trimToNull(manifest.getMinimumVersion());
+        if (StrUtil.isNotBlank(minimumVersion) && VersionCompareUtil.isNewer(minimumVersion, currentVersion)) {
+            log.error("一键升级被拒绝, 当前版本低于允许直升的最低版本, current={}, minimum={}, target={}",
+                    currentVersion, minimumVersion, manifest.getProductVersion());
+            throw new ServiceException("版本过低需逐级升级");
+        }
         // 升级包直链与校验值必须齐全，升级器据此下载并校验
         String packageUrl = StrUtil.trimToNull(manifest.getPackageUrl());
         String packageSha256 = StrUtil.trimToNull(manifest.getPackageSha256());
@@ -153,6 +245,7 @@ public class SystemUpgradeServiceImpl implements ISystemUpgradeService {
         task.put("manifestUrl", readUpgradeConfig().get(UpgradeConfigKeys.KEY_MANIFEST_URL));
         task.put("packageUrl", packageUrl);
         task.put("sha256", packageSha256);
+        task.put("keepBackups", resolveKeepBackups());
         updaterClient.submitTask(task);
         log.info("已受理一键升级任务, current={}, target={}", currentVersion, manifest.getProductVersion());
         return StrUtil.format("升级任务已受理：{} → {}", currentVersion, manifest.getProductVersion());
@@ -232,6 +325,7 @@ public class SystemUpgradeServiceImpl implements ISystemUpgradeService {
         task.put("databaseCompatible", release.getDatabaseCompatible());
         task.put("databaseRollback", release.getDatabaseRollback());
         task.put("backupRequired", true);
+        task.put("keepBackups", resolveKeepBackups());
         updaterClient.submitTask(task);
         log.info("已受理版本回退任务, current={}, target={}", currentVersion, release.getVersion());
         return StrUtil.format("回退任务已受理：{} → {}", currentVersion, release.getVersion());
@@ -258,14 +352,44 @@ public class SystemUpgradeServiceImpl implements ISystemUpgradeService {
         return task;
     }
 
+    /**
+     * 读取备份保留份数配置；缺失或越界时回退默认值
+     */
+    private int resolveKeepBackups() {
+        String raw = StrUtil.trimToNull(readUpgradeConfig().get(UpgradeConfigKeys.KEY_KEEP_BACKUPS));
+        if (Objects.isNull(raw)) {
+            return UpgradeConfigKeys.DEFAULT_KEEP_BACKUPS;
+        }
+        try {
+            int value = Integer.parseInt(raw);
+            if (value < UpgradeConfigKeys.MIN_KEEP_BACKUPS || value > UpgradeConfigKeys.MAX_KEEP_BACKUPS) {
+                return UpgradeConfigKeys.DEFAULT_KEEP_BACKUPS;
+            }
+            return value;
+        } catch (NumberFormatException e) {
+            // 配置被写坏时不阻断升级，按默认值执行
+            return UpgradeConfigKeys.DEFAULT_KEEP_BACKUPS;
+        }
+    }
+
     @Override
     public UpgradeSourceSettingVo getUpgradeSource() {
         Map<String, String> upgradeConfig = readUpgradeConfig();
         UpgradeSourceSettingVo vo = new UpgradeSourceSettingVo();
-        vo.setManifestUrl(StrUtil.trimToNull(upgradeConfig.get(UpgradeConfigKeys.KEY_MANIFEST_URL)));
-        vo.setUpdaterDownloadUrl(StrUtil.trimToNull(upgradeConfig.get(UpgradeConfigKeys.KEY_UPDATER_DOWNLOAD_URL)));
-        vo.setUpdaterHealthFile(StrUtil.trimToNull(upgradeConfig.get(UpgradeConfigKeys.KEY_UPDATER_HEALTH_FILE)));
-        vo.setUpdaterTaskFile(StrUtil.trimToNull(upgradeConfig.get(UpgradeConfigKeys.KEY_UPDATER_TASK_FILE)));
+        // 展示实际生效值：配置缺失时为内置官方默认地址
+        vo.setManifestUrl(resolveManifestUrl());
+        String updaterDownloadUrl = StrUtil.trimToNull(upgradeConfig.get(UpgradeConfigKeys.KEY_UPDATER_DOWNLOAD_URL));
+        vo.setUpdaterDownloadUrl(Objects.isNull(updaterDownloadUrl)
+                ? UpgradeConfigKeys.DEFAULT_UPDATER_DOWNLOAD_URL : updaterDownloadUrl);
+        // 展示生效路径：配置缺失时为与部署脚本一致的内置默认路径
+        String healthFile = StrUtil.trimToNull(upgradeConfig.get(UpgradeConfigKeys.KEY_UPDATER_HEALTH_FILE));
+        vo.setUpdaterHealthFile(Objects.isNull(healthFile)
+                ? UpgradeConfigKeys.DEFAULT_UPDATER_HEALTH_FILE : healthFile);
+        String taskFile = StrUtil.trimToNull(upgradeConfig.get(UpgradeConfigKeys.KEY_UPDATER_TASK_FILE));
+        vo.setUpdaterTaskFile(Objects.isNull(taskFile)
+                ? UpgradeConfigKeys.DEFAULT_UPDATER_TASK_FILE : taskFile);
+        vo.setReleaseChannel(resolveReleaseChannel());
+        vo.setKeepBackups(resolveKeepBackups());
         return vo;
     }
 
@@ -275,27 +399,56 @@ public class SystemUpgradeServiceImpl implements ISystemUpgradeService {
             log.error("保存升级源失败, 参数为空");
             throw new ServiceException("参数不完整");
         }
-        String manifestUrl = StrUtil.trimToEmpty(saveDto.getManifestUrl());
-        String updaterDownloadUrl = StrUtil.trimToEmpty(saveDto.getUpdaterDownloadUrl());
-        String updaterHealthFile = StrUtil.trimToEmpty(saveDto.getUpdaterHealthFile());
-        String updaterTaskFile = StrUtil.trimToEmpty(saveDto.getUpdaterTaskFile());
-        if (StrUtil.isNotBlank(manifestUrl) && !isHttpUrl(manifestUrl)) {
-            log.error("保存升级源失败, 清单地址格式非法, manifestUrl={}", manifestUrl);
-            throw new ServiceException("清单地址格式错误");
+        // 接收版本渠道：仅允许 stable / all
+        String releaseChannel = StrUtil.trimToNull(saveDto.getReleaseChannel());
+        if (Objects.nonNull(releaseChannel)
+                && !Objects.equals(releaseChannel, UpgradeConfigKeys.CHANNEL_STABLE)
+                && !Objects.equals(releaseChannel, UpgradeConfigKeys.CHANNEL_ALL)) {
+            log.error("保存升级源失败, 渠道取值非法, releaseChannel={}", releaseChannel);
+            throw new ServiceException("渠道取值错误");
         }
-        if (StrUtil.isNotBlank(updaterDownloadUrl) && !isHttpUrl(updaterDownloadUrl)) {
-            log.error("保存升级源失败, 下载地址格式非法, updaterDownloadUrl={}", updaterDownloadUrl);
-            throw new ServiceException("下载地址格式错误");
+        // 备份保留份数：留空按默认值，越界拒绝保存
+        int keepBackups = Objects.isNull(saveDto.getKeepBackups())
+                ? UpgradeConfigKeys.DEFAULT_KEEP_BACKUPS : saveDto.getKeepBackups();
+        if (keepBackups < UpgradeConfigKeys.MIN_KEEP_BACKUPS || keepBackups > UpgradeConfigKeys.MAX_KEEP_BACKUPS) {
+            log.error("保存升级源失败, 备份保留份数越界, keepBackups={}", keepBackups);
+            throw new ServiceException("备份份数需1-50");
+        }
+        // 地址/路径类配置为自动维护项（部署脚本与基线默认值负责），仅在显式传入时更新，
+        // 页面常规保存不携带这些字段，不会误清高级用户在库中的自定义值
+        if (Objects.nonNull(saveDto.getManifestUrl())) {
+            String manifestUrl = saveDto.getManifestUrl().trim();
+            if (StrUtil.isNotBlank(manifestUrl) && !isHttpUrl(manifestUrl)) {
+                log.error("保存升级源失败, 清单地址格式非法, manifestUrl={}", manifestUrl);
+                throw new ServiceException("清单地址格式错误");
+            }
+            aidConfigService.upsertConfigValue(UpgradeConfigKeys.CATEGORY_SYSTEM_UPGRADE,
+                    UpgradeConfigKeys.KEY_MANIFEST_URL, manifestUrl);
+        }
+        if (Objects.nonNull(saveDto.getUpdaterDownloadUrl())) {
+            String updaterDownloadUrl = saveDto.getUpdaterDownloadUrl().trim();
+            if (StrUtil.isNotBlank(updaterDownloadUrl) && !isHttpUrl(updaterDownloadUrl)) {
+                log.error("保存升级源失败, 下载地址格式非法, updaterDownloadUrl={}", updaterDownloadUrl);
+                throw new ServiceException("下载地址格式错误");
+            }
+            aidConfigService.upsertConfigValue(UpgradeConfigKeys.CATEGORY_SYSTEM_UPGRADE,
+                    UpgradeConfigKeys.KEY_UPDATER_DOWNLOAD_URL, updaterDownloadUrl);
+        }
+        if (Objects.nonNull(saveDto.getUpdaterHealthFile())) {
+            aidConfigService.upsertConfigValue(UpgradeConfigKeys.CATEGORY_SYSTEM_UPGRADE,
+                    UpgradeConfigKeys.KEY_UPDATER_HEALTH_FILE, saveDto.getUpdaterHealthFile().trim());
+        }
+        if (Objects.nonNull(saveDto.getUpdaterTaskFile())) {
+            aidConfigService.upsertConfigValue(UpgradeConfigKeys.CATEGORY_SYSTEM_UPGRADE,
+                    UpgradeConfigKeys.KEY_UPDATER_TASK_FILE, saveDto.getUpdaterTaskFile().trim());
+        }
+        if (Objects.nonNull(releaseChannel)) {
+            aidConfigService.upsertConfigValue(UpgradeConfigKeys.CATEGORY_SYSTEM_UPGRADE,
+                    UpgradeConfigKeys.KEY_RELEASE_CHANNEL, releaseChannel);
         }
         aidConfigService.upsertConfigValue(UpgradeConfigKeys.CATEGORY_SYSTEM_UPGRADE,
-                UpgradeConfigKeys.KEY_MANIFEST_URL, manifestUrl);
-        aidConfigService.upsertConfigValue(UpgradeConfigKeys.CATEGORY_SYSTEM_UPGRADE,
-                UpgradeConfigKeys.KEY_UPDATER_DOWNLOAD_URL, updaterDownloadUrl);
-        aidConfigService.upsertConfigValue(UpgradeConfigKeys.CATEGORY_SYSTEM_UPGRADE,
-                UpgradeConfigKeys.KEY_UPDATER_HEALTH_FILE, updaterHealthFile);
-        aidConfigService.upsertConfigValue(UpgradeConfigKeys.CATEGORY_SYSTEM_UPGRADE,
-                UpgradeConfigKeys.KEY_UPDATER_TASK_FILE, updaterTaskFile);
-        // 更新源变更后清空清单缓存，下一次状态查询立即使用新地址
+                UpgradeConfigKeys.KEY_KEEP_BACKUPS, String.valueOf(keepBackups));
+        // 更新源变更后清空清单缓存，下一次状态查询立即使用新配置
         manifestCache.set(null);
     }
 
@@ -414,30 +567,64 @@ public class SystemUpgradeServiceImpl implements ISystemUpgradeService {
     }
 
     /**
-     * 读取或强制刷新更新清单快照
+     * 读取或强制刷新更新清单快照；拉取失败不回落旧清单，页面如实提示"无法获取"而不是残留旧版本数据
      */
     private ManifestSnapshot loadManifestSnapshot(boolean forceRefresh) {
         long now = System.currentTimeMillis();
         ManifestSnapshot cached = manifestCache.get();
-        if (!forceRefresh && cached != null && (now - cached.fetchedAtMs) < MANIFEST_CACHE_TTL_MS) {
+        if (!forceRefresh && cached != null && (now - cached.fetchedAtMs) < resolveSnapshotTtl(cached)) {
             return cached;
         }
         ManifestSnapshot fresh = fetchManifest();
-        // 拉取失败时保留上一份成功清单，只更新错误信息，避免瞬时网络抖动清空版本展示
-        if (fresh.manifest == null && cached != null && cached.manifest != null) {
-            fresh = new ManifestSnapshot(cached.manifest, fresh.error, fresh.checkedAt, fresh.fetchedAtMs);
-        }
         manifestCache.set(fresh);
         return fresh;
     }
 
     /**
-     * 从配置的更新地址拉取并解析清单
+     * 快照缓存时长：成功快照按天缓存，失败快照短缓存以便网络恢复后尽快自动恢复展示
+     */
+    private long resolveSnapshotTtl(ManifestSnapshot snapshot) {
+        return Objects.nonNull(snapshot.manifest) ? MANIFEST_CACHE_TTL_MS : MANIFEST_ERROR_TTL_MS;
+    }
+
+    /**
+     * 按订阅渠道拉取更新清单：仅正式版拉主清单；同时接收测试版时再拉测试清单，
+     * 取版本更高者作为最新版本（测试清单不可用时静默回退正式清单）
      */
     private ManifestSnapshot fetchManifest() {
+        ManifestSnapshot stable = fetchManifestFrom(resolveManifestUrl());
+        if (!Objects.equals(resolveReleaseChannel(), UpgradeConfigKeys.CHANNEL_ALL)) {
+            return finishSnapshot(stable);
+        }
+        String betaUrl = resolveBetaManifestUrl(resolveManifestUrl());
+        // 主清单不可用时如实报错（测试清单只是增强，不作为主链路兜底）
+        if (StrUtil.isBlank(betaUrl) || Objects.isNull(stable.manifest)) {
+            return finishSnapshot(stable);
+        }
+        ManifestSnapshot beta = fetchManifestFrom(betaUrl);
+        if (Objects.nonNull(beta.manifest)
+                && VersionCompareUtil.isNewer(beta.manifest.getProductVersion(), stable.manifest.getProductVersion())) {
+            return finishSnapshot(beta);
+        }
+        return finishSnapshot(stable);
+    }
+
+    /**
+     * 清单选定后的收尾：教程地址随选中清单静默刷新到缓存
+     */
+    private ManifestSnapshot finishSnapshot(ManifestSnapshot snapshot) {
+        if (Objects.nonNull(snapshot.manifest)) {
+            cacheDocLinks(snapshot.manifest);
+        }
+        return snapshot;
+    }
+
+    /**
+     * 从指定地址拉取并解析一份更新清单
+     */
+    private ManifestSnapshot fetchManifestFrom(String manifestUrl) {
         long now = System.currentTimeMillis();
         String checkedAt = DateUtils.getTime();
-        String manifestUrl = StrUtil.trimToNull(readUpgradeConfig().get(UpgradeConfigKeys.KEY_MANIFEST_URL));
         if (StrUtil.isBlank(manifestUrl)) {
             return new ManifestSnapshot(null, "更新地址未配置", checkedAt, now);
         }
@@ -473,6 +660,25 @@ public class SystemUpgradeServiceImpl implements ISystemUpgradeService {
     }
 
     /**
+     * 由正式清单地址推导同目录的测试清单地址；地址不符合发布约定时返回null（跳过测试渠道）
+     */
+    private String resolveBetaManifestUrl(String manifestUrl) {
+        if (StrUtil.isBlank(manifestUrl) || !manifestUrl.contains(UpgradeConfigKeys.STABLE_MANIFEST_FILE)) {
+            return null;
+        }
+        return manifestUrl.replace(UpgradeConfigKeys.STABLE_MANIFEST_FILE, UpgradeConfigKeys.BETA_MANIFEST_FILE);
+    }
+
+    /**
+     * 读取接收版本渠道配置；缺失或非法时按仅正式版处理
+     */
+    private String resolveReleaseChannel() {
+        String configured = StrUtil.trimToNull(readUpgradeConfig().get(UpgradeConfigKeys.KEY_RELEASE_CHANNEL));
+        return Objects.equals(configured, UpgradeConfigKeys.CHANNEL_ALL)
+                ? UpgradeConfigKeys.CHANNEL_ALL : UpgradeConfigKeys.CHANNEL_STABLE;
+    }
+
+    /**
      * 读取 system_upgrade 分类配置，分类未初始化时返回空Map
      */
     private Map<String, String> readUpgradeConfig() {
@@ -482,6 +688,14 @@ public class SystemUpgradeServiceImpl implements ISystemUpgradeService {
             // 分类不存在视为未初始化
             return Map.of();
         }
+    }
+
+    /**
+     * 解析更新清单地址：配置缺失时回退官方默认地址，保证开箱即用无需手工配置
+     */
+    private String resolveManifestUrl() {
+        String configured = StrUtil.trimToNull(readUpgradeConfig().get(UpgradeConfigKeys.KEY_MANIFEST_URL));
+        return Objects.isNull(configured) ? UpgradeConfigKeys.DEFAULT_MANIFEST_URL : configured;
     }
 
     private boolean isHttpUrl(String url) {

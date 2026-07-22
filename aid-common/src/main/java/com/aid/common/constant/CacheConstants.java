@@ -56,4 +56,9 @@ public class CacheConstants
      * 密码修改验证码 redis key
      */
     public static final String PWD_CODE_KEY = "pwd_code:";
+
+    /**
+     * 官方教程文档地址 redis key（随更新清单静默刷新，后台从缓存读取）
+     */
+    public static final String UPGRADE_DOC_LINKS_KEY = "upgrade_doc_links";
 }

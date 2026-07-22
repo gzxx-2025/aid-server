@@ -68,8 +68,12 @@ CLAUDE.md
 # 参考资料归档（过程文档、历史日志、内部脚本，禁止随开源仓库发布）
 /参考文件/
 
-# 内部文档目录（接口文档与上线文档仅本地维护，不入库）
-/doc/
+# 内部文档目录：默认不入库；接口文档 Business-API.md 入私有仓做版本管理
+# （发布时由 .gitattributes 的 export-ignore 排除，不会进开源快照）；
+# 提示词开发指南入库且随开源快照发布（后台智能体开发页教程入口指向它）
+/doc/*
+!/doc/Business-API.md
+!/doc/提示词开发指南.md
 
 # 发布构建产物（deploy/release.ps1 输出，附件上传 Release 后即可清理）
 /release-build/

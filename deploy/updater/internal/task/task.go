@@ -42,6 +42,8 @@ type Task struct {
 	DatabaseRollback string `json:"databaseRollback,omitempty"`
 	// BackupRequired 是否强制备份（ROLLBACK 附带）
 	BackupRequired bool `json:"backupRequired,omitempty"`
+	// KeepBackups 备份保留份数（后台「升级源配置」下发，0 表示沿用升级器本地配置）
+	KeepBackups int `json:"keepBackups,omitempty"`
 }
 
 // Parse 从文件解析任务并做基础校验。

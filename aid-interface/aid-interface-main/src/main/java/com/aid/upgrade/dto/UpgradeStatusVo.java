@@ -21,6 +21,12 @@ public class UpgradeStatusVo {
     /** 是否有新版本 */
     private boolean hasUpdate;
 
+    /** 允许一键直升的最低版本；当前版本低于它时需先升级到中间版本 */
+    private String minimumVersion;
+
+    /** 当前版本是否低于最低直升版本（true 时页面应引导先升中间版本） */
+    private boolean belowMinimumVersion;
+
     /** 更新日志 */
     private String releaseNotes;
 
@@ -29,6 +35,15 @@ public class UpgradeStatusVo {
 
     /** GitHub 发布页地址 */
     private String githubReleaseUrl;
+
+    /** 最新版本所属渠道：stable=正式版，beta=测试版 */
+    private String latestChannel;
+
+    /** 使用教程/文档地址（清单动态下发） */
+    private String docsUrl;
+
+    /** 提示词开发指南地址（清单动态下发） */
+    private String promptDocsUrl;
 
     /** 远端版本发布时间 */
     private String publishedAt;

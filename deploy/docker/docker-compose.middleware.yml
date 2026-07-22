@@ -1,0 +1,88 @@
+# ============================================================================
+# AID 本地开发环境（仅中间件，不含应用）
+#
+# 面向开发者：克隆代码后一条命令起齐后端启动所需环境，
+# 默认参数与 application.yml / application-druid.yml 的开发默认值完全对齐，
+# 起完环境直接用 IDE 启动后端即可连上，无需改任何配置。
+#
+#   启动（MySQL + Redis）:          docker compose -f docker-compose.middleware.yml up -d
+#   启动（含 RocketMQ）:            docker compose -f docker-compose.middleware.yml --profile mq up -d
+#   停止:                           docker compose -f docker-compose.middleware.yml down
+#
+# 注意：本文件仅供本地开发，端口直接暴露、密码为开发默认值，禁止用于生产。
+# 生产部署请使用 docker-compose.yml。
+# ============================================================================
+
+services:
+  mysql-dev:
+    image: mysql:5.7
+    container_name: aid-dev-mysql
+    restart: unless-stopped
+    environment:
+      # 与 application-druid.yml 开发默认值对齐（root/123456, 库 aid_test）
+      MYSQL_ROOT_PASSWORD: "123456"
+      MYSQL_DATABASE: aid_test
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_general_ci
+      - --default-time-zone=+08:00
+    ports:
+      - "3306:3306"
+    volumes:
+      - aid-dev-mysql-data:/var/lib/mysql
+      # 首次启动自动导入基线与增量脚本
+      - ../../sql:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p123456"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis-dev:
+    image: redis:7-alpine
+    container_name: aid-dev-redis
+    restart: unless-stopped
+    # 与 application.yml 开发默认值对齐（无密码）
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - aid-dev-redis-data:/data
+
+  # ---------------- 可选：RocketMQ（--profile mq 启用） ----------------
+  rocketmq-nameserver-dev:
+    image: apache/rocketmq:5.3.1
+    container_name: aid-dev-rocketmq-nameserver
+    restart: unless-stopped
+    profiles: ["mq"]
+    command: sh mqnamesrv
+    environment:
+      TZ: Asia/Shanghai
+      JAVA_OPT_EXT: "-Xms256m -Xmx256m -Xmn128m"
+    ports:
+      - "9876:9876"
+
+  rocketmq-broker-dev:
+    image: apache/rocketmq:5.3.1
+    container_name: aid-dev-rocketmq-broker
+    restart: unless-stopped
+    profiles: ["mq"]
+    command: sh mqbroker -c /home/rocketmq/conf/broker.conf
+    environment:
+      TZ: Asia/Shanghai
+      JAVA_OPT_EXT: "-Xms512m -Xmx512m -Xmn256m"
+    ports:
+      # 后端跑在宿主机 IDE 里，Broker 地址通过 broker-dev.conf 的 brokerIP1 指回 127.0.0.1
+      - "10909:10909"
+      - "10911:10911"
+    volumes:
+      - ./rocketmq/broker-dev.conf:/home/rocketmq/conf/broker.conf:ro
+      - aid-dev-rocketmq-data:/home/rocketmq/store
+    depends_on:
+      - rocketmq-nameserver-dev
+
+volumes:
+  aid-dev-mysql-data:
+  aid-dev-redis-data:
+  aid-dev-rocketmq-data:

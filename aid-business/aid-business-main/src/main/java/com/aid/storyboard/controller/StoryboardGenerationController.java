@@ -517,7 +517,6 @@ public class StoryboardGenerationController extends BaseController {
                 storyboardImageReferenceResolver.resolve(
                         request.getImagePrompt(),
                         request.getProjectId(),
-                        request.getEpisodeId(),
                         userId);
         return success(vo);
     }

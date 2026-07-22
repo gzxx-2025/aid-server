@@ -454,7 +454,7 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
         if (CollectionUtil.isNotEmpty(refNameByN))
         {
             List<String> missingNames = rpsFormImageBusinessService.enableReferencesAndCollectMissing(
-                    sb.getProjectId(), sb.getEpisodeId(), userId, refNameByN.values());
+                    sb.getProjectId(), userId, refNameByN.values());
             if (CollectionUtil.isNotEmpty(missingNames))
             {
                 log.warn("分镜图生成存在失效引用，将降级为文字描述: storyboardId={}, missing={}", sb.getId(),
@@ -468,7 +468,7 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
                 if (CollectionUtil.isNotEmpty(availableNames))
                 {
                     List<String> unexpectedMissing = rpsFormImageBusinessService.enableReferencesAndCollectMissing(
-                            sb.getProjectId(), sb.getEpisodeId(), userId, availableNames);
+                            sb.getProjectId(), userId, availableNames);
                     if (CollectionUtil.isNotEmpty(unexpectedMissing))
                     {
                         log.warn("分镜图有效引用二次启用时状态变化，将继续文字降级: storyboardId={}, missing={}",
@@ -481,7 +481,7 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
         ImagePromptResolution promptResolution = compactImagePrompt(imagePrompt, sb, userId, maxReferenceImages);
         String effectivePrompt = promptResolution.prompt;
         StoryboardImageReferenceResolver.ResolveResult refResult = storyboardImageReferenceResolver.resolve(
-                effectivePrompt, sb.getProjectId(), sb.getEpisodeId(), userId);
+                effectivePrompt, sb.getProjectId(), userId);
         if (CollectionUtil.isNotEmpty(refResult.getUnresolvedNames()))
         {
             // 并发删除等极小窗口的二次兜底：再次文字化，禁止把悬空编号交给 Provider。
@@ -490,7 +490,7 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
             promptResolution = compactImagePrompt(effectivePrompt, sb, userId, maxReferenceImages);
             effectivePrompt = promptResolution.prompt;
             refResult = storyboardImageReferenceResolver.resolve(
-                    effectivePrompt, sb.getProjectId(), sb.getEpisodeId(), userId);
+                    effectivePrompt, sb.getProjectId(), userId);
         }
         int minReferenceImages = ReferenceImageLimiter.readMinFromCapabilityJson(modelConfig.getCapabilityJson());
         if (refResult.getReferenceImageUrls().size() < minReferenceImages
@@ -516,8 +516,7 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
                                                       int maxReferenceImages)
     {
         List<StoryboardImageReferenceResolver.ResolvedImageReference> rich =
-                storyboardImageReferenceResolver.resolveRich(prompt, storyboard.getProjectId(),
-                        storyboard.getEpisodeId(), userId);
+                storyboardImageReferenceResolver.resolveRich(prompt, storyboard.getProjectId(), userId);
         Map<Integer, Integer> compactByOriginal = new LinkedHashMap<>();
         int compact = 0;
         for (StoryboardImageReferenceResolver.ResolvedImageReference ref : rich)
@@ -775,7 +774,7 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
         {
             List<StoryboardImageReferenceResolver.ResolvedImageReference> manifest =
                     storyboardImageReferenceResolver.resolveRich(imagePrompt,
-                            storyboard.getProjectId(), storyboard.getEpisodeId(), userId);
+                            storyboard.getProjectId(), userId);
             if (CollectionUtil.isEmpty(manifest))
             {
                 return null;

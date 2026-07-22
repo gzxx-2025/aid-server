@@ -9,7 +9,7 @@ ExecStart=/usr/local/bin/aid-updater -config /etc/aid-updater/config.json
 # 自升级完成后进程主动退出，由 systemd 拉起新版本
 Restart=always
 RestartSec=3
-# 需要 root：停/起后端服务、替换 /opt/aid 下产物
+# 需要 root：停/起后端服务、替换 /data/aid/app 下产物
 User=root
 NoNewPrivileges=false
 

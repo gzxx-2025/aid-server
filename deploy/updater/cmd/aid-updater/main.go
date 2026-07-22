@@ -6,9 +6,11 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -19,6 +21,26 @@ import (
 
 // version 由发布构建注入：go build -ldflags "-X main.version=x.y.z"
 var version = "dev"
+
+// maxLogFileBytes 日志文件上限：超限时轮转为 .old，防止长期运行写满磁盘。
+const maxLogFileBytes = 5 * 1024 * 1024
+
+// setupLogFile 让日志同时写入健康文件同目录的 updater.log：
+// 后端挂载同一目录即可读取日志在页面展示，systemd/docker 两种部署方式通用。
+func setupLogFile(healthFile string) {
+	logPath := filepath.Join(filepath.Dir(healthFile), "updater.log")
+	if info, err := os.Stat(logPath); err == nil && info.Size() > maxLogFileBytes {
+		// 简单轮转：保留一份 .old，失败不阻断启动
+		_ = os.Remove(logPath + ".old")
+		_ = os.Rename(logPath, logPath+".old")
+	}
+	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		log.Printf("打开日志文件失败（仅输出到控制台）: %v", err)
+		return
+	}
+	log.SetOutput(io.MultiWriter(os.Stderr, file))
+}
 
 func main() {
 	configPath := flag.String("config", "/etc/aid-updater/config.json", "配置文件路径")
@@ -31,12 +53,16 @@ func main() {
 	}
 
 	log.SetFlags(log.LstdFlags)
-	log.Printf("aid-updater %s 启动, 配置: %s", version, *configPath)
 
 	cfg, err := config.Load(*configPath)
 	if err != nil {
 		log.Fatalf("加载配置失败: %v", err)
 	}
+	if mkErr := os.MkdirAll(filepath.Dir(cfg.HealthFile), 0o755); mkErr != nil {
+		log.Fatalf("创建健康文件目录失败: %v", mkErr)
+	}
+	setupLogFile(cfg.HealthFile)
+	log.Printf("aid-updater %s 启动, 配置: %s", version, *configPath)
 	if err := os.MkdirAll(cfg.WorkDir, 0o755); err != nil {
 		log.Fatalf("创建工作目录失败: %v", err)
 	}
@@ -50,7 +76,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	reporter := health.NewReporter(cfg.HealthFile, version)
+	reporter := health.NewReporter(cfg.HealthFile, version, cfg.Install.ServiceManager)
 	reporter.Start(ctx, time.Duration(cfg.HeartbeatIntervalSeconds)*time.Second)
 
 	runner := task.NewRunner(cfg, reporter, version)

@@ -43,22 +43,24 @@ type payload struct {
 	Status          string    `json:"status"`
 	Version         string    `json:"version"`
 	ProtocolVersion int       `json:"protocolVersion"`
+	ServiceManager  string    `json:"serviceManager,omitempty"`
 	UpdatedAt       string    `json:"updatedAt"`
 	LastTask        *LastTask `json:"lastTask,omitempty"`
 }
 
 // Reporter 周期性写健康文件，并承载最近任务状态。
 type Reporter struct {
-	filePath string
-	version  string
+	filePath       string
+	version        string
+	serviceManager string
 
 	mu       sync.Mutex
 	lastTask *LastTask
 }
 
-// NewReporter 创建健康报告器。
-func NewReporter(filePath string, version string) *Reporter {
-	return &Reporter{filePath: filePath, version: version}
+// NewReporter 创建健康报告器；serviceManager 为部署方式标识（systemd/docker），随心跳透出。
+func NewReporter(filePath string, version string, serviceManager string) *Reporter {
+	return &Reporter{filePath: filePath, version: version, serviceManager: serviceManager}
 }
 
 // Start 启动心跳协程，ctx 结束时写入 STOPPED 状态。
@@ -102,6 +104,7 @@ func (r *Reporter) write(status string) {
 		Status:          status,
 		Version:         r.version,
 		ProtocolVersion: ProtocolVersion,
+		ServiceManager:  r.serviceManager,
 		UpdatedAt:       time.Now().Format(timeLayout),
 		LastTask:        r.lastTask,
 	}

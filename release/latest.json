@@ -12,6 +12,8 @@
     "gitee": "https://gitee.com/gzxx-2025/aid-server/releases",
     "github": "https://github.com/gzxx-2025/aid-server/releases"
   },
+  "docsUrl": "https://gitee.com/gzxx-2025/aid-server#%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B",
+  "promptDocsUrl": "https://gitee.com/gzxx-2025/aid-server/blob/master/doc/%E6%8F%90%E7%A4%BA%E8%AF%8D%E5%BC%80%E5%8F%91%E6%8C%87%E5%8D%97.md",
   "officialApi": {
     "baseUrl": "",
     "websiteUrl": "https://gitee.com/gzxx-2025/aid-server"

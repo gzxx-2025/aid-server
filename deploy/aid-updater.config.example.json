@@ -6,11 +6,14 @@
   "pollIntervalSeconds": 3,
   "heartbeatIntervalSeconds": 5,
   "downloadTimeoutSeconds": 600,
+  "keepBackups": 3,
   "install": {
-    "backendJar": "/opt/aid/aid-admin.jar",
-    "adminDist": "/opt/aid/admin-dist",
-    "webDist": "/opt/aid/web-dist",
+    "backendJar": "/data/aid/app/aid-admin.jar",
+    "adminDist": "/data/aid/app/admin-dist",
+    "webDist": "/data/aid/app/web-dist",
+    "serviceManager": "systemd",
     "backendService": "aid",
+    "restartServices": ["aid-web"],
     "healthCheckUrl": "http://127.0.0.1:8080",
     "healthCheckTimeoutSeconds": 180
   },
@@ -20,6 +23,7 @@
     "port": 3306,
     "name": "aid",
     "user": "root",
-    "password": ""
+    "password": "",
+    "execContainer": ""
   }
 }

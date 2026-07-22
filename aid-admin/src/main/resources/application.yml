@@ -6,8 +6,8 @@ aid:
   version: 3.9.1
   # 版权年份
   copyrightYear: 2026
-  # 文件路径 示例（ Windows配置D:/aid/uploadPath，Linux配置 /home/aid/uploadPath）
-  profile: D:/aid/uploadPath
+  # 文件路径 示例（ Windows配置D:/aid/uploadPath，Linux配置 /home/aid/uploadPath；部署时用环境变量 AID_PROFILE 注入）
+  profile: ${AID_PROFILE:D:/aid/uploadPath}
   # 获取ip地址开关
   addressEnabled: false
   # 验证码类型 math 数字计算 char 字符验证
@@ -94,6 +94,8 @@ aid:
 server:
   # 服务器的HTTP端口，默认为8080
   port: 8080
+  # 优雅停机：收到停止信号后先拒绝新请求，等待处理中的请求完成再退出（配合升级器/容器停服）
+  shutdown: graceful
   servlet:
     # 应用的访问路径
     context-path: /
@@ -127,6 +129,9 @@ user:
 
 # Spring配置
 spring:
+  lifecycle:
+    # 优雅停机最长等待时间，超时后强制退出
+    timeout-per-shutdown-phase: 25s
   jackson:
     default-property-inclusion: non_null
   # 资源信息
@@ -147,16 +152,16 @@ spring:
       max-request-size: 1024MB
 
   data:
-    # redis 配置
+    # redis 配置（部署时用环境变量 REDIS_HOST / REDIS_PORT / REDIS_PASSWORD 注入）
     redis:
       # 地址
-      host: localhost
+      host: ${REDIS_HOST:localhost}
       # 端口，默认为6379
-      port: 6379
+      port: ${REDIS_PORT:6379}
       # 数据库索引
-      database: 0
-      # 密码
-      #password:
+      database: ${REDIS_DATABASE:0}
+      # 密码（默认为空表示无密码）
+      password: ${REDIS_PASSWORD:}
       # 连接超时时间
       timeout: 10s
       lettuce:
@@ -174,8 +179,8 @@ spring:
 token:
   # 令牌自定义标识
   header: Authorization
-  # 令牌密钥
-  secret: abcdefghijklmnopqrstuvwxyz
+  # 令牌密钥（生产环境必须用环境变量 TOKEN_SECRET 注入强随机值，禁止使用默认值上线）
+  secret: ${TOKEN_SECRET:abcdefghijklmnopqrstuvwxyz}
   # 令牌有效期（默认30分钟）
   expireTime: 999999
 
@@ -217,8 +222,12 @@ referer:
 
 
 
+# RocketMQ（可选组件）：
+#   rocketmq.enabled=false 时不装配消费者与发送模板，未部署 RocketMQ 的环境零依赖启动；
+#   业务派发模式（MQ/本地双模式）由后台「消息队列配置」（aid_config category=mq）控制，默认本地模式。
 rocketmq:
-  name-server: ${ROCKETMQ_NAMESERVER:8.155.11.134:9876} # 访问地址（优先读环境变量 ROCKETMQ_NAMESERVER，未设置则用默认值）
+  enabled: ${ROCKETMQ_ENABLED:true} # 基础设施装配开关（未部署 RocketMQ 的环境设为 false）
+  name-server: ${ROCKETMQ_NAMESERVER:localhost:9876} # NameServer 地址（环境变量注入）
   producer:
     group: aidproducergroup # 必须指定group
     send-message-timeout: 3000 # 消息发送超时时长，默认3s

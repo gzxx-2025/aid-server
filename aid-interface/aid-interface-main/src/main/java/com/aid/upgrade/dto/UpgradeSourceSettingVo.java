@@ -21,4 +21,10 @@ public class UpgradeSourceSettingVo {
 
     /** 升级器任务文件路径 */
     private String updaterTaskFile;
+
+    /** 接收版本渠道：stable=仅正式版，all=正式版+测试版 */
+    private String releaseChannel;
+
+    /** 升级前自动备份的保留份数 */
+    private Integer keepBackups;
 }

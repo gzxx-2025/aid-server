@@ -5,6 +5,7 @@ import java.util.Map;
 import java.util.Objects;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -77,6 +78,7 @@ import org.springframework.beans.factory.annotation.Value;
  */
 @Slf4j
 @Service
+@ConditionalOnProperty(prefix = "rocketmq", name = "enabled", havingValue = "true", matchIfMissing = true)
 @RocketMQMessageListener(topic = "ASSET_EXTRACT_TOPIC",
         selectorExpression = "extract || image_upscale",
         consumerGroup = "asset_extract_consumer_group",

@@ -1,0 +1,50 @@
+# ============================================================================
+# AID 手动部署配置（唯一配置真源，systemd 部署方式专用）
+#   首次部署必须先复制本模板到数据目录：
+#     mkdir -p /data/aid
+#     cp aid-deploy.conf.example /data/aid/aid-deploy.conf
+#     vim /data/aid/aid-deploy.conf
+#   之后所有配置调整都编辑 /data/aid/aid-deploy.conf（本模板保持原样）；
+#   修改后执行 sudo bash aid.sh 菜单「重启服务」生效。
+#
+# 说明：
+#   - MySQL/Redis/RocketMQ/JDK/Node 等环境由部署方自行安装维护，这里只填连接信息
+#   - TOKEN_SECRET 留空 = 部署脚本自动生成强随机值写回本文件
+#   - 密码不能包含 空格、#、引号、$、反斜杠（会破坏配置解析）
+#   - 数据目录默认 /data/aid，如需更换：执行脚本前 export AID_DATA_ROOT=/你的路径
+# ============================================================================
+
+# ---------------- 端口 ----------------
+# 用户端（C端）对外端口，由 Nginx 监听
+HTTP_PORT=80
+# 后台管理端对外端口（独立端口、根路径托管）
+ADMIN_PORT=8090
+# 后端 Java 服务本机端口
+BACKEND_PORT=8080
+
+# ---------------- 数据库（自备 MySQL 5.7/8.0） ----------------
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_NAME=aid
+# 账号需具备建库权限（或提前手工建好库，脚本检测到已有表会跳过初始化）
+DB_USERNAME=root
+# 必填：数据库密码
+DB_PASSWORD=
+
+# ---------------- Redis（自备 6.x+） ----------------
+REDIS_HOST=127.0.0.1
+REDIS_PORT=6379
+# 留空表示无密码
+REDIS_PASSWORD=
+
+# ---------------- 后端 ----------------
+# JWT 令牌密钥（留空=部署脚本自动生成强随机值；泄露等于全部账号失守）
+TOKEN_SECRET=
+# 后端 JVM 参数（8G 内存服务器建议 -Xms2g -Xmx4g）
+JAVA_OPTS=-Xms1g -Xmx2g
+
+# ---------------- RocketMQ（可选，自备实例） ----------------
+# false=本地任务模式（默认，功能完整，无需安装 MQ）；true=启用 MQ 派发
+ROCKETMQ_ENABLED=false
+# NameServer 地址（本机自装或另一台机器均可）
+ROCKETMQ_NAMESERVER=127.0.0.1:9876

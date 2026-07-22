@@ -67,18 +67,17 @@ public class StoryboardImageReferenceResolver
 
     /**
      * 解析 image_prompt 中的 @图片N[name] 占位，按 N 顺序精确匹配 form_image。
+     * 可引用域=项目+用户（不按集过滤）：项目级角色图与跨集复用资产图均可解析。
      *
      * @param imagePrompt 分镜画师生成的 image_prompt 文本
      * @param projectId   项目 ID（防越权）
-     * @param episodeId   剧集 ID（防越权）
      * @param userId      当前用户 ID（防越权）
      * @return 解析结果（含 referenceImageIds / referenceImageUrls / unresolvedNames）
      */
-    public ResolveResult resolve(String imagePrompt, Long projectId, Long episodeId, Long userId)
+    public ResolveResult resolve(String imagePrompt, Long projectId, Long userId)
     {
         ResolveResult result = new ResolveResult();
-        if (StrUtil.isBlank(imagePrompt) || Objects.isNull(projectId)
-                || Objects.isNull(episodeId) || Objects.isNull(userId))
+        if (StrUtil.isBlank(imagePrompt) || Objects.isNull(projectId) || Objects.isNull(userId))
         {
             return result;
         }
@@ -99,7 +98,10 @@ public class StoryboardImageReferenceResolver
             return result;
         }
 
-        //    不按 name IN 过滤，便于对占位名做分隔符归一化后匹配
+        //    不按 name IN 过滤，便于对占位名做分隔符归一化后匹配。
+        //    可引用域=项目+用户（不按集过滤）：剧集角色形态图归属项目级（episode_id=0）、
+        //    跨集复用资产的图归属其它集，编剧字典本身按项目装配，按集过滤会漏配；
+        //    电影模式项目下所有行 episode_id=0，结果集不变
         List<AidRolePropSceneFormImage> imgs = rpsFormImageService.list(
                 Wrappers.<AidRolePropSceneFormImage>lambdaQuery()
                         .select(AidRolePropSceneFormImage::getId,
@@ -107,7 +109,6 @@ public class StoryboardImageReferenceResolver
                                 AidRolePropSceneFormImage::getImageUrl,
                                 AidRolePropSceneFormImage::getSortOrder)
                         .eq(AidRolePropSceneFormImage::getProjectId, projectId)
-                        .eq(AidRolePropSceneFormImage::getEpisodeId, episodeId)
                         .eq(AidRolePropSceneFormImage::getUserId, userId)
                         .eq(AidRolePropSceneFormImage::getIsUse, IS_USE_YES)
                         .eq(AidRolePropSceneFormImage::getIsSplitSource, IS_SPLIT_SOURCE_NO)
@@ -160,27 +161,26 @@ public class StoryboardImageReferenceResolver
         result.setUnresolvedNames(unresolved);
         if (!unresolved.isEmpty())
         {
-            log.warn("StoryboardImageReferenceResolver: 部分占位未匹配, projectId={}, episodeId={}, userId={}, "
+            log.warn("StoryboardImageReferenceResolver: 部分占位未匹配, projectId={}, userId={}, "
                             + "totalRefs={}, unresolvedCount={}, unresolvedNames={}",
-                    projectId, episodeId, userId, orderedNs.size(), unresolved.size(), unresolved);
+                    projectId, userId, orderedNs.size(), unresolved.size(), unresolved);
         }
         return result;
     }
 
     /**
      * 富化解析：在 {@link #resolve} 基础上补充每个引用的资产类型与主资产名，并按是否有可用图分型（REFERENCE/DESCRIPTION），供厂商参考图渲染策略使用。批量查询无 N+1。
+     * 可引用域=项目+用户（不按集过滤），口径与 {@link #resolve} 一致。
      *
      * @param imagePrompt 分镜画师生成的 image_prompt 文本
      * @param projectId   项目 ID（防越权）
-     * @param episodeId   剧集 ID（防越权）
      * @param userId      当前用户 ID（防越权）
      * @return 按 N 升序的富化引用列表；无 @图片N 占位返回空列表
      */
-    public List<ResolvedImageReference> resolveRich(String imagePrompt, Long projectId, Long episodeId, Long userId)
+    public List<ResolvedImageReference> resolveRich(String imagePrompt, Long projectId, Long userId)
     {
         List<ResolvedImageReference> out = new ArrayList<>();
-        if (StrUtil.isBlank(imagePrompt) || Objects.isNull(projectId)
-                || Objects.isNull(episodeId) || Objects.isNull(userId))
+        if (StrUtil.isBlank(imagePrompt) || Objects.isNull(projectId) || Objects.isNull(userId))
         {
             return out;
         }
@@ -201,6 +201,8 @@ public class StoryboardImageReferenceResolver
             return out;
         }
 
+        // 可引用域=项目+用户（不按集过滤），口径与 resolve 一致：
+        // 项目级角色图（episode_id=0）/ 跨集复用资产图按集过滤会漏配
         List<AidRolePropSceneFormImage> imgs = rpsFormImageService.list(
                 Wrappers.<AidRolePropSceneFormImage>lambdaQuery()
                         .select(AidRolePropSceneFormImage::getId,
@@ -209,7 +211,6 @@ public class StoryboardImageReferenceResolver
                                 AidRolePropSceneFormImage::getAssetId,
                                 AidRolePropSceneFormImage::getSortOrder)
                         .eq(AidRolePropSceneFormImage::getProjectId, projectId)
-                        .eq(AidRolePropSceneFormImage::getEpisodeId, episodeId)
                         .eq(AidRolePropSceneFormImage::getUserId, userId)
                         .eq(AidRolePropSceneFormImage::getIsUse, IS_USE_YES)
                         .eq(AidRolePropSceneFormImage::getIsSplitSource, IS_SPLIT_SOURCE_NO)
@@ -275,7 +276,7 @@ public class StoryboardImageReferenceResolver
                 // 无可用图 → 描述类型（不进 image[]，由渲染策略文字化）
                 ref.setType(RefType.DESCRIPTION);
                 log.warn("StoryboardImageReferenceResolver.resolveRich: 引用未命中可用图(描述化), projectId={}, "
-                        + "episodeId={}, n={}, name={}", projectId, episodeId, n, name);
+                        + "n={}, name={}", projectId, n, name);
             }
             out.add(ref);
         }

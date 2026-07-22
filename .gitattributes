@@ -1,0 +1,20 @@
+# 行尾规范：Linux 侧执行的部署脚本与配置强制 LF，防止 Windows 检出后携带 CRLF 部署导致执行失败
+deploy/** text eol=lf
+sql/*.sql text eol=lf
+release/*.json text eol=lf
+
+# 发布排除：doc/ 只进私有仓做版本管理，git archive 生成的开源发布快照不包含；
+# 提示词开发指南面向开源搭建者（后台智能体开发页教程入口指向它），单独放行
+/doc/** export-ignore
+"/doc/提示词开发指南.md" -export-ignore
+
+# 二进制文件不做任何转换
+*.jar binary
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+deploy/updater/bin/* binary

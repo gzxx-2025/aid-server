@@ -83,6 +83,15 @@ public interface IRpsBusinessService {
     void deleteAsset(RpsDeleteRequest request, Long userId);
 
     /**
+     * 批量删除主资产（单个 / 批量同接口，逐条独立事务，汇总成功 / 失败明细）。
+     *
+     * @param ids    主资产ID列表（去重有序）
+     * @param userId 用户ID
+     * @return 批量操作结果（成功 / 失败明细）
+     */
+    BatchOperationResultVO deleteAssetBatch(List<Long> ids, Long userId);
+
+    /**
      * 设置指定图片为"使用中"（多选语义：仅设置目标图，不影响同 form 其它图片）。
      *
      * @param imageId 图片实例ID

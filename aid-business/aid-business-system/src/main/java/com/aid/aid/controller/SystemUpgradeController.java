@@ -46,6 +46,14 @@ public class SystemUpgradeController extends BaseController {
     }
 
     /**
+     * 查询官方教程文档地址（使用教程/提示词开发教程，读缓存不回源，供后台各入口跳转）
+     */
+    @GetMapping("/doc-links")
+    public AjaxResult docLinks() {
+        return success(systemUpgradeService.getDocLinks());
+    }
+
+    /**
      * 提交一键升级任务（升级器可用时才受理）
      */
     @PreAuthorize("@ss.hasPermi('aidconfig:upgrade:start')")
@@ -63,6 +71,14 @@ public class SystemUpgradeController extends BaseController {
     @PostMapping("/updater/upgrade")
     public AjaxResult upgradeUpdater() {
         return AjaxResult.success(systemUpgradeService.startUpdaterUpgrade());
+    }
+
+    /**
+     * 查询升级器最近运行日志（安装引导弹窗与故障排查展示，最多返回最近200行）
+     */
+    @GetMapping("/updater/logs")
+    public AjaxResult updaterLogs() {
+        return success(systemUpgradeService.getUpdaterLogs());
     }
 
     /**

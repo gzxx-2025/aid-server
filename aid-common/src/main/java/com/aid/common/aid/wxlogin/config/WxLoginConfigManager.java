@@ -127,6 +127,14 @@ public class WxLoginConfigManager {
     }
 
     /**
+     * 获取关注后自动回复内容
+     */
+    public String getSubscribeReplyContent() {
+        init();
+        return currentProperties.getSubscribeReplyContent();
+    }
+
+    /**
      * 获取当前生效的配置（供前端展示）
      */
     public Map<String, String> getCurrentConfig() {
@@ -170,6 +178,7 @@ public class WxLoginConfigManager {
         properties.setSecret(getCacheValue("wxLoginSecret", ""));
         properties.setToken(getCacheValue("wxLoginToken", "aid"));
         properties.setEncodingAesKey(getCacheValue("wxLoginEncodingAESKey", getCacheValue("encodingAESKey", "")));
+        properties.setSubscribeReplyContent(getCacheValue("wxLoginSubscribeReply", ""));
         properties.setQrcodeExpireSeconds(getCacheInt("qrcodeExpireSeconds", 300));
         return properties;
     }

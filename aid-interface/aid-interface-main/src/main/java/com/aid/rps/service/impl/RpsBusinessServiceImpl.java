@@ -562,14 +562,18 @@ public class RpsBusinessServiceImpl implements IRpsBusinessService {
         if (Objects.equals(PROJECT_TYPE_MOVIE, project.getProjectType())) {
             form.setEpisodeId(0L);
         } else if (Objects.equals(PROJECT_TYPE_SERIES, project.getProjectType())) {
-            // 剧集 ID 以 mainAsset 为准，前端传入仅用于一致性校验
+            // 剧集 ID 以 mainAsset 为准；episodeId=0 是合法的项目级资产
+            // （剧集角色 / 跨集复用资产恒落 0），形态同样落项目级
             Long effectiveEpisodeId = mainAsset.getEpisodeId();
-            if (Objects.isNull(effectiveEpisodeId) || effectiveEpisodeId == 0L) {
+            if (Objects.isNull(effectiveEpisodeId)) {
                 log.info("从表创建失败，主资产无有效 episodeId: projectId={}, assetId={}",
                         effectiveProjectId, request.getAssetId());
                 throw new RuntimeException("主资产剧集信息异常");
             }
-            if (request.getEpisodeId() != null
+            // 一致性校验仅对集级资产（>0）生效：项目级资产（0）在任意集下可见，
+            // 前端传的是"当前浏览集 ID"，与 0 天然不同，不做比对
+            if (effectiveEpisodeId > 0L
+                    && Objects.nonNull(request.getEpisodeId())
                     && !Objects.equals(request.getEpisodeId(), effectiveEpisodeId)) {
                 log.info("从表创建拒绝，episodeId 与主资产不一致: request={}, mainAsset={}",
                         request.getEpisodeId(), effectiveEpisodeId);
@@ -1170,6 +1174,39 @@ public class RpsBusinessServiceImpl implements IRpsBusinessService {
         log.info("硬删除完成: id={}, formId={}", id, formId);
     }
 
+    @Override
+    public BatchOperationResultVO deleteAssetBatch(List<Long> ids, Long userId)
+    {
+        // 单个 / 批量同接口：controller 已解析出去重有序的 ids；逐条独立事务删除，单条失败不牵连其它
+        BatchOperationResultVO result = new BatchOperationResultVO();
+        if (CollectionUtil.isEmpty(ids))
+        {
+            log.info("批量删除资产：入参为空, userId={}", userId);
+            return result.summarize();
+        }
+        for (Long assetId : ids)
+        {
+            try
+            {
+                // 每条构造独立单删请求（不带 formId，整资产级联删除）
+                RpsDeleteRequest single = new RpsDeleteRequest();
+                single.setId(assetId);
+                // 经自身代理调用，确保每条目走独立 @Transactional 事务
+                self.deleteAsset(single, userId);
+                result.addSuccess(assetId);
+            }
+            catch (RuntimeException e)
+            {
+                // 单条失败：记录原因并继续处理后续条目
+                log.error("批量删除资产-单条失败: assetId={}, userId={}, err={}", assetId, userId, e.getMessage());
+                result.addFailure(assetId, e.getMessage());
+            }
+        }
+        log.info("批量删除资产完成: userId={}, total={}, success={}, fail={}",
+                userId, ids.size(), result.getSuccessIds().size(), result.getFailures().size());
+        return result.summarize();
+    }
+
     /**
      * 级联硬删指定 form 下的所有 form_image：先清理其 OSS 图片，再物理删除（含已软删行，彻底清理残留）。
      * 加 user_id 条件做纵深防御，只删当前用户自己的 form_image 行，防止横向越权。
@@ -1685,69 +1722,6 @@ public class RpsBusinessServiceImpl implements IRpsBusinessService {
             log.info("更新校验失败：{}为空或非数组, assetId={}", key, assetId);
             throw new RuntimeException(errorMsg);
         }
-    }
-
-    /**
-     * 构建从表实体（projectId赋值 + 根据项目类型处理episodeId）
-     */
-    private AidRolePropSceneForm buildFormEntity(RpsFormCreateRequest request, Long userId, AidComicProject project) {
-        AidRolePropSceneForm form = new AidRolePropSceneForm();
-        form.setAssetId(request.getAssetId());
-        form.setProjectId(request.getProjectId());
-        form.setUserId(userId);
-        // form 不再承载图片字段，name 默认值不再依赖 imageUrl。
-        // 优先用入参 name，否则用 changeReason 拼接，最终兜底"未命名形态"。
-        String defaultName;
-        if (StrUtil.isNotBlank(request.getChangeReason())) {
-            defaultName = request.getChangeReason();
-        } else {
-            defaultName = "未命名形态";
-        }
-        form.setName(StrUtil.isBlank(request.getName()) ? defaultName : request.getName());
-        // 写入变更原因
-        if (StrUtil.isNotBlank(request.getChangeReason())) {
-            form.setChangeReason(request.getChangeReason());
-        }
-        // 写入 promptText（由 createForm 从平铺字段组装好，或前端直接传入）
-        if (StrUtil.isNotBlank(request.getPromptText()))
-        {
-            form.setPromptText(request.getPromptText());
-            form.setVisualDescStatus(VISUAL_DESC_STATUS_COMPLETED);
-        }
-        else
-        {
-            form.setVisualDescStatus(VISUAL_DESC_STATUS_PENDING);
-        }
-        // form.is_use / form.image_url 字段已删除，图片与使用状态全部走 form_image 表
-        form.setDelFlag(DEL_FLAG_NORMAL);
-        form.setCreateTime(DateUtils.getNowDate());
-        form.setCreateBy(String.valueOf(userId));
-
-        // 根据项目类型处理episodeId
-        if (Objects.equals(PROJECT_TYPE_MOVIE, project.getProjectType())) {
-            form.setEpisodeId(0L);
-        } else if (Objects.equals(PROJECT_TYPE_SERIES, project.getProjectType())) {
-            Long episodeId = request.getEpisodeId();
-            if (Objects.isNull(episodeId)) {
-                log.info("从表创建失败，剧集模式下剧集ID不能为空: projectId={}", request.getProjectId());
-                throw new RuntimeException("剧集ID不能为空");
-            }
-            AidComicEpisode episode = episodeService.selectAidComicEpisodeById(episodeId);
-            if (Objects.isNull(episode)) {
-                log.info("从表创建失败，剧集不存在: episodeId={}", episodeId);
-                throw new RuntimeException("剧集不存在");
-            }
-            if (!Objects.equals(episode.getProjectId(), request.getProjectId())) {
-                log.info("从表创建失败，剧集与项目不匹配: projectId={}, episodeId={}", request.getProjectId(), episodeId);
-                throw new RuntimeException("剧集与项目不匹配");
-            }
-            form.setEpisodeId(episodeId);
-        } else {
-            log.info("从表创建失败，未知项目类型: projectType={}", project.getProjectType());
-            throw new RuntimeException("项目类型异常");
-        }
-
-        return form;
     }
 
     /**

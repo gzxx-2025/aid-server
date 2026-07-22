@@ -16,6 +16,9 @@ public class UpdaterStatusVo {
     /** 本地升级器版本 */
     private String version;
 
+    /** 部署方式（升级器按自身配置上报）：systemd=手动部署 / docker=容器部署 */
+    private String serviceManager;
+
     /** 发布方最新升级器版本（来自更新清单） */
     private String latestVersion;
 

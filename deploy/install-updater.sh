@@ -1,6 +1,8 @@
 #!/bin/bash
 # ----------------------------------------------------------------------------
-# aid-updater 安装脚本（Linux + systemd）
+# aid-updater 手工安装脚本（Linux + systemd，离线/老环境兜底）
+# 推荐方式：升级器随 aid.sh 部署自动安装（或 sudo bash aid.sh setup-updater
+# 一键修复，自动生成含数据库凭证的完整配置），本脚本仅作手工兜底。
 # 用法：把本脚本与对应架构的 aid-updater 二进制放在同一目录后执行：
 #   sudo bash install-updater.sh
 # 幂等：重复执行会更新二进制与服务定义，不会覆盖已有配置文件。
@@ -77,6 +79,13 @@ systemctl enable aid-updater >/dev/null 2>&1
 systemctl restart aid-updater
 sleep 1
 systemctl --no-pager --lines 0 status aid-updater || true
+
+# 5. 依赖提示：升级器执行增量 SQL / 备份数据库依赖 mysql 客户端（Docker 部署的宿主机也需要）
+if ! command -v mysql >/dev/null 2>&1 || ! command -v mysqldump >/dev/null 2>&1; then
+  log "[提示] 未检测到 mysql/mysqldump 命令。如需升级器自动执行增量 SQL 与数据库备份"
+  log "       （config.json 的 database.enabled=true），请安装 MySQL 客户端："
+  log "       Ubuntu/Debian: apt install -y mysql-client   CentOS/RHEL: yum install -y mysql"
+fi
 
 log "安装完成。请到后台「项目升级配置 → 升级源配置」中确认："
 log "  升级器健康文件路径 = ${DATA_DIR}/health.json"

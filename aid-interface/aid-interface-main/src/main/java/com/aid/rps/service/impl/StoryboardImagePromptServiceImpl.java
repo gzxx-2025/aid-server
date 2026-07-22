@@ -287,11 +287,12 @@ public class StoryboardImagePromptServiceImpl implements IStoryboardImagePromptS
             throw new ServiceException("模型不存在");
         }
 
-        // 防漏字段注释：仅查 assetId 用作存在性 count
+        // 防漏字段注释：仅查 assetId 用作存在性 count。
+        // 按项目维度统计（不按集过滤）：剧集角色形态归属项目级（episode_id=0）、
+        // 跨集复用资产形态归属其它集；电影模式全部行 episode_id=0 结果不变
         long visualFormCount = rpsFormService.count(
                 Wrappers.<AidRolePropSceneForm>lambdaQuery()
                         .eq(AidRolePropSceneForm::getProjectId, projectId)
-                        .eq(AidRolePropSceneForm::getEpisodeId, episodeId)
                         .eq(AidRolePropSceneForm::getUserId, userId)
                         .eq(AidRolePropSceneForm::getDelFlag, DEL_FLAG_NORMAL)
                         .isNotNull(AidRolePropSceneForm::getPromptText)
@@ -327,7 +328,7 @@ public class StoryboardImagePromptServiceImpl implements IStoryboardImagePromptS
         }
 
         // 创建任务前校验分镜引用的参考资产仍可用。
-        List<String> referenceAssetNames = loadReferenceableAssetNames(projectId, episodeId, userId);
+        List<String> referenceAssetNames = loadReferenceableAssetNames(projectId, userId);
         validateReferencedAssetsExist(targetList, referenceAssetNames);
 
         // 抢锁失败时走僵尸锁自愈：DB 复核 + 锁年龄检查 + CAS 清理 + 重抢，
@@ -604,7 +605,7 @@ public class StoryboardImagePromptServiceImpl implements IStoryboardImagePromptS
         // 仅当快照里完全没有该字段（历史任务）才兜底重建。
         List<String> referenceAssetNames = input.containsKey("referenceAssetNames")
                 ? toStringList(input.get("referenceAssetNames"))
-                : loadReferenceableAssetNames(projectId, episodeId, userId);
+                : loadReferenceableAssetNames(projectId, userId);
 
         for (int i = 0; i < total; i++)
         {
@@ -912,8 +913,7 @@ public class StoryboardImagePromptServiceImpl implements IStoryboardImagePromptS
             List<Map<String, Object>> itemSnapshots = new ArrayList<>(remaining.size());
             String systemPrompt = helper.loadPromptByName(resumeAgentCode);
             // 可引用参考图白名单（整批共用，建一次）：续生与首跑/执行口径一致
-            List<String> referenceAssetNames = loadReferenceableAssetNames(
-                    task.getProjectId(), task.getEpisodeId(), userId);
+            List<String> referenceAssetNames = loadReferenceableAssetNames(task.getProjectId(), userId);
             // 参考资产失效前置校验（与首跑同口径、同方法）：续生同样在预冻结之前拦掉引用了
             // 已删除/改名/未出图资产的镜头，避免白跑一轮 LLM 才报部分失败。失败时先释放项目锁再抛。
             try
@@ -1373,16 +1373,17 @@ public class StoryboardImagePromptServiceImpl implements IStoryboardImagePromptS
     }
 
     /**
-     * 加载本项目本剧集"可引用参考图"白名单：{@code aid_role_prop_scene_form_image.name}。
+     * 加载本项目"可引用参考图"白名单：{@code aid_role_prop_scene_form_image.name}。
      * 过滤口径与出图解析器 {@link com.aid.rps.resolver.StoryboardImageReferenceResolver} 完全一致：
-     * {@code projectId + episodeId + userId + is_use=1 + is_split_source=0 + del_flag=0}，且 {@code image_url} 非空
+     * {@code projectId + userId + is_use=1 + is_split_source=0 + del_flag=0}，且 {@code image_url} 非空
      * （命中行 image_url 为空在出图侧也视为未匹配）。按 sort_order 升序、去重、保序。
+     * 不按集过滤：项目级角色图（episode_id=0）与跨集复用资产图均可引用。
      * 注入给分镜画师 LLM，约束 {@code @图片N[name]} 只能从中精确选取，避免杜撰 / 引用已软删 / 改名资产
      * 导致出图时"参考图缺失"。
      */
-    private List<String> loadReferenceableAssetNames(Long projectId, Long episodeId, Long userId)
+    private List<String> loadReferenceableAssetNames(Long projectId, Long userId)
     {
-        if (Objects.isNull(projectId) || Objects.isNull(episodeId) || Objects.isNull(userId))
+        if (Objects.isNull(projectId) || Objects.isNull(userId))
         {
             return new ArrayList<>();
         }
@@ -1391,7 +1392,6 @@ public class StoryboardImagePromptServiceImpl implements IStoryboardImagePromptS
                         .select(AidRolePropSceneFormImage::getName, AidRolePropSceneFormImage::getImageUrl,
                                 AidRolePropSceneFormImage::getSortOrder)
                         .eq(AidRolePropSceneFormImage::getProjectId, projectId)
-                        .eq(AidRolePropSceneFormImage::getEpisodeId, episodeId)
                         .eq(AidRolePropSceneFormImage::getUserId, userId)
                         .eq(AidRolePropSceneFormImage::getIsUse, IS_USE_YES)
                         .eq(AidRolePropSceneFormImage::getIsSplitSource, IS_SPLIT_SOURCE_NO)

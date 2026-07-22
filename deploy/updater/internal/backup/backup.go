@@ -4,8 +4,10 @@ package backup
 import (
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"aid-updater/internal/config"
@@ -25,13 +27,21 @@ type Snapshot struct {
 	DBDumpFile string
 }
 
-// Create 备份当前部署的三端产物与（可选）数据库。
-func Create(cfg *config.Config, tag string) (*Snapshot, error) {
+// Create 备份当前部署的三端产物与（可选）数据库，并按保留份数清理过期备份。
+func Create(cfg *config.Config, tag string) (snapshot *Snapshot, err error) {
 	dir := filepath.Join(cfg.BackupDir, fmt.Sprintf("%s-%s", time.Now().Format("20060102150405"), tag))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("创建备份目录失败: %w", err)
 	}
-	snapshot := &Snapshot{Dir: dir}
+	// 备份中途失败时删除半成品目录：残留会被当作有效备份挤占保留份数
+	defer func() {
+		if err != nil {
+			if removeErr := os.RemoveAll(dir); removeErr != nil {
+				log.Printf("清理半成品备份失败 %s: %v", dir, removeErr)
+			}
+		}
+	}()
+	snapshot = &Snapshot{Dir: dir}
 
 	if fileExists(cfg.Install.BackendJar) {
 		if err := copyFile(cfg.Install.BackendJar, filepath.Join(dir, "aid-admin.jar")); err != nil {
@@ -58,6 +68,8 @@ func Create(cfg *config.Config, tag string) (*Snapshot, error) {
 		}
 		snapshot.DBDumpFile = dumpFile
 	}
+	// 本次备份完整落盘后才清理过期备份：备份中途失败不能折损既有备份存量
+	pruneOldBackups(cfg.BackupDir, cfg.KeepBackups)
 	return snapshot, nil
 }
 
@@ -94,9 +106,20 @@ func CopyFile(src, dst string) error {
 	return copyFile(src, dst)
 }
 
+// replaceDir 用 src 内容替换 dst 目录：保留 dst 目录本身只清空内容——
+// dst 可能是容器 bind mount 的挂载源，删除目录本身会让容器内挂载点失效。
 func replaceDir(src, dst string) error {
-	if err := os.RemoveAll(dst); err != nil {
-		return fmt.Errorf("清理旧目录失败: %w", err)
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		return fmt.Errorf("创建目标目录失败: %w", err)
+	}
+	entries, err := os.ReadDir(dst)
+	if err != nil {
+		return fmt.Errorf("读取目标目录失败: %w", err)
+	}
+	for _, entry := range entries {
+		if err := os.RemoveAll(filepath.Join(dst, entry.Name())); err != nil {
+			return fmt.Errorf("清理旧目录内容失败: %w", err)
+		}
 	}
 	// 跨分区 rename 会失败，直接递归复制最稳妥
 	return copyDir(src, dst)
@@ -145,6 +168,37 @@ func copyDir(src, dst string) error {
 		}
 		return copyFile(path, target)
 	})
+}
+
+// pruneOldBackups 备份目录只保留最近 keep 份（目录名以时间戳开头，字典序即时间序），
+// 防止多次升级后备份无限增长写满磁盘；清理失败仅告警不阻断升级。
+func pruneOldBackups(backupRoot string, keep int) {
+	if keep <= 0 {
+		return
+	}
+	entries, err := os.ReadDir(backupRoot)
+	if err != nil {
+		return
+	}
+	var dirs []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			dirs = append(dirs, entry.Name())
+		}
+	}
+	// 含本次新建的目录在内保留 keep 份
+	if len(dirs) <= keep {
+		return
+	}
+	sort.Strings(dirs)
+	for _, name := range dirs[:len(dirs)-keep] {
+		target := filepath.Join(backupRoot, name)
+		if err := os.RemoveAll(target); err != nil {
+			log.Printf("清理过期备份失败 %s: %v", target, err)
+			continue
+		}
+		log.Printf("已清理过期备份: %s", target)
+	}
 }
 
 func fileExists(path string) bool {

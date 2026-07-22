@@ -1,6 +1,8 @@
 package com.aid.framework.config;
 
-import com.aid.framework.config.FastJson2JsonRedisSerializer;
+import cn.hutool.core.util.StrUtil;
+import org.redisson.config.BaseConfig;
+import org.redisson.spring.starter.RedissonAutoConfigurationCustomizer;
 import org.springframework.cache.annotation.CachingConfigurerSupport;
 import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.context.annotation.Bean;
@@ -20,6 +22,36 @@ import org.springframework.data.redis.serializer.StringRedisSerializer;
 @EnableCaching
 public class RedisConfig extends CachingConfigurerSupport
 {
+    /**
+     * 空白密码归一化为 null：yml 占位符 ${REDIS_PASSWORD:} 会解析成空串，
+     * Redisson 对非 null 密码一律发送 AUTH，无密码 Redis 会报
+     * "ERR Client sent AUTH, but no password is set"，此处统一兜底
+     */
+    @Bean
+    public RedissonAutoConfigurationCustomizer blankPasswordCustomizer()
+    {
+        return config -> {
+            // 按部署模式取对应的服务端配置（单机 / 集群 / 哨兵），不改变已有模式
+            BaseConfig<?> serverConfig;
+            if (config.isClusterConfig())
+            {
+                serverConfig = config.useClusterServers();
+            }
+            else if (config.isSentinelConfig())
+            {
+                serverConfig = config.useSentinelServers();
+            }
+            else
+            {
+                serverConfig = config.useSingleServer();
+            }
+            if (StrUtil.isBlank(serverConfig.getPassword()))
+            {
+                serverConfig.setPassword(null);
+            }
+        };
+    }
+
     @Bean
     @SuppressWarnings(value = { "unchecked", "rawtypes" })
     public RedisTemplate<Object, Object> redisTemplate(RedisConnectionFactory connectionFactory)

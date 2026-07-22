@@ -36,6 +36,11 @@ public class WxLoginProperties {
     private String encodingAesKey;
 
     /**
+     * 用户关注公众号后自动回复的文本内容
+     */
+    private String subscribeReplyContent;
+
+    /**
      * 二维码有效期（秒）
      */
     private Integer qrcodeExpireSeconds = 300;

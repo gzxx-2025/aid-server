@@ -1,4 +1,4 @@
-// Package sysctl 封装 systemd 服务控制与服务健康检查。
+// Package sysctl 封装后端服务控制（systemd / docker）与服务健康检查。
 package sysctl
 
 import (
@@ -9,22 +9,34 @@ import (
 	"time"
 )
 
-// StopService 停止 systemd 服务。
-func StopService(service string) error {
-	return runSystemctl("stop", service)
+// 支持的服务管理方式。
+const (
+	ManagerSystemd = "systemd"
+	ManagerDocker  = "docker"
+)
+
+// StopService 停止后端服务；service 为 systemd 单元名或 docker 容器名。
+func StopService(manager, service string) error {
+	if manager == ManagerDocker {
+		return runCommand("docker", "stop", service)
+	}
+	return runCommand("systemctl", "stop", service)
 }
 
-// StartService 启动 systemd 服务。
-func StartService(service string) error {
-	return runSystemctl("start", service)
+// StartService 启动后端服务；service 为 systemd 单元名或 docker 容器名。
+func StartService(manager, service string) error {
+	if manager == ManagerDocker {
+		return runCommand("docker", "start", service)
+	}
+	return runCommand("systemctl", "start", service)
 }
 
-func runSystemctl(action, service string) error {
-	cmd := exec.Command("systemctl", action, service)
+func runCommand(name string, args ...string) error {
+	cmd := exec.Command(name, args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("systemctl %s %s 失败: %v, 输出: %s",
-			action, service, err, strings.TrimSpace(string(output)))
+		return fmt.Errorf("%s %s 失败: %v, 输出: %s",
+			name, strings.Join(args, " "), err, strings.TrimSpace(string(output)))
 	}
 	return nil
 }

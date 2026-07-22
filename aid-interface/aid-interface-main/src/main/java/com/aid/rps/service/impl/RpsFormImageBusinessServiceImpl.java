@@ -326,7 +326,7 @@ public class RpsFormImageBusinessServiceImpl implements IRpsFormImageBusinessSer
 
     @Override
     @Transactional
-    public java.util.List<String> enableReferencesAndCollectMissing(Long projectId, Long episodeId, Long userId,
+    public java.util.List<String> enableReferencesAndCollectMissing(Long projectId, Long userId,
                                                                     java.util.Collection<String> names)
     {
         List<String> missing = new ArrayList<>();
@@ -341,21 +341,22 @@ public class RpsFormImageBusinessServiceImpl implements IRpsFormImageBusinessSer
         {
             return missing;
         }
-        // 作用域不完整（如 episode_id 为 NULL 的历史分镜）→ 无法按归属解析，全部计入真实缺失，
+        // 作用域不完整 → 无法按归属解析，全部计入真实缺失，
         // 杜绝"作用域为空 → resolver 返回空 → 绕过参考缺失校验 → 仍建任务走自行发挥"
-        if (Objects.isNull(projectId) || Objects.isNull(episodeId) || Objects.isNull(userId))
+        if (Objects.isNull(projectId) || Objects.isNull(userId))
         {
             return new ArrayList<>(nameSet);
         }
         // 候选图：整作用域加载（不按 name IN 过滤），便于对占位名做归一化 + 方位后缀回退匹配；
-        // 单项目/剧集 form_image 行数很小（<百级），全量加载成本可忽略
+        // 可引用域=项目+用户（不按集过滤），与 StoryboardImageReferenceResolver 出图解析口径一致：
+        // 项目级角色图（episode_id=0）/ 跨集复用资产图按集过滤会被误判"缺失"；
+        // 单项目 form_image 行数很小（<百级），全量加载成本可忽略
         List<AidRolePropSceneFormImage> imgs = rpsFormImageService.list(
                 Wrappers.<AidRolePropSceneFormImage>lambdaQuery()
                         .select(AidRolePropSceneFormImage::getId, AidRolePropSceneFormImage::getName,
                                 AidRolePropSceneFormImage::getIsUse, AidRolePropSceneFormImage::getImageUrl,
                                 AidRolePropSceneFormImage::getSortOrder)
                         .eq(AidRolePropSceneFormImage::getProjectId, projectId)
-                        .eq(AidRolePropSceneFormImage::getEpisodeId, episodeId)
                         .eq(AidRolePropSceneFormImage::getUserId, userId)
                         .eq(AidRolePropSceneFormImage::getIsSplitSource, 0)
                         .eq(AidRolePropSceneFormImage::getDelFlag, DEL_FLAG_NORMAL));
@@ -425,8 +426,8 @@ public class RpsFormImageBusinessServiceImpl implements IRpsFormImageBusinessSer
             enableUpd.set(AidRolePropSceneFormImage::getUpdateTime, now);
             enableUpd.set(AidRolePropSceneFormImage::getUpdateBy, String.valueOf(userId));
             rpsFormImageService.update(enableUpd);
-            log.info("引用即启用: projectId={}, episodeId={}, userId={}, 启用图数={}, ids={}",
-                    projectId, episodeId, userId, toEnable.size(), toEnable);
+            log.info("引用即启用: projectId={}, userId={}, 启用图数={}, ids={}",
+                    projectId, userId, toEnable.size(), toEnable);
         }
         return missing;
     }
@@ -544,7 +545,12 @@ public class RpsFormImageBusinessServiceImpl implements IRpsFormImageBusinessSer
                 // projectId 仅做精确匹配，不支持"全局资产"特殊取值
                 scopeQ.eq(AidRolePropScene::getProjectId, request.getProjectId());
             }
-            if (Objects.nonNull(request.getEpisodeId()))
+            if (Objects.nonNull(request.getEpisodeId()) && request.getEpisodeId() > 0L)
+            {
+                // 按集浏览时项目级资产（剧集角色/复用资产，episodeId=0）恒可见，与 /list、/form/list 口径一致
+                scopeQ.in(AidRolePropScene::getEpisodeId, 0L, request.getEpisodeId());
+            }
+            else if (Objects.nonNull(request.getEpisodeId()))
             {
                 scopeQ.eq(AidRolePropScene::getEpisodeId, request.getEpisodeId());
             }

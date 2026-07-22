@@ -504,7 +504,9 @@ public class AssetCenterServiceImpl implements IAssetCenterService {
         w.in(AidRolePropSceneForm::getAssetId, ids);
         w.eq(AidRolePropSceneForm::getDelFlag, DEL_FLAG_NORMAL);
         w.eq(Objects.nonNull(projectId), AidRolePropSceneForm::getProjectId, projectId);
-        w.eq(Objects.nonNull(episodeId), AidRolePropSceneForm::getEpisodeId, episodeId);
+        // 与主资产层口径一致：按集过滤时项目级形态（episodeId=0）恒可见
+        w.in(Objects.nonNull(episodeId) && episodeId > 0L, AidRolePropSceneForm::getEpisodeId, 0L, episodeId);
+        w.eq(Objects.nonNull(episodeId) && episodeId <= 0L, AidRolePropSceneForm::getEpisodeId, episodeId);
         return aidRolePropSceneFormService.count(w);
     }
 
@@ -522,7 +524,9 @@ public class AssetCenterServiceImpl implements IAssetCenterService {
         w.in(AidRolePropSceneForm::getAssetId, ids);
         w.eq(AidRolePropSceneForm::getDelFlag, DEL_FLAG_NORMAL);
         w.eq(Objects.nonNull(projectId), AidRolePropSceneForm::getProjectId, projectId);
-        w.eq(Objects.nonNull(episodeId), AidRolePropSceneForm::getEpisodeId, episodeId);
+        // 与主资产层口径一致：按集过滤时项目级形态（episodeId=0）恒可见
+        w.in(Objects.nonNull(episodeId) && episodeId > 0L, AidRolePropSceneForm::getEpisodeId, 0L, episodeId);
+        w.eq(Objects.nonNull(episodeId) && episodeId <= 0L, AidRolePropSceneForm::getEpisodeId, episodeId);
         w.orderByDesc(AidRolePropSceneForm::getCreateTime).orderByDesc(AidRolePropSceneForm::getId);
         w.last(limitOffset(offset, limit));
         List<AssetCenterItemVO> result = new ArrayList<>();
@@ -544,7 +548,9 @@ public class AssetCenterServiceImpl implements IAssetCenterService {
         w.in(AidRolePropSceneFormImage::getAssetId, ids);
         w.eq(AidRolePropSceneFormImage::getDelFlag, DEL_FLAG_NORMAL);
         w.eq(Objects.nonNull(projectId), AidRolePropSceneFormImage::getProjectId, projectId);
-        w.eq(Objects.nonNull(episodeId), AidRolePropSceneFormImage::getEpisodeId, episodeId);
+        // 与主资产层口径一致：按集过滤时项目级形态图（episodeId=0）恒可见
+        w.in(Objects.nonNull(episodeId) && episodeId > 0L, AidRolePropSceneFormImage::getEpisodeId, 0L, episodeId);
+        w.eq(Objects.nonNull(episodeId) && episodeId <= 0L, AidRolePropSceneFormImage::getEpisodeId, episodeId);
         return aidRolePropSceneFormImageService.count(w);
     }
 
@@ -563,7 +569,9 @@ public class AssetCenterServiceImpl implements IAssetCenterService {
         w.in(AidRolePropSceneFormImage::getAssetId, ids);
         w.eq(AidRolePropSceneFormImage::getDelFlag, DEL_FLAG_NORMAL);
         w.eq(Objects.nonNull(projectId), AidRolePropSceneFormImage::getProjectId, projectId);
-        w.eq(Objects.nonNull(episodeId), AidRolePropSceneFormImage::getEpisodeId, episodeId);
+        // 与主资产层口径一致：按集过滤时项目级形态图（episodeId=0）恒可见
+        w.in(Objects.nonNull(episodeId) && episodeId > 0L, AidRolePropSceneFormImage::getEpisodeId, 0L, episodeId);
+        w.eq(Objects.nonNull(episodeId) && episodeId <= 0L, AidRolePropSceneFormImage::getEpisodeId, episodeId);
         w.orderByDesc(AidRolePropSceneFormImage::getCreateTime).orderByDesc(AidRolePropSceneFormImage::getId);
         w.last(limitOffset(offset, limit));
         List<AssetCenterItemVO> result = new ArrayList<>();

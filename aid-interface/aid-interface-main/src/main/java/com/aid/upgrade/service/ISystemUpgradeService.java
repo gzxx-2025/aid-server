@@ -1,9 +1,11 @@
 package com.aid.upgrade.service;
 
+import com.aid.upgrade.dto.DocLinksVo;
 import com.aid.upgrade.dto.OfficialApiStatusVo;
 import com.aid.upgrade.dto.OfficialGatewaySaveDto;
 import com.aid.upgrade.dto.OfficialGatewaySettingVo;
 import com.aid.upgrade.dto.RollbackRequestDto;
+import com.aid.upgrade.dto.UpdaterLogVo;
 import com.aid.upgrade.dto.UpgradeSourceSaveDto;
 import com.aid.upgrade.dto.UpgradeSourceSettingVo;
 import com.aid.upgrade.dto.UpgradeStatusVo;
@@ -22,6 +24,20 @@ public interface ISystemUpgradeService {
      * @return 系统版本与升级状态
      */
     UpgradeStatusVo getStatus(boolean forceRefresh);
+
+    /**
+     * 查询官方教程文档地址（读缓存，不回源更新清单）
+     *
+     * @return 教程文档地址集合
+     */
+    DocLinksVo getDocLinks();
+
+    /**
+     * 查询升级器最近运行日志（页面排查安装与升级问题）
+     *
+     * @return 升级器日志
+     */
+    UpdaterLogVo getUpdaterLogs();
 
     /**
      * 提交一键升级任务

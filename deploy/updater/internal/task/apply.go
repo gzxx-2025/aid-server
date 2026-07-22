@@ -76,7 +76,11 @@ func (r *Runner) runApply(t *Task, isRollback bool) error {
 		return fmt.Errorf("升级包含数据库变更，请先在升级器配置中启用 database")
 	}
 
-	// 4. 备份（含可选数据库备份）
+	// 4. 备份（含可选数据库备份；数据库备份必须先于任何 SQL 变更）；
+	//    保留份数以后台「升级源配置」随任务下发的值优先，未下发时用本地配置
+	if t.KeepBackups > 0 {
+		r.cfg.KeepBackups = t.KeepBackups
+	}
 	tag := "upgrade"
 	if isRollback {
 		tag = "rollback"
@@ -87,28 +91,31 @@ func (r *Runner) runApply(t *Task, isRollback bool) error {
 	}
 	log.Printf("备份完成: %s", snapshot.Dir)
 
-	// 5. 停服并替换产物；此后任何失败都走自动回滚
-	if err := sysctl.StopService(r.cfg.Install.BackendService); err != nil {
+	// 5. 升级的增量 SQL 在停服前执行（发布规范要求增量只做加法、与旧版本代码兼容），
+	//    把停机窗口压缩到「替换文件 + 启动」；此时失败服务仍在运行，直接中止零影响。
+	//    执行记录表（aid_schema_history）保证重试与跨版本包携带旧脚本时不会重复执行。
+	if !isRollback && r.cfg.Database.Enabled {
+		count, err := dbexec.ExecuteDir(r.cfg.Database, sqlDir)
+		if err != nil {
+			return fmt.Errorf("执行增量SQL失败（服务未停止，无影响）: %w", err)
+		}
+		if count > 0 {
+			log.Printf("已执行 %d 个增量SQL脚本", count)
+		}
+	}
+
+	// 6. 停服并替换产物；此后任何失败都走自动回滚
+	if err := sysctl.StopService(r.cfg.Install.ServiceManager, r.cfg.Install.BackendService); err != nil {
 		return fmt.Errorf("停止服务失败: %w", err)
 	}
 	if err := r.replaceArtifacts(packageRoot, newJar); err != nil {
 		return r.restoreAndReport(snapshot, err)
 	}
 
-	// 6. 数据库变更
-	if isRollback {
-		if rollbackScript != "" {
-			if err := dbexec.ExecuteScript(r.cfg.Database, filepath.Join(sqlDir, rollbackScript)); err != nil {
-				return r.restoreAndReport(snapshot, fmt.Errorf("执行数据库回退脚本失败: %w", err))
-			}
-		}
-	} else if r.cfg.Database.Enabled {
-		count, err := dbexec.ExecuteDir(r.cfg.Database, sqlDir)
-		if err != nil {
-			return r.restoreAndReport(snapshot, fmt.Errorf("执行增量SQL失败: %w", err))
-		}
-		if count > 0 {
-			log.Printf("已执行 %d 个增量SQL脚本", count)
+	// 版本回退的数据库回退脚本可能收缩结构，必须在停服后执行
+	if isRollback && rollbackScript != "" {
+		if err := dbexec.ExecuteScript(r.cfg.Database, filepath.Join(sqlDir, rollbackScript)); err != nil {
+			return r.restoreAndReport(snapshot, fmt.Errorf("执行数据库回退脚本失败: %w", err))
 		}
 	}
 
@@ -118,12 +125,34 @@ func (r *Runner) runApply(t *Task, isRollback bool) error {
 	}
 	if err := sysctl.WaitHealthy(r.cfg.Install.HealthCheckURL,
 		time.Duration(r.cfg.Install.HealthCheckTimeoutSeconds)*time.Second); err != nil {
-		if stopErr := sysctl.StopService(r.cfg.Install.BackendService); stopErr != nil {
+		if stopErr := sysctl.StopService(r.cfg.Install.ServiceManager, r.cfg.Install.BackendService); stopErr != nil {
 			log.Printf("健康检查失败后停止服务失败: %v", stopErr)
 		}
 		return r.restoreAndReport(snapshot, fmt.Errorf("新版本健康检查失败: %w", err))
 	}
+
+	// 8. 重启附属服务使新产物生效：用户端 SSR、docker 部署的 nginx 等
+	//    （失败不回滚：后端已健康，仅记录日志提示人工重启）
+	restartAuxServices(r.cfg)
 	return nil
+}
+
+// restartAuxServices 依次重启配置的附属服务；未配置时跳过。
+func restartAuxServices(cfg *config.Config) {
+	for _, raw := range cfg.Install.RestartServices {
+		service := strings.TrimSpace(raw)
+		if service == "" {
+			continue
+		}
+		if err := sysctl.StopService(cfg.Install.ServiceManager, service); err != nil {
+			log.Printf("停止附属服务失败（请人工重启 %s）: %v", service, err)
+		}
+		if err := sysctl.StartService(cfg.Install.ServiceManager, service); err != nil {
+			log.Printf("启动附属服务失败（请人工重启 %s）: %v", service, err)
+			continue
+		}
+		log.Printf("附属服务已重启: %s", service)
+	}
 }
 
 // replaceArtifacts 用包内产物替换部署位置的三端产物。
@@ -205,5 +234,5 @@ func dirExists(path string) bool {
 }
 
 func startBackend(cfg *config.Config) error {
-	return sysctl.StartService(cfg.Install.BackendService)
+	return sysctl.StartService(cfg.Install.ServiceManager, cfg.Install.BackendService)
 }

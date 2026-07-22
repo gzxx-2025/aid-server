@@ -1,6 +1,7 @@
 package com.aid.common.aid.rocketmq.core;
 
 import java.util.Map;
+import java.util.Objects;
 
 import com.aid.common.aid.rocketmq.config.RocketMqConfigManager;
 import com.aid.common.aid.rocketmq.config.properties.RocketMqProperties;
@@ -9,6 +10,7 @@ import com.aid.common.aid.rocketmq.exception.MqException;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
 /**
@@ -29,8 +31,8 @@ public class MqTemplateFactory
 
     private final RocketMqProperties mqProperties;
 
-    /** RocketMQ模板实例（Spring自动注入） */
-    private final MqTemplate mqTemplate;
+    /** RocketMQ模板实例；rocketmq.enabled=false 时不装配，故用 ObjectProvider 可选获取 */
+    private final ObjectProvider<MqTemplate> mqTemplateProvider;
 
     /**
      * 获取消息队列模板实例
@@ -47,7 +49,14 @@ public class MqTemplateFactory
         switch (mqType.toLowerCase())
         {
             case "rocketmq":
-                return mqTemplate;
+                MqTemplate template = mqTemplateProvider.getIfAvailable();
+                if (Objects.isNull(template))
+                {
+                    // rocketmq.enabled=false（未部署 MQ 基础设施）但数据库开关开了 MQ 模式
+                    log.error("RocketMQ 基础设施未装配（rocketmq.enabled=false），请改回本地模式或部署 RocketMQ");
+                    throw new MqException("消息队列未部署");
+                }
+                return template;
             case "redis":
                 throw new MqException("Redis消息队列暂未实现，请选择 RocketMQ");
             default:

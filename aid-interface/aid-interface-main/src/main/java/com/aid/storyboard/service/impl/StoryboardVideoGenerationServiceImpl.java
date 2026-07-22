@@ -1106,7 +1106,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
             // 第一次调用只做有效性分组；该方法在存在缺失时不会启用任何图片，因此需要把有效引用
             // 单独再调用一次，保证历史上未启用但仍可用的图片可以正常参与本次生成。
             java.util.List<String> missingNames = rpsFormImageBusinessService.enableReferencesAndCollectMissing(
-                    storyboard.getProjectId(), storyboard.getEpisodeId(), userId, libraryNames);
+                    storyboard.getProjectId(), userId, libraryNames);
             if (CollectionUtil.isNotEmpty(missingNames))
             {
                 log.warn("分镜图生视频存在失效引用，将降级为文字描述: storyboardId={}, missing={}",
@@ -1120,7 +1120,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
                 if (CollectionUtil.isNotEmpty(libraryNames))
                 {
                     java.util.List<String> unexpectedMissing = rpsFormImageBusinessService.enableReferencesAndCollectMissing(
-                            storyboard.getProjectId(), storyboard.getEpisodeId(), userId, libraryNames);
+                            storyboard.getProjectId(), userId, libraryNames);
                     if (CollectionUtil.isNotEmpty(unexpectedMissing))
                     {
                         log.warn("分镜图生视频有效引用二次启用时状态变化，将继续文字降级: storyboardId={}, missing={}",
@@ -1129,6 +1129,8 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
                 }
             }
 
+            // 可引用域=项目+用户（不按集过滤），与 StoryboardImageReferenceResolver 出图解析口径一致：
+            // 项目级角色图（episode_id=0）/ 跨集复用资产图按集过滤会漏配
             List<AidRolePropSceneFormImage> imgs = CollectionUtil.isEmpty(libraryNames)
                     ? java.util.Collections.emptyList()
                     : rolePropSceneFormImageService.list(Wrappers.<AidRolePropSceneFormImage>lambdaQuery()
@@ -1138,7 +1140,6 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
                                     AidRolePropSceneFormImage::getAssetId,
                                     AidRolePropSceneFormImage::getSourceType)
                             .eq(AidRolePropSceneFormImage::getProjectId, storyboard.getProjectId())
-                            .eq(AidRolePropSceneFormImage::getEpisodeId, storyboard.getEpisodeId())
                             .eq(AidRolePropSceneFormImage::getUserId, userId)
                             .eq(AidRolePropSceneFormImage::getIsUse, 1)
                             .eq(AidRolePropSceneFormImage::getIsSplitSource, 0)

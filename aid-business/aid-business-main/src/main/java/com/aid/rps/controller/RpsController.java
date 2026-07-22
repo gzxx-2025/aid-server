@@ -49,6 +49,9 @@ public class RpsController extends BaseController
     /** 场景拆分四宫格批量上限（单批最多 10 张；单张涉及下载+切4图+4次OSS上传+短事务，故更激进保护） */
     private static final int MAX_SCENE_SPLIT_BATCH = 10;
 
+    /** 资产删除批量上限（单批最多 50 个主资产，级联删除较重，超出整体拒收） */
+    private static final int MAX_ASSET_DELETE_BATCH = 50;
+
     @Resource
     private IRpsBusinessService rpsBusinessService;
 
@@ -157,15 +160,43 @@ public class RpsController extends BaseController
     }
 
     /**
-     * 接口7：删除资产（物理删除，级联清理其下形态、图片与 OSS 文件）
+     * 接口7：删除资产（单个 / 批量同接口；物理删除，级联清理其下形态、图片与 OSS 文件）。
+     * 单个：传 {@code id}（可配 {@code formId} 仅删指定形态），出参保持 msg=删除成功 不变；
+     * 批量：传 {@code ids} 主资产ID列表（与 {@code id} 去重合并，不允许携带 {@code formId}），
+     * 逐条独立事务删除，单条失败不牵连其它，出参为统一批量结果 {@link BatchOperationResultVO}。
+     * 批量上限 {@value #MAX_ASSET_DELETE_BATCH} 个；超出整体拒收。
+     * 入参里被静默丢弃的非法 ID（null 元素）会以 {@code failures[]} 中 id=null + reason=参数缺失 的形式透出。
      */
     @PostMapping("/delete")
-    public AjaxResult delete(@Valid @RequestBody RpsDeleteRequest request)
+    public AjaxResult delete(@Valid @RequestBody(required = false) RpsDeleteRequest request)
     {
+        // 空请求体 / {} / 全空字段统一报“参数缺失”，避免 Spring 抛 400 跳过业务响应
+        if (Objects.isNull(request) || !request.hasAnyId()) {
+            return error("参数缺失");
+        }
+        // formId 仅支持单删语义：与批量 ids 同传属于歧义请求，整体拒收
+        if (Objects.nonNull(request.getFormId()) && request.isBatchMode()) {
+            return error("参数冲突");
+        }
+        // 批量上限保护：先看原始提交数（含 null）以防绕过去重后通过
+        int rawCount = request.rawIdCount();
+        if (rawCount > MAX_ASSET_DELETE_BATCH) {
+            return error("批量过多");
+        }
         Long userId = SecurityUtils.getUserId();
         try {
-            rpsBusinessService.deleteAsset(request, userId);
-            return success("删除成功");
+            // 单删模式（仅传 id，可配 formId）：保持原有出参 msg=删除成功 不变
+            if (!request.isBatchMode()) {
+                rpsBusinessService.deleteAsset(request, userId);
+                return success("删除成功");
+            }
+            // 批量模式：合并去重后逐条独立事务删除，出参为统一批量结果
+            List<Long> effective = request.effectiveIds();
+            // 解析时被静默丢弃的非法条目按“参数缺失”透出，与前端口径对齐
+            int dropped = rawCount - effective.size();
+            BatchOperationResultVO result = rpsBusinessService.deleteAssetBatch(effective, userId);
+            appendDroppedFailures(result, dropped);
+            return success(result);
         } catch (ServiceException e) {
             logger.error("RPS接口业务拒绝: {}", e.getMessage());
             return error(e.getMessage());

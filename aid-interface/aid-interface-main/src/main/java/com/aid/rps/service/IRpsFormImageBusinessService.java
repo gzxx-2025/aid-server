@@ -41,15 +41,14 @@ public interface IRpsFormImageBusinessService
 
     /**
      * 引用即启用 + 缺失收集（生图/生视频前同步调用，原子）：可用未启用的图自动启用，存在真实缺失则不启用任何图并返回缺失列表。
+     * 可引用域=项目+用户（不按集过滤），与出图解析器口径一致。
      *
      * @param projectId 项目 ID（防越权）
-     * @param episodeId 剧集 ID（防越权）
      * @param userId    当前用户 ID（防越权）
      * @param names     占位引用的 form_image.name 集合
      * @return 真实缺失的 name 列表（空=全部已可用或已自动启用）
      */
-    List<String> enableReferencesAndCollectMissing(Long projectId, Long episodeId, Long userId,
-                                                   Collection<String> names);
+    List<String> enableReferencesAndCollectMissing(Long projectId, Long userId, Collection<String> names);
 
     /**
      * 编辑形态图片实例。

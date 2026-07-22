@@ -20,6 +20,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -32,6 +33,21 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/auth/wechat")
 public class WeChatLoginController {
+
+    /**
+     * 已关注用户扫码事件
+     */
+    private static final String EVENT_SCAN = "SCAN";
+
+    /**
+     * 用户关注事件
+     */
+    private static final String EVENT_SUBSCRIBE = "subscribe";
+
+    /**
+     * 微信安全模式加密类型标识
+     */
+    private static final String ENCRYPT_TYPE_AES = "aes";
 
     @Resource
     private WxLoginTemplateFactory wxLoginTemplateFactory;
@@ -155,7 +171,7 @@ public class WeChatLoginController {
                 sceneStr = eventKey.replace("qrscene_", "");
             }
 
-            if ("SCAN".equals(event) || "subscribe".equals(event)) {
+            if (Objects.equals(EVENT_SCAN, event) || Objects.equals(EVENT_SUBSCRIBE, event)) {
                 WxMpUser wxMpUser = wxMpService.getUserService().userInfo(openId);
 
                 // 根据场景值前缀区分登录和绑定
@@ -178,6 +194,15 @@ public class WeChatLoginController {
                 }
             }
 
+            // 关注事件按后台配置被动回复文本消息；未配置回复内容时仍返回 success
+            if (Objects.equals(EVENT_SUBSCRIBE, event)) {
+                String replyXml = wxLoginTemplateFactory.buildSubscribeReplyXml(
+                        openId, message.getToUser(), ENCRYPT_TYPE_AES.equalsIgnoreCase(encryptType));
+                if (StrUtil.isNotBlank(replyXml)) {
+                    return replyXml;
+                }
+            }
+
             return "success"; // 必须返回 success 给微信
 
         } catch (Exception e) {
@@ -191,7 +216,7 @@ public class WeChatLoginController {
      */
     private WxMpXmlMessage parseCallbackMessage(String requestBody, String timestamp, String nonce,
                                                 String encryptType, String msgSignature, WxMpService wxMpService) {
-        if (!"aes".equalsIgnoreCase(encryptType)) {
+        if (!ENCRYPT_TYPE_AES.equalsIgnoreCase(encryptType)) {
             return WxMpXmlMessage.fromXml(requestBody);
         }
         if (StrUtil.hasBlank(msgSignature, wxMpService.getWxMpConfigStorage().getAesKey())) {

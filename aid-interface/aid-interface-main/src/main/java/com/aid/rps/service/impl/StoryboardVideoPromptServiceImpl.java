@@ -809,7 +809,7 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
 
         if (CollectionUtil.isNotEmpty(targetList) && !assetExtractService.isTaskCancelled(taskId))
         {
-            List<String> referenceAssetNames = loadReferenceableAssetNames(projectId, episodeId, userId);
+            List<String> referenceAssetNames = loadReferenceableAssetNames(projectId, userId);
             // 整段批量：把【全局风格 + 整段分镜脚本表】一次性喂给视觉导演，一次调用产出 JSON 数组 [{prompt,duration},...]
             // 入参分叉：
             //   · 宫格方向（grid）：吃「中文镜头组」script_params + 宫格图提示词（image_prompt），走 buildBatchLlmInputGroup(含图)
@@ -1683,7 +1683,7 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
     {
         boolean imageDir = DIRECTION_IMAGE.equals(direction);
         boolean gridDir = DIRECTION_GRID.equals(direction);
-        List<String> referenceAssetNames = loadReferenceableAssetNames(projectId, episodeId, userId);
+        List<String> referenceAssetNames = loadReferenceableAssetNames(projectId, userId);
         String userContent;
         if (gridDir)
         {
@@ -1756,10 +1756,12 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
         out.append(key).append('：').append(StrUtil.nullToEmpty(v)).append('\n');
     }
 
-    /** 加载当前仍可作为图片引用的名称白名单，整批一次查询，避免逐镜访问数据库。 */
-    private List<String> loadReferenceableAssetNames(Long projectId, Long episodeId, Long userId)
+    /** 加载当前仍可作为图片引用的名称白名单，整批一次查询，避免逐镜访问数据库。
+     *  可引用域=项目+用户（不按集过滤），与出图解析器口径一致：
+     *  项目级角色图（episode_id=0）/ 跨集复用资产图按集过滤会漏出白名单。 */
+    private List<String> loadReferenceableAssetNames(Long projectId, Long userId)
     {
-        if (Objects.isNull(projectId) || Objects.isNull(episodeId) || Objects.isNull(userId))
+        if (Objects.isNull(projectId) || Objects.isNull(userId))
         {
             return new ArrayList<>();
         }
@@ -1768,7 +1770,6 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
                         .select(AidRolePropSceneFormImage::getName, AidRolePropSceneFormImage::getImageUrl,
                                 AidRolePropSceneFormImage::getSortOrder)
                         .eq(AidRolePropSceneFormImage::getProjectId, projectId)
-                        .eq(AidRolePropSceneFormImage::getEpisodeId, episodeId)
                         .eq(AidRolePropSceneFormImage::getUserId, userId)
                         .eq(AidRolePropSceneFormImage::getIsUse, 1)
                         .eq(AidRolePropSceneFormImage::getIsSplitSource, 0)

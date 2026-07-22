@@ -499,10 +499,11 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
         }
 
         // 分镜生成必须具备至少一类可引用视觉资产。
+        // 按项目维度统计（不按集过滤）：剧集角色形态归属项目级（episode_id=0）、
+        // 跨集复用资产形态归属其它集，编剧字典本身按项目装配；电影模式全部行 episode_id=0 结果不变
         long visualFormCount = rpsFormService.count(
                 Wrappers.<AidRolePropSceneForm>lambdaQuery()
                         .eq(AidRolePropSceneForm::getProjectId, projectId)
-                        .eq(AidRolePropSceneForm::getEpisodeId, episodeId)
                         .eq(AidRolePropSceneForm::getUserId, userId)
                         .eq(AidRolePropSceneForm::getDelFlag, DEL_FLAG_NORMAL)
                         .isNotNull(AidRolePropSceneForm::getPromptText)
@@ -1323,7 +1324,7 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
         Map<Long, AidRoleVoiceBinding> voiceBindingByAssetId = loadEnabledVoiceBindings(
                 characterIdSet, episodeId, userId);
         List<String> audioReferenceNames = loadAudioReferenceNames(characterIdSet, characterIdx,
-                voiceBindingByAssetId, episodeId, userId);
+                voiceBindingByAssetId, userId);
         List<String> videoReferenceNames = loadVideoReferenceNames(projectId, episodeId, userId);
 
         // 一次性加载所有目标场景，避免循环内逐个 getById（N+1）
@@ -1485,7 +1486,7 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
         //   （is_use=1 + is_split_source=0 + del_flag=0 + image_url 非空）。用于落库前清洗分镜脚本
         //   「引用信息」里 LLM 杜撰的字典外引用，从源头杜绝下游「资产失效」整批失败。
         final List<String> referenceWhitelist = mergeReferenceWhitelists(
-                loadReferenceableAssetNames(projectId, episodeId, userId),
+                loadReferenceableAssetNames(projectId, userId),
                 videoReferenceNames, audioReferenceNames);
 
         final int batchTotal = pendingBatches.size();
@@ -2309,12 +2310,12 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
                 .collect(Collectors.toMap(AidRolePropScene::getId, value -> value, (a, b) -> a));
         Map<Long, AidRoleVoiceBinding> voiceBindings = loadEnabledVoiceBindings(characterIdSet, episodeId, userId);
         List<String> audioReferenceNames = loadAudioReferenceNames(
-                characterIdSet, characterIdx, voiceBindings, episodeId, userId);
+                characterIdSet, characterIdx, voiceBindings, userId);
         List<String> videoReferenceNames = loadVideoReferenceNames(projectId, episodeId, userId);
         Map<Long, List<AidRolePropSceneFormImage>> characterImagesByAsset =
-                loadInUseFormImagesByAssets(new LinkedHashSet<>(characterIds), episodeId, userId);
+                loadInUseFormImagesByAssets(new LinkedHashSet<>(characterIds), userId);
         Map<Long, List<AidRolePropSceneFormImage>> propImagesByAsset =
-                loadInUseFormImagesByAssets(new LinkedHashSet<>(propIds), episodeId, userId);
+                loadInUseFormImagesByAssets(new LinkedHashSet<>(propIds), userId);
 
         Map<Long, List<AidRolePropSceneForm>> sceneFormsByAsset = new HashMap<>();
         if (CollectionUtil.isNotEmpty(sceneIds))
@@ -3187,7 +3188,7 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
             Set<Long> propAssetIds = propForms.stream()
                     .map(AidRolePropSceneForm::getAssetId).filter(Objects::nonNull).collect(Collectors.toSet());
             Map<Long, List<AidRolePropSceneFormImage>> propImagesByAsset = Objects.nonNull(preloadedPropImages)
-                    ? preloadedPropImages : loadInUseFormImagesByAssets(propAssetIds, episodeId, userId);
+                    ? preloadedPropImages : loadInUseFormImagesByAssets(propAssetIds, userId);
             // 道具字典输入断面日志，便于排查"道具被漏 / 多算"问题
             log.info("分镜脚本字典-道具图入参: episodeId={}, userId={}, propFormCount={}, propAssetIds={}, "
                             + "imgCountByAsset={}",
@@ -3234,7 +3235,7 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
             Set<Long> charAssetIds = characterForms.stream()
                     .map(AidRolePropSceneForm::getAssetId).filter(Objects::nonNull).collect(Collectors.toSet());
             Map<Long, List<AidRolePropSceneFormImage>> charImagesByAsset = Objects.nonNull(preloadedCharacterImages)
-                    ? preloadedCharacterImages : loadInUseFormImagesByAssets(charAssetIds, episodeId, userId);
+                    ? preloadedCharacterImages : loadInUseFormImagesByAssets(charAssetIds, userId);
             // 角色字典输入断面日志（关键日志，排查"林深 / 艾拉等角色被漏"问题的入口）
             // 输出：本批出场人物名 / 全部角色资产 ID 与名 / 每个资产命中的 is_use=1 form_image 数量
             Map<Long, String> charAssetIdToName = charAssetIds.stream()
@@ -3301,7 +3302,7 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
         // 场景图优先使用方位子图，缺失时回退到整图或纯文本背景。
         sb.append("场景图：\n");
         Long sceneAssetId = Objects.nonNull(scene) ? scene.getId() : null;
-        Set<String> availableLabels = loadAvailableSceneDirectionLabels(sceneAssetId, episodeId, userId);
+        Set<String> availableLabels = loadAvailableSceneDirectionLabels(sceneAssetId, userId);
         if (Objects.nonNull(scene) && CollectionUtil.isNotEmpty(availableLabels))
         {
             // 已拆分四方位子图：按 KNOWN_DIRECTION_LABELS 固定顺序输出可用方位（视觉一致性）
@@ -3318,7 +3319,7 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
         {
             // 兜底：未拆分场景但用户有 is_use=1 的整图 → 列整图条目 + 四宫格方位说明
             List<AidRolePropSceneFormImage> unsplitImgs =
-                    loadInUseUnsplitSceneImages(sceneAssetId, episodeId, userId);
+                    loadInUseUnsplitSceneImages(sceneAssetId, userId);
             if (Objects.nonNull(scene) && CollectionUtil.isNotEmpty(unsplitImgs))
             {
                 // 多张同 form_image 共存时，按 sort_order 取首张代表名（同 form 下 name 通常一致）
@@ -3502,24 +3503,24 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
     }
 
     /**
-     * 加载本项目本剧集「可引用参考图」白名单：{@code aid_role_prop_scene_form_image.name}。
+     * 加载本项目「可引用参考图」白名单：{@code aid_role_prop_scene_form_image.name}。
      *
      * @param projectId 项目 ID
-     * @param episodeId 剧集 ID
      * @param userId    当前用户 ID
      * @return 可引用资产名列表（去重保序）；参数缺失时返回空列表
      */
-    private List<String> loadReferenceableAssetNames(Long projectId, Long episodeId, Long userId)
+    private List<String> loadReferenceableAssetNames(Long projectId, Long userId)
     {
-        if (Objects.isNull(projectId) || Objects.isNull(episodeId) || Objects.isNull(userId))
+        if (Objects.isNull(projectId) || Objects.isNull(userId))
         {
             return new ArrayList<>();
         }
+        // 可引用域=项目+用户（不按集过滤），与出图解析器口径一致：
+        // 项目级角色图 / 跨集复用资产图按集过滤会漏出白名单
         List<AidRolePropSceneFormImage> imgs = rpsFormImageService.list(
                 Wrappers.<AidRolePropSceneFormImage>lambdaQuery()
                         .select(AidRolePropSceneFormImage::getName, AidRolePropSceneFormImage::getImageUrl)
                         .eq(AidRolePropSceneFormImage::getProjectId, projectId)
-                        .eq(AidRolePropSceneFormImage::getEpisodeId, episodeId)
                         .eq(AidRolePropSceneFormImage::getUserId, userId)
                         .eq(AidRolePropSceneFormImage::getIsUse, IS_USE_YES)
                         .eq(AidRolePropSceneFormImage::getIsSplitSource, IS_SPLIT_FLAG_NO)
@@ -3592,14 +3593,14 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
     private List<String> loadAudioReferenceNames(Set<Long> characterAssetIds,
             Map<Long, AidRolePropScene> characterIdx,
             Map<Long, AidRoleVoiceBinding> voiceBindingByAssetId,
-            Long episodeId, Long userId)
+            Long userId)
     {
         if (CollectionUtil.isEmpty(characterAssetIds) || CollectionUtil.isEmpty(voiceBindingByAssetId))
         {
             return new ArrayList<>();
         }
         Map<Long, List<AidRolePropSceneFormImage>> charImagesByAsset =
-                loadInUseFormImagesByAssets(characterAssetIds, episodeId, userId);
+                loadInUseFormImagesByAssets(characterAssetIds, userId);
         List<String> result = new ArrayList<>();
         Set<String> seen = new LinkedHashSet<>();
         for (Long assetId : characterAssetIds)
@@ -3722,19 +3723,20 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
     /**
      * 按主资产 ID 集合一次性加载 is_use=1 的 form_image 列表，按 assetId 分组返回。
      *
-     * @param assetIds  主资产 ID 集合（character / prop 通用）
-     * @param episodeId 剧集 ID（防越权）
-     * @param userId    当前用户 ID（防越权）
+     * @param assetIds 主资产 ID 集合（character / prop 通用）
+     * @param userId   当前用户 ID（防越权）
      * @return Map，按 sort_order 升序
      */
     private Map<Long, List<AidRolePropSceneFormImage>> loadInUseFormImagesByAssets(
-            Set<Long> assetIds, Long episodeId, Long userId)
+            Set<Long> assetIds, Long userId)
     {
         if (CollectionUtil.isEmpty(assetIds) || Objects.isNull(userId))
         {
             return Collections.emptyMap();
         }
-        // 防漏字段：select 列表中需包含字典构造所需的全部字段
+        // 防漏字段：select 列表中需包含字典构造所需的全部字段。
+        // 主资产集合已按项目维度收敛，图片不再按集过滤（归属由 assetId+userId 保证）：
+        // 项目级角色图（episode_id=0）/ 跨集复用资产图与当前集号不同，按集过滤会漏图
         List<AidRolePropSceneFormImage> imgs = rpsFormImageService.list(
                 Wrappers.<AidRolePropSceneFormImage>lambdaQuery()
                         .select(AidRolePropSceneFormImage::getId,
@@ -3744,7 +3746,6 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
                                 AidRolePropSceneFormImage::getSourceType,
                                 AidRolePropSceneFormImage::getSortOrder)
                         .in(AidRolePropSceneFormImage::getAssetId, assetIds)
-                        .eq(AidRolePropSceneFormImage::getEpisodeId, episodeId)
                         .eq(AidRolePropSceneFormImage::getUserId, userId)
                         .eq(AidRolePropSceneFormImage::getIsUse, IS_USE_YES)
                         .eq(AidRolePropSceneFormImage::getDelFlag, DEL_FLAG_NORMAL)
@@ -3760,22 +3761,21 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
      * 加载场景资产下所有 is_use=1 + is_split_child=1 的方位子图，提取后缀（主视/反打/左立面/右立面）集合。
      *
      * @param sceneAssetId 场景主资产 ID
-     * @param episodeId    剧集 ID（防越权）
      * @param userId       当前用户 ID（防越权）
      * @return 实际可引用的方位标签集合，可能为空（场景未拆分 / 没有任何 is_use=1 子图）
      */
-    private Set<String> loadAvailableSceneDirectionLabels(Long sceneAssetId, Long episodeId, Long userId)
+    private Set<String> loadAvailableSceneDirectionLabels(Long sceneAssetId, Long userId)
     {
         if (Objects.isNull(sceneAssetId) || Objects.isNull(userId))
         {
             return Collections.emptySet();
         }
-        // 防漏字段：仅 select name 列（用于解析方位后缀），后续需要其他字段请同步扩展
+        // 防漏字段：仅 select name 列（用于解析方位后缀），后续需要其他字段请同步扩展。
+        // 归属由 assetId+userId 保证，不按集过滤：跨集复用场景的图归属其它集，按集过滤会漏方位子图
         List<AidRolePropSceneFormImage> imgs = rpsFormImageService.list(
                 Wrappers.<AidRolePropSceneFormImage>lambdaQuery()
                         .select(AidRolePropSceneFormImage::getName)
                         .eq(AidRolePropSceneFormImage::getAssetId, sceneAssetId)
-                        .eq(AidRolePropSceneFormImage::getEpisodeId, episodeId)
                         .eq(AidRolePropSceneFormImage::getUserId, userId)
                         .eq(AidRolePropSceneFormImage::getIsUse, IS_USE_YES)
                         .eq(AidRolePropSceneFormImage::getIsSplitChild, IS_SPLIT_FLAG_YES)
@@ -3801,25 +3801,24 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
      * 加载场景资产下所有 is_use=1 的"未拆分整图"列表。
      *
      * @param sceneAssetId 场景主资产 ID
-     * @param episodeId    剧集 ID（防越权）
      * @param userId       当前用户 ID（防越权）
      * @return is_use=1 的整张场景图列表（按 sort_order 升序），无则空列表
      */
     private List<AidRolePropSceneFormImage> loadInUseUnsplitSceneImages(
-            Long sceneAssetId, Long episodeId, Long userId)
+            Long sceneAssetId, Long userId)
     {
         if (Objects.isNull(sceneAssetId) || Objects.isNull(userId))
         {
             return Collections.emptyList();
         }
-        // 防漏字段：select id / name / sort_order，后续需扩展时请同步
+        // 防漏字段：select id / name / sort_order，后续需扩展时请同步。
+        // 归属由 assetId+userId 保证，不按集过滤：跨集复用场景的图归属其它集，按集过滤会漏整图
         List<AidRolePropSceneFormImage> imgs = rpsFormImageService.list(
                 Wrappers.<AidRolePropSceneFormImage>lambdaQuery()
                         .select(AidRolePropSceneFormImage::getId,
                                 AidRolePropSceneFormImage::getName,
                                 AidRolePropSceneFormImage::getSortOrder)
                         .eq(AidRolePropSceneFormImage::getAssetId, sceneAssetId)
-                        .eq(AidRolePropSceneFormImage::getEpisodeId, episodeId)
                         .eq(AidRolePropSceneFormImage::getUserId, userId)
                         .eq(AidRolePropSceneFormImage::getIsUse, IS_USE_YES)
                         .eq(AidRolePropSceneFormImage::getIsSplitChild, IS_SPLIT_FLAG_NO)

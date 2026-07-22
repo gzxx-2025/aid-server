@@ -1,11 +1,14 @@
 package com.aid.common.aid.wxlogin.core;
 
+import cn.hutool.core.util.StrUtil;
 import com.aid.common.aid.wxlogin.config.WxLoginConfigManager;
 import com.aid.common.aid.wxlogin.properties.WxLoginProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import me.chanjar.weixin.mp.api.WxMpService;
 import me.chanjar.weixin.mp.api.impl.WxMpServiceImpl;
+import me.chanjar.weixin.mp.bean.message.WxMpXmlOutMessage;
+import me.chanjar.weixin.mp.bean.message.WxMpXmlOutTextMessage;
 import me.chanjar.weixin.mp.config.impl.WxMpDefaultConfigImpl;
 import org.springframework.stereotype.Component;
 
@@ -93,6 +96,36 @@ public class WxLoginTemplateFactory {
         }
 
         log.info("微信公众号登录配置已刷新");
+    }
+
+    /**
+     * 构建关注事件的被动回复文本消息 XML；未配置回复内容或构建失败时返回 null
+     *
+     * @param userOpenId 关注用户的 openId（回复消息的 ToUserName）
+     * @param mpAccount  公众号原始ID（回复消息的 FromUserName，取回调消息的 ToUserName）
+     * @param encrypted  回调是否为 AES 安全模式，安全模式下回复也必须加密
+     * @return 被动回复 XML，无需回复时为 null
+     */
+    public String buildSubscribeReplyXml(String userOpenId, String mpAccount, boolean encrypted) {
+        String content = wxLoginConfigManager.getSubscribeReplyContent();
+        if (StrUtil.isBlank(content) || StrUtil.hasBlank(userOpenId, mpAccount)) {
+            return null;
+        }
+        try {
+            WxMpXmlOutTextMessage outMessage = WxMpXmlOutMessage.TEXT()
+                    .content(content)
+                    .toUser(userOpenId)
+                    .fromUser(mpAccount)
+                    .build();
+            // 安全模式下被动回复必须按微信协议加密后返回
+            return encrypted
+                    ? outMessage.toEncryptedXml(getOrCreateWxMpService().getWxMpConfigStorage())
+                    : outMessage.toXml();
+        } catch (Exception e) {
+            // 回复构建失败不影响关注/登录主流程，降级为不回复
+            log.error("构建关注回复消息失败", e);
+            return null;
+        }
     }
 
     /**

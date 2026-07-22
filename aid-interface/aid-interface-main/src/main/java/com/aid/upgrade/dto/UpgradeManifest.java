@@ -43,6 +43,12 @@ public class UpgradeManifest {
     /** 发布页地址集合 */
     private ReleasePages releasePages;
 
+    /** 使用教程/文档地址（发布方随清单动态下发，用户侧展示入口） */
+    private String docsUrl;
+
+    /** 提示词开发指南地址（发布方随清单动态下发；基线中智能体提示词为空，部署方按指南自行维护） */
+    private String promptDocsUrl;
+
     /** 官方API信息 */
     private OfficialApi officialApi;
 

@@ -16,8 +16,13 @@ type Install struct {
 	AdminDist string `json:"adminDist"`
 	// WebDist 用户端静态资源目录（可为空表示不由升级器管理）
 	WebDist string `json:"webDist"`
-	// BackendService 服务端 systemd 服务名
+	// ServiceManager 服务管理方式：systemd（默认）或 docker
+	ServiceManager string `json:"serviceManager"`
+	// BackendService 服务标识：systemd 单元名或 docker 容器名
 	BackendService string `json:"backendService"`
+	// RestartServices 升级完成后需要依次重启的附属服务（如用户端 SSR、docker 部署的 nginx），
+	// 语义与 BackendService 一致（systemd 单元名或 docker 容器名），可为空
+	RestartServices []string `json:"restartServices"`
 	// HealthCheckURL 服务端健康检查地址
 	HealthCheckURL string `json:"healthCheckUrl"`
 	// HealthCheckTimeoutSeconds 健康检查超时（秒）
@@ -26,12 +31,16 @@ type Install struct {
 
 // Database 描述可选的数据库操作配置；未启用时跳过 SQL 执行与库备份。
 type Database struct {
-	Enabled  bool   `json:"enabled"`
-	Host     string `json:"host"`
-	Port     int    `json:"port"`
-	Name     string `json:"name"`
-	User     string `json:"user"`
+	Enabled bool   `json:"enabled"`
+	Host    string `json:"host"`
+	Port    int    `json:"port"`
+	Name    string `json:"name"`
+	User    string `json:"user"`
+	// Password 数据库密码；经容器执行时通过环境变量传入容器，不落命令行
 	Password string `json:"password"`
+	// ExecContainer 非空时 mysql/mysqldump 经 `docker exec <容器>` 执行（Docker 部署
+	// 无需宿主机安装 MySQL 客户端）；为空时直接调用本机客户端
+	ExecContainer string `json:"execContainer"`
 }
 
 // Config 为升级器全量配置。
@@ -50,8 +59,10 @@ type Config struct {
 	HeartbeatIntervalSeconds int `json:"heartbeatIntervalSeconds"`
 	// DownloadTimeoutSeconds 单个制品下载超时（秒）
 	DownloadTimeoutSeconds int `json:"downloadTimeoutSeconds"`
-	Install                Install  `json:"install"`
-	Database               Database `json:"database"`
+	// KeepBackups 升级/回退前自动备份的保留份数，超出按时间从旧到新清理
+	KeepBackups int      `json:"keepBackups"`
+	Install     Install  `json:"install"`
+	Database    Database `json:"database"`
 }
 
 // Load 读取 JSON 配置并应用默认值与基础校验。
@@ -81,6 +92,12 @@ func (c *Config) applyDefaults() {
 	if c.DownloadTimeoutSeconds <= 0 {
 		c.DownloadTimeoutSeconds = 600
 	}
+	if c.KeepBackups <= 0 {
+		c.KeepBackups = 3
+	}
+	if strings.TrimSpace(c.Install.ServiceManager) == "" {
+		c.Install.ServiceManager = "systemd"
+	}
 	if c.Install.HealthCheckTimeoutSeconds <= 0 {
 		c.Install.HealthCheckTimeoutSeconds = 180
 	}
@@ -105,6 +122,11 @@ func (c *Config) validate() error {
 	if strings.TrimSpace(c.Install.BackendJar) == "" {
 		return fmt.Errorf("配置缺失: install.backendJar")
 	}
+	manager := strings.ToLower(strings.TrimSpace(c.Install.ServiceManager))
+	if manager != "systemd" && manager != "docker" {
+		return fmt.Errorf("install.serviceManager 仅支持 systemd 或 docker")
+	}
+	c.Install.ServiceManager = manager
 	if strings.TrimSpace(c.Install.BackendService) == "" {
 		return fmt.Errorf("配置缺失: install.backendService")
 	}

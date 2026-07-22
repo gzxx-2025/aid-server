@@ -140,6 +140,8 @@ func (r *Runner) restoreAndReport(s *backup.Snapshot, cause error) error {
 	if startErr != nil {
 		return fmt.Errorf("升级失败(%v)，已还原备份但服务启动失败(%v)，请人工检查", cause, startErr)
 	}
+	// 前端产物已还原为旧版本，附属服务（用户端 SSR / nginx）同样需要重启生效
+	restartAuxServices(r.cfg)
 	dbHint := ""
 	if s.DBDumpFile != "" {
 		dbHint = fmt.Sprintf("；如数据库已变更，可用备份手动恢复: %s", s.DBDumpFile)
@@ -150,8 +152,9 @@ func (r *Runner) restoreAndReport(s *backup.Snapshot, cause error) error {
 func trimMessage(message string) string {
 	const maxLen = 500
 	message = strings.TrimSpace(message)
-	if len(message) > maxLen {
-		return message[:maxLen]
+	// 按字符截断，避免切坏多字节 UTF-8
+	if runes := []rune(message); len(runes) > maxLen {
+		return string(runes[:maxLen])
 	}
 	return message
 }

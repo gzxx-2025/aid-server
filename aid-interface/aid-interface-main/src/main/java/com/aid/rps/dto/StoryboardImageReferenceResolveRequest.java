@@ -15,7 +15,7 @@ public class StoryboardImageReferenceResolveRequest
     @NotNull(message = "项目ID不能为空")
     private Long projectId;
 
-    /** 剧集 ID（电影项目固定传 0；剧集项目传对应集 ID） */
+    /** 剧集 ID（兼容保留：解析域为项目级，不再按集过滤；电影项目固定传 0） */
     @NotNull(message = "剧集ID不能为空")
     private Long episodeId;
 
