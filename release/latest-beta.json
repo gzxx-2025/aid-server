@@ -3,11 +3,11 @@
     "product":  "AID",
     "productVersion":  "1.0.0-rc.2",
     "channel":  "beta",
-    "publishedAt":  "2026-07-22 11:52:59",
+    "publishedAt":  "2026-07-22 13:06:31",
     "minimumVersion":  "1.0.0-rc.2",
-    "releaseNotes":  "首次测试全量发布，用户不可用",
+    "releaseNotes":  "AID v1.0.0-rc.2",
     "packageUrl":  "https://gitee.com/gzxx-2025/aid-server/releases/download/v1.0.0-rc.2/aid-v1.0.0-rc.2.tar.gz",
-    "packageSha256":  "6926702cd7234628917e3c4c63b1e99bc1c3a52b7d8e5f10491f39e1c766fc06",
+    "packageSha256":  "fee8ce8e2b979821323b57081dcea56d270df9c1a930c29c229cb31f6b5ffae5",
     "releasePages":  {
                          "gitee":  "https://gitee.com/gzxx-2025/aid-server/releases/tag/v1.0.0-rc.2",
                          "github":  "https://github.com/gzxx-2025/aid-server/releases/tag/v1.0.0-rc.2"
@@ -23,11 +23,11 @@
                     "packages":  {
                                      "linux_amd64":  {
                                                          "url":  "https://gitee.com/gzxx-2025/aid-server/releases/download/v1.0.0-rc.2/aid-updater_1.0.0-rc.2_linux_amd64.tar.gz",
-                                                         "sha256":  "60da8a96394381f50091e71a09737a45a7d64f70fb98a2d845bf05e2a4f3242e"
+                                                         "sha256":  "e302e79052f8aa339033284348364a5c8a3077dcb1c04b5bc264528d903697d7"
                                                      },
                                      "linux_arm64":  {
                                                          "url":  "https://gitee.com/gzxx-2025/aid-server/releases/download/v1.0.0-rc.2/aid-updater_1.0.0-rc.2_linux_arm64.tar.gz",
-                                                         "sha256":  "def9857779ac48ef6faeb7c51a6cdb52ad7f885b1d9682da0d796ba42985bf85"
+                                                         "sha256":  "766b4fbde1f3e170ab73c96afd0e20d874c6079b0eca2046eb046de303941aaf"
                                                      }
                                  }
                 },
