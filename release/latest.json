@@ -1,27 +1,59 @@
 {
-  "schemaVersion": 1,
-  "product": "AID",
-  "productVersion": "0.0.1-demo.1",
-  "channel": "stable",
-  "publishedAt": "2026-07-20 18:00:00",
-  "minimumVersion": "0.0.1-demo.1",
-  "releaseNotes": "本文件为 AID 版本更新清单的正式存放位置，首个正式版本发布时由发布流程更新全部字段。",
-  "packageUrl": "",
-  "packageSha256": "",
-  "releasePages": {
-    "gitee": "https://gitee.com/gzxx-2025/aid-server/releases",
-    "github": "https://github.com/gzxx-2025/aid-server/releases"
+  "beta": {
+    "channel": "beta",
+    "minimumVersion": "1.0.0-rc.2",
+    "packageSha256": "e3031dc2498da981a67d015c0208a858d3c9a8c08cf95f69173f0872acd124c1",
+    "packageUrl": "https://github.com/gzxx-2025/aid-server/releases/download/v1.0.0-rc.2/aid-v1.0.0-rc.2.tar.gz",
+    "productVersion": "1.0.0-rc.2",
+    "publishedAt": "2026-07-23 00:36:42",
+    "releaseNotes": "AID v1.0.0-rc.2",
+    "releasePages": {
+      "gitee": "https://gitee.com/gzxx-2025/aid-server/releases/tag/v1.0.0-rc.2",
+      "github": "https://github.com/gzxx-2025/aid-server/releases/tag/v1.0.0-rc.2"
+    },
+    "rollbackReleases": [],
+    "updater": {
+      "downloadUrl": "https://gitee.com/gzxx-2025/aid-server/releases",
+      "packages": {
+        "linux_amd64": {
+          "sha256": "8abff0ec8edd91623d3383000d41d12619114043bab64f4a15c6f44716351dde",
+          "url": "https://github.com/gzxx-2025/aid-server/releases/download/v1.0.0-rc.2/aid-updater_1.0.0-rc.2_linux_amd64.tar.gz"
+        },
+        "linux_arm64": {
+          "sha256": "8c3404e9e457884b9aabc87b9706ae924b0f5d5791b22b925bae32eea9f8bba4",
+          "url": "https://github.com/gzxx-2025/aid-server/releases/download/v1.0.0-rc.2/aid-updater_1.0.0-rc.2_linux_arm64.tar.gz"
+        }
+      },
+      "version": "1.0.0-rc.2"
+    }
   },
+  "channel": "stable",
   "docsUrl": "https://gitee.com/gzxx-2025/aid-server#%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B",
-  "promptDocsUrl": "https://gitee.com/gzxx-2025/aid-server/blob/master/doc/%E6%8F%90%E7%A4%BA%E8%AF%8D%E5%BC%80%E5%8F%91%E6%8C%87%E5%8D%97.md",
+  "minimumVersion": "0.0.1-demo.1",
   "officialApi": {
     "baseUrl": "",
     "websiteUrl": "https://gitee.com/gzxx-2025/aid-server"
   },
-  "updater": {
-    "version": "",
-    "downloadUrl": "https://gitee.com/gzxx-2025/aid-server/releases",
-    "packages": {}
+  "packageSha256": "",
+  "packageUrl": "",
+  "product": "AID",
+  "productVersion": "0.0.1-demo.1",
+  "promptDocsUrl": "https://gitee.com/gzxx-2025/aid-server/blob/master/doc/%E6%8F%90%E7%A4%BA%E8%AF%8D%E5%BC%80%E5%8F%91%E6%8C%87%E5%8D%97.md",
+  "publishedAt": "2026-07-20 18:00:00",
+  "releaseNotes": "本文件为 AID 版本更新清单的正式存放位置，首个正式版本发布时由发布流程更新全部字段。",
+  "releasePages": {
+    "gitee": "https://gitee.com/gzxx-2025/aid-server/releases",
+    "github": "https://github.com/gzxx-2025/aid-server/releases"
   },
-  "rollbackReleases": []
+  "rollbackReleases": [],
+  "schemaVersion": 2,
+  "signature": {
+    "algorithm": "Ed25519",
+    "value": "TiIUxbc04BeI1vXTkpFc8Z7J0D0xzcBl1SBLSKVB3H2SgzASTh2GA8xTf0fzsNCaulRJt9Is6ZqiuwMjbMTwDw=="
+  },
+  "updater": {
+    "downloadUrl": "https://gitee.com/gzxx-2025/aid-server/releases",
+    "packages": {},
+    "version": ""
+  }
 }
