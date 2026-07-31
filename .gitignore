@@ -1,0 +1,83 @@
+# Build and Release Folders
+bin-debug/
+bin-release/
+[Oo]bj/
+[Bb]in/
+
+# Maven
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+.mvn/timing.properties
+.mvn/wrapper/maven-wrapper.jar
+
+# IDE - IntelliJ IDEA
+.idea/
+*.iws
+*.iml
+*.ipr
+out/
+
+# IDE - Eclipse
+.settings/
+.classpath
+.project
+.factorypath
+
+# IDE - VSCode
+.vscode/
+*.code-workspace
+
+# Other files and folders
+*.log
+*.class
+*.jar
+*.war
+*.ear
+*.nar
+hs_err_pid*
+
+# Executables
+*.swf
+*.air
+*.ipa
+*.apk
+
+# OS
+.DS_Store
+Thumbs.db
+
+# AI 工具本地配置与指导文件（仅本地开发使用，禁止发布）
+/.cursor/
+/.agents/
+/.claude/
+/.codebuddy/
+/.codex/
+/.kiro/
+AGENTS.md
+CLAUDE.md
+
+# IDE
+/.idea/
+
+# 参考资料归档（过程文档、历史日志、内部脚本，禁止随开源仓库发布）
+/参考文件/
+
+# 内部文档目录：默认不入库；接口文档 Business-API.md 入私有仓做版本管理
+# （发布时由 .gitattributes 的 export-ignore 排除，不会进开源快照）；
+# 提示词开发指南入库且随开源快照发布（后台智能体开发页教程入口指向它）
+/doc/*
+!/doc/Business-API.md
+!/doc/提示词开发指南.md
+
+# 发布构建产物（deploy/release.ps1 输出，附件上传 Release 后即可清理）
+/release-build/
+
+# 根目录排查记录与智能体对话草稿不得入库
+/temp.txt
+/音画能力的部分.txt

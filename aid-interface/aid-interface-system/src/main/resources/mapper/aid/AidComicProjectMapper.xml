@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.aid.aid.mapper.AidComicProjectMapper">
+
+    <!-- MyBatis Plus 基本CRUD已内置，此处保留基本格式，如需自定义SQL可在此添加 -->
+
+    <!-- 后台发布管理列表：项目 联表 sys_user 带出作者信息 -->
+    <resultMap id="PublishItemVoResult" type="com.aid.aid.domain.vo.AidPublishItemVo">
+        <result property="id"           column="id"/>
+        <result property="userId"       column="user_id"/>
+        <result property="nickName"     column="nick_name"/>
+        <result property="email"        column="email"/>
+        <result property="phonenumber"  column="phonenumber"/>
+        <result property="projectName"  column="project_name"/>
+        <result property="projectType"  column="project_type"/>
+        <result property="projectDesc"  column="project_desc"/>
+        <result property="coverUrl"     column="cover_url"/>
+        <result property="status"       column="status"/>
+        <result property="statusReason" column="status_reason"/>
+        <result property="isPublic"     column="is_public"/>
+        <result property="publishTime"  column="publish_time"/>
+        <result property="updateTime"   column="update_time"/>
+        <result property="createTime"   column="create_time"/>
+    </resultMap>
+
+    <!--
+        仅返回展示必要字段；publishState 语义：
+        approved  = 审核通过未发布（status=4 且 is_public='0'）
+        published = 已发布（is_public='1'）
+        不传      = 两类合集
+    -->
+    <select id="selectPublishItemVoList" resultMap="PublishItemVoResult">
+        SELECT p.id, p.user_id, p.project_name, p.project_type, p.project_desc, p.cover_url,
+               p.status, p.status_reason, p.is_public, p.publish_time, p.update_time, p.create_time,
+               u.nick_name, u.email, u.phonenumber
+        FROM aid_comic_project p
+        LEFT JOIN sys_user u ON u.user_id = p.user_id AND u.del_flag = '0'
+        <where>
+            p.del_flag = '0'
+            <choose>
+                <when test="publishState == 'approved'">
+                    AND p.status = 4 AND p.is_public = '0'
+                </when>
+                <when test="publishState == 'published'">
+                    AND p.is_public = '1'
+                </when>
+                <otherwise>
+                    AND (p.is_public = '1' OR (p.status = 4 AND p.is_public = '0'))
+                </otherwise>
+            </choose>
+            <if test="projectName != null and projectName != ''">
+                AND p.project_name LIKE CONCAT('%', #{projectName}, '%')
+            </if>
+            <if test="projectType != null and projectType != ''">
+                AND p.project_type = #{projectType}
+            </if>
+            <if test="keyword != null and keyword != ''">
+                AND (u.nick_name LIKE CONCAT('%', #{keyword}, '%')
+                  OR u.email LIKE CONCAT('%', #{keyword}, '%')
+                  OR u.phonenumber LIKE CONCAT('%', #{keyword}, '%'))
+            </if>
+        </where>
+        ORDER BY p.publish_time DESC, p.update_time DESC
+    </select>
+
+    <!-- C端公开广场列表：项目 联表 sys_user 带出作者昵称 -->
+    <resultMap id="PublicProjectVoResult" type="com.aid.aid.domain.vo.AidPublicProjectVo">
+        <result property="id"             column="id"/>
+        <result property="userId"         column="user_id"/>
+        <result property="authorNickname" column="nick_name"/>
+        <result property="projectName"    column="project_name"/>
+        <result property="projectType"    column="project_type"/>
+        <result property="projectDesc"    column="project_desc"/>
+        <result property="coverUrl"       column="cover_url"/>
+        <result property="status"         column="status"/>
+        <result property="publishTime"    column="publish_time"/>
+    </resultMap>
+
+    <!--
+        仅返回展示必要字段；口径：已公开(is_public='1') 且 状态在 审核中(3)/审核通过(4)
+        （已公开项目重新提审期间旧成片继续对外展示），按发布时间倒序。
+    -->
+    <select id="selectPublicProjectVoList" resultMap="PublicProjectVoResult">
+        SELECT p.id, p.user_id, p.project_name, p.project_type, p.project_desc, p.cover_url, p.status, p.publish_time,
+               u.nick_name
+        FROM aid_comic_project p
+        LEFT JOIN sys_user u ON u.user_id = p.user_id AND u.del_flag = '0'
+        <where>
+            p.del_flag = '0'
+            AND p.is_public = '1'
+            AND p.status IN (3, 4)
+            <if test="projectName != null and projectName != ''">
+                AND p.project_name LIKE CONCAT('%', #{projectName}, '%')
+            </if>
+            <if test="projectType != null and projectType != ''">
+                AND p.project_type = #{projectType}
+            </if>
+        </where>
+        ORDER BY p.publish_time DESC, p.update_time DESC
+    </select>
+
+</mapper>

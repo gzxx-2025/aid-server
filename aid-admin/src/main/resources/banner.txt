@@ -1,0 +1,18 @@
+${AnsiColor.BRIGHT_BLACK}      ┌─ AID / GENERATIVE CREATION ENGINE ───────────────────────┐${AnsiColor.DEFAULT}
+
+${AnsiColor.BRIGHT_CYAN}${AnsiStyle.BOLD}      █████████╗${AnsiColor.BRIGHT_BLACK}▒${AnsiColor.BRIGHT_CYAN}       █████████╗${AnsiColor.BRIGHT_BLACK}▒${AnsiColor.BRIGHT_CYAN}       ███████████╗${AnsiColor.BRIGHT_BLACK}▒
+${AnsiColor.BRIGHT_CYAN}     ███╔════███╗${AnsiColor.BRIGHT_BLACK}▒${AnsiColor.BRIGHT_CYAN}      ╚══███╔══╝${AnsiColor.BRIGHT_BLACK}▒${AnsiColor.BRIGHT_CYAN}       ███╔══════███╗${AnsiColor.BRIGHT_BLACK}▒
+${AnsiColor.BRIGHT_CYAN}     ███║    ███║${AnsiColor.BRIGHT_BLACK}▒${AnsiColor.BRIGHT_CYAN}         ███║${AnsiColor.BRIGHT_BLACK}▒${AnsiColor.BRIGHT_CYAN}          ███║       ███║${AnsiColor.BRIGHT_BLACK}▒
+${AnsiColor.BRIGHT_CYAN}     ███████████║${AnsiColor.BRIGHT_BLACK}▒${AnsiColor.BRIGHT_CYAN}         ███║${AnsiColor.BRIGHT_BLACK}▒${AnsiColor.BRIGHT_CYAN}          ███║       ███║${AnsiColor.BRIGHT_BLACK}▒
+${AnsiColor.BRIGHT_CYAN}     ███╔════███║${AnsiColor.BRIGHT_BLACK}▒${AnsiColor.BRIGHT_CYAN}         ███║${AnsiColor.BRIGHT_BLACK}▒${AnsiColor.BRIGHT_CYAN}          ███║       ███║${AnsiColor.BRIGHT_BLACK}▒
+${AnsiColor.BRIGHT_CYAN}     ███║    ███║${AnsiColor.BRIGHT_BLACK}▒${AnsiColor.BRIGHT_CYAN}      █████████╗${AnsiColor.BRIGHT_BLACK}▒${AnsiColor.BRIGHT_CYAN}       ████████████╔╝${AnsiColor.BRIGHT_BLACK}▒
+${AnsiColor.BRIGHT_CYAN}     ╚══╝    ╚══╝${AnsiColor.BRIGHT_BLACK}▒${AnsiColor.BRIGHT_CYAN}      ╚════════╝${AnsiColor.BRIGHT_BLACK}▒${AnsiColor.BRIGHT_CYAN}       ╚═══════════╝${AnsiColor.BRIGHT_BLACK}▒
+${AnsiColor.BRIGHT_BLACK}      ▒▒▒      ▒▒▒▒       ▒▒▒▒▒▒▒▒▒▒        ▒▒▒▒▒▒▒▒▒▒▒▒▒
+       ░░░      ░░░       ░░░░░░░░░░        ░░░░░░░░░░░░░${AnsiStyle.NORMAL}${AnsiColor.DEFAULT}
+
+${AnsiColor.BRIGHT_CYAN}      ├──────────────────────────────────────────────────────────────┤${AnsiColor.DEFAULT}
+             AI 漫剧          AI 电影          AI 漫画
+${AnsiColor.BRIGHT_BLACK}      APPLICATION  ${aid.version}     ·     SPRING BOOT  ${spring-boot.version}${AnsiColor.DEFAULT}
+${AnsiColor.BRIGHT_CYAN}      └──────────────────────────────────────────────────────────────┘${AnsiColor.DEFAULT}
+
+${AnsiColor.BRIGHT_GREEN}      ●  ENGINE INITIALIZING${AnsiColor.DEFAULT}   AID 创作引擎正在启动，请稍候...

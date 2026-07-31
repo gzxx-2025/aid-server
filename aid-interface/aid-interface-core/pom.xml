@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.aid</groupId>
+        <artifactId>aid-interface</artifactId>
+        <version>3.9.1</version>
+    </parent>
+
+    <artifactId>aid-interface-core</artifactId>
+
+    <description>
+        core核心接口层（框架层需要的接口和实体）
+    </description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.aid</groupId>
+            <artifactId>aid-common</artifactId>
+        </dependency>
+    </dependencies>
+
+</project>

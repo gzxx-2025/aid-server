@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.aid.aid.mapper.AidPublishWhitelistMapper">
+
+    <!-- 白名单列表：联表 sys_user 带出用户展示信息 -->
+    <resultMap id="WhitelistVoResult" type="com.aid.aid.domain.vo.AidPublishWhitelistVo">
+        <result property="id"          column="id"/>
+        <result property="userId"      column="user_id"/>
+        <result property="nickName"    column="nick_name"/>
+        <result property="email"       column="email"/>
+        <result property="phonenumber" column="phonenumber"/>
+        <result property="avatar"      column="avatar"/>
+        <result property="remark"      column="remark"/>
+        <result property="createBy"    column="create_by"/>
+        <result property="createTime"  column="create_time"/>
+    </resultMap>
+
+    <!-- 仅返回展示必要字段；keyword 同时匹配 昵称/邮箱/手机号 -->
+    <select id="selectWhitelistVoList" resultMap="WhitelistVoResult">
+        SELECT w.id, w.user_id, w.remark, w.create_by, w.create_time,
+               u.nick_name, u.email, u.phonenumber, u.avatar
+        FROM aid_publish_whitelist w
+        LEFT JOIN sys_user u ON u.user_id = w.user_id AND u.del_flag = '0'
+        <where>
+            <if test="keyword != null and keyword != ''">
+                AND (u.nick_name LIKE CONCAT('%', #{keyword}, '%')
+                  OR u.email LIKE CONCAT('%', #{keyword}, '%')
+                  OR u.phonenumber LIKE CONCAT('%', #{keyword}, '%'))
+            </if>
+        </where>
+        ORDER BY w.id DESC
+    </select>
+
+    <!-- 用户搜索：按 昵称/邮箱/手机号 模糊匹配，带出发布权限与是否已在白名单 -->
+    <resultMap id="PublishUserVoResult" type="com.aid.aid.domain.vo.AidPublishUserVo">
+        <result property="userId"         column="user_id"/>
+        <result property="nickName"       column="nick_name"/>
+        <result property="email"          column="email"/>
+        <result property="phonenumber"    column="phonenumber"/>
+        <result property="avatar"         column="avatar"/>
+        <result property="publishEnabled" column="publish_enabled"/>
+        <result property="inWhitelist"    column="in_whitelist"/>
+    </resultMap>
+
+    <!-- 仅返回展示必要字段；限制返回条数由调用方分页控制 -->
+    <select id="searchPublishUsers" resultMap="PublishUserVoResult">
+        SELECT u.user_id, u.nick_name, u.email, u.phonenumber, u.avatar,
+               IFNULL(p.publish_enabled, 1) AS publish_enabled,
+               (w.id IS NOT NULL) AS in_whitelist
+        FROM sys_user u
+        LEFT JOIN aid_user_profile p ON p.user_id = u.user_id AND p.del_flag = '0'
+        LEFT JOIN aid_publish_whitelist w ON w.user_id = u.user_id
+        WHERE u.del_flag = '0'
+          AND (u.nick_name LIKE CONCAT('%', #{keyword}, '%')
+            OR u.email LIKE CONCAT('%', #{keyword}, '%')
+            OR u.phonenumber LIKE CONCAT('%', #{keyword}, '%'))
+        ORDER BY u.user_id DESC
+        LIMIT 50
+    </select>
+
+</mapper>

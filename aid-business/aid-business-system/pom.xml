@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.aid</groupId>
+        <artifactId>aid-business</artifactId>
+        <version>3.9.1</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>aid-business-system</artifactId>
+    <dependencies>
+        <!-- 核心接口层 -->
+        <dependency>
+            <groupId>com.aid</groupId>
+            <artifactId>aid-interface-core</artifactId>
+        </dependency>
+
+        <!-- 核心接口层 -->
+        <dependency>
+            <groupId>com.aid</groupId>
+            <artifactId>aid-interface-system</artifactId>
+        </dependency>
+
+        <!-- 业务接口层：提供计费SKU规则试算等能力 -->
+        <dependency>
+            <groupId>com.aid</groupId>
+            <artifactId>aid-interface-main</artifactId>
+        </dependency>
+
+        <!-- 微信公众号SDK -->
+        <dependency>
+            <groupId>com.github.binarywang</groupId>
+            <artifactId>weixin-java-mp</artifactId>
+            <version>4.5.0</version>
+        </dependency>
+    </dependencies>
+</project>

@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.aid.aid.mapper.AidInviteRelationMapper">
+
+    <!-- 后台邀请关系列表：aid_invite_relation 联表 sys_user 聚合查询 -->
+    <resultMap id="InviteRelationVoResult" type="com.aid.aid.domain.vo.AidInviteRelationVo">
+        <result property="id"              column="id"/>
+        <result property="inviterUserId"   column="inviter_user_id"/>
+        <result property="inviterNickName" column="inviter_nick_name"/>
+        <result property="inviterUserName" column="inviter_user_name"/>
+        <result property="inviteeUserId"   column="invitee_user_id"/>
+        <result property="inviteeNickName" column="invitee_nick_name"/>
+        <result property="inviteeUserName" column="invitee_user_name"/>
+        <result property="inviteCode"      column="invite_code"/>
+        <result property="registerChannel" column="register_channel"/>
+        <result property="registerIp"      column="register_ip"/>
+        <result property="status"          column="status"/>
+        <result property="totalRebate"     column="total_rebate"/>
+        <result property="remark"          column="remark"/>
+        <result property="createTime"      column="create_time"/>
+    </resultMap>
+
+    <!-- 仅返回展示必要字段；邀请人/被邀请人昵称账号来自 sys_user 联表 -->
+    <select id="selectInviteRelationVoList" resultMap="InviteRelationVoResult">
+        SELECT r.id, r.inviter_user_id, r.invitee_user_id, r.invite_code, r.register_channel,
+               r.register_ip, r.status, r.total_rebate, r.remark, r.create_time,
+               iu.nick_name AS inviter_nick_name, iu.user_name AS inviter_user_name,
+               eu.nick_name AS invitee_nick_name, eu.user_name AS invitee_user_name
+        FROM aid_invite_relation r
+        LEFT JOIN sys_user iu ON iu.user_id = r.inviter_user_id
+        LEFT JOIN sys_user eu ON eu.user_id = r.invitee_user_id
+        <where>
+            r.del_flag = '0'
+            <if test="inviterUserId != null">AND r.inviter_user_id = #{inviterUserId}</if>
+            <if test="inviteeUserId != null">AND r.invitee_user_id = #{inviteeUserId}</if>
+            <if test="inviteCode != null and inviteCode != ''">AND r.invite_code = #{inviteCode}</if>
+            <if test="status != null and status != ''">AND r.status = #{status}</if>
+            <if test="registerChannel != null and registerChannel != ''">AND r.register_channel = #{registerChannel}</if>
+        </where>
+        ORDER BY r.id DESC
+    </select>
+
+    <!-- C端「我邀请的用户」列表：仅返回展示必要字段（昵称/头像来自 sys_user 联表） -->
+    <resultMap id="InvitedUserRowResult" type="com.aid.aid.domain.dto.InvitedUserRowDTO">
+        <result property="inviteeUserId" column="invitee_user_id"/>
+        <result property="nickName"      column="nick_name"/>
+        <result property="avatar"        column="avatar"/>
+        <result property="status"        column="status"/>
+        <result property="totalRebate"   column="total_rebate"/>
+        <result property="registerTime"  column="register_time"/>
+    </resultMap>
+
+    <select id="selectInvitedUserRows" resultMap="InvitedUserRowResult">
+        SELECT r.invitee_user_id, r.status, r.total_rebate, r.create_time AS register_time,
+               u.nick_name, u.avatar
+        FROM aid_invite_relation r
+        LEFT JOIN sys_user u ON u.user_id = r.invitee_user_id
+        WHERE r.inviter_user_id = #{inviterUserId}
+          AND r.del_flag = '0'
+        ORDER BY r.id DESC
+    </select>
+
+    <!-- 原子增减累计返佣（delta 正加负减），扣减时下限保护避免出现负数 -->
+    <update id="changeTotalRebate">
+        UPDATE aid_invite_relation
+        SET total_rebate = GREATEST(total_rebate + #{delta}, 0),
+            update_time = NOW()
+        WHERE id = #{id}
+          AND del_flag = '0'
+    </update>
+</mapper>

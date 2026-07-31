@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.aid.aid.mapper.AidUserProfileMapper">
+
+    <!-- MyBatis Plus 基本CRUD已内置，此处保留基本格式，如需自定义SQL可在此添加 -->
+
+    <!-- 原子扣减余额，防止并发超扣 -->
+    <update id="deductBalance">
+        UPDATE aid_user_profile
+        SET balance = balance - #{amount},
+            total_consumption = total_consumption + #{amount},
+            update_time = NOW()
+        WHERE user_id = #{userId}
+          AND del_flag = '0'
+          AND balance >= #{amount}
+    </update>
+
+    <!-- 后台用户管理列表/详情：aid_user_profile 联表 sys_user 聚合查询 -->
+    <resultMap id="UserProfileVoResult" type="com.aid.aid.domain.vo.AidUserProfileVo">
+        <result property="id"               column="id"/>
+        <result property="userId"           column="user_id"/>
+        <result property="balance"          column="balance"/>
+        <result property="frozenBalance"    column="frozen_balance"/>
+        <result property="isReal"           column="is_real"/>
+        <result property="realName"         column="real_name"/>
+        <result property="idCard"           column="id_card"/>
+        <result property="memberLevel"      column="member_level"/>
+        <result property="memberExpireTime" column="member_expire_time"/>
+        <result property="totalRecharge"    column="total_recharge"/>
+        <result property="totalConsumption" column="total_consumption"/>
+        <result property="remark"           column="remark"/>
+        <result property="createTime"       column="create_time"/>
+        <result property="userName"         column="user_name"/>
+        <result property="nickName"         column="nick_name"/>
+        <result property="avatar"           column="avatar"/>
+        <result property="phonenumber"      column="phonenumber"/>
+        <result property="email"            column="email"/>
+        <result property="sex"              column="sex"/>
+        <result property="status"           column="status"/>
+        <result property="loginIp"          column="login_ip"/>
+        <result property="loginDate"        column="login_date"/>
+        <result property="registerTime"     column="register_time"/>
+    </resultMap>
+
+    <!-- 仅返回展示必要字段；昵称/手机号/状态等来自 sys_user 联表 -->
+    <select id="selectUserProfileVoList" resultMap="UserProfileVoResult">
+        SELECT p.id, p.user_id, p.balance, p.frozen_balance, p.is_real, p.real_name, p.id_card,
+               p.member_level, p.member_expire_time, p.total_recharge, p.total_consumption,
+               p.remark, p.create_time,
+               u.user_name, u.nick_name, u.avatar, u.phonenumber, u.email, u.sex, u.status,
+               u.login_ip, u.login_date, u.create_time AS register_time
+        FROM aid_user_profile p
+        LEFT JOIN sys_user u ON u.user_id = p.user_id AND u.del_flag = '0'
+        <where>
+            p.del_flag = '0'
+            <if test="userId != null">AND p.user_id = #{userId}</if>
+            <if test="memberLevel != null and memberLevel != ''">AND p.member_level = #{memberLevel}</if>
+            <if test="isReal != null and isReal != ''">AND p.is_real = #{isReal}</if>
+            <if test="status != null and status != ''">AND u.status = #{status}</if>
+            <if test="nickName != null and nickName != ''">AND u.nick_name LIKE CONCAT('%', #{nickName}, '%')</if>
+            <if test="userName != null and userName != ''">AND u.user_name LIKE CONCAT('%', #{userName}, '%')</if>
+            <if test="phonenumber != null and phonenumber != ''">AND u.phonenumber LIKE CONCAT('%', #{phonenumber}, '%')</if>
+        </where>
+        ORDER BY p.id DESC
+    </select>
+
+    <!--
+        修复 AC1：条件 delta 更新。
+        所有 delta 参数支持正/负/null（null 则跳过该字段）。
+        WHERE 子句结合 balanceMin / frozenMin / consumptionMin 阈值做条件保护，
+        确保即使 Redis 锁失效也不会发生 Lost Update。
+    -->
+    <update id="casDeltaUpdate">
+        UPDATE aid_user_profile
+        <set>
+            <if test="balanceDelta != null">balance = balance + #{balanceDelta},</if>
+            <if test="frozenDelta != null">frozen_balance = frozen_balance + #{frozenDelta},</if>
+            <if test="consumptionDelta != null">total_consumption = total_consumption + #{consumptionDelta},</if>
+            <if test="rechargeDelta != null">total_recharge = total_recharge + #{rechargeDelta},</if>
+            update_time = NOW()
+        </set>
+        WHERE user_id = #{userId}
+          AND del_flag = '0'
+          <if test="balanceMin != null">AND balance >= #{balanceMin}</if>
+          <if test="frozenMin != null">AND frozen_balance >= #{frozenMin}</if>
+          <if test="consumptionMin != null">AND total_consumption >= #{consumptionMin}</if>
+    </update>
+
+</mapper>

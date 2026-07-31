@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.aid.aid.mapper.AidProjectGenConfigMapper">
+
+    <!-- 依赖 uk_proj_user_scene 原子保存：首次新增，后续更新同一条记录。 -->
+    <insert id="upsertByUniqueKey" useGeneratedKeys="true" keyProperty="config.id" keyColumn="id">
+        INSERT INTO aid_project_gen_config
+            (project_id, user_id, scene_code, agent_code, model_code,
+             resolution, aspect_ratio, del_flag, create_by, create_time,
+             update_by, update_time)
+        VALUES
+            (#{config.projectId}, #{config.userId}, #{config.sceneCode},
+             #{config.agentCode}, #{config.modelCode}, #{config.resolution},
+             #{config.aspectRatio}, #{config.delFlag}, #{config.createBy},
+             #{config.createTime}, #{config.updateBy}, #{config.updateTime})
+        ON DUPLICATE KEY UPDATE
+            id           = LAST_INSERT_ID(id),
+            agent_code   = VALUES(agent_code),
+            model_code   = VALUES(model_code),
+            resolution   = VALUES(resolution),
+            aspect_ratio = VALUES(aspect_ratio),
+            del_flag     = VALUES(del_flag),
+            update_by    = VALUES(update_by),
+            update_time  = VALUES(update_time)
+    </insert>
+
+</mapper>

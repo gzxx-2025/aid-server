@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.aid.aid.mapper.AidErrorLogMapper">
+
+    <!-- UPSERT：同 (provider_code, sample_hash) 已存在 → 累加 occurrence_count 并刷新 last_seen，
+         否则插入新记录。依赖唯一索引 uk_provider_hash。 -->
+    <insert id="upsertSample">
+        INSERT INTO aid_error_log
+            (task_id, provider_code, model_code, http_status, raw_message,
+             matched_rule_id, matched_error_code, occurrence_count, sample_hash,
+             first_seen, last_seen)
+        VALUES
+            (#{taskId}, #{providerCode}, #{modelCode}, #{httpStatus}, #{rawMessage},
+             #{matchedRuleId}, #{matchedErrorCode}, 1, #{sampleHash},
+             NOW(), NOW())
+        ON DUPLICATE KEY UPDATE
+            occurrence_count   = occurrence_count + 1,
+            last_seen          = NOW(),
+            http_status        = VALUES(http_status),
+            raw_message        = VALUES(raw_message),
+            matched_rule_id    = VALUES(matched_rule_id),
+            matched_error_code = VALUES(matched_error_code),
+            task_id            = VALUES(task_id),
+            model_code         = VALUES(model_code)
+    </insert>
+</mapper>

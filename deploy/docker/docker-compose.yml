@@ -1,0 +1,275 @@
+# ============================================================================
+# AID 一键部署编排（Docker Compose，生产级默认参数）
+#
+# 设计要点（与在线升级兼容）：
+#   - 全部数据（应用产物/上传文件/日志/中间件数据）统一放宿主机 ${DATA_ROOT}
+#     （默认 /data/aid）目录级挂载——升级器替换宿主机 app/ 下产物后
+#     docker restart 即完成升级，无需重建镜像；备份迁移整个目录即可
+#   - RocketMQ 为可选组件：默认不启动，需要时 .env 里设 COMPOSE_PROFILES=mq
+#   - 全部资源参数（各组件内存/连接数/JVM）通过 .env 调节，默认值按 4核8G 服务器标定
+#   - 所有容器统一日志轮转，防止 docker 日志无限增长打满磁盘
+#
+# 推荐通过 deploy/aid.sh 菜单安装（自动生成 .env 并校验硬件）；
+# 手工启动：cp .env.example .env 修改必改项后 docker compose up -d
+# ============================================================================
+
+# 统一日志轮转策略（所有服务复用）
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "3"
+
+services:
+  mysql:
+    # 与开发环境版本一致；mysql:5.7 官方镜像仅有 amd64 架构，
+    # ARM 服务器请改用 mysql:8.0（aid-init.sql 完全兼容）
+    image: mysql:5.7
+    container_name: aid-mysql
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请在 .env 中设置 MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME:-aid}
+      MYSQL_USER: ${DB_USERNAME:-aid}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?请在 .env 中设置 DB_PASSWORD}
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_general_ci
+      - --default-time-zone=+08:00
+      # 生产调优（.env 可调）：缓冲池按物理内存 50% 左右设定
+      - --innodb-buffer-pool-size=${MYSQL_BUFFER_POOL:-1G}
+      - --max-connections=${MYSQL_MAX_CONNECTIONS:-500}
+      - --innodb-log-file-size=256M
+      - --slow-query-log=1
+      - --slow-query-log-file=/var/lib/mysql/slow.log
+      - --long-query-time=1
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    ports:
+      # 只绑定本机：升级器执行增量 SQL 与运维排查用，不对公网暴露
+      - "127.0.0.1:${MYSQL_PORT:-3306}:3306"
+    volumes:
+      # 全部数据统一落在 ${DATA_ROOT} 下，便于备份与迁移
+      - ${DATA_ROOT:-/data/aid}/mysql-data:/var/lib/mysql
+      # 首次启动自动导入：基线 aid-init.sql + 全部增量脚本（按文件名顺序）
+      - ../../sql:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      # 密码取容器内环境变量（运行时展开），不嵌入 compose 插值，特殊字符安全
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_ROOT_PASSWORD\" mysqladmin ping -h 127.0.0.1 --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # InnoDB 停机刷盘需要时间，给足宽限避免强杀损坏数据页
+    stop_grace_period: 1m
+
+  # 内置 Redis（默认启用；使用外部 Redis 时 COMPOSE_PROFILES 去掉 redis 即不启动本容器）
+  redis:
+    image: redis:7-alpine
+    container_name: aid-redis
+    restart: unless-stopped
+    logging: *default-logging
+    profiles: ["redis"]
+    # REDIS_PASSWORD 非空时启用密码认证；
+    # maxmemory-policy 默认 noeviction：本系统 Redis 同时承载缓存与分布式锁，
+    # 内存写满时宁可报错可见，也不允许静默淘汰锁键（纯缓存场景才可改 allkeys-lru）
+    command: >
+      sh -c 'redis-server --appendonly yes
+      --maxmemory ${REDIS_MAXMEMORY:-512mb}
+      --maxmemory-policy ${REDIS_MAXMEMORY_POLICY:-noeviction}
+      ${REDIS_PASSWORD:+--requirepass "$$REDIS_PASSWORD"}'
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    volumes:
+      - ${DATA_ROOT:-/data/aid}/redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ${REDIS_PASSWORD:+-a \"$$REDIS_PASSWORD\"} ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  aid-server:
+    image: eclipse-temurin:17-jre
+    container_name: aid-server
+    restart: unless-stopped
+    logging: *default-logging
+    working_dir: /app
+    command: sh -c "java $${JAVA_OPTS} -jar /app/aid-admin.jar"
+    environment:
+      TZ: Asia/Shanghai
+      JAVA_OPTS: ${JAVA_OPTS:--Xms1g -Xmx2g -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/home/aid/logs}
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_NAME: ${DB_NAME:-aid}
+      DB_USERNAME: ${DB_USERNAME:-aid}
+      DB_PASSWORD: ${DB_PASSWORD}
+      # 默认连内置 redis 容器；使用外部 Redis 时在 .env 覆盖为外部地址
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      TOKEN_SECRET: ${TOKEN_SECRET:?请在 .env 中设置 TOKEN_SECRET}
+      AID_PROFILE: /data/uploadPath
+      LOG_PATH: /home/aid/logs
+      ROCKETMQ_ENABLED: ${ROCKETMQ_ENABLED:-false}
+      # 默认连内置 MQ 容器；使用外部 MQ 时在 .env 覆盖为外部 NameServer 地址
+      ROCKETMQ_NAMESERVER: ${ROCKETMQ_NAMESERVER:-rocketmq-nameserver:9876}
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    ports:
+      # 只绑定本机：升级器健康检查与运维排查用，公网流量一律走 Nginx
+      - "127.0.0.1:${BACKEND_PORT:-8080}:8080"
+    volumes:
+      # 目录级挂载（禁止改为单文件挂载）：文件级 bind mount 在宿主机替换文件后
+      # 容器内仍指向旧 inode，升级会失效；目录级挂载下替换文件容器内立即可见
+      - ${DATA_ROOT:-/data/aid}/app:/app
+      - ${DATA_ROOT:-/data/aid}/uploadPath:/data/uploadPath
+      # 媒体任务归档等私有文件写在 uploadPath 同级的 -private 目录，同样需要持久化
+      - ${DATA_ROOT:-/data/aid}/uploadPath-private:/data/uploadPath-private
+      - ${DATA_ROOT:-/data/aid}/logs:/home/aid/logs
+      # 与升级器的文件通信目录（写任务/读健康与日志），容器内外同路径，后台默认配置零修改
+      - /var/lib/aid-updater:/var/lib/aid-updater
+    healthcheck:
+      # temurin 镜像无 curl，用 bash 内建 /dev/tcp 探测端口
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/8080' 2>/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 40
+      start_period: 60s
+    # 配合应用的优雅停机（server.shutdown=graceful，25s 等待处理中请求）
+    stop_grace_period: 35s
+    depends_on:
+      mysql:
+        condition: service_healthy
+      # required:false —— 使用外部 Redis（COMPOSE_PROFILES 无 redis）时自动忽略此依赖
+      redis:
+        condition: service_healthy
+        required: false
+
+  # 用户端（Nuxt SSR，Node 运行 web-dist 下的 server/index.mjs）
+  aid-web:
+    image: node:20-alpine
+    container_name: aid-web
+    restart: unless-stopped
+    logging: *default-logging
+    working_dir: /app
+    # 产物未部署时保活等待（避免 crash loop），部署后 docker restart aid-web 即生效
+    command: sh -c "if [ -f server/index.mjs ]; then exec node server/index.mjs; else echo 'web-dist 为空：用户端产物未部署，容器保活等待'; exec sleep infinity; fi"
+    environment:
+      TZ: Asia/Shanghai
+      NITRO_PORT: "3000"
+      NITRO_HOST: 0.0.0.0
+      # Node 内存等运行参数（如 --max-old-space-size=1024）
+      NODE_OPTIONS: ${WEB_NODE_OPTIONS:-}
+      # SSR 阶段的 API 请求经 Nitro 代理转发到后端
+      NUXT_PROXY_TARGET: http://aid-server:8080
+    volumes:
+      - ${DATA_ROOT:-/data/aid}/app/web-dist:/app
+    healthcheck:
+      # 产物未部署（保活等待态）时如实显示 unhealthy，便于 docker compose ps 一眼定位
+      test: ["CMD-SHELL", "wget -q -T 3 -O /dev/null http://127.0.0.1:3000/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    depends_on:
+      aid-server:
+        condition: service_healthy
+
+  # 在线升级器：消费后台页面投递的升级/回退任务（下载→校验→备份→换包→SQL→重启容器）。
+  # 部署脚本放好二进制后自动运行，无需手工安装；二进制未就位时保活等待。
+  aid-updater:
+    image: docker:27-cli
+    container_name: aid-updater
+    # 自升级完成后进程主动退出，由 docker 拉起新版本
+    restart: always
+    logging: *default-logging
+    command: sh -c "BIN=${DATA_ROOT:-/data/aid}/app/updater/aid-updater; if [ -x \"$$BIN\" ] && [ -f /etc/aid-updater/config.json ]; then exec \"$$BIN\" -config /etc/aid-updater/config.json; else echo '升级器未就绪（缺二进制 app/updater/aid-updater 或配置 /etc/aid-updater/config.json，执行 aid.sh setup-updater 修复），容器保活等待'; exec sleep infinity; fi"
+    environment:
+      TZ: Asia/Shanghai
+    volumes:
+      # 控制同编排的业务容器（stop/start aid-server 等）
+      - /var/run/docker.sock:/var/run/docker.sock
+      # 同路径挂载数据目录：配置内的产物路径容器内外一致，免路径翻译
+      - ${DATA_ROOT:-/data/aid}:${DATA_ROOT:-/data/aid}
+      # 任务/健康/日志文件目录（与 aid-server 共享，路径与后台默认配置一致）
+      - /var/lib/aid-updater:/var/lib/aid-updater
+      - /etc/aid-updater:/etc/aid-updater:ro
+    healthcheck:
+      # 按健康文件心跳新鲜度探活（升级器每5秒写心跳）：二进制未部署或进程卡死时如实显示 unhealthy
+      test: ["CMD-SHELL", "test $$(( $$(date +%s) - $$(stat -c %Y /var/lib/aid-updater/health.json 2>/dev/null || echo 0) )) -lt 60"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: aid-nginx
+    restart: unless-stopped
+    logging: *default-logging
+    ports:
+      # 80 = C端用户端；8090 = 后台管理端（根路径托管）
+      - "${HTTP_PORT:-80}:80"
+      - "${ADMIN_PORT:-8090}:8090"
+    volumes:
+      - ./nginx/aid.conf:/etc/nginx/conf.d/default.conf:ro
+      - ${DATA_ROOT:-/data/aid}/app/admin-dist:/usr/share/nginx/aid/admin-dist:ro
+    healthcheck:
+      # /healthz 由站点配置提供，仅反映 Nginx 自身存活（后端/用户端状态看各自容器）
+      test: ["CMD-SHELL", "wget -q -T 3 -O /dev/null http://127.0.0.1:80/healthz || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      - aid-server
+      - aid-web
+
+  # ------------------------- 可选组件：RocketMQ -------------------------
+  # 启用方式：.env 里设 COMPOSE_PROFILES=mq 且 ROCKETMQ_ENABLED=true，
+  # 再到后台「消息队列配置」开启 MQ 派发模式。不启用时系统走本地任务模式。
+  rocketmq-nameserver:
+    image: apache/rocketmq:5.3.1
+    container_name: aid-rocketmq-nameserver
+    restart: unless-stopped
+    logging: *default-logging
+    profiles: ["mq"]
+    command: sh mqnamesrv
+    environment:
+      TZ: Asia/Shanghai
+      # 覆盖镜像默认的大堆参数（NameServer 很轻，256m 足够；.env 可调）
+      JAVA_OPT_EXT: ${MQ_NAMESRV_JAVA_OPTS:--Xms256m -Xmx256m -Xmn128m}
+    volumes:
+      - ${DATA_ROOT:-/data/aid}/rocketmq/namesrv-logs:/home/rocketmq/logs
+    healthcheck:
+      # /dev/tcp 为 bash 内建能力（镜像基于 Ubuntu，自带 bash）
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/9876' 2>/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  rocketmq-broker:
+    image: apache/rocketmq:5.3.1
+    container_name: aid-rocketmq-broker
+    restart: unless-stopped
+    logging: *default-logging
+    profiles: ["mq"]
+    command: sh mqbroker -c /home/rocketmq/conf/broker.conf
+    environment:
+      TZ: Asia/Shanghai
+      # 覆盖镜像默认 -Xms8g -Xmx8g（小服务器直接起不来）；按业务量在 .env 调节
+      JAVA_OPT_EXT: ${MQ_BROKER_JAVA_OPTS:--Xms1g -Xmx1g -Xmn512m}
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - ./rocketmq/broker.conf:/home/rocketmq/conf/broker.conf:ro
+      - ${DATA_ROOT:-/data/aid}/rocketmq/broker-data:/home/rocketmq/store
+      - ${DATA_ROOT:-/data/aid}/rocketmq/broker-logs:/home/rocketmq/logs
+    depends_on:
+      rocketmq-nameserver:
+        condition: service_healthy
