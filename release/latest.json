@@ -1,0 +1,64 @@
+{
+  "beta": {
+    "channel": "beta",
+    "minimumVersion": "1.0.0-beta.1",
+    "packageMirrors": [],
+    "packageSha256": "5e070f07690d937ba48df587e06d7706b2d3e4c0ac7a1fd0b2e655eb14a4ec55",
+    "packageUrl": "https://github.com/gzxx-2025/aid-server/releases/download/v1.0.0-beta.1/aid-v1.0.0-beta.1.tar.gz",
+    "productVersion": "1.0.0-beta.1",
+    "publishedAt": "2026-07-31 20:03:00",
+    "releaseNotes": "# AID v1.0.0-beta.1\n\n## 中文说明\n\n这是 AID 首个公开 Beta 测试版本，面向希望自行部署、体验并参与改进的开发者与创作者开放。\n\n### 核心能力\n\n- AI 漫剧：支持从创意、剧本、角色与场景设定到分镜、画面、配音和成片的创作流程。\n- AI 电影：支持面向叙事视频与影视内容的项目化创作、素材组织和生成任务编排。\n- AI 漫画：支持角色、道具、场景、分镜及漫画画面的连续创作与统一管理。\n- 多模型接入：提供统一的图像、视频、语音与大语言模型配置和调用能力。\n- 任务与计费：生成任务通过统一的调度、状态管理和计费链路执行。\n- 管理后台：提供用户、模型、供应商、系统配置、运营数据及版本升级管理。\n- 部署与升级：包含初始化 SQL、Linux 部署脚本和 AID 升级器，便于后续版本更新。\n- 官方资产包：同版本附件收录初始化库实际媒体字段引用的 608 个官方文件，包含图片、音频试听和演示视频；保留原始对象键，可导入本地存储、阿里云 OSS 或腾讯云 COS，且不包含用户数据、账号、密钥或日志。\n\n### 测试版提示\n\n本版本为 Beta 测试版，建议先在测试环境完成部署与功能验证。升级或迁移前请备份数据库、配置文件和对象存储数据。欢迎通过仓库 Issue 反馈问题与建议。\n\n## English Notes\n\nThis is the first public beta release of AID, intended for developers and creators who want to self-host, evaluate, and help improve the platform.\n\n### Highlights\n\n- AI Motion Comics: A complete workflow covering ideas, scripts, characters, scenes, storyboards, visuals, voices, and final video assembly.\n- AI Film Creation: Project-based workflows for narrative video production, asset organization, and generation-task orchestration.\n- AI Comics: Consistent creation and management of characters, props, scenes, storyboards, and comic artwork.\n- Multi-model Integration: Unified configuration and invocation for image, video, speech, and large language models.\n- Tasks and Billing: Generation jobs run through centralized scheduling, state management, and billing workflows.\n- Administration Console: Management for users, models, providers, system settings, operational data, and product upgrades.\n- Deployment and Updates: Includes initialization SQL, Linux deployment scripts, and the AID updater for future releases.\n- Official Asset Bundle: The matching release attachment contains 608 official files referenced by actual media fields in the seed database, including images, audio previews, and demo videos. Original object keys are preserved for local storage, Alibaba Cloud OSS, or Tencent Cloud COS, while user data, accounts, credentials, and logs are excluded.\n\n### Beta Notice\n\nThis is a beta release. Deploy and validate it in a test environment first. Back up the database, configuration files, and object-storage data before any upgrade or migration. Issues and feedback are welcome through the repository issue tracker.",
+    "releasePages": {
+      "gitee": "https://gitee.com/gzxx-2025/aid-server/releases/tag/v1.0.0-beta.1",
+      "github": "https://github.com/gzxx-2025/aid-server/releases/tag/v1.0.0-beta.1"
+    },
+    "rollbackReleases": [],
+    "updater": {
+      "downloadUrl": "https://gitee.com/gzxx-2025/aid-server/releases",
+      "packages": {
+        "linux_amd64": {
+          "mirrors": [],
+          "sha256": "f8807a5e5b1368c85183478333f2e7522d5c7fd03f189825cfca126e437c4c41",
+          "url": "https://github.com/gzxx-2025/aid-server/releases/download/v1.0.0-beta.1/aid-updater_1.0.0-beta.1_linux_amd64.tar.gz"
+        },
+        "linux_arm64": {
+          "mirrors": [],
+          "sha256": "4e03cb94405beadececb78fc0ddda84010ae1cacd31f293ee9752a16141e5d99",
+          "url": "https://github.com/gzxx-2025/aid-server/releases/download/v1.0.0-beta.1/aid-updater_1.0.0-beta.1_linux_arm64.tar.gz"
+        }
+      },
+      "version": "1.0.0-beta.1"
+    }
+  },
+  "channel": "stable",
+  "docsUrl": "https://gitee.com/gzxx-2025/aid-server#%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B",
+  "minimumVersion": "0.0.1-demo.1",
+  "officialApi": {
+    "baseUrl": "",
+    "websiteUrl": "https://gitee.com/gzxx-2025/aid-server"
+  },
+  "packageMirrors": {},
+  "packageSha256": "",
+  "packageUrl": "",
+  "product": "AID",
+  "productVersion": "0.0.1-demo.1",
+  "promptDocsUrl": "https://gitee.com/gzxx-2025/aid-server/blob/master/doc/%E6%8F%90%E7%A4%BA%E8%AF%8D%E5%BC%80%E5%8F%91%E6%8C%87%E5%8D%97.md",
+  "publishedAt": "2026-07-20 18:00:00",
+  "releaseNotes": "本文件为 AID 版本更新清单的正式存放位置，首个正式版本发布时由发布流程更新全部字段。",
+  "releasePages": {
+    "gitee": "https://gitee.com/gzxx-2025/aid-server/releases",
+    "github": "https://github.com/gzxx-2025/aid-server/releases"
+  },
+  "rollbackReleases": {},
+  "schemaVersion": 2,
+  "signature": {
+    "algorithm": "Ed25519",
+    "payload": "eyJiZXRhIjp7ImNoYW5uZWwiOiJiZXRhIiwibWluaW11bVZlcnNpb24iOiIxLjAuMC1iZXRhLjEiLCJwYWNrYWdlTWlycm9ycyI6W10sInBhY2thZ2VTaGEyNTYiOiI1ZTA3MGYwNzY5MGQ5MzdiYTQ4ZGY1ODdlMDZkNzcwNmIyZDNlNGMwYWM3YTFmZDBiMmU2NTVlYjE0YTRlYzU1IiwicGFja2FnZVVybCI6Imh0dHBzOi8vZ2l0aHViLmNvbS9nenh4LTIwMjUvYWlkLXNlcnZlci9yZWxlYXNlcy9kb3dubG9hZC92MS4wLjAtYmV0YS4xL2FpZC12MS4wLjAtYmV0YS4xLnRhci5neiIsInByb2R1Y3RWZXJzaW9uIjoiMS4wLjAtYmV0YS4xIiwicHVibGlzaGVkQXQiOiIyMDI2LTA3LTMxIDIwOjAzOjAwIiwicmVsZWFzZU5vdGVzIjoiIyBBSUQgdjEuMC4wLWJldGEuMVxuXG4jIyDkuK3mlofor7TmmI5cblxu6L+Z5pivIEFJRCDpppbkuKrlhazlvIAgQmV0YSDmtYvor5XniYjmnKzvvIzpnaLlkJHluIzmnJvoh6rooYzpg6jnvbLjgIHkvZPpqozlubblj4LkuI7mlLnov5vnmoTlvIDlj5HogIXkuI7liJvkvZzogIXlvIDmlL7jgIJcblxuIyMjIOaguOW/g+iDveWKm1xuXG4tIEFJIOa8q+WJp++8muaUr+aMgeS7juWIm+aEj+OAgeWJp+acrOOAgeinkuiJsuS4juWcuuaZr+iuvuWumuWIsOWIhumVnOOAgeeUu+mdouOAgemFjemfs+WSjOaIkOeJh+eahOWIm+S9nOa1geeoi+OAglxuLSBBSSDnlLXlvbHvvJrmlK/mjIHpnaLlkJHlj5nkuovop4bpopHkuI7lvbHop4blhoXlrrnnmoTpobnnm67ljJbliJvkvZzjgIHntKDmnZDnu4Tnu4flkoznlJ/miJDku7vliqHnvJbmjpLjgIJcbi0gQUkg5ryr55S777ya5pSv5oyB6KeS6Imy44CB6YGT5YW344CB5Zy65pmv44CB5YiG6ZWc5Y+K5ryr55S755S76Z2i55qE6L+e57ut5Yib5L2c5LiO57uf5LiA566h55CG44CCXG4tIOWkmuaooeWei+aOpeWFpe+8muaPkOS+m+e7n+S4gOeahOWbvuWDj+OAgeinhumikeOAgeivremfs+S4juWkp+ivreiogOaooeWei+mFjee9ruWSjOiwg+eUqOiDveWKm+OAglxuLSDku7vliqHkuI7orqHotLnvvJrnlJ/miJDku7vliqHpgJrov4fnu5/kuIDnmoTosIPluqbjgIHnirbmgIHnrqHnkIblkozorqHotLnpk77ot6/miafooYzjgIJcbi0g566h55CG5ZCO5Y+w77ya5o+Q5L6b55So5oi344CB5qih5Z6L44CB5L6b5bqU5ZWG44CB57O757uf6YWN572u44CB6L+Q6JCl5pWw5o2u5Y+K54mI5pys5Y2H57qn566h55CG44CCXG4tIOmDqOe9suS4juWNh+e6p++8muWMheWQq+WIneWni+WMliBTUUzjgIFMaW51eCDpg6jnvbLohJrmnKzlkowgQUlEIOWNh+e6p+WZqO+8jOS+v+S6juWQjue7reeJiOacrOabtOaWsOOAglxuLSDlrpjmlrnotYTkuqfljIXvvJrlkIzniYjmnKzpmYTku7bmlLblvZXliJ3lp4vljJblupPlrp7pmYXlqpLkvZPlrZfmrrXlvJXnlKjnmoQgNjA4IOS4quWumOaWueaWh+S7tu+8jOWMheWQq+WbvueJh+OAgemfs+mikeivleWQrOWSjOa8lOekuuinhumike+8m+S/neeVmeWOn+Wni+WvueixoemUru+8jOWPr+WvvOWFpeacrOWcsOWtmOWCqOOAgemYv+mHjOS6kSBPU1Mg5oiW6IW+6K6v5LqRIENPU++8jOS4lOS4jeWMheWQq+eUqOaIt+aVsOaNruOAgei0puWPt+OAgeWvhumSpeaIluaXpeW/l+OAglxuXG4jIyMg5rWL6K+V54mI5o+Q56S6XG5cbuacrOeJiOacrOS4uiBCZXRhIOa1i+ivleeJiO+8jOW7uuiuruWFiOWcqOa1i+ivleeOr+Wig+WujOaIkOmDqOe9suS4juWKn+iDvemqjOivgeOAguWNh+e6p+aIlui/geenu+WJjeivt+Wkh+S7veaVsOaNruW6k+OAgemFjee9ruaWh+S7tuWSjOWvueixoeWtmOWCqOaVsOaNruOAguasoui/jumAmui/h+S7k+W6kyBJc3N1ZSDlj43ppojpl67popjkuI7lu7rorq7jgIJcblxuIyMgRW5nbGlzaCBOb3Rlc1xuXG5UaGlzIGlzIHRoZSBmaXJzdCBwdWJsaWMgYmV0YSByZWxlYXNlIG9mIEFJRCwgaW50ZW5kZWQgZm9yIGRldmVsb3BlcnMgYW5kIGNyZWF0b3JzIHdobyB3YW50IHRvIHNlbGYtaG9zdCwgZXZhbHVhdGUsIGFuZCBoZWxwIGltcHJvdmUgdGhlIHBsYXRmb3JtLlxuXG4jIyMgSGlnaGxpZ2h0c1xuXG4tIEFJIE1vdGlvbiBDb21pY3M6IEEgY29tcGxldGUgd29ya2Zsb3cgY292ZXJpbmcgaWRlYXMsIHNjcmlwdHMsIGNoYXJhY3RlcnMsIHNjZW5lcywgc3Rvcnlib2FyZHMsIHZpc3VhbHMsIHZvaWNlcywgYW5kIGZpbmFsIHZpZGVvIGFzc2VtYmx5LlxuLSBBSSBGaWxtIENyZWF0aW9uOiBQcm9qZWN0LWJhc2VkIHdvcmtmbG93cyBmb3IgbmFycmF0aXZlIHZpZGVvIHByb2R1Y3Rpb24sIGFzc2V0IG9yZ2FuaXphdGlvbiwgYW5kIGdlbmVyYXRpb24tdGFzayBvcmNoZXN0cmF0aW9uLlxuLSBBSSBDb21pY3M6IENvbnNpc3RlbnQgY3JlYXRpb24gYW5kIG1hbmFnZW1lbnQgb2YgY2hhcmFjdGVycywgcHJvcHMsIHNjZW5lcywgc3Rvcnlib2FyZHMsIGFuZCBjb21pYyBhcnR3b3JrLlxuLSBNdWx0aS1tb2RlbCBJbnRlZ3JhdGlvbjogVW5pZmllZCBjb25maWd1cmF0aW9uIGFuZCBpbnZvY2F0aW9uIGZvciBpbWFnZSwgdmlkZW8sIHNwZWVjaCwgYW5kIGxhcmdlIGxhbmd1YWdlIG1vZGVscy5cbi0gVGFza3MgYW5kIEJpbGxpbmc6IEdlbmVyYXRpb24gam9icyBydW4gdGhyb3VnaCBjZW50cmFsaXplZCBzY2hlZHVsaW5nLCBzdGF0ZSBtYW5hZ2VtZW50LCBhbmQgYmlsbGluZyB3b3JrZmxvd3MuXG4tIEFkbWluaXN0cmF0aW9uIENvbnNvbGU6IE1hbmFnZW1lbnQgZm9yIHVzZXJzLCBtb2RlbHMsIHByb3ZpZGVycywgc3lzdGVtIHNldHRpbmdzLCBvcGVyYXRpb25hbCBkYXRhLCBhbmQgcHJvZHVjdCB1cGdyYWRlcy5cbi0gRGVwbG95bWVudCBhbmQgVXBkYXRlczogSW5jbHVkZXMgaW5pdGlhbGl6YXRpb24gU1FMLCBMaW51eCBkZXBsb3ltZW50IHNjcmlwdHMsIGFuZCB0aGUgQUlEIHVwZGF0ZXIgZm9yIGZ1dHVyZSByZWxlYXNlcy5cbi0gT2ZmaWNpYWwgQXNzZXQgQnVuZGxlOiBUaGUgbWF0Y2hpbmcgcmVsZWFzZSBhdHRhY2htZW50IGNvbnRhaW5zIDYwOCBvZmZpY2lhbCBmaWxlcyByZWZlcmVuY2VkIGJ5IGFjdHVhbCBtZWRpYSBmaWVsZHMgaW4gdGhlIHNlZWQgZGF0YWJhc2UsIGluY2x1ZGluZyBpbWFnZXMsIGF1ZGlvIHByZXZpZXdzLCBhbmQgZGVtbyB2aWRlb3MuIE9yaWdpbmFsIG9iamVjdCBrZXlzIGFyZSBwcmVzZXJ2ZWQgZm9yIGxvY2FsIHN0b3JhZ2UsIEFsaWJhYmEgQ2xvdWQgT1NTLCBvciBUZW5jZW50IENsb3VkIENPUywgd2hpbGUgdXNlciBkYXRhLCBhY2NvdW50cywgY3JlZGVudGlhbHMsIGFuZCBsb2dzIGFyZSBleGNsdWRlZC5cblxuIyMjIEJldGEgTm90aWNlXG5cblRoaXMgaXMgYSBiZXRhIHJlbGVhc2UuIERlcGxveSBhbmQgdmFsaWRhdGUgaXQgaW4gYSB0ZXN0IGVudmlyb25tZW50IGZpcnN0LiBCYWNrIHVwIHRoZSBkYXRhYmFzZSwgY29uZmlndXJhdGlvbiBmaWxlcywgYW5kIG9iamVjdC1zdG9yYWdlIGRhdGEgYmVmb3JlIGFueSB1cGdyYWRlIG9yIG1pZ3JhdGlvbi4gSXNzdWVzIGFuZCBmZWVkYmFjayBhcmUgd2VsY29tZSB0aHJvdWdoIHRoZSByZXBvc2l0b3J5IGlzc3VlIHRyYWNrZXIuIiwicmVsZWFzZVBhZ2VzIjp7ImdpdGVlIjoiaHR0cHM6Ly9naXRlZS5jb20vZ3p4eC0yMDI1L2FpZC1zZXJ2ZXIvcmVsZWFzZXMvdGFnL3YxLjAuMC1iZXRhLjEiLCJnaXRodWIiOiJodHRwczovL2dpdGh1Yi5jb20vZ3p4eC0yMDI1L2FpZC1zZXJ2ZXIvcmVsZWFzZXMvdGFnL3YxLjAuMC1iZXRhLjEifSwicm9sbGJhY2tSZWxlYXNlcyI6W10sInVwZGF0ZXIiOnsiZG93bmxvYWRVcmwiOiJodHRwczovL2dpdGVlLmNvbS9nenh4LTIwMjUvYWlkLXNlcnZlci9yZWxlYXNlcyIsInBhY2thZ2VzIjp7ImxpbnV4X2FtZDY0Ijp7Im1pcnJvcnMiOltdLCJzaGEyNTYiOiJmODgwN2E1ZTViMTM2OGM4NTE4MzQ3ODMzM2YyZTc1MjJkNWM3ZmQwM2YxODk4MjVjZmNhMTI2ZTQzN2M0YzQxIiwidXJsIjoiaHR0cHM6Ly9naXRodWIuY29tL2d6eHgtMjAyNS9haWQtc2VydmVyL3JlbGVhc2VzL2Rvd25sb2FkL3YxLjAuMC1iZXRhLjEvYWlkLXVwZGF0ZXJfMS4wLjAtYmV0YS4xX2xpbnV4X2FtZDY0LnRhci5neiJ9LCJsaW51eF9hcm02NCI6eyJtaXJyb3JzIjpbXSwic2hhMjU2IjoiNGUwM2NiOTQ0MDViZWFkZWNlY2I3OGZjMGRkZGE4NDAxMGFlMWNhY2QzMWYyOTNlZTk3NTJhMTYxNDFlNWQ5OSIsInVybCI6Imh0dHBzOi8vZ2l0aHViLmNvbS9nenh4LTIwMjUvYWlkLXNlcnZlci9yZWxlYXNlcy9kb3dubG9hZC92MS4wLjAtYmV0YS4xL2FpZC11cGRhdGVyXzEuMC4wLWJldGEuMV9saW51eF9hcm02NC50YXIuZ3oifX0sInZlcnNpb24iOiIxLjAuMC1iZXRhLjEifX0sImNoYW5uZWwiOiJzdGFibGUiLCJkb2NzVXJsIjoiaHR0cHM6Ly9naXRlZS5jb20vZ3p4eC0yMDI1L2FpZC1zZXJ2ZXIjJUU1JUJGJUFCJUU5JTgwJTlGJUU1JUJDJTgwJUU1JUE3JThCIiwibWluaW11bVZlcnNpb24iOiIwLjAuMS1kZW1vLjEiLCJvZmZpY2lhbEFwaSI6eyJiYXNlVXJsIjoiIiwid2Vic2l0ZVVybCI6Imh0dHBzOi8vZ2l0ZWUuY29tL2d6eHgtMjAyNS9haWQtc2VydmVyIn0sInBhY2thZ2VNaXJyb3JzIjp7fSwicGFja2FnZVNoYTI1NiI6IiIsInBhY2thZ2VVcmwiOiIiLCJwcm9kdWN0IjoiQUlEIiwicHJvZHVjdFZlcnNpb24iOiIwLjAuMS1kZW1vLjEiLCJwcm9tcHREb2NzVXJsIjoiaHR0cHM6Ly9naXRlZS5jb20vZ3p4eC0yMDI1L2FpZC1zZXJ2ZXIvYmxvYi9tYXN0ZXIvZG9jLyVFNiU4RiU5MCVFNyVBNCVCQSVFOCVBRiU4RCVFNSVCQyU4MCVFNSU4RiU5MSVFNiU4QyU4NyVFNSU4RCU5Ny5tZCIsInB1Ymxpc2hlZEF0IjoiMjAyNi0wNy0yMCAxODowMDowMCIsInJlbGVhc2VOb3RlcyI6IuacrOaWh+S7tuS4uiBBSUQg54mI5pys5pu05paw5riF5Y2V55qE5q2j5byP5a2Y5pS+5L2N572u77yM6aaW5Liq5q2j5byP54mI5pys5Y+R5biD5pe255Sx5Y+R5biD5rWB56iL5pu05paw5YWo6YOo5a2X5q6144CCIiwicmVsZWFzZVBhZ2VzIjp7ImdpdGVlIjoiaHR0cHM6Ly9naXRlZS5jb20vZ3p4eC0yMDI1L2FpZC1zZXJ2ZXIvcmVsZWFzZXMiLCJnaXRodWIiOiJodHRwczovL2dpdGh1Yi5jb20vZ3p4eC0yMDI1L2FpZC1zZXJ2ZXIvcmVsZWFzZXMifSwicm9sbGJhY2tSZWxlYXNlcyI6e30sInNjaGVtYVZlcnNpb24iOjIsInVwZGF0ZXIiOnsiZG93bmxvYWRVcmwiOiJodHRwczovL2dpdGVlLmNvbS9nenh4LTIwMjUvYWlkLXNlcnZlci9yZWxlYXNlcyIsInBhY2thZ2VzIjp7fSwidmVyc2lvbiI6IiJ9fQ==",
+    "value": "etZl/a3Y4wFTjELp4GvZBOd2mHvUhsHU0JNs68oVIuV6lYYWpgiV6of9SOUS43BVFy0Zaox1gI2+Gh3RA0OaCg=="
+  },
+  "updater": {
+    "downloadUrl": "https://gitee.com/gzxx-2025/aid-server/releases",
+    "packages": {},
+    "version": ""
+  }
+}
