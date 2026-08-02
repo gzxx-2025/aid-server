@@ -4,6 +4,7 @@ aid-master/
 │   └── aid-business-system/
 │       └── com/aid/config/asr/           腾讯云语音识别后台配置与视频测试接口
 ├── aid-common/                           公共组件（复用腾讯云 TC3 签名）
+│   └── com/aid/common/utils/GatewayUrlUtils.java  API基础网关地址校验与规范化
 ├── aid-interface/
 │   ├── aid-interface-main/               业务服务层
 │   │   └── src/main/java/com/aid/

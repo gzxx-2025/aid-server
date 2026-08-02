@@ -81,8 +81,8 @@ public class AidAiModel extends BaseEntity implements Serializable
     /** 计费规则版本号 */
     private Integer billingVersion;
 
-    /** 网关后缀 */
-    @Excel(name = "网关后缀")
+    /** 模型接口路径，包含所需的API版本前缀 */
+    @Excel(name = "模型接口路径")
     private String apiSuffix;
 
     /**

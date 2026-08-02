@@ -21,6 +21,8 @@ import java.util.concurrent.TimeUnit;
 @Component
 public class VolcengineServiceManager {
 
+    private static final String ARK_API_PREFIX = "/api/v3";
+
     private final ConcurrentHashMap<String, ArkService> serviceCache = new ConcurrentHashMap<>();
 
     /**
@@ -77,6 +79,7 @@ public class VolcengineServiceManager {
             log.error("volcengine baseUrl 未配置，请在 aid_ai_provider 表配置 base_url");
             throw new IllegalArgumentException("volcengine baseUrl 不能为空，请在 aid_ai_provider 表配置");
         }
-        return apiHost.endsWith("/") ? apiHost.substring(0, apiHost.length() - 1) : apiHost;
+        String baseGateway = apiHost.endsWith("/") ? apiHost.substring(0, apiHost.length() - 1) : apiHost;
+        return baseGateway.endsWith(ARK_API_PREFIX) ? baseGateway : baseGateway + ARK_API_PREFIX;
     }
 }

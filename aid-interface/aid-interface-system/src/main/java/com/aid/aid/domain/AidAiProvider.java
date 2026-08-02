@@ -45,8 +45,8 @@ public class AidAiProvider extends BaseEntity implements Serializable
     @MediaUrl
     private String logoUrl;
 
-    /** 官方默认API网关地址 */
-    @Excel(name = "官方默认API网关地址")
+    /** 官方默认API基础网关地址 */
+    @Excel(name = "官方默认API基础网关地址")
     private String baseUrl;
 
     /** 官方默认API秘钥 (加密存储) */

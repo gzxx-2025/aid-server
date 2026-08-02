@@ -77,6 +77,9 @@ public final class UpgradeConfigKeys {
     /** 官方网关基础地址 */
     public static final String KEY_GATEWAY_BASE_URL = "base_url";
 
+    /** 官方网关默认基础地址 */
+    public static final String DEFAULT_OFFICIAL_API_BASE_URL = "https://api.aidstudio.com.cn";
+
     /** 官方网关统一密钥 */
     public static final String KEY_GATEWAY_API_KEY = "api_key";
 

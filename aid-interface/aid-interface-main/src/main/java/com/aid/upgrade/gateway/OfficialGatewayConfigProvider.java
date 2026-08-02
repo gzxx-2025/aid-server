@@ -88,7 +88,9 @@ public class OfficialGatewayConfigProvider {
         String enabled = map.get(UpgradeConfigKeys.KEY_GATEWAY_ENABLED);
         config.setEnabled(StrUtil.isNotBlank(enabled)
                 && ("true".equalsIgnoreCase(enabled.trim()) || "1".equals(enabled.trim())));
-        config.setBaseUrl(StrUtil.trimToNull(map.get(UpgradeConfigKeys.KEY_GATEWAY_BASE_URL)));
+        config.setBaseUrl(StrUtil.blankToDefault(
+                StrUtil.trimToNull(map.get(UpgradeConfigKeys.KEY_GATEWAY_BASE_URL)),
+                UpgradeConfigKeys.DEFAULT_OFFICIAL_API_BASE_URL));
         config.setApiKey(StrUtil.trimToNull(map.get(UpgradeConfigKeys.KEY_GATEWAY_API_KEY)));
         config.setExcludedModelIds(parseIds(map.get(UpgradeConfigKeys.KEY_GATEWAY_EXCLUDED_MODEL_IDS)));
         config.setExcludedProviderIds(parseIds(map.get(UpgradeConfigKeys.KEY_GATEWAY_EXCLUDED_PROVIDER_IDS)));
