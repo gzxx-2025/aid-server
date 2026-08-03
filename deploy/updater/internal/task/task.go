@@ -16,6 +16,9 @@ const (
 	ActionUpgrade        = "UPGRADE"
 	ActionUpdaterUpgrade = "UPDATER_UPGRADE"
 	ActionRollback       = "ROLLBACK"
+	ActionConfigValidate = "CONFIG_VALIDATE"
+	ActionConfigApply    = "CONFIG_APPLY"
+	ActionConfigRollback = "CONFIG_ROLLBACK"
 
 	// SupportedSchemaVersion 当前支持的任务结构版本
 	SupportedSchemaVersion = 1
@@ -38,6 +41,8 @@ type Task struct {
 	PackageURL string `json:"packageUrl,omitempty"`
 	// SHA256 制品校验值（UPGRADE/ROLLBACK 附带）
 	SHA256 string `json:"sha256,omitempty"`
+	// BuildFromSource 为 true 时按目标版本标签远程构建，不下载主程序发布包
+	BuildFromSource bool `json:"buildFromSource,omitempty"`
 
 	// DatabaseCompatible 回退目标版本数据库是否兼容（ROLLBACK 附带）
 	DatabaseCompatible *bool `json:"databaseCompatible,omitempty"`
@@ -47,6 +52,11 @@ type Task struct {
 	BackupRequired bool `json:"backupRequired,omitempty"`
 	// KeepBackups 备份保留份数（后台「升级源配置」下发，0 表示沿用升级器本地配置）
 	KeepBackups int `json:"keepBackups,omitempty"`
+
+	// ConfigPath 为空时沿用当前部署配置路径；自定义路径只能位于升级器配置的白名单目录。
+	ConfigPath string `json:"configPath,omitempty"`
+	// ConfigValues 是后台结构化表单生成的白名单配置，不接收原始文件内容。
+	ConfigValues map[string]string `json:"configValues,omitempty"`
 }
 
 // Parse 从文件解析任务并做基础校验。
@@ -66,7 +76,8 @@ func Parse(path string) (*Task, error) {
 		return nil, fmt.Errorf("任务缺少 taskId")
 	}
 	switch t.Action {
-	case ActionUpgrade, ActionUpdaterUpgrade, ActionRollback:
+	case ActionUpgrade, ActionUpdaterUpgrade, ActionRollback,
+		ActionConfigValidate, ActionConfigApply, ActionConfigRollback:
 	default:
 		return nil, fmt.Errorf("未知任务动作: %s", t.Action)
 	}

@@ -13,6 +13,7 @@ import com.aid.common.core.controller.BaseController;
 import com.aid.common.core.domain.AjaxResult;
 import com.aid.common.enums.BusinessType;
 import com.aid.upgrade.dto.OfficialGatewaySaveDto;
+import com.aid.upgrade.dto.DeploymentConfigSaveDto;
 import com.aid.upgrade.dto.RollbackRequestDto;
 import com.aid.upgrade.dto.UpgradeSourceSaveDto;
 import com.aid.upgrade.service.ISystemUpgradeService;
@@ -83,6 +84,37 @@ public class SystemUpgradeController extends BaseController {
 	@PreAuthorize("@ss.hasPermi('aidconfig:upgrade:list')")
     public AjaxResult updaterLogs() {
         return success(systemUpgradeService.getUpdaterLogs());
+    }
+
+    /** 查询升级器实际加载的脱敏部署配置。 */
+    @GetMapping("/deployment-config")
+	@PreAuthorize("@ss.hasPermi('aidconfig:upgrade:list')")
+    public AjaxResult deploymentConfig() {
+        return success(systemUpgradeService.getDeploymentConfig());
+    }
+
+    /** 校验部署配置但不写入、不重启。 */
+    @PreAuthorize("@ss.hasPermi('aidconfig:upgrade:source')")
+    @Log(title = "部署配置校验", businessType = BusinessType.UPDATE)
+    @PostMapping("/deployment-config/validate")
+    public AjaxResult validateDeploymentConfig(@RequestBody DeploymentConfigSaveDto saveDto) {
+        return AjaxResult.success(systemUpgradeService.validateDeploymentConfig(saveDto));
+    }
+
+    /** 备份并应用部署配置，随后由升级器重启和健康检查。 */
+    @PreAuthorize("@ss.hasPermi('aidconfig:upgrade:source')")
+    @Log(title = "部署配置应用", businessType = BusinessType.UPDATE)
+    @PostMapping("/deployment-config/apply")
+    public AjaxResult applyDeploymentConfig(@RequestBody DeploymentConfigSaveDto saveDto) {
+        return AjaxResult.success(systemUpgradeService.applyDeploymentConfig(saveDto));
+    }
+
+    /** 恢复上一份部署配置并重启。 */
+    @PreAuthorize("@ss.hasPermi('aidconfig:upgrade:source')")
+    @Log(title = "部署配置恢复", businessType = BusinessType.UPDATE)
+    @PostMapping("/deployment-config/rollback")
+    public AjaxResult rollbackDeploymentConfig() {
+        return AjaxResult.success(systemUpgradeService.rollbackDeploymentConfig());
     }
 
     /**

@@ -9,6 +9,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -19,6 +20,7 @@ import com.aid.common.aid.core.service.ConfigService;
 import com.aid.common.exception.ServiceException;
 import com.aid.common.utils.DateUtils;
 import com.aid.upgrade.constant.UpgradeConfigKeys;
+import com.aid.upgrade.dto.DeploymentConfigVo;
 import com.aid.upgrade.dto.UpdaterLastTaskVo;
 import com.aid.upgrade.dto.UpdaterLogVo;
 import com.aid.upgrade.dto.UpdaterStatusVo;
@@ -55,7 +57,7 @@ public class UpdaterClient {
     public static final String STATUS_UNKNOWN = "UNKNOWN";
 
     /** 当前后端支持的升级器协议版本 */
-    private static final int SUPPORTED_PROTOCOL_VERSION = 1;
+    private static final int SUPPORTED_PROTOCOL_VERSION = 2;
 
     /** 健康文件体积上限，防止误配大文件被整读 */
     private static final long MAX_HEALTH_FILE_BYTES = 64 * 1024L;
@@ -99,9 +101,11 @@ public class UpdaterClient {
             String status = health.getString("status");
             Integer protocolVersion = health.getInteger("protocolVersion");
             vo.setVersion(health.getString("version"));
+            vo.setProtocolVersion(protocolVersion);
             // 部署方式由升级器按自身配置上报（systemd=手动部署 / docker=容器部署）
             vo.setServiceManager(StrUtil.trimToNull(health.getString("serviceManager")));
             vo.setLastTask(parseLastTask(health));
+            vo.setDeploymentConfig(parseDeploymentConfig(health));
             if (Objects.equals("RUNNING", status) && isHeartbeatStale(health)) {
                 // 升级器异常退出时健康文件可能残留 RUNNING，按心跳时间判定真实状态
                 vo.setStatus(STATUS_STOPPED);
@@ -123,6 +127,30 @@ public class UpdaterClient {
             vo.setStatus(STATUS_UNKNOWN);
             vo.setMessage("升级器状态文件解析失败，请检查 aid-updater 安装。");
         }
+        return vo;
+    }
+
+    /**
+     * 解析升级器提供的脱敏部署配置；密钥原文不会出现在健康文件中。
+     */
+    private DeploymentConfigVo parseDeploymentConfig(JSONObject health) {
+        JSONObject configuration = health.getJSONObject("configuration");
+        if (Objects.isNull(configuration)) {
+            return null;
+        }
+        DeploymentConfigVo vo = new DeploymentConfigVo();
+        vo.setMode(StrUtil.trimToNull(configuration.getString("mode")));
+        vo.setConfigPath(StrUtil.trimToNull(configuration.getString("configPath")));
+        vo.setDefaultConfigPath(StrUtil.trimToNull(configuration.getString("defaultConfigPath")));
+        vo.setAllowedConfigRoot(StrUtil.trimToNull(configuration.getString("allowedConfigRoot")));
+        Map<String, String> values = new HashMap<>();
+        JSONObject valueObject = configuration.getJSONObject("values");
+        if (Objects.nonNull(valueObject)) {
+            valueObject.forEach((key, value) -> values.put(key, Objects.toString(value, "")));
+        }
+        vo.setValues(values);
+        List<String> configuredSecrets = configuration.getList("configuredSecrets", String.class);
+        vo.setConfiguredSecrets(Objects.isNull(configuredSecrets) ? List.of() : configuredSecrets);
         return vo;
     }
 

@@ -25,8 +25,10 @@ aid-master/
 │   │   │   └── storyboard/               分镜视频生成与选片同步
 │   │   └── src/test/java/com/aid/
 │   │       ├── auth/service/              发码前邀请码校验测试
-│   │       └── promotion/service/impl/    邀请码严格校验与注册绑定测试
+│   │       ├── promotion/service/impl/    邀请码严格校验与注册绑定测试
+│   │       └── rps/queue/                 批量任务终态分类测试
 │   └── aid-interface-system/             实体、Mapper 与领域服务
+│       └── com/aid/aid/domain/dto/AidAiProviderStatusRequest.java  服务商启停专用入参
 ├── doc/Business-API.md                   C 端接口文档
 └── sql/
     ├── aid-init.sql                      已合并全部初始化结构与配置数据

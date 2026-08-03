@@ -18,6 +18,21 @@ func TestParseRejectsUnsafeTaskID(t *testing.T) {
 	}
 }
 
+func TestParseSourceBuildTask(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "task.json")
+	raw := `{"schemaVersion":1,"taskId":"source-1","action":"UPGRADE","targetVersion":"1.0.0-beta.3","buildFromSource":true}`
+	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := Parse(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !parsed.BuildFromSource || parsed.TargetVersion != "1.0.0-beta.3" {
+		t.Fatalf("unexpected source task: %#v", parsed)
+	}
+}
+
 func TestRecoveryCompletedStatePersists(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "recovery.json")
 	record := &recoveryRecord{Task: Task{TaskID: "task-1"}}

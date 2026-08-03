@@ -1,6 +1,8 @@
 package com.aid.upgrade.service;
 
 import com.aid.upgrade.dto.DocLinksVo;
+import com.aid.upgrade.dto.DeploymentConfigSaveDto;
+import com.aid.upgrade.dto.DeploymentConfigVo;
 import com.aid.upgrade.dto.OfficialApiStatusVo;
 import com.aid.upgrade.dto.OfficialGatewaySaveDto;
 import com.aid.upgrade.dto.OfficialGatewaySettingVo;
@@ -38,6 +40,18 @@ public interface ISystemUpgradeService {
      * @return 升级器日志
      */
     UpdaterLogVo getUpdaterLogs();
+
+    /** 查询升级器当前加载的脱敏部署配置。 */
+    DeploymentConfigVo getDeploymentConfig();
+
+    /** 提交部署配置校验任务。 */
+    String validateDeploymentConfig(DeploymentConfigSaveDto saveDto);
+
+    /** 提交部署配置应用与重启任务。 */
+    String applyDeploymentConfig(DeploymentConfigSaveDto saveDto);
+
+    /** 恢复上一份部署配置并重启。 */
+    String rollbackDeploymentConfig();
 
     /**
      * 提交一键升级任务

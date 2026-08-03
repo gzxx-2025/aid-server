@@ -130,6 +130,12 @@ func (r *Runner) PollOnce() bool {
 		runErr = r.runApply(t, true)
 	case ActionUpdaterUpgrade:
 		runErr = r.runSelfUpgrade(t)
+	case ActionConfigValidate:
+		runErr = r.runConfigValidate(t)
+	case ActionConfigApply:
+		runErr = r.runConfigApply(t)
+	case ActionConfigRollback:
+		runErr = r.runConfigRollback()
 	}
 
 	if runErr != nil {
@@ -145,8 +151,16 @@ func (r *Runner) PollOnce() bool {
 		return true
 	}
 	log.Printf("任务 %s 执行成功", t.TaskID)
-	r.reporter.SetTask(t.TaskID, t.Action, health.TaskStateSuccess,
-		fmt.Sprintf("已完成 %s -> %s", t.SourceVersion, t.TargetVersion))
+	message := fmt.Sprintf("已完成 %s -> %s", t.SourceVersion, t.TargetVersion)
+	switch t.Action {
+	case ActionConfigValidate:
+		message = "配置校验通过"
+	case ActionConfigApply:
+		message = "配置已应用并完成重启"
+	case ActionConfigRollback:
+		message = "已恢复上一份配置并完成重启"
+	}
+	r.reporter.SetTask(t.TaskID, t.Action, health.TaskStateSuccess, message)
 	return true
 }
 

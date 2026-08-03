@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -43,6 +44,17 @@ type Database struct {
 	ExecContainer string `json:"execContainer"`
 }
 
+// Deployment 描述部署配置文件的受控位置。业务运行配置始终以该文件为唯一真源，
+// 升级器只允许在默认文件或 allowedConfigRoot 下读写，避免后台形成任意文件访问能力。
+type Deployment struct {
+	DescriptorFile    string `json:"descriptorFile"`
+	ConfigPath        string `json:"configPath"`
+	DefaultConfigPath string `json:"defaultConfigPath"`
+	AllowedConfigRoot string `json:"allowedConfigRoot"`
+	ComposeFile       string `json:"composeFile"`
+	ManagerScript     string `json:"managerScript"`
+}
+
 // Config 为升级器全量配置。
 type Config struct {
 	// HealthFile 健康文件路径（与后台「升级源配置」保持一致）
@@ -60,9 +72,14 @@ type Config struct {
 	// DownloadTimeoutSeconds 单个制品下载超时（秒）
 	DownloadTimeoutSeconds int `json:"downloadTimeoutSeconds"`
 	// KeepBackups 升级/回退前自动备份的保留份数，超出按时间从旧到新清理
-	KeepBackups int      `json:"keepBackups"`
-	Install     Install  `json:"install"`
-	Database    Database `json:"database"`
+	KeepBackups int `json:"keepBackups"`
+	// SourceBuildScript 按版本标签拉取三端源码并组装本地升级包的脚本路径
+	SourceBuildScript string `json:"sourceBuildScript"`
+	// SourceBuildTimeoutSeconds 三端源码构建总超时（秒）
+	SourceBuildTimeoutSeconds int        `json:"sourceBuildTimeoutSeconds"`
+	Install                   Install    `json:"install"`
+	Database                  Database   `json:"database"`
+	Deployment                Deployment `json:"deployment"`
 }
 
 // Load 读取 JSON 配置并应用默认值与基础校验。
@@ -78,6 +95,11 @@ func Load(path string) (*Config, error) {
 	cfg.applyDefaults()
 	if err := cfg.validate(); err != nil {
 		return nil, err
+	}
+	// 部署配置文件是数据库连接等运行参数的唯一真源；升级器每次启动都重新加载，
+	// 避免管理员修改配置后升级器仍使用旧凭据执行备份或增量 SQL。
+	if _, err := cfg.RefreshDeployment(); err != nil {
+		return nil, fmt.Errorf("加载部署配置失败: %w", err)
 	}
 	return cfg, nil
 }
@@ -95,6 +117,13 @@ func (c *Config) applyDefaults() {
 	if c.KeepBackups <= 0 {
 		c.KeepBackups = 3
 	}
+	if strings.TrimSpace(c.SourceBuildScript) == "" && strings.TrimSpace(c.Install.BackendJar) != "" {
+		dataRoot := filepath.Dir(filepath.Dir(c.Install.BackendJar))
+		c.SourceBuildScript = filepath.Join(dataRoot, "installer", "deploy", "build-release-from-source.sh")
+	}
+	if c.SourceBuildTimeoutSeconds <= 0 {
+		c.SourceBuildTimeoutSeconds = 7200
+	}
 	if strings.TrimSpace(c.Install.ServiceManager) == "" {
 		c.Install.ServiceManager = "systemd"
 	}
@@ -103,6 +132,31 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Database.Port <= 0 {
 		c.Database.Port = 3306
+	}
+	if strings.TrimSpace(c.Install.BackendJar) != "" {
+		dataRoot := filepath.Dir(filepath.Dir(c.Install.BackendJar))
+		if strings.TrimSpace(c.Deployment.DescriptorFile) == "" {
+			c.Deployment.DescriptorFile = filepath.Join(dataRoot, "config", "deployment.json")
+		}
+		if strings.TrimSpace(c.Deployment.AllowedConfigRoot) == "" {
+			c.Deployment.AllowedConfigRoot = filepath.Join(dataRoot, "config")
+		}
+		if strings.TrimSpace(c.Deployment.ManagerScript) == "" {
+			c.Deployment.ManagerScript = filepath.Join(dataRoot, "installer", "deploy", "aid.sh")
+		}
+		if strings.TrimSpace(c.Deployment.ComposeFile) == "" {
+			c.Deployment.ComposeFile = filepath.Join(dataRoot, "installer", "deploy", "docker", "docker-compose.yml")
+		}
+		if strings.TrimSpace(c.Deployment.DefaultConfigPath) == "" {
+			if strings.EqualFold(c.Install.ServiceManager, "docker") {
+				c.Deployment.DefaultConfigPath = filepath.Join(dataRoot, "installer", "deploy", "docker", ".env")
+			} else {
+				c.Deployment.DefaultConfigPath = filepath.Join(dataRoot, "aid-deploy.conf")
+			}
+		}
+		if strings.TrimSpace(c.Deployment.ConfigPath) == "" {
+			c.Deployment.ConfigPath = c.Deployment.DefaultConfigPath
+		}
 	}
 }
 
@@ -138,6 +192,9 @@ func (c *Config) validate() error {
 			strings.TrimSpace(c.Database.User) == "" {
 			return fmt.Errorf("配置缺失: database.host/name/user")
 		}
+	}
+	if strings.TrimSpace(c.Deployment.ConfigPath) == "" || strings.TrimSpace(c.Deployment.DefaultConfigPath) == "" {
+		return fmt.Errorf("配置缺失: deployment.configPath/defaultConfigPath")
 	}
 	return nil
 }

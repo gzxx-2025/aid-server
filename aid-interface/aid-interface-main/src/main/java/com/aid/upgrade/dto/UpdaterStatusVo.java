@@ -16,6 +16,9 @@ public class UpdaterStatusVo {
     /** 本地升级器版本 */
     private String version;
 
+    /** 升级器任务协议版本 */
+    private Integer protocolVersion;
+
     /** 部署方式（升级器按自身配置上报）：systemd=手动部署 / docker=容器部署 */
     private String serviceManager;
 
@@ -33,4 +36,7 @@ public class UpdaterStatusVo {
 
     /** 最近一次任务执行结果（升级器透出） */
     private UpdaterLastTaskVo lastTask;
+
+    /** 升级器读取到的脱敏部署运行配置 */
+    private DeploymentConfigVo deploymentConfig;
 }

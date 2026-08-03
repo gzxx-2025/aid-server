@@ -429,12 +429,12 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
                     "剩余任务已取消", "部分生成失败，可续生",
                     TASK_TYPE_FORM_GENERATE_BATCH, false);
 
-    /** 本地编排规格：批量形态图生成（有失败项仍记 SUCCEEDED，与 Consumer 同口径） */
+    /** 本地编排规格：批量形态图生成（全成功/部分失败/全部失败分别收口） */
     private static final com.aid.rps.queue.BatchTaskLocalOrchestrator.Spec LOCAL_SPEC_FORM_IMAGE =
             new com.aid.rps.queue.BatchTaskLocalOrchestrator.Spec(
                     "form_image_gen", "初始化批量形态图生成...",
                     "剩余任务已取消", "部分生成失败，可续生",
-                    TASK_TYPE_FORM_IMAGE_BATCH, false);
+                    TASK_TYPE_FORM_IMAGE_BATCH, true, true);
 
     /** 本地编排规格：批量设定卡生成（有失败项 → PARTIAL_FAILED，与 Consumer 同口径） */
     private static final com.aid.rps.queue.BatchTaskLocalOrchestrator.Spec LOCAL_SPEC_FORM_CARD =

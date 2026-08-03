@@ -14,6 +14,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.aid.aid.domain.AidExtractTask;
 import com.aid.aid.service.IAidExtractTaskService;
+import com.aid.common.error.TaskErrorCode;
+import com.aid.common.error.TaskErrorResult;
 import com.aid.common.utils.DateUtils;
 import com.aid.notify.wechat.service.IWechatNotifyService;
 import com.aid.rps.sse.AssetExtractSseManager;
@@ -44,6 +46,14 @@ public class BatchTaskLocalOrchestrator
     private static final String TASK_TYPE_STORYBOARD_VIDEO_PROMPT_BATCH = "storyboard_video_prompt_batch";
     private static final String CHILD_TASK_TYPE_IMAGE = "storyboard_image_generate";
     private static final String CHILD_TASK_TYPE_VIDEO = "storyboard_video_generate";
+
+    /** 批量结果对应的业务终态。 */
+    public enum BatchResultState
+    {
+        SUCCEEDED,
+        PARTIAL_FAILED,
+        FAILED
+    }
 
     @Resource
     private IAidExtractTaskService extractTaskService;
@@ -83,15 +93,25 @@ public class BatchTaskLocalOrchestrator
         public final String taskType;
         /** 是否在「有失败项」时置 PARTIAL_FAILED（true=保留续生入口；false=有失败也记 SUCCEEDED） */
         public final boolean partialOnFailed;
+        /** 是否在成功数为 0 且存在失败项时置 FAILED。 */
+        public final boolean failWhenNoSuccess;
 
         public Spec(String stepKey, String initMessage, String cancelSkippedMessage,
                     String partialMessage, String taskType)
         {
-            this(stepKey, initMessage, cancelSkippedMessage, partialMessage, taskType, true);
+            this(stepKey, initMessage, cancelSkippedMessage, partialMessage, taskType, true, false);
         }
 
         public Spec(String stepKey, String initMessage, String cancelSkippedMessage,
                     String partialMessage, String taskType, boolean partialOnFailed)
+        {
+            this(stepKey, initMessage, cancelSkippedMessage, partialMessage,
+                    taskType, partialOnFailed, false);
+        }
+
+        public Spec(String stepKey, String initMessage, String cancelSkippedMessage,
+                    String partialMessage, String taskType, boolean partialOnFailed,
+                    boolean failWhenNoSuccess)
         {
             this.stepKey = stepKey;
             this.initMessage = initMessage;
@@ -99,6 +119,7 @@ public class BatchTaskLocalOrchestrator
             this.partialMessage = partialMessage;
             this.taskType = taskType;
             this.partialOnFailed = partialOnFailed;
+            this.failWhenNoSuccess = failWhenNoSuccess;
         }
     }
 
@@ -149,8 +170,25 @@ public class BatchTaskLocalOrchestrator
                 log.info("本地批量任务: 取消标记已清除，全部项已处理完毕: taskId={}, type={}", taskId, spec.taskType);
             }
 
+            BatchResultState resultState = resolveResultState(resultJson);
+            // 全部失败必须进入 FAILED，不能把「流程执行完」误当成「业务生成成功」。
+            if (spec.failWhenNoSuccess && BatchResultState.FAILED.equals(resultState))
+            {
+                String rawMessage = resolveFailureMessage(resultJson, "图片生成失败");
+                TaskErrorResult error = TaskErrorResult.of(TaskErrorCode.AI_GENERATION_FAILED, rawMessage);
+                if (!updateResult(taskId, dispatchToken, TASK_STATUS_FAILED, resultJson, rawMessage))
+                {
+                    log.info("本地批量任务全部失败收口跳过，周期已变化: taskId={}", taskId);
+                    return;
+                }
+                wechatNotifyService.notifyTaskTerminal(taskId);
+                sseManager.sendError(taskId, error);
+                log.error("本地批量任务全部失败: taskId={}, type={}", taskId, spec.taskType);
+                return;
+            }
+
             // 部分失败 → PARTIAL_FAILED（保留续生入口，禁止用 complete 误判完全成功）
-            if (spec.partialOnFailed && hasFailedItems(resultJson))
+            if (spec.partialOnFailed && !BatchResultState.SUCCEEDED.equals(resultState))
             {
                 // 先同步发布终态事件（合并任务链式触发器据此触发出图/出片并回填子任务 ID），再推 partial_failed
                 BatchPromptTerminalEvent event = publishTerminal(taskId, spec.taskType, TASK_STATUS_PARTIAL_FAILED);
@@ -430,22 +468,52 @@ public class BatchTaskLocalOrchestrator
         return fallback;
     }
 
-    /** result_data 是否含失败项（successCount + skipCount < totalCount）。 */
-    private boolean hasFailedItems(String resultJson)
+    /**
+     * 根据批量结果计数判定业务终态。
+     * <p>
+     * skipCount 表示无需重复执行的已有结果，按有效完成项计算；解析失败时保持旧行为，按成功处理。
+     * </p>
+     */
+    public static BatchResultState resolveResultState(String resultJson)
     {
-        if (StrUtil.isBlank(resultJson)) { return false; }
+        if (StrUtil.isBlank(resultJson)) { return BatchResultState.SUCCEEDED; }
         try
         {
             Map<?, ?> result = OBJECT_MAPPER.readValue(resultJson, Map.class);
             int t = intVal(result.get("totalCount"));
             int s = intVal(result.get("successCount"));
             int k = intVal(result.get("skipCount"));
-            return t > 0 && (s + k) < t;
+            if (t <= 0 || (s + k) >= t)
+            {
+                return BatchResultState.SUCCEEDED;
+            }
+            return (s + k) > 0 ? BatchResultState.PARTIAL_FAILED : BatchResultState.FAILED;
         }
         catch (Exception e)
         {
             log.warn("本地批量任务结果解析失败（按无失败项处理）: err={}", e.getMessage());
-            return false;
+            return BatchResultState.SUCCEEDED;
+        }
+    }
+
+    /** 从 failedItems 首项提取可追踪的失败原因，数据库保留该原始文案。 */
+    public static String resolveFailureMessage(String resultJson, String fallback)
+    {
+        if (StrUtil.isBlank(resultJson)) { return fallback; }
+        try
+        {
+            JsonNode first = OBJECT_MAPPER.readTree(resultJson).path("failedItems").path(0);
+            String message = first.path("message").asText(null);
+            if (StrUtil.isBlank(message))
+            {
+                message = first.path("errorMessage").asText(null);
+            }
+            return StrUtil.blankToDefault(message, fallback);
+        }
+        catch (Exception e)
+        {
+            log.warn("本地批量任务失败原因解析失败: err={}", e.getMessage());
+            return fallback;
         }
     }
 
@@ -468,7 +536,7 @@ public class BatchTaskLocalOrchestrator
         }
     }
 
-    private int intVal(Object v)
+    private static int intVal(Object v)
     {
         return (v instanceof Number) ? ((Number) v).intValue() : 0;
     }

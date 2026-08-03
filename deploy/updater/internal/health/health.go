@@ -18,7 +18,7 @@ const (
 	StatusStopped = "STOPPED"
 
 	// ProtocolVersion 当前升级器协议版本
-	ProtocolVersion = 1
+	ProtocolVersion = 2
 
 	timeLayout = "2006-01-02 15:04:05"
 )
@@ -39,13 +39,24 @@ type LastTask struct {
 	FinishedAt string `json:"finishedAt,omitempty"`
 }
 
+// DeploymentConfiguration 是允许后台展示的部署配置快照，不包含任何密码或密钥原文。
+type DeploymentConfiguration struct {
+	Mode              string            `json:"mode"`
+	ConfigPath        string            `json:"configPath"`
+	DefaultConfigPath string            `json:"defaultConfigPath"`
+	AllowedConfigRoot string            `json:"allowedConfigRoot"`
+	Values            map[string]string `json:"values"`
+	ConfiguredSecrets []string          `json:"configuredSecrets"`
+}
+
 type payload struct {
-	Status          string    `json:"status"`
-	Version         string    `json:"version"`
-	ProtocolVersion int       `json:"protocolVersion"`
-	ServiceManager  string    `json:"serviceManager,omitempty"`
-	UpdatedAt       string    `json:"updatedAt"`
-	LastTask        *LastTask `json:"lastTask,omitempty"`
+	Status          string                   `json:"status"`
+	Version         string                   `json:"version"`
+	ProtocolVersion int                      `json:"protocolVersion"`
+	ServiceManager  string                   `json:"serviceManager,omitempty"`
+	UpdatedAt       string                   `json:"updatedAt"`
+	LastTask        *LastTask                `json:"lastTask,omitempty"`
+	Configuration   *DeploymentConfiguration `json:"configuration,omitempty"`
 }
 
 // Reporter 周期性写健康文件，并承载最近任务状态。
@@ -54,8 +65,17 @@ type Reporter struct {
 	version        string
 	serviceManager string
 
-	mu       sync.Mutex
-	lastTask *LastTask
+	mu            sync.Mutex
+	lastTask      *LastTask
+	configuration *DeploymentConfiguration
+}
+
+// SetConfiguration 更新脱敏后的部署配置快照并立即刷新健康文件。
+func (r *Reporter) SetConfiguration(configuration *DeploymentConfiguration) {
+	r.mu.Lock()
+	r.configuration = cloneConfiguration(configuration)
+	r.mu.Unlock()
+	r.write(StatusRunning)
 }
 
 // NewReporter 创建健康报告器；serviceManager 为部署方式标识（systemd/docker），随心跳透出。
@@ -107,6 +127,7 @@ func (r *Reporter) write(status string) {
 		ServiceManager:  r.serviceManager,
 		UpdatedAt:       time.Now().Format(timeLayout),
 		LastTask:        r.lastTask,
+		Configuration:   cloneConfiguration(r.configuration),
 	}
 	r.mu.Unlock()
 
@@ -117,6 +138,24 @@ func (r *Reporter) write(status string) {
 	}
 	if err := atomicWrite(r.filePath, raw); err != nil {
 		log.Printf("写入健康文件失败: %v", err)
+	}
+}
+
+func cloneConfiguration(source *DeploymentConfiguration) *DeploymentConfiguration {
+	if source == nil {
+		return nil
+	}
+	values := make(map[string]string, len(source.Values))
+	for key, value := range source.Values {
+		values[key] = value
+	}
+	return &DeploymentConfiguration{
+		Mode:              source.Mode,
+		ConfigPath:        source.ConfigPath,
+		DefaultConfigPath: source.DefaultConfigPath,
+		AllowedConfigRoot: source.AllowedConfigRoot,
+		Values:            values,
+		ConfiguredSecrets: append([]string(nil), source.ConfiguredSecrets...),
 	}
 }
 

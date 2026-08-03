@@ -30,6 +30,7 @@ type UpdaterPackage struct {
 // ChannelRelease 单渠道发行信息（正式版在顶层，测试版在 beta 字段）。
 type ChannelRelease struct {
 	ProductVersion   string            `json:"productVersion"`
+	SourceBuild      bool              `json:"sourceBuild"`
 	PackageURL       string            `json:"packageUrl"`
 	PackageMirrors   []string          `json:"packageMirrors,omitempty"`
 	PackageSHA256    string            `json:"packageSha256"`
@@ -46,6 +47,7 @@ type ChannelUpdater struct {
 // Manifest 仅包含升级器关心的清单字段。
 type Manifest struct {
 	ProductVersion   string            `json:"productVersion"`
+	SourceBuild      bool              `json:"sourceBuild"`
 	PackageURL       string            `json:"packageUrl"`
 	PackageMirrors   []string          `json:"packageMirrors,omitempty"`
 	PackageSHA256    string            `json:"packageSha256"`
@@ -145,6 +147,33 @@ func isSecureURL(raw string) bool {
 func (m *Manifest) MatchProductRelease(version, packageURL, sha256 string) bool {
 	_, ok := m.ProductPackageMirrors(version, packageURL, sha256)
 	return ok
+}
+
+// MatchProductVersion 判断目标版本是否存在于已签名的正式版或测试版清单中。
+// 源码构建不消费发布包 URL/SHA，只允许构建签名清单明确发布的版本。
+func (m *Manifest) MatchProductVersion(version string) bool {
+	target := strings.TrimSpace(version)
+	if target == "" {
+		return false
+	}
+	if strings.TrimSpace(m.ProductVersion) == target {
+		return true
+	}
+	return m.Beta != nil && strings.TrimSpace(m.Beta.ProductVersion) == target
+}
+
+// MatchSourceBuildVersion 判断签名清单中的目标版本是否明确启用源码构建。
+// 该判断同时用于兼容旧版后台：旧后台仍提交 packageUrl/sha256，但新版升级器
+// 看到目标渠道 sourceBuild=true 后会忽略兼容字段，改走固定版本标签构建。
+func (m *Manifest) MatchSourceBuildVersion(version string) bool {
+	target := strings.TrimSpace(version)
+	if target == "" {
+		return false
+	}
+	if strings.TrimSpace(m.ProductVersion) == target {
+		return m.SourceBuild
+	}
+	return m.Beta != nil && strings.TrimSpace(m.Beta.ProductVersion) == target && m.Beta.SourceBuild
 }
 
 // ProductPackageMirrors 返回已签名清单中与任务匹配的产品包镜像地址。

@@ -7,6 +7,8 @@
   "heartbeatIntervalSeconds": 5,
   "downloadTimeoutSeconds": 600,
   "keepBackups": 3,
+  "sourceBuildScript": "/data/aid/installer/deploy/build-release-from-source.sh",
+  "sourceBuildTimeoutSeconds": 7200,
   "install": {
     "backendJar": "/data/aid/app/aid-admin.jar",
     "adminDist": "/data/aid/app/admin-dist",
@@ -25,5 +27,13 @@
     "user": "root",
     "password": "",
     "execContainer": ""
+  },
+  "deployment": {
+    "descriptorFile": "/data/aid/config/deployment.json",
+    "configPath": "/data/aid/aid-deploy.conf",
+    "defaultConfigPath": "/data/aid/aid-deploy.conf",
+    "allowedConfigRoot": "/data/aid/config",
+    "composeFile": "/data/aid/installer/deploy/docker/docker-compose.yml",
+    "managerScript": "/data/aid/installer/deploy/aid.sh"
   }
 }

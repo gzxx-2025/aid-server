@@ -63,3 +63,27 @@ func TestProductPackageMirrorsSupportsNewAndLegacyManifest(t *testing.T) {
 		t.Fatalf("legacy manifest should match without mirrors: %#v, matched=%v", mirrors, ok)
 	}
 }
+
+func TestMatchProductVersionSupportsStableAndBeta(t *testing.T) {
+	m := &Manifest{
+		ProductVersion: "1.0.0",
+		SourceBuild:    true,
+		Beta:           &ChannelRelease{ProductVersion: "1.1.0-beta.1", SourceBuild: true},
+	}
+	if !m.MatchProductVersion("1.0.0") {
+		t.Fatal("expected stable version to match")
+	}
+	if !m.MatchProductVersion("1.1.0-beta.1") {
+		t.Fatal("expected beta version to match")
+	}
+	if m.MatchProductVersion("1.2.0") || m.MatchProductVersion(" ") {
+		t.Fatal("unexpected unsigned version match")
+	}
+	if !m.MatchSourceBuildVersion("1.0.0") || !m.MatchSourceBuildVersion("1.1.0-beta.1") {
+		t.Fatal("expected source-build versions to match")
+	}
+	m.Beta.SourceBuild = false
+	if m.MatchSourceBuildVersion("1.1.0-beta.1") || m.MatchSourceBuildVersion("1.2.0") {
+		t.Fatal("unexpected source-build version match")
+	}
+}

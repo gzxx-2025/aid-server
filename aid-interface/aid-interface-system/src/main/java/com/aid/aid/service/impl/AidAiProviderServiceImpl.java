@@ -26,6 +26,12 @@ import org.springframework.stereotype.Service;
 @Service
 public class AidAiProviderServiceImpl extends ServiceImpl<AidAiProviderMapper, AidAiProvider> implements IAidAiProviderService
 {
+    /** 启用状态 */
+    private static final String STATUS_ENABLED = "0";
+
+    /** 停用状态 */
+    private static final String STATUS_DISABLED = "1";
+
     /**
      * 查询AI大模型服务商(官方渠道)配置
      *
@@ -93,6 +99,36 @@ public class AidAiProviderServiceImpl extends ServiceImpl<AidAiProviderMapper, A
         validateAndNormalizeBaseUrl(aidAiProvider);
         aidAiProvider.setUpdateTime(DateUtils.getNowDate());
         return this.updateById(aidAiProvider) ? 1 : 0;
+    }
+
+    /**
+     * 修改AI大模型服务商启停状态。
+     * 状态切换只更新状态及审计字段，避免把局部请求误当完整服务商配置校验。
+     *
+     * @param id 服务商主键
+     * @param status 目标状态：0启用，1停用
+     * @param updateBy 更新者
+     * @return 结果
+     */
+    @Override
+    public int updateAidAiProviderStatus(Long id, String status, String updateBy)
+    {
+        if (Objects.isNull(id))
+        {
+            log.error("修改服务商状态失败, 服务商主键为空");
+            throw new ServiceException("主键不能为空");
+        }
+        if (!Objects.equals(STATUS_ENABLED, status) && !Objects.equals(STATUS_DISABLED, status))
+        {
+            log.error("修改服务商状态失败, 状态非法, id={}, status={}", id, status);
+            throw new ServiceException("状态参数错误");
+        }
+        AidAiProvider updateProvider = new AidAiProvider();
+        updateProvider.setId(id);
+        updateProvider.setStatus(status);
+        updateProvider.setUpdateTime(DateUtils.getNowDate());
+        updateProvider.setUpdateBy(updateBy);
+        return this.updateById(updateProvider) ? 1 : 0;
     }
 
     /**

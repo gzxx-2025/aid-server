@@ -1,9 +1,11 @@
 package task
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -27,23 +29,51 @@ const (
 
 // runApply 执行系统升级或版本回退：下载→校验→解压→备份→停服→替换→SQL→启动→健康检查，失败自动回滚。
 func (r *Runner) runApply(t *Task, isRollback bool) error {
-	if strings.TrimSpace(t.PackageURL) == "" || strings.TrimSpace(t.SHA256) == "" {
-		return fmt.Errorf("任务缺少制品直链或校验值")
+	var mirrors []string
+	var err error
+	buildFromSource := t.BuildFromSource
+	if !buildFromSource && !isRollback {
+		buildFromSource, err = sourceBuildFromSignedManifest(t)
+		if err != nil {
+			return err
+		}
+		if buildFromSource {
+			log.Printf("检测到旧版后台提交的升级任务，已按签名清单切换为源码构建: %s", t.TargetVersion)
+		}
 	}
-	mirrors, err := verifyApplyTask(t, isRollback)
-	if err != nil {
-		return err
+	if buildFromSource {
+		if isRollback {
+			return fmt.Errorf("源码构建暂不支持版本回退")
+		}
+		if err = verifySourceBuildTask(t); err != nil {
+			return err
+		}
+	} else {
+		if strings.TrimSpace(t.PackageURL) == "" || strings.TrimSpace(t.SHA256) == "" {
+			return fmt.Errorf("任务缺少制品直链或校验值")
+		}
+		mirrors, err = verifyApplyTask(t, isRollback)
+		if err != nil {
+			return err
+		}
 	}
 
-	// 1. 下载并校验
+	// 1. 按签名清单中的版本标签构建，或兼容旧任务下载并校验发布包
 	archivePath := filepath.Join(r.cfg.WorkDir, fmt.Sprintf("pkg-%s.tar.gz", t.TaskID))
 	extractDir := filepath.Join(r.cfg.WorkDir, fmt.Sprintf("extract-%s", t.TaskID))
-	defer r.cleanupWork(archivePath, extractDir)
+	sourceWorkDir := filepath.Join(r.cfg.WorkDir, fmt.Sprintf("source-%s", t.TaskID))
+	defer r.cleanupWork(archivePath, extractDir, sourceWorkDir)
 
-	sources := append([]string{t.PackageURL}, mirrors...)
-	if _, _, err := artifact.DownloadAndVerify(sources, archivePath, t.SHA256,
-		time.Duration(r.cfg.DownloadTimeoutSeconds)*time.Second); err != nil {
-		return fmt.Errorf("下载升级包失败: %w", err)
+	if buildFromSource {
+		if err := r.buildSourcePackage(t, archivePath, sourceWorkDir); err != nil {
+			return err
+		}
+	} else {
+		sources := append([]string{t.PackageURL}, mirrors...)
+		if _, _, err := artifact.DownloadAndVerify(sources, archivePath, t.SHA256,
+			time.Duration(r.cfg.DownloadTimeoutSeconds)*time.Second); err != nil {
+			return fmt.Errorf("下载升级包失败: %w", err)
+		}
 	}
 
 	// 2. 解压并校验包布局
@@ -171,12 +201,84 @@ func (r *Runner) runApply(t *Task, isRollback bool) error {
 		}
 		return r.restoreAndReport(snapshot, fmt.Errorf("提交升级完成状态失败: %w", err), recoveryPath, databaseDirty)
 	}
+	if err := r.refreshSourceBuildScripts(packageRoot); err != nil {
+		log.Printf("核心升级已完成，但部署管理脚本刷新失败: %v", err)
+	}
 	auxErr := restartAuxServices(r.cfg)
 	if err := os.Remove(recoveryPath); err != nil && !os.IsNotExist(err) {
 		log.Printf("清理已完成任务的恢复记录失败: %v", err)
 	}
 	if auxErr != nil {
 		return auxErr
+	}
+	return nil
+}
+
+// refreshSourceBuildScripts 只刷新脚本文件，不替换 installer/docker 整个目录，避免覆盖用户维护的 .env。
+func (r *Runner) refreshSourceBuildScripts(packageRoot string) error {
+	sourceDir := filepath.Join(packageRoot, "installer", "deploy")
+	targetBuilder := strings.TrimSpace(r.cfg.SourceBuildScript)
+	if targetBuilder == "" || !fileExists(filepath.Join(sourceDir, "build-release-from-source.sh")) {
+		return nil
+	}
+	targetDir := filepath.Dir(targetBuilder)
+	if err := os.MkdirAll(targetDir, 0o700); err != nil {
+		return err
+	}
+	files := map[string]string{
+		"build-release-from-source.sh": targetBuilder,
+		"aid.sh":                       filepath.Join(targetDir, "aid.sh"),
+	}
+	for name, target := range files {
+		source := filepath.Join(sourceDir, name)
+		if !fileExists(source) {
+			continue
+		}
+		if err := backup.CopyFile(source, target); err != nil {
+			return fmt.Errorf("刷新 %s 失败: %w", name, err)
+		}
+		if err := os.Chmod(target, 0o700); err != nil {
+			return fmt.Errorf("设置 %s 权限失败: %w", name, err)
+		}
+	}
+	return nil
+}
+
+// buildSourcePackage 调用部署时随安装器落盘的受控脚本，在独立目录构建目标版本。
+func (r *Runner) buildSourcePackage(t *Task, archivePath, sourceWorkDir string) error {
+	script := strings.TrimSpace(r.cfg.SourceBuildScript)
+	if script == "" {
+		return fmt.Errorf("升级器未配置源码构建脚本")
+	}
+	info, err := os.Lstat(script)
+	if err != nil {
+		return fmt.Errorf("源码构建脚本不可用: %w", err)
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o022 != 0 {
+		return fmt.Errorf("源码构建脚本类型非法")
+	}
+	if err := os.MkdirAll(r.cfg.WorkDir, 0o700); err != nil {
+		return fmt.Errorf("创建源码构建目录失败: %w", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(),
+		time.Duration(r.cfg.SourceBuildTimeoutSeconds)*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "/bin/sh", script,
+		"--version", t.TargetVersion,
+		"--output", archivePath,
+		"--work-dir", sourceWorkDir)
+	cmd.Env = append(os.Environ(), "AID_DATA_ROOT="+filepath.Dir(filepath.Dir(r.cfg.Install.BackendJar)))
+	cmd.Stdout = log.Writer()
+	cmd.Stderr = log.Writer()
+	log.Printf("开始远程源码构建 AID %s", t.TargetVersion)
+	if err := cmd.Run(); err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return fmt.Errorf("源码构建超时（%d秒）", r.cfg.SourceBuildTimeoutSeconds)
+		}
+		return fmt.Errorf("源码构建失败: %w", err)
+	}
+	if info, err := os.Stat(archivePath); err != nil || info.Size() == 0 {
+		return fmt.Errorf("源码构建未生成有效安装包")
 	}
 	return nil
 }
@@ -199,6 +301,33 @@ func verifyApplyTask(t *Task, isRollback bool) ([]string, error) {
 		return mirrors, nil
 	}
 	return nil, fmt.Errorf("回退任务不在签名清单中")
+}
+
+func verifySourceBuildTask(t *Task) error {
+	if strings.TrimSpace(t.ManifestURL) == "" {
+		return fmt.Errorf("任务缺少签名清单地址")
+	}
+	m, err := manifest.Fetch(t.ManifestURL, 30*time.Second)
+	if err != nil {
+		return fmt.Errorf("验证升级清单失败: %w", err)
+	}
+	if !m.MatchSourceBuildVersion(t.TargetVersion) {
+		return fmt.Errorf("签名清单未授权源码构建")
+	}
+	return nil
+}
+
+// sourceBuildFromSignedManifest 兼容旧版后台生成的任务。只有清单签名有效且目标
+// 版本明确声明 sourceBuild=true 时才切换，不能由任务里的 URL 或其他可变字段触发。
+func sourceBuildFromSignedManifest(t *Task) (bool, error) {
+	if strings.TrimSpace(t.ManifestURL) == "" {
+		return false, nil
+	}
+	m, err := manifest.Fetch(t.ManifestURL, 30*time.Second)
+	if err != nil {
+		return false, fmt.Errorf("验证升级清单失败: %w", err)
+	}
+	return m.MatchSourceBuildVersion(t.TargetVersion), nil
 }
 
 // restartAuxServices 依次重启配置的附属服务；未配置时跳过。

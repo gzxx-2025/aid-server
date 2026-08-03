@@ -2,6 +2,7 @@ package com.aid.aid.controller;
 
 import java.util.List;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.validation.Valid;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -17,6 +18,7 @@ import com.aid.common.core.controller.BaseController;
 import com.aid.common.core.domain.AjaxResult;
 import com.aid.common.enums.BusinessType;
 import com.aid.aid.domain.AidAiProvider;
+import com.aid.aid.domain.dto.AidAiProviderStatusRequest;
 import com.aid.aid.controller.support.AiConfigJsonValidator;
 import com.aid.aid.service.IAidAiProviderService;
 import com.aid.media.service.ConcurrencyConfigValidator;
@@ -129,6 +131,21 @@ public class AidAiProviderController extends BaseController
             }
         }
         return toAjax(aidAiProviderService.updateAidAiProvider(aidAiProvider));
+    }
+
+    /**
+     * 修改AI大模型服务商启停状态。
+     * 该接口只更新状态与审计字段，不触发完整配置编辑的网关地址校验。
+     */
+    @PreAuthorize("@ss.hasPermi('aid:aidprovider:edit')")
+    @Log(title = "AI大模型服务商(官方渠道)配置", businessType = BusinessType.UPDATE)
+    @PutMapping("/status")
+    public AjaxResult updateStatus(@Valid @RequestBody AidAiProviderStatusRequest request)
+    {
+        log.info("[AUDIT-PROVIDER] 修改 provider 状态, operator={}, id={}, status={}",
+                getUsername(), request.getId(), request.getStatus());
+        return toAjax(aidAiProviderService.updateAidAiProviderStatus(
+                request.getId(), request.getStatus(), getUsername()));
     }
 
     /**

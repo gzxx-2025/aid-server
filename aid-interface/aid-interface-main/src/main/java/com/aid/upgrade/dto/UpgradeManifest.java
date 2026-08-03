@@ -34,14 +34,17 @@ public class UpgradeManifest {
     /** 更新日志 */
     private String releaseNotes;
 
-    /** 最新版本统一升级包直链（升级器下载执行） */
+    /** 旧版统一升级包直链（仅兼容历史清单与回退） */
     private String packageUrl;
 
     /** 主下载源失败后按顺序尝试的升级包镜像地址 */
     private List<String> packageMirrors;
 
-    /** 最新版本统一升级包SHA-256 */
+    /** 旧版统一升级包SHA-256（仅兼容历史清单与回退） */
     private String packageSha256;
+
+    /** 是否使用三端公开源码按版本标签远程构建 */
+    private Boolean sourceBuild;
 
     /** 发布页地址集合 */
     private ReleasePages releasePages;

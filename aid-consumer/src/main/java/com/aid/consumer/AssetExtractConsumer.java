@@ -18,9 +18,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.aid.aid.domain.AidExtractTask;
 import com.aid.aid.service.IAidExtractTaskService;
 import com.aid.common.core.redis.RedisCache;
+import com.aid.common.error.TaskErrorCode;
+import com.aid.common.error.TaskErrorResult;
 import com.aid.common.utils.DateUtils;
 import com.aid.notify.wechat.service.IWechatNotifyService;
 import com.aid.rps.dto.ExtractTaskMessage;
+import com.aid.rps.queue.BatchTaskLocalOrchestrator;
 import com.aid.rps.queue.TaskQueueService;
 import com.aid.rps.service.IAssetExtractService;
 import com.aid.rps.service.IExtractBillingService;
@@ -736,6 +739,48 @@ public class AssetExtractConsumer implements RocketMQListener<String>, RocketMQP
                 log.info("MQ批量形态图生成: 取消标记已清除，全部项目已处理完毕，按成功结算: taskId={}", taskId);
             }
 
+            BatchTaskLocalOrchestrator.BatchResultState resultState =
+                    BatchTaskLocalOrchestrator.resolveResultState(resultJson);
+            if (BatchTaskLocalOrchestrator.BatchResultState.FAILED.equals(resultState))
+            {
+                String rawMessage = BatchTaskLocalOrchestrator.resolveFailureMessage(
+                        resultJson, "图片生成失败");
+                TaskErrorResult error = TaskErrorResult.of(TaskErrorCode.AI_GENERATION_FAILED, rawMessage);
+                if (!updateTaskFailedWithResult(taskId, resultJson, rawMessage))
+                {
+                    return;
+                }
+                if (cancelRequested)
+                {
+                    assetExtractService.clearCancelFlag(taskId);
+                }
+                sseManager.sendError(taskId, error);
+                log.error("MQ批量形态图生成全部失败: taskId={}", taskId);
+                return;
+            }
+            if (BatchTaskLocalOrchestrator.BatchResultState.PARTIAL_FAILED.equals(resultState))
+            {
+                if (!updateTaskPartialFailedWithResult(taskId, resultJson))
+                {
+                    return;
+                }
+                if (cancelRequested)
+                {
+                    assetExtractService.clearCancelFlag(taskId);
+                }
+                try
+                {
+                    Object resultObj = OBJECT_MAPPER.readValue(resultJson, Map.class);
+                    sseManager.sendPartialFailed(taskId, resultObj, "部分形态图生成失败，可续生");
+                }
+                catch (Exception ex)
+                {
+                    sseManager.sendPartialFailed(taskId, resultJson, "部分形态图生成失败，可续生");
+                }
+                log.info("MQ批量形态图生成部分失败: taskId={}", taskId);
+                return;
+            }
+
             if (!updateTaskSuccessWithResult(taskId, resultJson))
             {
                 return;
@@ -1335,6 +1380,35 @@ public class AssetExtractConsumer implements RocketMQListener<String>, RocketMQP
             return true;
         }
         log.info("部分失败终态CAS未命中: taskId={}", taskId);
+        return false;
+    }
+
+    /** 更新任务为 FAILED，同时保留批量成功/失败明细供查询和续生。 */
+    private boolean updateTaskFailedWithResult(Long taskId, String resultJson, String errorMessage)
+    {
+        String dispatchToken = CURRENT_DISPATCH_TOKEN.get();
+        if (StrUtil.isBlank(dispatchToken))
+        {
+            log.error("更新失败缺少周期令牌: taskId={}", taskId);
+            return false;
+        }
+        TransactionTemplate txTemplate = new TransactionTemplate(transactionManager);
+        txTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        Boolean updated = txTemplate.execute(s -> {
+            LambdaUpdateWrapper<AidExtractTask> update = Wrappers.lambdaUpdate();
+            appendCurrentProcessingGuard(update, taskId, dispatchToken);
+            update.set(AidExtractTask::getStatus, TASK_STATUS_FAILED);
+            update.set(AidExtractTask::getResultData, resultJson);
+            update.set(AidExtractTask::getErrorMessage, StrUtil.sub(errorMessage, 0, 255));
+            update.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
+            return extractTaskService.getBaseMapper().update(null, update) > 0;
+        });
+        if (Boolean.TRUE.equals(updated))
+        {
+            wechatNotifyService.notifyTaskTerminal(taskId);
+            return true;
+        }
+        log.info("失败终态CAS未命中: taskId={}", taskId);
         return false;
     }
 

@@ -20,6 +20,8 @@ import com.aid.common.utils.DateUtils;
 import com.aid.upgrade.client.UpdaterClient;
 import com.aid.upgrade.constant.UpgradeConfigKeys;
 import com.aid.upgrade.dto.DocLinksVo;
+import com.aid.upgrade.dto.DeploymentConfigSaveDto;
+import com.aid.upgrade.dto.DeploymentConfigVo;
 import com.aid.upgrade.dto.OfficialApiStatusVo;
 import com.aid.upgrade.dto.OfficialGatewaySaveDto;
 import com.aid.upgrade.dto.OfficialGatewaySettingVo;
@@ -195,6 +197,35 @@ public class SystemUpgradeServiceImpl implements ISystemUpgradeService {
         return updaterClient.readRecentLogs();
     }
 
+    @Override
+    public DeploymentConfigVo getDeploymentConfig() {
+        UpdaterStatusVo updater = updaterClient.detect();
+        if (!updater.isReady() || Objects.isNull(updater.getDeploymentConfig())) {
+            log.error("读取部署配置失败, 升级器状态={}, protocol={}", updater.getStatus(), updater.getProtocolVersion());
+            throw new ServiceException("部署配置不可用");
+        }
+        return updater.getDeploymentConfig();
+    }
+
+    @Override
+    public String validateDeploymentConfig(DeploymentConfigSaveDto saveDto) {
+        return submitDeploymentConfigTask("CONFIG_VALIDATE", saveDto);
+    }
+
+    @Override
+    public String applyDeploymentConfig(DeploymentConfigSaveDto saveDto) {
+        return submitDeploymentConfigTask("CONFIG_APPLY", saveDto);
+    }
+
+    @Override
+    public String rollbackDeploymentConfig() {
+        requireConfigCapableUpdater();
+        JSONObject task = buildTask("CONFIG_ROLLBACK", currentVersion, currentVersion);
+        updaterClient.submitTask(task);
+        log.info("已受理部署配置恢复任务");
+        return "配置恢复任务已受理";
+    }
+
     /**
      * 组装升级器状态：本地探测结果叠加清单中的升级器最新版本比对
      */
@@ -212,12 +243,20 @@ public class SystemUpgradeServiceImpl implements ISystemUpgradeService {
         if (StrUtil.isNotBlank(updaterStatus.getVersion())) {
             updaterStatus.setHasUpdate(VersionCompareUtil.isNewer(latestUpdaterVersion, updaterStatus.getVersion()));
         }
+        // 协议不兼容时即使发布方强制覆盖了同版本升级器，也必须允许先执行升级器自更新。
+        if (Objects.equals(updaterStatus.getStatus(), UpdaterClient.STATUS_INCOMPATIBLE)) {
+            updaterStatus.setHasUpdate(true);
+        }
         return updaterStatus;
     }
 
     @Override
     public String startUpgrade() {
         UpdaterStatusVo updater = updaterClient.detect();
+        if (Objects.equals(updater.getStatus(), UpdaterClient.STATUS_INCOMPATIBLE)) {
+            log.error("一键升级被拒绝, 升级器协议版本过低, protocol={}", updater.getProtocolVersion());
+            throw new ServiceException("请先升级升级器");
+        }
         if (!updater.isReady()) {
             log.error("一键升级被拒绝, 升级器状态={}", updater.getStatus());
             throw new ServiceException("升级器不可用");
@@ -232,6 +271,16 @@ public class SystemUpgradeServiceImpl implements ISystemUpgradeService {
             log.info("一键升级被拒绝, 已是最新版本, current={}, remote={}", currentVersion, manifest.getProductVersion());
             throw new ServiceException("已是最新版本");
         }
+        String latestUpdaterVersion = manifest.getUpdater() == null
+                ? null : StrUtil.trimToNull(manifest.getUpdater().getVersion());
+        boolean updaterVersionBehind = StrUtil.isNotBlank(latestUpdaterVersion)
+                && StrUtil.isNotBlank(updater.getVersion())
+                && VersionCompareUtil.isNewer(latestUpdaterVersion, updater.getVersion());
+        if (updaterVersionBehind || Objects.equals(updater.getStatus(), UpdaterClient.STATUS_INCOMPATIBLE)) {
+            log.error("系统升级被拒绝, 必须先升级升级器, localUpdater={}, latestUpdater={}, status={}",
+                    updater.getVersion(), latestUpdaterVersion, updater.getStatus());
+            throw new ServiceException("请先升级升级器");
+        }
         // 跨版本保护：升级包只携带自 minimumVersion 起的增量 SQL，低于该版本直升会缺中间脚本
         String minimumVersion = StrUtil.trimToNull(manifest.getMinimumVersion());
         if (StrUtil.isNotBlank(minimumVersion) && VersionCompareUtil.isNewer(minimumVersion, currentVersion)) {
@@ -239,18 +288,11 @@ public class SystemUpgradeServiceImpl implements ISystemUpgradeService {
                     currentVersion, minimumVersion, manifest.getProductVersion());
             throw new ServiceException("版本过低需逐级升级");
         }
-        // 升级包直链与校验值必须齐全，升级器据此下载并校验
-        String packageUrl = StrUtil.trimToNull(manifest.getPackageUrl());
-        String packageSha256 = StrUtil.trimToNull(manifest.getPackageSha256());
-        if (StrUtil.isBlank(packageUrl) || !isHttpsUrl(packageUrl)
-                || StrUtil.isBlank(packageSha256) || !packageSha256.matches("(?i)^[0-9a-f]{64}$")) {
-            log.error("一键升级被拒绝, 清单缺少有效升级包信息, packageUrl={}, sha256={}", packageUrl, packageSha256);
-            throw new ServiceException("升级包不可用");
-        }
+        // 主程序不再下载预构建大包：升级器校验签名清单中的目标版本后，
+        // 从 GitHub/Gitee 同一版本标签拉取三端公开源码并在服务器本地构建。
         JSONObject task = buildTask("UPGRADE", currentVersion, manifest.getProductVersion());
         task.put("manifestUrl", resolveManifestUrl());
-        task.put("packageUrl", packageUrl);
-        task.put("sha256", packageSha256);
+        task.put("buildFromSource", true);
         task.put("keepBackups", resolveKeepBackups());
         updaterClient.submitTask(task);
         log.info("已受理一键升级任务, current={}, target={}", currentVersion, manifest.getProductVersion());
@@ -260,7 +302,8 @@ public class SystemUpgradeServiceImpl implements ISystemUpgradeService {
     @Override
     public String startUpdaterUpgrade() {
         UpdaterStatusVo updater = updaterClient.detect();
-        if (!updater.isReady()) {
+        boolean incompatible = Objects.equals(updater.getStatus(), UpdaterClient.STATUS_INCOMPATIBLE);
+        if (!updater.isReady() && !incompatible) {
             log.error("升级器在线升级被拒绝, 升级器状态={}", updater.getStatus());
             throw new ServiceException("升级器不可用");
         }
@@ -275,7 +318,7 @@ public class SystemUpgradeServiceImpl implements ISystemUpgradeService {
             throw new ServiceException("更新源不可用");
         }
         if (StrUtil.isBlank(updater.getVersion())
-                || !VersionCompareUtil.isNewer(latestUpdaterVersion, updater.getVersion())) {
+                || (!incompatible && !VersionCompareUtil.isNewer(latestUpdaterVersion, updater.getVersion()))) {
             log.info("升级器在线升级被拒绝, 已是最新版本, local={}, remote={}", updater.getVersion(), latestUpdaterVersion);
             throw new ServiceException("升级器已最新");
         }
@@ -290,6 +333,73 @@ public class SystemUpgradeServiceImpl implements ISystemUpgradeService {
         updaterClient.submitTask(task);
         log.info("已受理升级器在线升级任务, local={}, target={}", updater.getVersion(), latestUpdaterVersion);
         return StrUtil.format("升级器升级任务已受理：{} → {}", updater.getVersion(), latestUpdaterVersion);
+    }
+
+    private String submitDeploymentConfigTask(String action, DeploymentConfigSaveDto saveDto) {
+        requireConfigCapableUpdater();
+        if (Objects.isNull(saveDto)) {
+            log.error("提交部署配置任务失败, 参数为空");
+            throw new ServiceException("参数不完整");
+        }
+        JSONObject values = buildDeploymentConfigValues(saveDto);
+        JSONObject task = buildTask(action, currentVersion, currentVersion);
+        if (Objects.nonNull(saveDto.getConfigPath())) {
+            task.put("configPath", saveDto.getConfigPath().trim());
+        }
+        task.put("configValues", values);
+        updaterClient.submitTask(task);
+        log.info("已受理部署配置任务, action={}, keys={}", action, values.keySet());
+        return Objects.equals(action, "CONFIG_VALIDATE") ? "配置校验任务已受理" : "配置应用任务已受理";
+    }
+
+    private void requireConfigCapableUpdater() {
+        UpdaterStatusVo updater = updaterClient.detect();
+        if (!updater.isReady() || Objects.isNull(updater.getDeploymentConfig())) {
+            log.error("部署配置任务被拒绝, 升级器状态={}, protocol={}", updater.getStatus(), updater.getProtocolVersion());
+            throw new ServiceException("请先升级升级器");
+        }
+    }
+
+    private JSONObject buildDeploymentConfigValues(DeploymentConfigSaveDto dto) {
+        JSONObject values = new JSONObject();
+        putDeploymentValue(values, "HTTP_PORT", dto.getHttpPort(), false);
+        putDeploymentValue(values, "ADMIN_PORT", dto.getAdminPort(), false);
+        putDeploymentValue(values, "BACKEND_PORT", dto.getBackendPort(), false);
+        putDeploymentValue(values, "DATA_ROOT", dto.getDataRoot(), false);
+        putDeploymentValue(values, "MYSQL_ROOT_PASSWORD", dto.getMysqlRootPassword(), true);
+        putDeploymentValue(values, "MYSQL_PORT", dto.getMysqlPort(), false);
+        putDeploymentValue(values, "DB_HOST", dto.getDbHost(), false);
+        putDeploymentValue(values, "DB_PORT", dto.getDbPort(), false);
+        putDeploymentValue(values, "DB_NAME", dto.getDbName(), false);
+        putDeploymentValue(values, "DB_USERNAME", dto.getDbUsername(), false);
+        putDeploymentValue(values, "DB_PASSWORD", dto.getDbPassword(), true);
+        putDeploymentValue(values, "REDIS_HOST", dto.getRedisHost(), false);
+        putDeploymentValue(values, "REDIS_PORT", dto.getRedisPort(), false);
+        putDeploymentValue(values, "REDIS_PASSWORD", dto.getRedisPassword(), true);
+        putDeploymentValue(values, "TOKEN_SECRET", dto.getTokenSecret(), true);
+        putDeploymentValue(values, "JAVA_OPTS", dto.getJavaOpts(), false);
+        putDeploymentValue(values, "COMPOSE_PROFILES", dto.getComposeProfiles(), false);
+        putDeploymentValue(values, "ROCKETMQ_ENABLED", dto.getRocketmqEnabled(), false);
+        putDeploymentValue(values, "ROCKETMQ_NAMESERVER", dto.getRocketmqNameserver(), false);
+        putDeploymentValue(values, "MYSQL_BUFFER_POOL", dto.getMysqlBufferPool(), false);
+        putDeploymentValue(values, "MYSQL_MAX_CONNECTIONS", dto.getMysqlMaxConnections(), false);
+        putDeploymentValue(values, "REDIS_MAXMEMORY", dto.getRedisMaxmemory(), false);
+        putDeploymentValue(values, "REDIS_MAXMEMORY_POLICY", dto.getRedisMaxmemoryPolicy(), false);
+        putDeploymentValue(values, "WEB_NODE_OPTIONS", dto.getWebNodeOptions(), false);
+        putDeploymentValue(values, "MQ_NAMESRV_JAVA_OPTS", dto.getMqNamesrvJavaOpts(), false);
+        putDeploymentValue(values, "MQ_BROKER_JAVA_OPTS", dto.getMqBrokerJavaOpts(), false);
+        return values;
+    }
+
+    private void putDeploymentValue(JSONObject values, String key, String value, boolean secret) {
+        if (Objects.isNull(value)) {
+            return;
+        }
+        String normalized = value.trim();
+        if (secret && StrUtil.isBlank(normalized)) {
+            return;
+        }
+        values.put(key, normalized);
     }
 
     @Override
@@ -685,6 +795,7 @@ public class SystemUpgradeServiceImpl implements ISystemUpgradeService {
         copy.setReleaseNotes(source.getReleaseNotes());
         copy.setPackageUrl(source.getPackageUrl());
         copy.setPackageSha256(source.getPackageSha256());
+        copy.setSourceBuild(source.getSourceBuild());
         copy.setReleasePages(source.getReleasePages());
         copy.setDocsUrl(source.getDocsUrl());
         copy.setPromptDocsUrl(source.getPromptDocsUrl());

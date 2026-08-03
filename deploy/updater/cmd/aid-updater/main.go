@@ -77,6 +77,11 @@ func main() {
 	defer stop()
 
 	reporter := health.NewReporter(cfg.HealthFile, version, cfg.Install.ServiceManager)
+	if state, stateErr := cfg.ReadDeploymentState(); stateErr != nil {
+		log.Fatalf("读取部署配置失败: %v", stateErr)
+	} else {
+		reporter.SetConfiguration(toHealthConfiguration(state))
+	}
 	reporter.Start(ctx, time.Duration(cfg.HeartbeatIntervalSeconds)*time.Second)
 
 	runner := task.NewRunner(cfg, reporter, version)
@@ -100,5 +105,19 @@ func main() {
 				return
 			}
 		}
+	}
+}
+
+func toHealthConfiguration(state *config.DeploymentState) *health.DeploymentConfiguration {
+	if state == nil {
+		return nil
+	}
+	return &health.DeploymentConfiguration{
+		Mode:              state.Mode,
+		ConfigPath:        state.ConfigPath,
+		DefaultConfigPath: state.DefaultConfigPath,
+		AllowedConfigRoot: state.AllowedConfigRoot,
+		Values:            state.SafeValues,
+		ConfiguredSecrets: state.ConfiguredSecrets,
 	}
 }

@@ -3,13 +3,13 @@
 # AID 统一部署管理脚本（菜单式，Docker 与手动部署通用）
 #
 # 用法：
-#   sudo bash aid.sh              # 交互菜单（首次部署自动下载最新版发布包）
+#   sudo bash aid.sh              # 交互菜单（首次部署按版本标签拉取三端源码并构建）
 #   sudo bash aid.sh <子命令>     # 直通执行：install/auto/install-docker/install-manual/update/rollback/
 #                                 # restart/stop/status/logs/config/backup/setup-updater
 #
 # 设计：
 #   - 全部数据统一放在 DATA_ROOT（默认 /data/aid）：程序、上传文件、日志、
-#     中间件数据、备份、发布包缓存
+#     中间件数据、备份、源码构建缓存
 #   - 首次部署自动从模板创建正式配置；后续配置真源 = 用户维护的正式配置文件：
 #       Docker 部署 → deploy/docker/.env（模板 .env.example）
 #       手动部署   → DATA_ROOT/aid-deploy.conf（模板 deploy/aid-deploy.conf.example）
@@ -27,8 +27,27 @@ case "${DATA_ROOT}" in
   /*) ;;
   *) echo "[失败] AID_DATA_ROOT 必须是绝对路径（当前: ${DATA_ROOT}）" >&2; exit 1 ;;
 esac
-CONF="${DATA_ROOT}/aid-deploy.conf"
 COMPOSE_DIR="${SCRIPT_DIR}/docker"
+CONFIG_ROOT="${DATA_ROOT}/config"
+DEPLOYMENT_DESCRIPTOR="${CONFIG_ROOT}/deployment.json"
+STATE_FILE="${CONFIG_ROOT}/install-state.conf"
+DEFAULT_MANUAL_CONFIG="${DATA_ROOT}/aid-deploy.conf"
+DEFAULT_DOCKER_CONFIG="${COMPOSE_DIR}/.env"
+descriptorMode=""
+descriptorPath=""
+if [[ -f "${DEPLOYMENT_DESCRIPTOR}" ]]; then
+  descriptorMode="$(grep -E '"mode"[[:space:]]*:' "${DEPLOYMENT_DESCRIPTOR}" 2>/dev/null | head -n 1 | sed -E 's/.*:[[:space:]]*"([^"]+)".*/\1/')"
+  descriptorPath="$(grep -E '"configPath"[[:space:]]*:' "${DEPLOYMENT_DESCRIPTOR}" 2>/dev/null | head -n 1 | sed -E 's/.*:[[:space:]]*"([^"]+)".*/\1/')"
+fi
+CONF="${DEFAULT_MANUAL_CONFIG}"
+ENV_FILE="${DEFAULT_DOCKER_CONFIG}"
+if [[ ( "${descriptorMode}" == "manual" || "${descriptorMode}" == "systemd" ) && "${descriptorPath}" == /* ]]; then CONF="${descriptorPath}"; fi
+if [[ "${descriptorMode}" == "docker" && "${descriptorPath}" == /* ]]; then ENV_FILE="${descriptorPath}"; fi
+# 单文件首次启动时 deploy/docker 尚未落盘，先把配置放进数据目录的受控配置区；
+# 安装器落盘后仍通过 deployment.json 读取同一文件，不会生成第二份配置。
+if [[ ! -d "${COMPOSE_DIR}" && ! -f "${DEPLOYMENT_DESCRIPTOR}" ]]; then
+  ENV_FILE="${CONFIG_ROOT}/docker.env"
+fi
 HEALTH_WAIT_SECONDS=300
 
 # ----------------------------------------------------------------------------
@@ -47,6 +66,8 @@ TRUSTED_MANIFEST_PUBLIC_KEY="9Ez/VMofgjCU0CNmE6Jq8LKLNyfDQqbbvNTTGV5BYrk="
 INSTALLER_ROOT="${DATA_ROOT}/installer"
 MANAGED_SCRIPT="${INSTALLER_ROOT}/deploy/aid.sh"
 DOWNLOAD_TIMEOUT_SECONDS="${AID_DOWNLOAD_TIMEOUT_SECONDS:-1800}"
+SOURCE_BUILDER_NAME="build-release-from-source.sh"
+SOURCE_GIT_IMAGE="${AID_GIT_IMAGE:-alpine/git:2.47.2}"
 
 risk() {
   echo -e "[$(date '+%H:%M:%S')] ${C_RED}${C_BOLD}[风险提醒]${C_RESET} $1" >&2
@@ -74,6 +95,26 @@ conf_set() { # conf_set <key> <value>
     echo "${1}=${2}" >> "${CONF}"
   fi
 }
+
+# 安装状态与运行配置严格分离。该文件只保存部署方式、当前版本与发布渠道，
+# 不参与应用启动，也不保存数据库密码等业务配置。
+state_get() { # state_get <key> <default>
+  local value=""
+  [[ -f "${STATE_FILE}" ]] && value="$(grep -E "^${1}=" "${STATE_FILE}" 2>/dev/null | head -n 1 | cut -d= -f2-)"
+  # 兼容旧部署：迁移完成前允许从原 aid-deploy.conf 读取历史状态字段。
+  [[ -z "${value}" ]] && value="$(conf_get "$1" '')"
+  echo "${value:-${2:-}}"
+}
+
+state_set() { # state_set <key> <value>
+  mkdir -p "${CONFIG_ROOT}"
+  touch "${STATE_FILE}"; chmod 600 "${STATE_FILE}"
+  if grep -qE "^${1}=" "${STATE_FILE}" 2>/dev/null; then
+    sed -i "s|^${1}=.*|${1}=${2}|" "${STATE_FILE}"
+  else
+    echo "${1}=${2}" >> "${STATE_FILE}"
+  fi
+}
 ask() { # ask <提示> <默认值>
   local answer
   read -r -p "$1 [$2]: " answer </dev/tty
@@ -87,8 +128,7 @@ ask_secret() { # ask_secret <提示>
 }
 gen_secret() { tr -dc 'A-Za-z0-9' </dev/urandom | head -c 48 || true; }
 
-# Docker 部署配置真源：deploy/docker/.env（首次由模板自动创建，之后由用户维护）
-ENV_FILE="${COMPOSE_DIR}/.env"
+# Docker 部署配置真源：默认 deploy/docker/.env；单文件首次部署或后台迁移时可位于 DATA_ROOT/config。
 env_get() { # env_get <key> <默认值>
   local value=""
   [[ -f "${ENV_FILE}" ]] && value="$(grep -E "^${1}=" "${ENV_FILE}" 2>/dev/null | head -n 1 | cut -d= -f2-)"
@@ -101,6 +141,23 @@ env_set() { # env_set <key> <value>（仅用于自动生成缺失密钥，其余
     echo "${1}=${2}" >> "${ENV_FILE}"
   fi
 }
+
+write_deployment_descriptor() { # write_deployment_descriptor <docker|manual> <配置绝对路径>
+  local mode="$1" configPath="$2" tmp
+  [[ "${configPath}" == /* ]] || die "部署配置路径必须是绝对路径"
+  mkdir -p "${CONFIG_ROOT}"
+  tmp="$(mktemp "${CONFIG_ROOT}/.deployment.XXXXXX")"
+  cat > "${tmp}" <<EOF
+{
+  "mode": "${mode}",
+  "configPath": "${configPath}"
+}
+EOF
+  chmod 600 "${tmp}"
+  mv -f "${tmp}" "${DEPLOYMENT_DESCRIPTOR}"
+}
+
+config_sha256() { sha256_file "$1" 2>/dev/null || true; }
 
 # 按部署方式读配置：docker 读 .env（用户维护的唯一真源），manual 读 aid-deploy.conf
 setting_get() { # setting_get <key> <默认值>
@@ -117,6 +174,11 @@ validate_secret() { # validate_secret <名称> <值>
     *' '*|*'#'*|*'"'*|*"'"*|*'$'*|*'\'*)
       die "$1 不能包含空格、#、引号、\$ 或反斜杠（建议留空使用自动生成的强随机值）" ;;
   esac
+}
+
+validate_port() { # validate_port <名称> <值>
+  [[ "$2" =~ ^[0-9]+$ ]] && (( 10#$2 >= 1 && 10#$2 <= 65535 )) \
+    || die "$1 必须是 1-65535 的端口"
 }
 
 # ----------------------------------------------------------------------------
@@ -174,7 +236,9 @@ check_hardware() { # check_hardware <docker|manual> <mq:yes|no>
 # 部署方式检测：conf 优先，其次按运行痕迹探测
 detect_mode() {
   local mode
-  mode="$(conf_get DEPLOY_MODE '')"
+  mode="$(state_get DEPLOY_MODE '')"
+  [[ -z "${mode}" && -n "${descriptorMode}" ]] && mode="${descriptorMode}"
+  [[ "${mode}" == "systemd" ]] && mode="manual"
   if [[ -n "${mode}" ]]; then echo "${mode}"; return; fi
   if command -v docker >/dev/null 2>&1 && docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q '^aid-server$'; then
     echo "docker"; return
@@ -192,11 +256,11 @@ current_version() {
     version="$(grep -E '^[[:space:]]*"version"[[:space:]]*:' "${buildInfo}" 2>/dev/null | head -n 1 \
       | sed -E 's/^[^:]+:[[:space:]]*"([^"]+)".*/\1/')"
   fi
-  echo "${version:-$(conf_get CURRENT_VERSION '未知')}"
+  echo "${version:-$(state_get CURRENT_VERSION '未知')}"
 }
 
 # ----------------------------------------------------------------------------
-# 官方版本发现、签名核验、下载与单文件自举
+# 官方版本发现、签名核验、源码构建与单文件自举
 # ----------------------------------------------------------------------------
 RESOLVED_CHANNEL=""
 REQUESTED_RELEASE_CHANNEL=""
@@ -219,8 +283,8 @@ sha256_file() { # sha256_file <文件>
 }
 
 require_download_tools() {
-  command -v curl >/dev/null 2>&1 || die "未检测到 curl，无法自动下载：请先安装 curl"
-  command -v tar >/dev/null 2>&1 || die "未检测到 tar，无法解压发布包"
+  command -v curl >/dev/null 2>&1 || die "未检测到 curl，无法获取版本清单：请先安装 curl"
+  command -v tar >/dev/null 2>&1 || die "未检测到 tar，无法组装或解压本地构建包"
   sha256_file "${BASH_SOURCE[0]}" >/dev/null 2>&1 || die "缺少 SHA256 校验工具（sha256sum/shasum/openssl）"
 }
 
@@ -257,8 +321,8 @@ json_signature_string() { # json_signature_string <文件> <字段>
     | sed -E 's/^[[:space:]]*"[^"]+"[[:space:]]*:[[:space:]]*"//; s/"[[:space:]]*,?[[:space:]]*$//'
 }
 
-verify_manifest_signature() { # verify_manifest_signature <清单> <版本> <URL> <SHA256>
-  local manifest="$1" version="$2" packageUrl="$3" packageSha="$4"
+verify_manifest_signature() { # verify_manifest_signature <清单> <版本>
+  local manifest="$1" version="$2"
   local payloadB64 signatureB64 algorithm tmpDir payloadFile signatureFile publicKeyFile
   algorithm="$(json_signature_string "${manifest}" algorithm)"
   payloadB64="$(json_signature_string "${manifest}" payload)"
@@ -291,10 +355,8 @@ verify_manifest_signature() { # verify_manifest_signature <清单> <版本> <URL
     rm -rf "${tmpDir}"
     die "官方版本清单签名验证失败，可能被篡改，已中止"
   fi
-  # 所用的版本、URL、摘要必须都存在于已签名载荷中，防止只替换清单外层字段。
-  if ! grep -Fq "\"productVersion\":\"${version}\"" "${payloadFile}" \
-      || ! grep -Fq "\"packageUrl\":\"${packageUrl}\"" "${payloadFile}" \
-      || ! grep -Fq "\"packageSha256\":\"${packageSha}\"" "${payloadFile}"; then
+  # 源码构建只消费版本号；版本必须存在于已签名载荷中，不能只替换清单外层字段。
+  if ! grep -Fq "\"productVersion\":\"${version}\"" "${payloadFile}"; then
     rm -rf "${tmpDir}"
     die "版本信息与签名载荷不一致，已中止"
   fi
@@ -331,10 +393,17 @@ release_fields_valid() { # release_fields_valid <版本> <URL> <SHA256>
      && "$3" =~ ^[0-9a-fA-F]{64}$ ]]
 }
 
+release_source_valid() { # release_source_valid <版本> <URL> <SHA256> <sourceBuild>
+  [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || return 1
+  [[ "$4" == "true" ]] && return 0
+  # 兼容切换期旧清单：旧版本只声明发布包，也允许改走固定版本标签的源码构建。
+  release_fields_valid "$1" "$2" "$3"
+}
+
 resolve_official_release() {
   fetch_release_manifest
-  local requested="${AID_RELEASE_CHANNEL:-$(conf_get RELEASE_CHANNEL auto)}"
-  local stableVersion stableUrl stableSha betaVersion betaUrl betaSha indent
+  local requested="${AID_RELEASE_CHANNEL:-$(state_get RELEASE_CHANNEL auto)}"
+  local stableVersion stableUrl stableSha stableSource betaVersion betaUrl betaSha betaSource indent
   case "${requested}" in
     auto|stable|beta) ;;
     *) die "发布渠道只支持 auto、stable 或 beta（当前: ${requested}）" ;;
@@ -344,14 +413,16 @@ resolve_official_release() {
   stableVersion="$(json_direct_string "${RESOLVED_MANIFEST_PATH}" '  ' productVersion)"
   stableUrl="$(json_direct_string "${RESOLVED_MANIFEST_PATH}" '  ' packageUrl)"
   stableSha="$(json_direct_string "${RESOLVED_MANIFEST_PATH}" '  ' packageSha256)"
+  stableSource="$(grep -m 1 '^  "sourceBuild"[[:space:]]*:' "${RESOLVED_MANIFEST_PATH}" 2>/dev/null | sed -E 's/.*:[[:space:]]*(true|false).*/\1/' || true)"
   betaVersion="$(json_direct_string "${RESOLVED_MANIFEST_PATH}" '    ' productVersion)"
   betaUrl="$(json_direct_string "${RESOLVED_MANIFEST_PATH}" '    ' packageUrl)"
   betaSha="$(json_direct_string "${RESOLVED_MANIFEST_PATH}" '    ' packageSha256)"
+  betaSource="$(grep -m 1 '^    "sourceBuild"[[:space:]]*:' "${RESOLVED_MANIFEST_PATH}" 2>/dev/null | sed -E 's/.*:[[:space:]]*(true|false).*/\1/' || true)"
 
   if [[ "${requested}" == "auto" ]]; then
-    if release_fields_valid "${stableVersion}" "${stableUrl}" "${stableSha}"; then
+    if release_source_valid "${stableVersion}" "${stableUrl}" "${stableSha}" "${stableSource}"; then
       requested="stable"
-    elif release_fields_valid "${betaVersion}" "${betaUrl}" "${betaSha}"; then
+    elif release_source_valid "${betaVersion}" "${betaUrl}" "${betaSha}" "${betaSource}"; then
       requested="beta"
       warn "当前尚无可安装的正式版，已自动选择最新 Beta 测试版"
     else
@@ -365,16 +436,12 @@ resolve_official_release() {
   RESOLVED_VERSION="$(json_direct_string "${RESOLVED_MANIFEST_PATH}" "${indent}" productVersion)"
   RESOLVED_PACKAGE_URL="$(json_direct_string "${RESOLVED_MANIFEST_PATH}" "${indent}" packageUrl)"
   RESOLVED_PACKAGE_SHA256="$(json_direct_string "${RESOLVED_MANIFEST_PATH}" "${indent}" packageSha256 | tr 'A-F' 'a-f')"
-  release_fields_valid "${RESOLVED_VERSION}" "${RESOLVED_PACKAGE_URL}" "${RESOLVED_PACKAGE_SHA256}" \
+  local selectedSource
+  selectedSource="${stableSource}"
+  [[ "${requested}" == "beta" ]] && selectedSource="${betaSource}"
+  release_source_valid "${RESOLVED_VERSION}" "${RESOLVED_PACKAGE_URL}" "${RESOLVED_PACKAGE_SHA256}" "${selectedSource}" \
     || die "官方清单中的 ${RESOLVED_CHANNEL} 版本信息不完整"
-  if [[ "${AID_ALLOW_CUSTOM_RELEASE_URL:-0}" != "1" ]]; then
-    case "${RESOLVED_PACKAGE_URL}" in
-      https://github.com/gzxx-2025/aid-server/releases/download/*|https://gitee.com/gzxx-2025/aid-server/releases/download/*) ;;
-      *) die "清单返回了非官方制品地址，已拒绝: ${RESOLVED_PACKAGE_URL}" ;;
-    esac
-  fi
-  verify_manifest_signature "${RESOLVED_MANIFEST_PATH}" "${RESOLVED_VERSION}" \
-    "${RESOLVED_PACKAGE_URL}" "${RESOLVED_PACKAGE_SHA256}"
+  verify_manifest_signature "${RESOLVED_MANIFEST_PATH}" "${RESOLVED_VERSION}"
   [[ "${RESOLVED_CHANNEL}" == "beta" ]] && warn "即将使用 Beta 测试版 ${RESOLVED_VERSION}，生产环境请先做好数据备份"
 }
 
@@ -427,31 +494,114 @@ validate_release_package() { # validate_release_package <包> <是否要求安�
   rm -f "${listFile}"
 }
 
-ensure_official_package() {
+package_is_source_build() { # package_is_source_build <包>
+  local entry
+  entry="$(tar -tzf "$1" 2>/dev/null | grep -E '(^|/)build-info\.json$' | head -n 1 || true)"
+  [[ -n "${entry}" ]] || return 1
+  tar -xOzf "$1" "${entry}" 2>/dev/null | grep -q '"builtBy"[[:space:]]*:[[:space:]]*"remote-source-build"'
+}
+
+bootstrap_source_builder() {
+  local builder="${SCRIPT_DIR}/${SOURCE_BUILDER_NAME}" tmpDir base repoUrl cloned sourceRef remoteRef
+  if [[ -f "${builder}" ]]; then
+    SOURCE_BUILDER_PATH="${builder}"
+    return 0
+  fi
+  if ! command -v git >/dev/null 2>&1; then
+    command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 \
+      || die "首次源码构建需要 Git；脚本不会自动安装，请先安装 Git 后重试"
+    warn "宿主机未安装 Git，将使用隔离的 ${SOURCE_GIT_IMAGE} 容器拉取源码，不会修改系统软件"
+  fi
+  tmpDir="$(mktemp -d)"
+  for sourceRef in "v${RESOLVED_VERSION}" master; do
+    [[ "${sourceRef}" == "master" ]] \
+      && warn "目标版本尚未内置源码构建器，改从公开 master 获取构建工具；业务源码仍固定使用 v${RESOLVED_VERSION} 标签"
+    remoteRef="refs/tags/${sourceRef}"
+    [[ "${sourceRef}" == "master" ]] && remoteRef="refs/heads/master"
+    for base in https://github.com/gzxx-2025 https://gitee.com/gzxx-2025; do
+      rm -rf "${tmpDir}/server"
+      log "获取源码构建器 ${sourceRef}: ${base}"
+      repoUrl="${base}/aid-server.git"
+      cloned="no"
+      if command -v git >/dev/null 2>&1; then
+        if command -v timeout >/dev/null 2>&1; then
+          if GIT_TERMINAL_PROMPT=0 GIT_HTTP_LOW_SPEED_LIMIT=1 GIT_HTTP_LOW_SPEED_TIME=12 \
+              timeout 25 git ls-remote --exit-code "${repoUrl}" "${remoteRef}" >/dev/null 2>&1 \
+              && GIT_TERMINAL_PROMPT=0 timeout 180 git clone --quiet --depth 1 --single-branch \
+                --branch "${sourceRef}" "${repoUrl}" "${tmpDir}/server" 2>/dev/null; then
+            cloned="yes"
+          fi
+        elif GIT_TERMINAL_PROMPT=0 GIT_HTTP_LOW_SPEED_LIMIT=1 GIT_HTTP_LOW_SPEED_TIME=12 \
+            git ls-remote --exit-code "${repoUrl}" "${remoteRef}" >/dev/null 2>&1 \
+            && GIT_TERMINAL_PROMPT=0 git clone --quiet --depth 1 --single-branch \
+              --branch "${sourceRef}" "${repoUrl}" "${tmpDir}/server" 2>/dev/null; then
+          cloned="yes"
+        fi
+      elif command -v timeout >/dev/null 2>&1; then
+        if timeout 240 docker run --rm --user "$(id -u):$(id -g)" -v "${tmpDir}:/work" -w /work \
+            "${SOURCE_GIT_IMAGE}" clone --depth 1 --single-branch --branch "${sourceRef}" \
+            "${repoUrl}" server >/dev/null 2>&1; then
+          cloned="yes"
+        fi
+      elif docker run --rm --user "$(id -u):$(id -g)" -v "${tmpDir}:/work" -w /work \
+          "${SOURCE_GIT_IMAGE}" clone --depth 1 --single-branch --branch "${sourceRef}" \
+          "${repoUrl}" server >/dev/null 2>&1; then
+        cloned="yes"
+      fi
+      if [[ "${cloned}" == "yes" && -f "${tmpDir}/server/deploy/${SOURCE_BUILDER_NAME}" ]]; then
+        mkdir -p "${DATA_ROOT}/packages"
+        builder="${DATA_ROOT}/packages/${SOURCE_BUILDER_NAME}"
+        install -m 0755 "${tmpDir}/server/deploy/${SOURCE_BUILDER_NAME}" "${builder}"
+        rm -rf "${tmpDir}"
+        SOURCE_BUILDER_PATH="${builder}"
+        return 0
+      fi
+    done
+  done
+  rm -rf "${tmpDir}"
+  die "版本 v${RESOLVED_VERSION} 缺少源码构建器，或 GitHub/Gitee 均不可访问"
+}
+
+ensure_source_package() {
   mkdir -p "${DATA_ROOT}/packages"
   RESOLVED_PACKAGE_PATH="${DATA_ROOT}/packages/aid-v${RESOLVED_VERSION}.tar.gz"
-  local actual invalid
-  if [[ -f "${RESOLVED_PACKAGE_PATH}" ]]; then
+  local builder actual checksumFile ownerMode owner modeBits
+  checksumFile="${RESOLVED_PACKAGE_PATH}.sha256"
+  if [[ -f "${RESOLVED_PACKAGE_PATH}" && -f "${checksumFile}" && "${AID_FORCE_SOURCE_REBUILD:-0}" != "1" ]]; then
     actual="$(sha256_file "${RESOLVED_PACKAGE_PATH}" || true)"
-    if [[ "${actual}" == "${RESOLVED_PACKAGE_SHA256}" ]]; then
-      ok "复用已校验的发布包: ${RESOLVED_PACKAGE_PATH}"
+    ownerMode="$(stat -c '%u:%a' "${RESOLVED_PACKAGE_PATH}" 2>/dev/null || true)"
+    owner="${ownerMode%%:*}"
+    modeBits="${ownerMode#*:}"
+    if [[ "${actual}" == "$(awk '{print tolower($1)}' "${checksumFile}" 2>/dev/null)" \
+        && "${owner}" == "0" && "${modeBits}" =~ ^[0-7]+$ ]] \
+        && (( (8#${modeBits} & 8#022) == 0 )) \
+        && package_is_source_build "${RESOLVED_PACKAGE_PATH}"; then
       validate_release_package "${RESOLVED_PACKAGE_PATH}" no
+      ok "复用 root 权限保护且校验通过的源码构建包: ${RESOLVED_PACKAGE_PATH}"
+      RESOLVED_PACKAGE_SHA256="${actual}"
       return 0
     fi
-    invalid="${RESOLVED_PACKAGE_PATH}.invalid-$(date +%Y%m%d%H%M%S)"
-    mv "${RESOLVED_PACKAGE_PATH}" "${invalid}"
-    risk "发现摘要不匹配的缓存包，已隔离为 ${invalid}"
+    risk "源码构建缓存校验或权限不安全，将重新构建，不会使用旧缓存"
+    rm -f "${RESOLVED_PACKAGE_PATH}" "${checksumFile}"
   fi
-  try_download "${RESOLVED_PACKAGE_URL}" "${RESOLVED_PACKAGE_PATH}" "AID v${RESOLVED_VERSION} 主程序包" \
-    || die "主程序包下载失败；未对现有部署做任何修改，请检查 GitHub 网络连接后重试"
-  actual="$(sha256_file "${RESOLVED_PACKAGE_PATH}" || true)"
-  if [[ "${actual}" != "${RESOLVED_PACKAGE_SHA256}" ]]; then
-    invalid="${RESOLVED_PACKAGE_PATH}.invalid-$(date +%Y%m%d%H%M%S)"
-    mv "${RESOLVED_PACKAGE_PATH}" "${invalid}" 2>/dev/null || rm -f "${RESOLVED_PACKAGE_PATH}"
-    die "发布包 SHA256 校验失败，已拒绝安装并隔离异常文件（期望 ${RESOLVED_PACKAGE_SHA256}，实际 ${actual:-无法计算}）"
-  fi
+
+  bootstrap_source_builder
+  builder="${SOURCE_BUILDER_PATH}"
+  section "远程源码构建 AID v${RESOLVED_VERSION}"
+  warn "只拉取三个公开仓库的 v${RESOLVED_VERSION} 标签；GitHub 不通时整组回退到 Gitee"
+  warn "首次构建需要下载 Maven/npm/Go 依赖及构建镜像，请预留至少 15GB 磁盘与足够时间"
+  AID_DATA_ROOT="${DATA_ROOT}" AID_MANIFEST_PUBLIC_KEY="${TRUSTED_MANIFEST_PUBLIC_KEY}" \
+    AID_MANAGER_SCRIPT="${SCRIPT_DIR}/$(basename "${BASH_SOURCE[0]}")" \
+    sh "${builder}" --version "${RESOLVED_VERSION}" --output "${RESOLVED_PACKAGE_PATH}" \
+      --work-dir "${DATA_ROOT}/source-build/v${RESOLVED_VERSION}" \
+    || die "三端源码构建失败；现有部署未被修改，请根据上方具体构建日志处理后重试"
   validate_release_package "${RESOLVED_PACKAGE_PATH}" no
-  ok "发布包 SHA256 与结构校验通过"
+  actual="$(sha256_file "${RESOLVED_PACKAGE_PATH}" || true)"
+  [[ -n "${actual}" ]] || die "无法计算源码构建包 SHA256"
+  printf '%s  %s\n' "${actual}" "$(basename "${RESOLVED_PACKAGE_PATH}")" > "${checksumFile}"
+  chmod 600 "${RESOLVED_PACKAGE_PATH}" "${checksumFile}" 2>/dev/null || true
+  RESOLVED_PACKAGE_SHA256="${actual}"
+  ok "三端源码构建、包结构与本地 SHA256 校验通过"
 }
 
 deployment_runtime_ready() {
@@ -487,6 +637,7 @@ bootstrap_installer_if_needed() { # bootstrap_installer_if_needed <发布包> <i
   [[ -f "${MANAGED_SCRIPT}" ]] || die "安装器落盘失败: ${MANAGED_SCRIPT}"
   ok "完整安装器已安全落盘: ${INSTALLER_ROOT}"
   export AID_RELEASE_CHANNEL="${REQUESTED_RELEASE_CHANNEL:-${RESOLVED_CHANNEL:-auto}}"
+  export AID_TRUSTED_SOURCE_PACKAGE=1
   exec bash "${MANAGED_SCRIPT}" "${action}" "${package}"
 }
 
@@ -569,18 +720,20 @@ prepare_install_package() { # prepare_install_package [本地包]
     [[ -f "${supplied}" ]] || die "发布包不存在: ${supplied}"
     RESOLVED_PACKAGE_PATH="$(cd "$(dirname "${supplied}")" && pwd)/$(basename "${supplied}")"
     RESOLVED_VERSION="$(version_from_package "${RESOLVED_PACKAGE_PATH}")"
-    REQUESTED_RELEASE_CHANNEL="${AID_RELEASE_CHANNEL:-$(conf_get RELEASE_CHANNEL auto)}"
+    REQUESTED_RELEASE_CHANNEL="${AID_RELEASE_CHANNEL:-$(state_get RELEASE_CHANNEL auto)}"
     case "${REQUESTED_RELEASE_CHANNEL}" in
       auto|stable|beta) ;;
       *) die "发布渠道只支持 auto、stable 或 beta（当前: ${REQUESTED_RELEASE_CHANNEL}）" ;;
     esac
     if [[ "${RESOLVED_VERSION}" == *-* ]]; then RESOLVED_CHANNEL="beta"; else RESOLVED_CHANNEL="stable"; fi
-    risk "你选择了本地发布包，脚本只能校验包结构，无法确认它是否来自官方 Release"
+    if [[ "${AID_TRUSTED_SOURCE_PACKAGE:-0}" != "1" ]]; then
+      risk "你选择了本地发布包，脚本只能校验包结构，无法确认它是否来自官方 Release"
+    fi
     validate_release_package "${RESOLVED_PACKAGE_PATH}" no
     return 0
   fi
   resolve_official_release
-  ensure_official_package
+  ensure_source_package
 }
 
 confirm_first_install() { # confirm_first_install <docker|manual>
@@ -598,7 +751,7 @@ confirm_first_install() { # confirm_first_install <docker|manual>
   risk "后台初始账号为 admin / admin123，首次登录后必须立即修改密码"
   warn "官方媒体资产包体积较大且存储目标因人而异，本步骤不会静默下载或写入 OSS/COS"
   if [[ -d "${DATA_ROOT}" ]] && find "${DATA_ROOT}" -mindepth 1 -maxdepth 1 \
-      ! -name packages ! -name installer ! -name aid-deploy.conf -print -quit 2>/dev/null | grep -q .; then
+      ! -name packages ! -name installer ! -name config ! -name aid-deploy.conf -print -quit 2>/dev/null | grep -q .; then
     risk "${DATA_ROOT} 已存在非安装缓存内容；继续前请确认这里不是其他业务的数据目录"
     defaultAnswer="no"
   fi
@@ -619,9 +772,29 @@ confirm_first_install() { # confirm_first_install <docker|manual>
 # ----------------------------------------------------------------------------
 ensure_conf_file() {
   if [[ ! -f "${CONF}" ]]; then
-    [[ -f "${SCRIPT_DIR}/aid-deploy.conf.example" ]] || die "缺少手动部署配置模板"
-    mkdir -p "${DATA_ROOT}"
-    cp "${SCRIPT_DIR}/aid-deploy.conf.example" "${CONF}"
+    mkdir -p "$(dirname "${CONF}")"
+    if [[ -f "${SCRIPT_DIR}/aid-deploy.conf.example" ]]; then
+      cp "${SCRIPT_DIR}/aid-deploy.conf.example" "${CONF}"
+    else
+      cat > "${CONF}" <<'EOF'
+# AID 手动部署配置（唯一配置真源）
+HTTP_PORT=80
+ADMIN_PORT=8090
+BACKEND_PORT=8080
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_NAME=aid
+DB_USERNAME=root
+DB_PASSWORD=
+REDIS_HOST=127.0.0.1
+REDIS_PORT=6379
+REDIS_PASSWORD=
+TOKEN_SECRET=
+JAVA_OPTS=-Xms1g -Xmx2g
+ROCKETMQ_ENABLED=false
+ROCKETMQ_NAMESERVER=127.0.0.1:9876
+EOF
+    fi
     chmod 600 "${CONF}"
     ok "已自动生成手动部署配置: ${CONF}"
     warn "手动部署使用本机或外部 MySQL/Redis/Node/Nginx，默认连接参数不一定适合你的环境"
@@ -646,6 +819,7 @@ ensure_conf_file() {
     conf_set TOKEN_SECRET "$(gen_secret)"
     ok "TOKEN_SECRET 留空，已自动生成强随机值写入配置"
   fi
+  write_deployment_descriptor systemd "${CONF}"
   return 0
 }
 
@@ -655,8 +829,30 @@ ensure_conf_file() {
 # ----------------------------------------------------------------------------
 ensure_env_file() {
   if [[ ! -f "${ENV_FILE}" ]]; then
-    [[ -f "${COMPOSE_DIR}/.env.example" ]] || die "缺少 Docker 配置模板"
-    cp "${COMPOSE_DIR}/.env.example" "${ENV_FILE}"
+    mkdir -p "$(dirname "${ENV_FILE}")"
+    if [[ -f "${COMPOSE_DIR}/.env.example" ]]; then
+      cp "${COMPOSE_DIR}/.env.example" "${ENV_FILE}"
+    else
+      cat > "${ENV_FILE}" <<EOF
+# AID Docker 部署配置（唯一配置真源）
+DATA_ROOT=${DATA_ROOT}
+HTTP_PORT=80
+ADMIN_PORT=8090
+MYSQL_ROOT_PASSWORD=
+DB_NAME=aid
+DB_USERNAME=aid
+DB_PASSWORD=
+MYSQL_PORT=3306
+REDIS_HOST=redis
+REDIS_PORT=6379
+REDIS_PASSWORD=
+TOKEN_SECRET=
+BACKEND_PORT=8080
+COMPOSE_PROFILES=redis
+ROCKETMQ_ENABLED=false
+ROCKETMQ_NAMESERVER=rocketmq-nameserver:9876
+EOF
+    fi
     chmod 600 "${ENV_FILE}"
     ok "已自动生成 Docker 配置: ${ENV_FILE}"
     warn "首次安装采用安全默认方案：内置 MySQL + Redis、暂不启用 RocketMQ、密码与 JWT 密钥自动生成"
@@ -681,10 +877,74 @@ ensure_env_file() {
   if [[ "${envDataRoot}" != "${DATA_ROOT}" ]]; then
     warn ".env 的 DATA_ROOT(${envDataRoot}) 与脚本数据目录(${DATA_ROOT}) 不一致，以 .env 为准需同步设置 AID_DATA_ROOT 环境变量"
   fi
+  write_deployment_descriptor docker "${ENV_FILE}"
   return 0
 }
 
-compose_cmd() { (cd "${COMPOSE_DIR}" && docker compose "$@"); }
+confirm_initial_configuration() { # confirm_initial_configuration <docker|manual>
+  local mode="$1" configFile marker currentHash editNow confirmed
+  if [[ "${mode}" == "docker" ]]; then configFile="${ENV_FILE}"; else configFile="${CONF}"; fi
+  mkdir -p "${CONFIG_ROOT}"
+  marker="${CONFIG_ROOT}/.${mode}-config-confirmed.sha256"
+  currentHash="$(config_sha256 "${configFile}")"
+  if [[ -n "${currentHash}" && -f "${marker}" && "$(tr -d '[:space:]' < "${marker}")" == "${currentHash}" ]]; then
+    ok "部署配置已确认且未发生变化: ${configFile}"
+    return 0
+  fi
+
+  section "部署配置（必须先完成）"
+  echo -e "  部署方式 : ${C_GREEN}${mode}${C_RESET}"
+  echo -e "  配置文件 : ${C_GREEN}${configFile}${C_RESET}"
+  warn "配置未确认前不会拉取三端业务源码、构建程序、初始化数据库或启动任何 AID 服务"
+  if [[ "${AID_ASSUME_YES:-0}" == "1" ]]; then
+    [[ "${AID_CONFIG_CONFIRMED:-0}" == "1" ]] \
+      || die "非交互部署必须同时设置 AID_CONFIG_CONFIRMED=1，明确确认已检查配置文件"
+  else
+    editNow="$(ask '现在打开配置文件检查和修改？(yes/no)' 'yes')"
+    if [[ "${editNow}" == "yes" ]]; then
+      "${EDITOR:-vi}" "${configFile}" </dev/tty >/dev/tty \
+        || die "配置编辑未正常完成，请检查 ${configFile} 后重新运行"
+    fi
+  fi
+
+  # 编辑完成后重新执行必填项、端口和密钥校验；任何不合法内容都在构建前中止。
+  if [[ "${mode}" == "docker" ]]; then ensure_env_file; else ensure_conf_file; fi
+  if [[ "${mode}" == "docker" ]]; then
+    validate_port HTTP_PORT "$(env_get HTTP_PORT 80)"
+    validate_port ADMIN_PORT "$(env_get ADMIN_PORT 8090)"
+    validate_port BACKEND_PORT "$(env_get BACKEND_PORT 8080)"
+    validate_port MYSQL_PORT "$(env_get MYSQL_PORT 3306)"
+    validate_port REDIS_PORT "$(env_get REDIS_PORT 6379)"
+  else
+    validate_port HTTP_PORT "$(conf_get HTTP_PORT 80)"
+    validate_port ADMIN_PORT "$(conf_get ADMIN_PORT 8090)"
+    validate_port BACKEND_PORT "$(conf_get BACKEND_PORT 8080)"
+    validate_port DB_PORT "$(conf_get DB_PORT 3306)"
+    validate_port REDIS_PORT "$(conf_get REDIS_PORT 6379)"
+  fi
+  if [[ "${mode}" == "docker" ]]; then
+    echo "  用户端口 : $(env_get HTTP_PORT 80)"
+    echo "  管理端口 : $(env_get ADMIN_PORT 8090)"
+    echo "  后端端口 : $(env_get BACKEND_PORT 8080)"
+    echo "  数据库   : 内置MySQL:$(env_get MYSQL_PORT 3306)/$(env_get DB_NAME aid)"
+  else
+    echo "  用户端口 : $(conf_get HTTP_PORT 80)"
+    echo "  管理端口 : $(conf_get ADMIN_PORT 8090)"
+    echo "  后端端口 : $(conf_get BACKEND_PORT 8080)"
+    echo "  数据库   : $(conf_get DB_HOST 127.0.0.1):$(conf_get DB_PORT 3306)/$(conf_get DB_NAME aid)"
+  fi
+  if [[ "${AID_ASSUME_YES:-0}" != "1" ]]; then
+    confirmed="$(ask '确认以上配置作为本次部署唯一配置真源？(yes/no)' 'no')"
+    [[ "${confirmed}" == "yes" ]] || die "配置尚未确认，部署已停止"
+  fi
+  currentHash="$(config_sha256 "${configFile}")"
+  [[ -n "${currentHash}" ]] || die "无法计算配置文件摘要"
+  printf '%s\n' "${currentHash}" > "${marker}"
+  chmod 600 "${marker}"
+  ok "配置已确认，允许进入环境检查与源码构建"
+}
+
+compose_cmd() { docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_DIR}/docker-compose.yml" "$@"; }
 
 # ----------------------------------------------------------------------------
 # 产物摆位（两种模式共用）：发布包 -> DATA_ROOT/app/
@@ -758,7 +1018,7 @@ UPDATER_CONFIG_FILE="${UPDATER_CONFIG_DIR}/config.json"
 UPDATER_DATA_DIR="/var/lib/aid-updater"
 
 write_updater_config() { # write_updater_config <docker|manual>
-  local mode="$1" serviceManager backendService restartServices healthUrl execContainer dbHost dbPort dbUser dbPwd dbName
+  local mode="$1" serviceManager backendService restartServices healthUrl execContainer dbHost dbPort dbUser dbPwd dbName configPath defaultConfigPath
   mkdir -p "${UPDATER_CONFIG_DIR}" "${UPDATER_DATA_DIR}/inbox" "${UPDATER_DATA_DIR}/work" "${UPDATER_DATA_DIR}/backups"
   if [[ "${mode}" == "docker" ]]; then
     serviceManager="docker"; backendService="aid-server"
@@ -770,6 +1030,8 @@ write_updater_config() { # write_updater_config <docker|manual>
     dbHost="127.0.0.1"; dbPort="3306"
     dbUser="root"; dbPwd="$(env_get MYSQL_ROOT_PASSWORD '')"
     dbName="$(env_get DB_NAME aid)"
+    configPath="${ENV_FILE}"; defaultConfigPath="${DEFAULT_DOCKER_CONFIG}"
+    write_deployment_descriptor docker "${configPath}"
   else
     serviceManager="systemd"; backendService="aid"
     restartServices='["aid-web"]'
@@ -778,6 +1040,8 @@ write_updater_config() { # write_updater_config <docker|manual>
     dbHost="$(conf_get DB_HOST 127.0.0.1)"; dbPort="$(conf_get DB_PORT 3306)"
     dbUser="$(conf_get DB_USERNAME root)"; dbPwd="$(conf_get DB_PASSWORD '')"
     dbName="$(conf_get DB_NAME aid)"
+    configPath="${CONF}"; defaultConfigPath="${DEFAULT_MANUAL_CONFIG}"
+    write_deployment_descriptor systemd "${configPath}"
   fi
   # 密码等值经 python/awk 不可靠，凭证字符已由 validate_secret 约束（无引号反斜杠），可安全嵌入 JSON
   cat > "${UPDATER_CONFIG_FILE}" <<EOF
@@ -790,6 +1054,8 @@ write_updater_config() { # write_updater_config <docker|manual>
   "heartbeatIntervalSeconds": 5,
   "downloadTimeoutSeconds": 600,
   "keepBackups": 3,
+  "sourceBuildScript": "${INSTALLER_ROOT}/deploy/${SOURCE_BUILDER_NAME}",
+  "sourceBuildTimeoutSeconds": 7200,
   "install": {
     "backendJar": "${DATA_ROOT}/app/aid-admin.jar",
     "adminDist": "${DATA_ROOT}/app/admin-dist",
@@ -808,6 +1074,14 @@ write_updater_config() { # write_updater_config <docker|manual>
     "user": "${dbUser}",
     "password": "${dbPwd}",
     "execContainer": "${execContainer}"
+  },
+  "deployment": {
+    "descriptorFile": "${DEPLOYMENT_DESCRIPTOR}",
+    "configPath": "${configPath}",
+    "defaultConfigPath": "${defaultConfigPath}",
+    "allowedConfigRoot": "${CONFIG_ROOT}",
+    "composeFile": "${INSTALLER_ROOT}/deploy/docker/docker-compose.yml",
+    "managerScript": "${MANAGED_SCRIPT}"
   }
 }
 EOF
@@ -994,6 +1268,9 @@ do_install_docker() {
   local existingMode package targetVersion targetChannel
   existingMode="$(detect_mode)"
   confirm_reinstall docker || return 0
+  # 配置是部署的第一道闸门：完成生成、编辑、校验和人工确认后才检查环境或拉取源码。
+  ensure_env_file
+  confirm_initial_configuration docker
   if ! command -v docker >/dev/null 2>&1; then
     risk "未检测到 Docker Engine；AID 不会自动安装 Docker，也不会修改服务器软件源"
     die "请管理员安装 Docker Engine 24+ 与 Compose v2 插件，确认 docker version 正常后重新运行"
@@ -1009,11 +1286,9 @@ do_install_docker() {
   package="${RESOLVED_PACKAGE_PATH}"
   bootstrap_installer_if_needed "${package}" install-docker
 
-  # Docker 首次部署自动从模板生成配置；后续仍以 .env 为唯一配置真源。
-  ensure_env_file
   [[ "${existingMode}" == "none" ]] && confirm_first_install docker
-  conf_set DEPLOY_MODE "docker"
-  conf_set DATA_ROOT "${DATA_ROOT}"
+  state_set DEPLOY_MODE "docker"
+  state_set DATA_ROOT "${DATA_ROOT}"
 
   # 硬件校验基线按 .env 实际配置评估：profiles 含 mq 才计入内置 MQ 内存
   local mqPlan="no"
@@ -1036,8 +1311,8 @@ do_install_docker() {
   wait_backend_healthy || die "部署未完成，按上方提示排查后可重新执行本菜单项（数据库初始化失败需先清空再重装: cd ${COMPOSE_DIR} && docker compose down && rm -rf ${DATA_ROOT}/mysql-data）"
   targetVersion="${RESOLVED_VERSION:-$(version_from_package "${package}")}"
   targetChannel="${REQUESTED_RELEASE_CHANNEL:-auto}"
-  conf_set CURRENT_VERSION "${targetVersion}"
-  conf_set RELEASE_CHANNEL "${targetChannel}"
+  state_set CURRENT_VERSION "${targetVersion}"
+  state_set RELEASE_CHANNEL "${targetChannel}"
   install_management_command
   print_access_info
   if [[ -f "${DATA_ROOT}/app/updater/aid-updater" ]]; then
@@ -1062,19 +1337,9 @@ After=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=${DATA_ROOT}/app
-Environment=DB_HOST=$(conf_get DB_HOST 127.0.0.1)
-Environment=DB_PORT=$(conf_get DB_PORT 3306)
-Environment=DB_NAME=$(conf_get DB_NAME aid)
-Environment=DB_USERNAME=$(conf_get DB_USERNAME root)
-Environment=DB_PASSWORD=$(conf_get DB_PASSWORD '')
-Environment=REDIS_HOST=$(conf_get REDIS_HOST 127.0.0.1)
-Environment=REDIS_PORT=$(conf_get REDIS_PORT 6379)
-Environment=REDIS_PASSWORD=$(conf_get REDIS_PASSWORD '')
-Environment=TOKEN_SECRET=$(conf_get TOKEN_SECRET '')
+EnvironmentFile=${CONF}
 Environment=AID_PROFILE=${DATA_ROOT}/uploadPath
 Environment=LOG_PATH=${DATA_ROOT}/logs
-Environment=ROCKETMQ_ENABLED=$(conf_get ROCKETMQ_ENABLED false)
-Environment=ROCKETMQ_NAMESERVER=$(conf_get ROCKETMQ_NAMESERVER 127.0.0.1:9876)
 Environment=SERVER_PORT=$(conf_get BACKEND_PORT 8080)
 ExecStart=${javaBin} $(conf_get JAVA_OPTS '-Xms1g -Xmx2g') -jar ${DATA_ROOT}/app/aid-admin.jar
 Restart=always
@@ -1182,6 +1447,9 @@ do_install_manual() {
   local existingMode package targetVersion targetChannel
   existingMode="$(detect_mode)"
   confirm_reinstall manual || return 0
+  # 手动部署同样先完成配置，避免安装环境或源码构建结束后才发现数据库参数不可用。
+  ensure_conf_file
+  confirm_initial_configuration manual
   command -v systemctl >/dev/null 2>&1 || die "未检测到 systemd"
   command -v java >/dev/null 2>&1 || die "未检测到 java，请安装 JDK 17+"
   local javaMajor nodeMajor
@@ -1195,11 +1463,9 @@ do_install_manual() {
   package="${RESOLVED_PACKAGE_PATH}"
   bootstrap_installer_if_needed "${package}" install-manual
 
-  # 手动部署自动生成配置骨架，但外部数据库密码仍必须由用户明确提供。
-  ensure_conf_file
   [[ "${existingMode}" == "none" ]] && confirm_first_install manual
-  conf_set DEPLOY_MODE "manual"
-  conf_set DATA_ROOT "${DATA_ROOT}"
+  state_set DEPLOY_MODE "manual"
+  state_set DATA_ROOT "${DATA_ROOT}"
 
   # 硬件校验基线按配置实际评估：启用 MQ（手动部署常与业务同机）按含 MQ 内存计
   local mqPlan="no"
@@ -1241,8 +1507,8 @@ do_install_manual() {
   wait_backend_healthy || die "部署未完成，按上方提示排查后重试"
   targetVersion="${RESOLVED_VERSION:-$(version_from_package "${package}")}"
   targetChannel="${REQUESTED_RELEASE_CHANNEL:-auto}"
-  conf_set CURRENT_VERSION "${targetVersion}"
-  conf_set RELEASE_CHANNEL "${targetChannel}"
+  state_set CURRENT_VERSION "${targetVersion}"
+  state_set RELEASE_CHANNEL "${targetChannel}"
   install_management_command
   print_access_info
 }
@@ -1286,7 +1552,7 @@ do_update() {
   echo -e "  目标版本 : ${C_GREEN}${target}${C_RESET} (${RESOLVED_CHANNEL:-本地包})"
   risk "升级会短暂停止服务，并可能执行包内增量 SQL；请勿在生成任务运行期间操作"
   warn "脚本将在替换任何程序或执行 SQL 前备份三端产物与数据库；备份失败会立即中止"
-  warn "后台「项目升级配置」仍是首选入口，具备签名校验、SQL 历史记录和失败自动回滚"
+  warn "后台「项目升级配置」仍是首选入口，具备签名版本校验、源码构建、SQL 历史记录和失败自动回滚"
   if [[ "${AID_ASSUME_YES:-0}" == "1" ]]; then
     risk "AID_ASSUME_YES=1：已跳过升级人工确认"
     go="yes"
@@ -1296,7 +1562,7 @@ do_update() {
   [[ "${go}" == "yes" ]] || { log "已取消"; return; }
 
   if [[ -z "${supplied}" ]]; then
-    ensure_official_package
+    ensure_source_package
     package="${RESOLVED_PACKAGE_PATH}"
   fi
 
@@ -1350,9 +1616,9 @@ do_update() {
   fi
   target="$(current_version)"
   [[ "${target}" == "未知" ]] && target="${RESOLVED_VERSION:-$(version_from_package "${package}")}"
-  targetChannel="${REQUESTED_RELEASE_CHANNEL:-$(conf_get RELEASE_CHANNEL auto)}"
-  conf_set CURRENT_VERSION "${target}"
-  conf_set RELEASE_CHANNEL "${targetChannel}"
+  targetChannel="${REQUESTED_RELEASE_CHANNEL:-$(state_get RELEASE_CHANNEL auto)}"
+  state_set CURRENT_VERSION "${target}"
+  state_set RELEASE_CHANNEL "${targetChannel}"
   refresh_managed_installer "${package}" || true
   install_management_command
   ok "已更新到 ${target}"
@@ -1444,7 +1710,7 @@ do_rollback() {
 
   do_restart
   wait_backend_healthy || die "回滚后服务未就绪，请查看日志排查；保护备份: ${safeguard}"
-  conf_set CURRENT_VERSION "${targetVer}"
+  state_set CURRENT_VERSION "${targetVer}"
   ok "已回滚到 v${targetVer}"
   print_access_info
 }
@@ -1457,15 +1723,25 @@ do_restart() {
   local mode; mode="$(detect_mode)"
   case "${mode}" in
     docker)
+      # 每次重启都从唯一配置真源重建升级器配置，确保数据库凭证、配置路径等
+      # 与业务容器一致；随后显式重启升级器，不能依赖旧进程内存中的配置。
+      if [[ "${AID_SKIP_UPDATER_RESTART:-0}" != "1" && -f "${DATA_ROOT}/app/updater/aid-updater" ]]; then
+        write_updater_config docker
+      fi
       # .env 由用户维护，up -d 会应用其中的变更（环境/端口/内存等按需重建容器）
       log "重启容器编排（.env 配置变更同时生效）..."
       compose_cmd up -d
       compose_cmd restart aid-server aid-web nginx 2>/dev/null || true
+      [[ "${AID_SKIP_UPDATER_RESTART:-0}" == "1" ]] || compose_cmd restart aid-updater 2>/dev/null || true
       ;;
     manual)
+      if [[ "${AID_SKIP_UPDATER_RESTART:-0}" != "1" && -f "${DATA_ROOT}/app/updater/aid-updater" ]]; then
+        write_updater_config manual
+      fi
       write_systemd_units
       systemctl restart aid
       systemctl restart aid-web 2>/dev/null || true
+      [[ "${AID_SKIP_UPDATER_RESTART:-0}" == "1" ]] || systemctl restart aid-updater 2>/dev/null || true
       systemctl reload nginx 2>/dev/null || true
       ;;
     *) die "尚未部署" ;;
@@ -1606,11 +1882,11 @@ show_menu() {
   local mode; mode="$(detect_mode)"
   echo ""
   echo -e "${C_CYAN}==================== AID 部署管理 ====================${C_RESET}"
-  echo -e " 部署方式: ${C_GREEN}${mode}${C_RESET}    当前版本: ${C_GREEN}$(current_version)${C_RESET}    渠道: ${C_GREEN}$(conf_get RELEASE_CHANNEL auto)${C_RESET}"
+  echo -e " 部署方式: ${C_GREEN}${mode}${C_RESET}    当前版本: ${C_GREEN}$(current_version)${C_RESET}    渠道: ${C_GREEN}$(state_get RELEASE_CHANNEL auto)${C_RESET}"
   echo -e " 数据目录: ${DATA_ROOT}"
   echo "------------------------------------------------------"
-  echo "  1) 一键首次部署（Docker，自动下载，推荐）"
-  echo "  2) 首次部署（手动 systemd，自动下载）"
+  echo "  1) 一键首次部署（Docker，源码构建，推荐）"
+  echo "  2) 首次部署（手动 systemd，源码构建）"
   echo "  3) 自动检查并升级到当前渠道最新版（升级前完整备份）"
   echo "  4) 回滚到升级前备份（最近 3 份可选）"
   echo "  5) 重启服务（配置变更后生效）"
@@ -1625,7 +1901,7 @@ show_menu() {
 }
 
 main() {
-  # 用户以后仍执行最初下载的单文件时，自动切换到发布包持久化安装的最新版管理脚本。
+  # 用户以后仍执行最初下载的单文件时，自动切换到源码构建包持久化安装的最新版管理脚本。
   handoff_to_managed_installer "$@"
   case "${1:-}" in
     install|auto)
