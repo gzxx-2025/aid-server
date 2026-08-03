@@ -6,6 +6,7 @@ import com.aid.auth.service.WeChatLoginService;
 import com.aid.common.aid.wxlogin.core.WxLoginTemplateFactory;
 import com.aid.common.annotation.Anonymous;
 import com.aid.common.core.domain.AjaxResult;
+import com.aid.common.exception.ServiceException;
 import com.aid.common.utils.SecurityUtils;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -15,7 +16,13 @@ import me.chanjar.weixin.mp.api.WxMpService;
 import me.chanjar.weixin.mp.bean.message.WxMpXmlMessage;
 import me.chanjar.weixin.mp.bean.result.WxMpQrCodeTicket;
 import me.chanjar.weixin.mp.bean.result.WxMpUser;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Arrays;
 import java.util.HashMap;
@@ -187,6 +194,9 @@ public class WeChatLoginController {
                     // 登录场景
                     try {
                         weChatLoginService.handleScan(sceneStr, openId, wxMpUser);
+                    } catch (ServiceException e) {
+                        log.info("处理微信登录扫码失败: sceneStr={}, reason={}", sceneStr, e.getMessage());
+                        weChatLoginService.markLoginFailed(sceneStr, e.getMessage());
                     } catch (Exception e) {
                         log.error("处理微信登录扫码失败: sceneStr={}", sceneStr, e);
                         weChatLoginService.markLoginFailed(sceneStr, "登录失败");

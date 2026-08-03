@@ -3,6 +3,7 @@ package com.aid.auth.service;
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.aid.aid.domain.AidConfig;
 import com.aid.auth.domain.dto.BindAccountRequest;
 import com.aid.auth.domain.dto.CancelAccountRequest;
 import com.aid.auth.domain.dto.LoginRequest;
@@ -15,6 +16,9 @@ import com.aid.auth.policy.AuthCodePolicyService;
 import com.aid.aid.domain.vo.LoginVO;
 import com.aid.aid.domain.vo.UserInfoVO;
 import com.aid.aid.domain.vo.UserSocialVO;
+import com.aid.aid.domain.vo.AdminBrandConfigVO;
+import com.aid.aid.service.IAdminBrandConfigService;
+import com.aid.aid.service.IAidConfigService;
 import com.aid.auth.strategy.LoginStrategy;
 import com.aid.aid.domain.AidUserProfile;
 import com.aid.aid.domain.AidUserSocial;
@@ -36,6 +40,7 @@ import com.aid.common.core.service.TokenService;
 import com.aid.core.service.ISysUserService;
 import com.aid.notify.wechat.service.IWechatNotifyConfigService;
 import com.aid.notify.wechat.vo.WechatNotifyPublicVO;
+import com.aid.promotion.service.IInviteService;
 import com.aid.promotion.service.IPromotionConfigService;
 import com.aid.voice.service.VoicePreviewLimitService;
 import jakarta.annotation.PostConstruct;
@@ -47,7 +52,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -99,7 +106,11 @@ public class AuthService {
 
     /** 通用配置服务：读取 aid_config(category=basic) 的基础配置，聚合到 publicConfig 下发给 C 端 */
     @Resource
-    private com.aid.aid.service.IAidConfigService aidConfigService;
+    private IAidConfigService aidConfigService;
+
+    /** 平台品牌配置：聚合到 publicConfig 供 C 端展示平台 LOGO 与页签图标。 */
+    @Resource
+    private IAdminBrandConfigService adminBrandConfigService;
 
     /** 文件存储模板：读取上传大小限制，聚合到 publicConfig 供 C 端上传前按类型提示/校验大小 */
     @Resource
@@ -125,8 +136,15 @@ public class AuthService {
     @Resource
     private IPromotionConfigService promotionConfigService;
 
+    /** 邀请码校验：登录场景的新用户在发送验证码前拦截无效邀请码 */
+    @Resource
+    private IInviteService inviteService;
+
     /** 基础配置分类标识（aid_config.category）。 */
     private static final String BASIC_CONFIG_CATEGORY = "basic";
+
+    /** 已废弃的基础配置项，不再随公开配置接口下发。 */
+    private static final String DEPRECATED_BASIC_VERSION_CONFIG = "version_number";
 
     /**
      * 登录策略映射表
@@ -237,14 +255,17 @@ public class AuthService {
             throw new ServiceException("目标地址不能为空");
         }
 
-        String clientIp = IpUtils.getIpAddr();
-
         validateTargetFormat(target, codeType);
 
         // 绑定场景：检查是否已被绑定
         if (AuthConstants.SCENE_BIND.equals(scene)) {
             checkBindTarget(target, codeType);
         }
+
+        // 登录场景仅对尚未注册的账号校验邀请码，并且必须早于限流计数和短信/邮件发送。
+        validateLoginInviteBeforeSend(target, codeType, scene, request.getInviteCode());
+
+        String clientIp = IpUtils.getIpAddr();
 
         // 加载验证码策略：长度 / 有效期 / 间隔 / 日上限 全部从 aid_config 动态读取
         AuthCodePolicy policy = authCodePolicyService.getPolicy(codeType);
@@ -275,14 +296,25 @@ public class AuthService {
         log.info("验证码发送成功: target={}, codeType={}, scene={}, ip={}", target, codeType, scene, clientIp);
     }
 
-    /** publicConfig Redis 缓存 key（全局共享，不区分用户/IP）。结构变更时升版本避免脏缓存。 */
-    private static final String PUBLIC_CONFIG_CACHE_KEY = "auth:public_config:v2";
+    /** 发送登录验证码前校验新用户邀请码；老用户登录和非登录场景不处理邀请码。 */
+    private void validateLoginInviteBeforeSend(String target, String codeType, String scene, String inviteCode) {
+        if (!AuthConstants.SCENE_LOGIN.equals(scene) || StrUtil.isBlank(inviteCode)) {
+            return;
+        }
+        if (Objects.nonNull(findUserByTarget(target, codeType))) {
+            return;
+        }
+        inviteService.validateForRegistration(inviteCode);
+    }
+
+    /** publicConfig Redis 缓存 key（全局共享，不区分用户/IP）。结构变更时更换键名避免旧缓存。 */
+    private static final String PUBLIC_CONFIG_CACHE_KEY = "auth:public_config:with_brand";
 
     /** publicConfig 缓存 TTL（秒）：30s 是 aid_config 改完到全局生效的最大延迟，业务可接受。 */
     private static final int PUBLIC_CONFIG_CACHE_TTL_SECONDS = 30;
 
     /**
-     * 一次性返回前端首屏所需的全部公开配置（行为验证码、短信/邮箱策略、加密/支付/上传、营销活动等），
+     * 一次性返回前端首屏所需的全部公开配置（行为验证码、短信/邮箱策略、平台品牌、加密/支付/上传、营销活动等），
      * 减少首屏多次匿名请求的往返；服务端 Redis 缓存 {@value #PUBLIC_CONFIG_CACHE_TTL_SECONDS}s，
      * aid_config / 行为验证码状态变更后最多 30s 内生效。
      * 缓存内容为不含密钥/会话的纯公开配置，跨用户共享读，无隐私泄露风险。
@@ -330,6 +362,8 @@ public class AuthService {
 
         Map<String, String> basic = buildBasicConfig();
 
+        AdminBrandConfigVO brand = adminBrandConfigService.getPublicConfig();
+
         PublicConfigVO.PaymentChannels payment = buildPaymentChannels();
 
         WechatNotifyPublicVO wechatNotify = buildWechatNotifyStatus();
@@ -352,6 +386,7 @@ public class AuthService {
                 .crypto(crypto)
                 .wechatNotify(wechatNotify)
                 .basic(basic)
+                .brand(brand)
                 .payment(payment)
                 .upload(upload)
                 .voicePreview(voicePreview)
@@ -413,7 +448,7 @@ public class AuthService {
 
     /**
      * 构建基础配置块。
-     * 读取 aid_config(category=basic) 下的全部键值对（协议/隐私政策/版本号/备案号/交流二维码等合规与首屏展示内容），
+     * 读取 aid_config(category=basic) 下的有效键值对（协议/隐私政策/备案号/交流二维码等合规与首屏展示内容），
      * 以 configName → configValue 形式动态下发。后台 aid_config 新增同分类配置项即自动随接口生效，无需改代码。
      * 读取异常或无配置时返回空 Map，绝不阻塞其它公开配置返回。
      *
@@ -421,15 +456,16 @@ public class AuthService {
      */
     private Map<String, String> buildBasicConfig() {
         try {
-            com.aid.aid.domain.AidConfig query = new com.aid.aid.domain.AidConfig();
+            AidConfig query = new AidConfig();
             query.setCategory(BASIC_CONFIG_CATEGORY);
-            List<com.aid.aid.domain.AidConfig> list = aidConfigService.selectAidConfigList(query);
+            List<AidConfig> list = aidConfigService.selectAidConfigList(query);
             if (CollUtil.isEmpty(list)) {
-                return java.util.Collections.emptyMap();
+                return Collections.emptyMap();
             }
-            Map<String, String> basic = new java.util.LinkedHashMap<>(list.size());
-            for (com.aid.aid.domain.AidConfig item : list) {
-                if (item != null && StrUtil.isNotBlank(item.getConfigName())) {
+            Map<String, String> basic = new LinkedHashMap<>(list.size());
+            for (AidConfig item : list) {
+                if (item != null && StrUtil.isNotBlank(item.getConfigName())
+                        && !Objects.equals(DEPRECATED_BASIC_VERSION_CONFIG, item.getConfigName())) {
                     basic.put(item.getConfigName(), item.getConfigValue());
                 }
             }
@@ -437,7 +473,7 @@ public class AuthService {
         } catch (Exception e) {
             // 基础配置读取失败不影响其它公开配置返回
             log.error("publicConfig 基础配置(category=basic)读取失败，按空配置降级", e);
-            return java.util.Collections.emptyMap();
+            return Collections.emptyMap();
         }
     }
 

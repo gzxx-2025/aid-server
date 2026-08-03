@@ -25,6 +25,8 @@ import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.Date;
 import java.util.Objects;
@@ -97,19 +99,16 @@ public class SmsLoginStrategy implements LoginStrategy {
             throw new ServiceException("验证码错误");
         }
 
-        // 验证通过后删除验证码
-        redisCache.deleteObject(cacheKey);
-
         SysUser user = sysUserService.selectUserByPhonenumber(phone);
 
         if (Objects.isNull(user)) {
             // 用户不存在，自动注册
             user = createSysUser(phone);
-            log.info("短信登录自动注册成功: phone={}, userId={}", phone, user.getUserId());
-            // 注册瞬间绑定邀请关系（静默，注册事务内，回滚即解除；老用户登录不会走到这里）
+            // 注册事务内严格校验并绑定邀请关系，失败时连同新用户一起回滚。
             inviteService.bindOnRegister(user.getUserId(), request.getInviteCode(), AuthConstants.BIND_TYPE_SMS);
             // 注册送积分（静默，事务提交后发放，幂等一人一次）
             registerBonusService.grantAfterRegister(user.getUserId(), AuthConstants.BIND_TYPE_SMS);
+            log.info("短信登录自动注册成功: phone={}, userId={}", phone, user.getUserId());
         } else {
             if (!"0".equals(user.getStatus())) {
                 log.info("用户已停用: phone={}", phone);
@@ -126,7 +125,28 @@ public class SmsLoginStrategy implements LoginStrategy {
         loginUser.setUser(user);
         loginUser.setUserId(user.getUserId());
 
+        // 仅在登录事务成功提交后消费验证码，邀请码校验失败时允许用户修正后重试。
+        deleteVerificationCodeAfterCommit(cacheKey);
+
         return loginUser;
+    }
+
+    /** 登录事务提交后删除验证码，避免数据库回滚但验证码已被提前消费。 */
+    private void deleteVerificationCodeAfterCommit(String cacheKey) {
+        if (!TransactionSynchronizationManager.isActualTransactionActive()) {
+            redisCache.deleteObject(cacheKey);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                try {
+                    redisCache.deleteObject(cacheKey);
+                } catch (Exception e) {
+                    log.error("短信登录验证码清理失败", e);
+                }
+            }
+        });
     }
 
     /**
@@ -176,12 +196,6 @@ public class SmsLoginStrategy implements LoginStrategy {
             log.error("注册用户失败，手机号: {}", phone);
             throw new ServiceException("注册失败");
         }
-
-        AsyncManager.me().execute(AsyncFactory.recordLogininfor(
-                phone, Constants.LOGIN_SUCCESS, "短信登录自动注册"));
-
-        log.info("静默注册成功，用户ID: {}, 用户名(手机号): {}（已生成不可用随机密码，仅能通过验证码登录）",
-                sysUser.getUserId(), phone);
 
         return sysUser;
     }

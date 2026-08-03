@@ -3,6 +3,7 @@ package com.aid.auth.domain.vo;
 import java.math.BigDecimal;
 import java.util.Map;
 
+import com.aid.aid.domain.vo.AdminBrandConfigVO;
 import com.aid.common.aid.oss.vo.OssUploadLimitsVO;
 import com.aid.notify.wechat.vo.WechatNotifyPublicVO;
 
@@ -11,7 +12,7 @@ import lombok.Data;
 
 /**
  * C 端首屏公开配置聚合 VO。
- * 将行为验证码状态、短信/邮箱验证码策略、接口加密状态、基础配置、支付渠道开关、营销活动等匿名配置
+ * 将行为验证码状态、短信/邮箱验证码策略、接口加密状态、基础配置、平台品牌图片、支付渠道开关、营销活动等匿名配置
  * 合并为一个 {@code POST /auth/public-config}，前端在登录/发码页加载时一次性获取全部 UI 渲染所需配置。
  * 服务端 Redis 缓存 30s，aid_config 改动后最多 30s 内生效。
  *
@@ -44,10 +45,14 @@ public class PublicConfigVO
      * App 上架合规 / 首屏展示所需的公开内容，以键值对动态下发，后台 aid_config 可配置，例如：
      * personal_information_collection_list（个人信息收集清单）、app_permissions_description（应用权限说明）、
      * third_party_sdk_and_information_sharing_list（第三方SDK及信息共享清单）、terms_of_service（用户协议）、
-     * privacy_policy（隐私政策）、version_number（版本号）、record_filing_number（备案号）、
+     * privacy_policy（隐私政策）、membership_agreement（会员协议）、site_name/site_description/site_keywords（SEO）、
+     * record_filing_number（备案号）、
      * exchange_image_url（交流二维码图）等。后台新增同分类配置项即自动随接口下发。
      */
     private Map<String, String> basic;
+
+    /** 平台品牌图片（来自 aid_config category=admin_brand），供 C 端统一展示平台 LOGO 和页签图标。 */
+    private AdminBrandConfigVO brand;
 
     /**
      * 支付渠道开关（来自 aid_config alipay/wxpay 的 enabled，经"同步配置"后生效的内存口径）。

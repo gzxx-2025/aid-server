@@ -22,6 +22,7 @@ const (
 	pkgAdminDir   = "admin-dist"
 	pkgWebDir     = "web-dist"
 	pkgSQLDir     = "sql"
+	pkgBuildInfo  = "build-info.json"
 )
 
 // runApply 执行系统升级或版本回退：下载→校验→解压→备份→停服→替换→SQL→启动→健康检查，失败自动回滚。
@@ -230,6 +231,13 @@ func (r *Runner) replaceArtifacts(packageRoot, newJar string) error {
 	if err := backup.CopyFile(newJar, r.cfg.Install.BackendJar); err != nil {
 		return fmt.Errorf("替换服务端jar失败: %w", err)
 	}
+	buildInfoSrc := filepath.Join(packageRoot, pkgBuildInfo)
+	if fileExists(buildInfoSrc) {
+		buildInfoDst := filepath.Join(filepath.Dir(r.cfg.Install.BackendJar), pkgBuildInfo)
+		if err := backup.CopyFile(buildInfoSrc, buildInfoDst); err != nil {
+			return fmt.Errorf("更新版本标记失败: %w", err)
+		}
+	}
 	adminSrc := filepath.Join(packageRoot, pkgAdminDir)
 	if r.cfg.Install.AdminDist != "" && dirExists(adminSrc) {
 		if err := backup.ReplaceDir(adminSrc, r.cfg.Install.AdminDist); err != nil {
@@ -301,6 +309,11 @@ func hasSQLScripts(dir string) bool {
 func dirExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.IsDir()
+}
+
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
 }
 
 func startBackend(cfg *config.Config) error {

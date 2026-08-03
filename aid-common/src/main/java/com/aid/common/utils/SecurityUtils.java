@@ -2,6 +2,7 @@ package com.aid.common.utils;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -10,6 +11,7 @@ import org.springframework.util.PatternMatchUtils;
 import com.aid.common.constant.Constants;
 import com.aid.common.constant.HttpStatus;
 import com.aid.common.core.domain.entity.SysRole;
+import com.aid.common.core.domain.entity.SysUser;
 import com.aid.common.core.domain.model.LoginUser;
 import com.aid.common.exception.ServiceException;
 
@@ -20,6 +22,8 @@ import com.aid.common.exception.ServiceException;
  */
 public class SecurityUtils
 {
+    /** C 端普通用户默认角色 ID。 */
+    private static final Long C_SIDE_DEFAULT_ROLE_ID = 2L;
 
     /**
      * 用户ID
@@ -133,6 +137,48 @@ public class SecurityUtils
     public static boolean isAdmin(Long userId)
     {
         return userId != null && 1L == userId;
+    }
+
+    /**
+     * 判断当前登录态是否属于后台管理用户。
+     * 超管或持有任一非 C 端默认角色的用户视为后台用户；上下文缺失时安全返回 false。
+     *
+     * @return 是否为后台管理用户
+     */
+    public static boolean isBackendUser()
+    {
+        try
+        {
+            LoginUser loginUser = getLoginUser();
+            if (Objects.isNull(loginUser) || Objects.isNull(loginUser.getUser()))
+            {
+                return false;
+            }
+            SysUser user = loginUser.getUser();
+            if (user.isAdmin())
+            {
+                return true;
+            }
+            // 后台登录态会装载权限集合，保留该判定以兼容未展开角色列表的管理账号。
+            if (Objects.nonNull(loginUser.getPermissions()) && !loginUser.getPermissions().isEmpty())
+            {
+                return true;
+            }
+            List<SysRole> roles = user.getRoles();
+            if (Objects.isNull(roles) || roles.isEmpty())
+            {
+                return false;
+            }
+            return roles.stream()
+                    .filter(Objects::nonNull)
+                    .map(SysRole::getRoleId)
+                    .filter(Objects::nonNull)
+                    .anyMatch(roleId -> !Objects.equals(C_SIDE_DEFAULT_ROLE_ID, roleId));
+        }
+        catch (Exception e)
+        {
+            return false;
+        }
     }
 
     /**

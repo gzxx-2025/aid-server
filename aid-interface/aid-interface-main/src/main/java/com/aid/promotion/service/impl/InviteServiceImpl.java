@@ -6,11 +6,14 @@ import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.regex.Pattern;
 
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.github.pagehelper.PageHelper;
 import com.github.pagehelper.PageInfo;
@@ -31,7 +34,6 @@ import com.aid.promotion.domain.InviteConfig;
 import com.aid.promotion.dto.InvitePageRequest;
 import com.aid.promotion.service.IInviteService;
 import com.aid.promotion.service.IPromotionConfigService;
-import com.aid.promotion.vo.InviteCodeCheckVO;
 import com.aid.promotion.vo.InviteInfoVO;
 import com.aid.promotion.vo.InviteRebateItemVO;
 import com.aid.promotion.vo.InvitedUserVO;
@@ -41,10 +43,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 邀请Service实现
- * 邀请码懒生成（全局唯一，并发冲突自动重试）；
- * 邀请关系仅在注册瞬间绑定（注册事务内，回滚即解除），注册后禁止补绑；
- * 绑定链路全静默：任何校验不通过只记日志，不影响注册。
+ * 处理邀请码生成、注册绑定和邀请数据查询。
  *
  * @author 视觉AID
  */
@@ -83,122 +82,151 @@ public class InviteServiceImpl implements IInviteService
     private static final String STATUS_NAME_REVOKED = "已撤回";
 
     @Override
-    public InviteCodeCheckVO checkInviteCode(String rawCode)
+    public void validateForRegistration(String rawCode)
     {
-        InviteCodeCheckVO vo = new InviteCodeCheckVO();
-        vo.setValid(false);
-        // 活动关闭时直接告知，前端可隐藏邀请码入口
-        InviteConfig config = promotionConfigService.getInviteConfig();
-        if (!config.isEnabled())
+        if (StrUtil.isBlank(rawCode))
         {
-            vo.setReason("邀请活动未开启");
-            return vo;
+            return;
         }
-        // 归一化 + 格式校验
-        String code = normalizeCode(rawCode);
-        if (StrUtil.isBlank(code))
-        {
-            vo.setReason("邀请码无效");
-            return vo;
-        }
-        // 查邀请码归属
-        AidInviteCode codeRecord = aidInviteCodeService.getByCode(code);
-        if (Objects.isNull(codeRecord))
-        {
-            vo.setReason("邀请码无效");
-            return vo;
-        }
-        // 邀请人必须真实存在且状态正常（停用/删除的账号邀请码同步失效）
-        SysUser inviter = selectNormalUser(codeRecord.getUserId());
-        if (Objects.isNull(inviter))
-        {
-            vo.setReason("邀请码无效");
-            return vo;
-        }
-        vo.setValid(true);
-        vo.setInviterNickName(inviter.getNickName());
-        vo.setInviterAvatar(inviter.getAvatar());
-        return vo;
-    }
-
-    @Override
-    public void bindOnRegister(Long inviteeUserId, String rawCode, String channel)
-    {
         try
         {
-            // 未携带邀请码：正常注册，无需处理
-            if (StrUtil.isBlank(rawCode) || Objects.isNull(inviteeUserId))
-            {
-                return;
-            }
-            // 活动关闭：不绑定关系（开关只影响新关系，存量关系由返佣开关控制）
-            InviteConfig config = promotionConfigService.getInviteConfig();
-            if (!config.isEnabled())
-            {
-                log.info("邀请活动未开启，忽略邀请码, inviteeUserId={}", inviteeUserId);
-                return;
-            }
-            // 格式非法：静默忽略（不阻断注册）
-            String code = normalizeCode(rawCode);
-            if (StrUtil.isBlank(code))
-            {
-                log.info("邀请码格式非法，忽略, inviteeUserId={}, rawCode={}", inviteeUserId, rawCode);
-                return;
-            }
-            // 邀请码不存在：静默忽略
-            AidInviteCode codeRecord = aidInviteCodeService.getByCode(code);
-            if (Objects.isNull(codeRecord))
-            {
-                log.info("邀请码不存在，忽略, inviteeUserId={}, code={}", inviteeUserId, code);
-                return;
-            }
-            // 防自邀：邀请码归属人与新用户是同一人（理论上注册瞬间不可能，硬防御）
-            if (Objects.equals(codeRecord.getUserId(), inviteeUserId))
-            {
-                log.info("检测到自我邀请，忽略, userId={}, code={}", inviteeUserId, code);
-                return;
-            }
-            // 邀请人必须状态正常（停用/删除账号不能继续拉新）
-            SysUser inviter = selectNormalUser(codeRecord.getUserId());
-            if (Objects.isNull(inviter))
-            {
-                log.info("邀请人状态异常，忽略绑定, inviterUserId={}, inviteeUserId={}", codeRecord.getUserId(), inviteeUserId);
-                return;
-            }
-            // 一个用户只能被邀请一次（DB 唯一索引兜底）
-            AidInviteRelation existing = aidInviteRelationService.getByInvitee(inviteeUserId);
-            if (Objects.nonNull(existing))
-            {
-                log.info("用户已存在邀请关系，忽略, inviteeUserId={}", inviteeUserId);
-                return;
-            }
-
-            // 建立邀请关系（在注册事务内落库：注册回滚则关系一并回滚）
-            AidInviteRelation relation = new AidInviteRelation();
-            relation.setInviterUserId(codeRecord.getUserId());
-            relation.setInviteeUserId(inviteeUserId);
-            relation.setInviteCode(code);
-            relation.setRegisterChannel(channel);
-            relation.setRegisterIp(resolveRequestIp());
-            relation.setStatus(PromotionConstants.RELATION_STATUS_NORMAL);
-            relation.setTotalRebate(BigDecimal.ZERO);
-            relation.setDelFlag(DEL_FLAG_EXIST);
-            relation.setCreateBy("system");
-            relation.setCreateTime(new Date());
-            aidInviteRelationService.save(relation);
-            log.info("邀请关系绑定成功, inviterUserId={}, inviteeUserId={}, code={}, channel={}",
-                    codeRecord.getUserId(), inviteeUserId, code, channel);
+            requireValidInvitation(rawCode, null);
         }
-        catch (DuplicateKeyException e)
+        catch (ServiceException e)
         {
-            // 并发下同一用户重复绑定被唯一索引拦截：符合预期，静默
-            log.info("邀请关系并发重复绑定，已忽略, inviteeUserId={}", inviteeUserId);
+            throw e;
         }
         catch (Exception e)
         {
-            // 邀请绑定失败绝不阻断注册主流程
-            log.error("邀请关系绑定异常, inviteeUserId={}, rawCode={}", inviteeUserId, rawCode, e);
+            log.error("邀请码预校验异常", e);
+            throw new ServiceException("邀请码校验失败");
         }
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY, rollbackFor = Exception.class)
+    public void bindOnRegister(Long inviteeUserId, String rawCode, String channel)
+    {
+        // 未填写邀请码时不参与邀请活动，保持正常注册流程。
+        if (StrUtil.isBlank(rawCode))
+        {
+            return;
+        }
+        try
+        {
+            if (Objects.isNull(inviteeUserId))
+            {
+                log.error("邀请关系绑定失败: 新用户ID为空");
+                throw new ServiceException("用户信息异常");
+            }
+
+            ValidatedInvitation invitation = requireValidInvitation(rawCode, inviteeUserId);
+            if (Objects.equals(invitation.inviterUserId(), inviteeUserId))
+            {
+                log.info("邀请关系绑定失败: 检测到自我邀请, userId={}", inviteeUserId);
+                throw new ServiceException("不能使用本人邀请码");
+            }
+
+            AidInviteRelation existing = aidInviteRelationService.getByInvitee(inviteeUserId);
+            if (Objects.nonNull(existing))
+            {
+                handleExistingRelation(existing, invitation.inviterUserId(), invitation.code(), inviteeUserId);
+                return;
+            }
+
+            AidInviteRelation relation = buildInviteRelation(
+                    inviteeUserId, invitation.inviterUserId(), invitation.code(), channel);
+            try
+            {
+                if (!aidInviteRelationService.save(relation))
+                {
+                    log.error("邀请关系绑定失败: 保存返回false, inviteeUserId={}", inviteeUserId);
+                    throw new ServiceException("邀请绑定失败");
+                }
+            }
+            catch (DuplicateKeyException e)
+            {
+                // 并发重试只接受完全相同的关系，避免把真实冲突误判为成功。
+                AidInviteRelation concurrent = aidInviteRelationService.getByInvitee(inviteeUserId);
+                handleExistingRelation(
+                        concurrent, invitation.inviterUserId(), invitation.code(), inviteeUserId);
+                return;
+            }
+            log.info("邀请关系绑定成功, inviterUserId={}, inviteeUserId={}, code={}, channel={}",
+                    invitation.inviterUserId(), inviteeUserId, invitation.code(), channel);
+        }
+        catch (ServiceException e)
+        {
+            throw e;
+        }
+        catch (Exception e)
+        {
+            log.error("邀请关系绑定异常, inviteeUserId={}", inviteeUserId, e);
+            throw new ServiceException("邀请绑定失败");
+        }
+    }
+
+    /** 严格校验邀请码、活动状态和邀请人状态，并返回规范化结果。 */
+    private ValidatedInvitation requireValidInvitation(String rawCode, Long inviteeUserId)
+    {
+        InviteConfig config = promotionConfigService.getInviteConfig();
+        if (Objects.isNull(config) || !config.isEnabled())
+        {
+            log.info("邀请码校验失败: 邀请活动未开启, inviteeUserId={}", inviteeUserId);
+            throw new ServiceException("邀请活动未开启");
+        }
+
+        String code = normalizeCode(rawCode);
+        if (StrUtil.isBlank(code))
+        {
+            log.info("邀请码校验失败: 格式非法, inviteeUserId={}", inviteeUserId);
+            throw new ServiceException("邀请码无效");
+        }
+
+        AidInviteCode codeRecord = aidInviteCodeService.getByCode(code);
+        if (Objects.isNull(codeRecord) || Objects.isNull(selectNormalUser(codeRecord.getUserId())))
+        {
+            log.info("邀请码校验失败: 邀请码不存在或邀请人异常, inviteeUserId={}, code={}",
+                    inviteeUserId, code);
+            throw new ServiceException("邀请码无效");
+        }
+        return new ValidatedInvitation(code, codeRecord.getUserId());
+    }
+
+    /** 已通过严格校验的注册邀请信息。 */
+    private record ValidatedInvitation(String code, Long inviterUserId)
+    {
+    }
+
+    /** 构造注册邀请关系。 */
+    private AidInviteRelation buildInviteRelation(Long inviteeUserId, Long inviterUserId, String code, String channel)
+    {
+        AidInviteRelation relation = new AidInviteRelation();
+        relation.setInviterUserId(inviterUserId);
+        relation.setInviteeUserId(inviteeUserId);
+        relation.setInviteCode(code);
+        relation.setRegisterChannel(channel);
+        relation.setRegisterIp(resolveRequestIp());
+        relation.setStatus(PromotionConstants.RELATION_STATUS_NORMAL);
+        relation.setTotalRebate(BigDecimal.ZERO);
+        relation.setDelFlag(DEL_FLAG_EXIST);
+        relation.setCreateBy("system");
+        relation.setCreateTime(new Date());
+        return relation;
+    }
+
+    /** 验证并发或重入场景中的已有邀请关系。 */
+    private void handleExistingRelation(AidInviteRelation existing, Long inviterUserId, String code, Long inviteeUserId)
+    {
+        if (Objects.nonNull(existing)
+                && Objects.equals(existing.getInviterUserId(), inviterUserId)
+                && Objects.equals(existing.getInviteCode(), code))
+        {
+            log.info("邀请关系已存在，按幂等成功处理, inviteeUserId={}", inviteeUserId);
+            return;
+        }
+        log.error("邀请关系绑定冲突, inviteeUserId={}", inviteeUserId);
+        throw new ServiceException("邀请关系冲突");
     }
 
     @Override
@@ -349,7 +377,7 @@ public class InviteServiceImpl implements IInviteService
         {
             return null;
         }
-        String code = rawCode.trim().toUpperCase();
+        String code = rawCode.trim().toUpperCase(Locale.ROOT);
         return CODE_PATTERN.matcher(code).matches() ? code : null;
     }
 

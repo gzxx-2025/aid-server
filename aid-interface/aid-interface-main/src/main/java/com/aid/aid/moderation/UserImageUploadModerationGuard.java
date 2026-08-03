@@ -1,6 +1,5 @@
 package com.aid.aid.moderation;
 
-import java.util.List;
 import java.util.Objects;
 
 import org.springframework.stereotype.Component;
@@ -8,9 +7,6 @@ import org.springframework.stereotype.Component;
 import com.aid.aid.domain.AidImageModerationLog;
 import com.aid.aid.service.IAidImageModerationLogService;
 import com.aid.common.aid.oss.core.OssTemplate;
-import com.aid.common.core.domain.entity.SysRole;
-import com.aid.common.core.domain.entity.SysUser;
-import com.aid.common.core.domain.model.LoginUser;
 import com.aid.common.exception.ServiceException;
 import com.aid.common.moderation.ImageModerationClient;
 import com.aid.common.moderation.ModerationDecider;
@@ -44,12 +40,6 @@ public class UserImageUploadModerationGuard
      * 删除已上传对象的最大重试次数
      */
     private static final int MAX_DELETE_RETRY = 3;
-
-    /**
-     * C 端 App 用户默认角色 ID（静默注册分配，见 {@code SilentRegistrationUtils.DEFAULT_ROLE_ID}）。
-     * 仅持有该角色视为 C 端普通用户；持有其它（管理）角色或为超管则视为后台管理端。
-     */
-    private static final Long C_SIDE_DEFAULT_ROLE_ID = 2L;
 
     /**
      * 允许审查的图片扩展名白名单（小写）
@@ -101,7 +91,7 @@ public class UserImageUploadModerationGuard
     public void checkUploadedOrThrow(String fileUrl, String bizSource, Long userId)
     {
         // 后台管理端上传不做内容审查，仅 C 端 App 用户需要审查
-        if (isBackendManagementCall())
+        if (SecurityUtils.isBackendUser())
         {
             return;
         }
@@ -159,7 +149,7 @@ public class UserImageUploadModerationGuard
     public void checkBytesOrThrow(byte[] bytes, String fileName, String bizSource, Long userId)
     {
         // 后台管理端上传不做内容审查，仅 C 端 App 用户需要审查
-        if (isBackendManagementCall())
+        if (SecurityUtils.isBackendUser())
         {
             return;
         }
@@ -200,52 +190,6 @@ public class UserImageUploadModerationGuard
 
         // 计算处置决策并执行（上传前审，不删对象）
         applyDecision(props, result, null, bizSource, userId, start, false);
-    }
-
-    /**
-     * 是否后台管理端调用：后台管理（超管及各管理角色）上传图片不做内容审查，仅 C 端 App 用户需要审查。
-     * 判定规则：超管（role_id=1）或持有任一非「C 端默认角色（role_id=2）」的角色，即视为后台管理用户。
-     * 取不到登录上下文（匿名 / 解析异常）一律按「非后台」处理，照常审查，保证安全默认（宁可多审不漏审）。
-     *
-     * @return true=后台管理端调用，跳过审查；false=按 C 端处理，照常审查
-     */
-    private boolean isBackendManagementCall()
-    {
-        try
-        {
-            LoginUser loginUser = SecurityUtils.getLoginUser();
-            if (Objects.isNull(loginUser) || Objects.isNull(loginUser.getUser()))
-            {
-                return false;
-            }
-            SysUser user = loginUser.getUser();
-            // 超级管理员直接视为后台
-            if (user.isAdmin())
-            {
-                return true;
-            }
-            List<SysRole> roles = user.getRoles();
-            if (Objects.isNull(roles) || roles.isEmpty())
-            {
-                // 角色未加载（典型为 C 端登录态）→ 按 C 端处理，照常审查
-                return false;
-            }
-            // 持有任一非 C 端默认角色的角色 → 视为后台管理用户
-            for (SysRole role : roles)
-            {
-                if (Objects.nonNull(role) && Objects.nonNull(role.getRoleId())
-                        && !C_SIDE_DEFAULT_ROLE_ID.equals(role.getRoleId()))
-                {
-                    return true;
-                }
-            }
-            return false;
-        }
-        catch (Exception e)
-        {
-            // 无登录上下文 / 解析异常：按非后台处理，照常审查（安全默认）
-            return false;
-        }
     }
 
     /**

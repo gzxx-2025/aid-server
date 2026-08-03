@@ -5,10 +5,15 @@ import com.aid.common.aid.sms.core.SmsTemplateFactory;
 import com.aid.common.aid.sms.dto.SmsTestRequest;
 import com.aid.common.aid.sms.entity.SmsResult;
 import com.aid.common.core.domain.AjaxResult;
+import com.aid.common.utils.log.LogSanitizer;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Map;
 import java.util.Objects;
@@ -21,10 +26,10 @@ import java.util.Objects;
 @Slf4j
 @RestController
 @RequestMapping("/sms/config")
+@RequiredArgsConstructor
 public class SmsConfigController {
 
-    @Autowired
-    private SmsTemplateFactory smsTemplateFactory;
+    private final SmsTemplateFactory smsTemplateFactory;
 
     /**
      * 刷新短信配置
@@ -51,7 +56,7 @@ public class SmsConfigController {
     /**
      * 测试发送短信
      * 用于管理端在配置页面验证短信服务商参数是否正确。
-     * 使用 aid_config 中配置的默认模板和验证码参数名，发送一条固定测试验证码。
+     * 云短信使用配置的模板 ID；短信宝使用本平台维护的完整内容模板。
      */
     @PreAuthorize("@ss.hasPermi('sms:config:refresh')")
     @PostMapping("/testSend")
@@ -65,14 +70,16 @@ public class SmsConfigController {
         try {
             // 走统一的默认模板通道，校验配置是否打通
             SmsResult result = smsTemplateFactory.sendCode(request.getPhone().trim(), code);
-            if (result != null && result.isSuccess()) {
+            if (!Objects.isNull(result) && result.isSuccess()) {
                 // 成功原样返回 SDK 响应，便于排查
                 return AjaxResult.success("发送成功", result);
             }
-            log.info("短信测试发送失败: phone={}, result={}", request.getPhone(), result);
-            return AjaxResult.error(result != null ? result.getMessage() : "发送失败", result);
+            log.info("短信测试发送失败: phone={}, result={}",
+                    LogSanitizer.maskPhone(request.getPhone()), result);
+            return AjaxResult.error(!Objects.isNull(result) ? result.getMessage() : "发送失败", result);
         } catch (Exception e) {
-            log.error("短信测试发送异常: phone={}, msg={}", request.getPhone(), e.getMessage(), e);
+            log.error("短信测试发送异常: phone={}, exception={}",
+                    LogSanitizer.maskPhone(request.getPhone()), e.getClass().getSimpleName());
             return AjaxResult.error("发送异常");
         }
     }

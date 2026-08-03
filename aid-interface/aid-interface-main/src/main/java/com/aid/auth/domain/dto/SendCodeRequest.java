@@ -27,4 +27,9 @@ public class SendCodeRequest {
      */
     @NotBlank(message = "业务场景不能为空")
     private String scene;
+
+    /**
+     * 邀请码（可选，仅登录场景的新用户发送验证码前校验）
+     */
+    private String inviteCode;
 }

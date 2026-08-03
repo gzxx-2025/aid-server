@@ -1074,7 +1074,7 @@ CREATE TABLE `aid_config`  (
   `tenant_id` bigint(20) NOT NULL DEFAULT 0 COMMENT '租户Id',
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE INDEX `unique_category_key`(`category`, `config_name`) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 391 CHARACTER SET = utf8 COLLATE = utf8_general_ci COMMENT = '配置信息表' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 399 CHARACTER SET = utf8 COLLATE = utf8_general_ci COMMENT = '配置信息表' ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Records of aid_config
@@ -1086,7 +1086,7 @@ INSERT INTO `aid_config` VALUES (4, 'mail', 'user', '', '用户名', '0', 4, '20
 INSERT INTO `aid_config` VALUES (5, 'mail', 'pass', '', '授权码', '0', 5, '2026-03-19 21:16:51', 'system', 'system', '2026-06-27 13:30:54', '邮箱配置', NULL, NULL, 0);
 INSERT INTO `aid_config` VALUES (7, 'mail', 'host', '', '主机地址', '0', 6, '2026-03-19 21:16:51', 'system', 'system', '2026-06-27 13:30:54', '邮箱配置', NULL, NULL, 0);
 INSERT INTO `aid_config` VALUES (8, 'sms', 'enabled', 'false', '是否启用', '0', 1, '2026-03-19 21:16:51', 'system', 'system', '2026-03-19 21:16:51', '短信配置', NULL, NULL, 0);
-INSERT INTO `aid_config` VALUES (9, 'sms', 'providerType', 'aliyun', '服务商类型(aliyun/tencent)', '0', 2, '2026-03-19 21:20:38', 'system', 'system', '2026-03-19 21:20:38', '短信服务商', NULL, NULL, 0);
+INSERT INTO `aid_config` VALUES (9, 'sms', 'providerType', 'aliyun', '服务商类型(aliyun/tencent/smsbao)', '0', 2, '2026-03-19 21:20:38', 'system', 'system', '2026-03-19 21:20:38', '短信服务商', NULL, NULL, 0);
 INSERT INTO `aid_config` VALUES (10, 'sms', 'endpoint', '', 'API端点', '0', 3, '2026-03-19 21:20:38', 'system', 'system', '2026-03-19 21:20:38', '阿里云:dysmsapi.aliyuncs.com 腾讯云:sms.tencentcloudapi.com', NULL, NULL, 0);
 INSERT INTO `aid_config` VALUES (11, 'sms', 'accessKeyId', '', 'AccessKey ID', '0', 4, '2026-03-19 21:20:38', 'system', 'system', '2026-04-02 21:32:30', '访问密钥ID', NULL, NULL, 0);
 INSERT INTO `aid_config` VALUES (12, 'sms', 'accessKeySecret', '', 'AccessKey Secret', '0', 5, '2026-03-19 21:20:38', 'system', 'system', '2026-04-02 21:32:30', '访问密钥Secret', NULL, NULL, 0);
@@ -1179,7 +1179,6 @@ INSERT INTO `aid_config` VALUES (254, 'basic', 'app_permissions_description', 'h
 INSERT INTO `aid_config` VALUES (255, 'basic', 'third_party_sdk_and_information_sharing_list', 'https://gzxxaitdb.feishu.cn/docx/W1jZdpUtyo7qN3xu7CocAvi0nCe?from=from_copylink', '第三方SDK及信息共享清单', '0', 3, '2026-06-26 21:44:23', '', '', '2026-06-26 21:44:23', NULL, NULL, NULL, 0);
 INSERT INTO `aid_config` VALUES (256, 'basic', 'terms_of_service', 'https://gzxxaitdb.feishu.cn/docx/NKcNdne9xor8EtxobFycMU9KnIc', '用户协议', '0', 4, '2026-06-26 21:44:23', '', '', '2026-06-26 21:44:23', NULL, NULL, NULL, 0);
 INSERT INTO `aid_config` VALUES (257, 'basic', 'privacy_policy', 'https://gzxxaitdb.feishu.cn/docx/Omo6dPlelonDe4xFfcWcprglnUd?from=from_copylink', '隐私政策', '0', 5, '2026-06-26 21:44:23', '', '', '2026-06-26 21:44:23', NULL, NULL, NULL, 0);
-INSERT INTO `aid_config` VALUES (258, 'basic', 'version_number', '1.0.0', '版本号', '0', 6, '2026-06-26 21:44:23', '', '', '2026-06-26 21:44:23', NULL, NULL, NULL, 0);
 INSERT INTO `aid_config` VALUES (259, 'basic', 'record_filing_number', '', '备案号', '0', 7, '2026-06-26 21:44:23', '', '', '2026-06-26 21:44:23', NULL, NULL, NULL, 0);
 INSERT INTO `aid_config` VALUES (260, 'basic', 'exchange_image_url', '/aid/2026/07/21/adc6942b6f0c4ffcb663961cb63e9adf.jpg', '交流二维码图片地址', '0', 8, '2026-06-26 21:44:23', '', 'admin', '2026-07-21 23:35:22', NULL, NULL, NULL, 0);
 INSERT INTO `aid_config` VALUES (261, 'image_moderation', 'bizType', '', '控制台策略编号 可空', '0', 6, '2026-06-27 19:48:00', '', '', NULL, NULL, NULL, NULL, 0);
@@ -1221,9 +1220,8 @@ INSERT INTO `aid_config` VALUES (304, 'basic', 'open_source_gitee_url', 'https:/
 INSERT INTO `aid_config` VALUES (326, 'media', 'media_task_archive_enabled', 'true', '模型请求响应日志归档', '0', 100, '2026-07-11 16:56:11', 'system', 'admin', '2026-07-17 11:38:21', NULL, 1, NULL, 0);
 INSERT INTO `aid_config` VALUES (328, 'voice', 'voice_preview_max_seconds', '20', '试听时长上限(秒)', '0', 100, '2026-07-11 17:57:01', 'system', 'admin', '2026-07-21 22:54:20', NULL, 1, NULL, 0);
 INSERT INTO `aid_config` VALUES (331, 'storyboard', 'shot_density_floor', '{\"charsPerShot\":300,\"standardRatio\":1.5,\"detailedRatio\":2.0,\"maxFloor\":40}', '分镜镜头数下限锚点', '0', 1, '2026-07-12 13:46:18', 'system', '', NULL, '分镜镜头数下限锚点，规则详见配置页说明', NULL, NULL, 0);
-INSERT INTO `aid_config` VALUES (332, 'admin_brand', 'login_logo_url', '', '登录页品牌Logo地址', '0', 1, '2026-07-14 00:12:20', 'admin', 'admin', '2026-07-21 22:38:37', NULL, NULL, NULL, 0);
-INSERT INTO `aid_config` VALUES (333, 'admin_brand', 'sidebar_logo_url', '', '后台左上角Logo地址', '0', 2, '2026-07-14 00:12:20', 'admin', 'admin', '2026-07-21 22:38:37', NULL, NULL, NULL, 0);
-INSERT INTO `aid_config` VALUES (334, 'admin_brand', 'favicon_url', '', '浏览器页签图标地址', '0', 3, '2026-07-14 00:12:20', 'admin', 'admin', '2026-07-21 22:38:37', NULL, NULL, NULL, 0);
+INSERT INTO `aid_config` VALUES (332, 'admin_brand', 'platform_logo_url', '', '平台LOGO地址', '0', 1, '2026-07-14 00:12:20', 'admin', 'admin', '2026-07-21 22:38:37', NULL, NULL, NULL, 0);
+INSERT INTO `aid_config` VALUES (334, 'admin_brand', 'favicon_url', '', '浏览器页签图标地址', '0', 2, '2026-07-14 00:12:20', 'admin', 'admin', '2026-07-21 22:38:37', NULL, NULL, NULL, 0);
 INSERT INTO `aid_config` VALUES (335, 'basic', 'company_name', '', '公司名称', '0', 12, '2026-07-16 14:56:42', 'admin', 'admin', '2026-07-21 22:50:43', NULL, 1, NULL, 0);
 INSERT INTO `aid_config` VALUES (336, 'basic', 'company_address', '', '公司地址', '0', 13, '2026-07-16 14:56:43', 'admin', 'admin', '2026-07-21 22:53:40', NULL, 1, NULL, 0);
 INSERT INTO `aid_config` VALUES (337, 'basic', 'service_email', '', '服务邮箱', '0', 14, '2026-07-16 14:56:46', 'admin', 'admin', '2026-07-21 22:53:40', NULL, 1, NULL, 0);
@@ -1255,6 +1253,14 @@ INSERT INTO `aid_config` VALUES (387, 'tencent_asr', 'hotwordId', '', '腾讯云
 INSERT INTO `aid_config` VALUES (388, 'tencent_asr', 'hotwordList', '', '本次请求临时热词', '0', 9, '2026-07-30 00:00:00', 'system', 'system', '2026-07-30 00:00:00', NULL, NULL, NULL, 0);
 INSERT INTO `aid_config` VALUES (389, 'tencent_asr', 'timeoutSeconds', '180', '单分镜识别等待上限（秒）', '0', 10, '2026-07-30 00:00:00', 'system', 'system', '2026-07-30 00:00:00', NULL, NULL, NULL, 0);
 INSERT INTO `aid_config` VALUES (390, 'tencent_asr', 'maxAttempts', '2', '单分镜最多完整尝试次数', '0', 11, '2026-07-30 00:00:00', 'system', 'system', '2026-07-30 00:00:00', NULL, NULL, NULL, 0);
+INSERT INTO `aid_config` VALUES (391, 'basic', 'site_name', '', '网站名称', '0', 17, '2026-08-02 00:00:00', 'system', 'system', '2026-08-02 00:00:00', '用于搜索展示与浏览器标题', NULL, NULL, 0);
+INSERT INTO `aid_config` VALUES (392, 'basic', 'site_description', '', '网站描述', '0', 18, '2026-08-02 00:00:00', 'system', 'system', '2026-08-02 00:00:00', '用于搜索结果摘要', NULL, NULL, 0);
+INSERT INTO `aid_config` VALUES (393, 'basic', 'site_keywords', '', '网站关键词', '0', 19, '2026-08-02 00:00:00', 'system', 'system', '2026-08-02 00:00:00', '多个关键词使用英文逗号分隔', NULL, NULL, 0);
+INSERT INTO `aid_config` VALUES (394, 'basic', 'membership_agreement', '', '会员协议', '0', 6, '2026-08-02 00:00:00', 'system', 'system', '2026-08-02 00:00:00', '会员开通与权益规则页面地址', NULL, NULL, 0);
+INSERT INTO `aid_config` VALUES (395, 'sms', 'smsBaoUsername', '', '短信宝用户名', '0', 20, '2026-08-02 00:00:00', 'system', 'system', '2026-08-02 00:00:00', '短信宝官网 smsbao.com', NULL, NULL, 0);
+INSERT INTO `aid_config` VALUES (396, 'sms', 'smsBaoApiKey', '', '短信宝API Key', '0', 21, '2026-08-02 00:00:00', 'system', 'system', '2026-08-02 00:00:00', '敏感配置，请在后台填写', NULL, NULL, 0);
+INSERT INTO `aid_config` VALUES (397, 'sms', 'smsBaoProductId', '', '短信宝产品ID', '0', 22, '2026-08-02 00:00:00', 'system', 'system', '2026-08-02 00:00:00', '专用通道产品ID，可不填', NULL, NULL, 0);
+INSERT INTO `aid_config` VALUES (398, 'sms', 'smsBaoContentTemplate', '【视觉AID】您的验证码是{code}', '短信内容模板（含签名）', '0', 23, '2026-08-02 00:00:00', 'system', 'system', '2026-08-02 00:00:00', '必须包含{code}占位符', NULL, NULL, 0);
 
 -- ----------------------------
 -- Table structure for aid_episode_editor

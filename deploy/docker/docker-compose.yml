@@ -22,8 +22,7 @@ x-logging: &default-logging
 
 services:
   mysql:
-    # 与开发环境版本一致；mysql:5.7 官方镜像仅有 amd64 架构，
-    # ARM 服务器请改用 mysql:8.0（aid-init.sql 完全兼容）
+    # 生产部署固定使用 MySQL 5.7，不自动切换数据库大版本
     image: mysql:5.7
     container_name: aid-mysql
     restart: unless-stopped

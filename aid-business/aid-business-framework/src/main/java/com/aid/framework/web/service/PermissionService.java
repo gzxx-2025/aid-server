@@ -14,11 +14,21 @@ import java.util.Set;
 /**
  * 自定义权限实现，ss取自SpringSecurity首字母
  * 
- * @author AID
+ * @author 视觉AID
  */
 @Service("ss")
 public class PermissionService
 {
+    /**
+     * 判断当前身份是否来自后台管理登录。
+     *
+     * @return 是否为后台管理用户
+     */
+    public boolean isBackendUser()
+    {
+        return SecurityUtils.isBackendUser();
+    }
+
     /**
      * 验证用户是否具备某权限
      * 

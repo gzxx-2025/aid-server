@@ -44,4 +44,24 @@ public class SmsProperties {
      */
     private String sdkAppId;
 
+    /**
+     * 短信宝用户名
+     */
+    private String smsBaoUsername;
+
+    /**
+     * 短信宝 API Key
+     */
+    private String smsBaoApiKey;
+
+    /**
+     * 短信宝专用通道产品 ID（可空）
+     */
+    private String smsBaoProductId;
+
+    /**
+     * 短信宝验证码内容模板，支持 {code} 占位符并包含自定义签名
+     */
+    private String smsBaoContentTemplate;
+
 }

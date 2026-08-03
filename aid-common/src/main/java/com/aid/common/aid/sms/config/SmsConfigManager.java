@@ -1,5 +1,6 @@
 package com.aid.common.aid.sms.config;
 
+import cn.hutool.core.util.StrUtil;
 import com.aid.common.aid.core.service.ConfigService;
 import com.aid.common.aid.sms.config.properties.SmsProperties;
 import lombok.Getter;
@@ -8,7 +9,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 短信配置管理器
@@ -28,19 +31,19 @@ public class SmsConfigManager {
      * 内存缓存的所有配置
      */
     @Getter
-    private final Map<String, String> configCache = new HashMap<>();
+    private final Map<String, String> configCache = new ConcurrentHashMap<>();
 
     /**
      * 当前使用的短信配置
      */
     @Getter
-    private SmsProperties currentProperties;
+    private volatile SmsProperties currentProperties;
 
     /**
      * 当前的服务商类型
      */
     @Getter
-    private String currentProviderType;
+    private volatile String currentProviderType;
 
     /**
      * 初始化标识
@@ -60,7 +63,7 @@ public class SmsConfigManager {
      * 刷新配置（从数据库重新加载）
      * 在配置页面点击"刷新配置"时调用
      */
-    public void refresh() {
+    public synchronized void refresh() {
         log.info("刷新短信配置...");
 
         // 一次性获取sms分类的所有配置
@@ -72,7 +75,8 @@ public class SmsConfigManager {
 
         // 构建Properties对象
         currentProperties = buildProperties();
-        currentProviderType = getCacheValue("providerType", "aliyun");
+        currentProviderType = StrUtil.blankToDefault(getCacheValue("providerType", "aliyun"), "aliyun")
+                .trim().toLowerCase(Locale.ROOT);
 
         initialized = true;
         log.info("短信配置刷新完成: providerType={}, enabled={}", currentProviderType, currentProperties.getEnabled());
@@ -99,7 +103,7 @@ public class SmsConfigManager {
      */
     public boolean isEnabled() {
         init();
-        return Boolean.parseBoolean(currentProperties.getEnabled() != null ? currentProperties.getEnabled().toString() : "false");
+        return Boolean.TRUE.equals(currentProperties.getEnabled());
     }
 
     /**
@@ -115,7 +119,7 @@ public class SmsConfigManager {
      */
     public String getCodeParamName() {
         init();
-        return getCacheValue("codeParamName", "code");
+        return StrUtil.blankToDefault(getCacheValue("codeParamName", "code"), "code").trim();
     }
 
     /**
@@ -126,22 +130,31 @@ public class SmsConfigManager {
         Map<String, String> result = new HashMap<>(configCache);
         // 脱敏敏感信息
         if (result.containsKey("accessKeySecret")) {
-            String secret = result.get("accessKeySecret");
-            if (secret != null && secret.length() > 4) {
-                result.put("accessKeySecret", secret.substring(0, 4) + "****");
-            }
+            result.put("accessKeySecret", maskSecret(result.get("accessKeySecret")));
+        }
+        if (result.containsKey("smsBaoApiKey")) {
+            result.put("smsBaoApiKey", maskSecret(result.get("smsBaoApiKey")));
         }
         return result;
     }
+
+    /** 密钥展示脱敏，配置真实值只保留在内存配置对象中。 */
+    private String maskSecret(String secret) {
+        if (StrUtil.isBlank(secret)) {
+            return secret;
+        }
+        if (secret.length() <= 8) {
+            return "****";
+        }
+        return secret.substring(0, 4) + "****" + secret.substring(secret.length() - 4);
+    }
+
     private String getCacheValue(String key, String defaultValue) {
         String value = configCache.get(key);
         return value != null ? value : defaultValue;
     }
 
     private SmsProperties buildProperties() {
-        //获取所有的值
-
-
         SmsProperties properties = new SmsProperties();
         properties.setEnabled(Boolean.parseBoolean(getCacheValue("enabled", "false")));
         properties.setEndpoint(getCacheValue("endpoint", ""));
@@ -149,6 +162,11 @@ public class SmsConfigManager {
         properties.setAccessKeySecret(getCacheValue("accessKeySecret", ""));
         properties.setSignName(getCacheValue("signName", ""));
         properties.setSdkAppId(getCacheValue("sdkAppId", ""));
+        properties.setSmsBaoUsername(getCacheValue("smsBaoUsername", ""));
+        properties.setSmsBaoApiKey(getCacheValue("smsBaoApiKey", ""));
+        properties.setSmsBaoProductId(getCacheValue("smsBaoProductId", ""));
+        properties.setSmsBaoContentTemplate(getCacheValue(
+                "smsBaoContentTemplate", "【视觉AID】您的验证码是{code}"));
         return properties;
     }
 }

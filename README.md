@@ -132,7 +132,7 @@ aid-server（Maven 多模块单体）
 | 语言 | Java | 17 |
 | 框架 | Spring Boot | 3.5.x |
 | ORM | MyBatis-Plus | 3.5.x |
-| 数据库 | MySQL | 5.7+（8.x 兼容） |
+| 数据库 | MySQL | 5.7 |
 | 缓存 | Redis + Redisson | 3.x |
 | 消息队列 | RocketMQ | 4.x/5.x |
 | 定时任务 | Quartz | 2.5.x |
@@ -144,7 +144,14 @@ aid-server（Maven 多模块单体）
 
 ### 生产部署（推荐 Docker 一键部署）
 
-完整流程见 [部署指南](deploy/README.md)：统一管理脚本 `deploy/aid.sh`（菜单式）覆盖 Docker 与手动两种部署方式（RocketMQ 可选启用），均支持后台页面一键在线升级。
+普通用户只需下载并运行一个 `aid.sh` 文件，不需要克隆源码，也不需要去 Release 页面手工下载程序包：
+
+```bash
+curl -fL https://gitee.com/gzxx-2025/aid-server/raw/master/deploy/aid.sh -o aid.sh
+sudo bash aid.sh install
+```
+
+脚本会自动发现当前渠道最新版本、下载并校验完整程序包、生成安全配置、部署三端及中间件、初始化空数据库并安装在线升级器。同一条 `sudo bash aid.sh install` 命令在已部署机器上会自动改为检查更新，不会重复初始化数据库；部署成功后也可直接使用 `sudo aid update`。直接运行 `sudo bash aid.sh` 会进入统一管理菜单。完整流程、GitHub 备用下载地址与风险说明见[部署指南](deploy/README.md)。Docker 为推荐方式，手动 systemd 部署可使用 `sudo bash aid.sh install-manual`。
 
 **服务器配置要求**（安装脚本自动校验，低于最低配置拒绝安装）：
 

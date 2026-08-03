@@ -22,6 +22,8 @@ type Snapshot struct {
 	Dir string `json:"dir"`
 	// HasJar 是否备份了服务端 jar
 	HasJar bool `json:"hasJar"`
+	// HasBuildInfo 是否备份了当前部署版本标记
+	HasBuildInfo bool `json:"hasBuildInfo"`
 	// HasAdminDist / HasWebDist 是否备份了前端目录
 	HasAdminDist bool `json:"hasAdminDist"`
 	HasWebDist   bool `json:"hasWebDist"`
@@ -64,6 +66,13 @@ func Create(cfg *config.Config, tag string) (snapshot *Snapshot, err error) {
 			return nil, fmt.Errorf("备份服务端jar失败: %w", err)
 		}
 		snapshot.HasJar = true
+	}
+	buildInfoPath := filepath.Join(filepath.Dir(cfg.Install.BackendJar), "build-info.json")
+	if fileExists(buildInfoPath) {
+		if err := copyFile(buildInfoPath, filepath.Join(dir, "build-info.json")); err != nil {
+			return nil, fmt.Errorf("备份版本标记失败: %w", err)
+		}
+		snapshot.HasBuildInfo = true
 	}
 	if cfg.Install.AdminDist != "" && dirExists(cfg.Install.AdminDist) {
 		if err := copyDir(cfg.Install.AdminDist, filepath.Join(dir, "admin-dist")); err != nil {
@@ -114,6 +123,19 @@ func Restore(cfg *config.Config, s *Snapshot) error {
 	if s.HasJar {
 		if err := copyFile(filepath.Join(s.Dir, "aid-admin.jar"), cfg.Install.BackendJar); err != nil {
 			return fmt.Errorf("还原服务端jar失败: %w", err)
+		}
+	}
+	if s.HasBuildInfo {
+		buildInfoPath := filepath.Join(filepath.Dir(cfg.Install.BackendJar), "build-info.json")
+		if err := copyFile(filepath.Join(s.Dir, "build-info.json"), buildInfoPath); err != nil {
+			return fmt.Errorf("还原版本标记失败: %w", err)
+		}
+	} else {
+		// 兼容旧升级器创建的快照：旧版本没有 build-info.json，回滚时删除新版本标记，
+		// 避免部署程序已回退但状态页仍显示新版本。
+		buildInfoPath := filepath.Join(filepath.Dir(cfg.Install.BackendJar), "build-info.json")
+		if err := os.Remove(buildInfoPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("清理版本标记失败: %w", err)
 		}
 	}
 	if s.HasAdminDist {

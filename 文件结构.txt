@@ -4,24 +4,34 @@ aid-master/
 │   └── aid-business-system/
 │       └── com/aid/config/asr/           腾讯云语音识别后台配置与视频测试接口
 ├── aid-common/                           公共组件（复用腾讯云 TC3 签名）
+│   ├── com/aid/common/aid/sms/           阿里云、腾讯云、短信宝统一短信工具与动态配置
 │   └── com/aid/common/utils/GatewayUrlUtils.java  API基础网关地址校验与规范化
 ├── aid-interface/
 │   ├── aid-interface-main/               业务服务层
-│   │   └── src/main/java/com/aid/
-│   │       ├── compose/
-│   │       │   ├── config/               腾讯云语音识别强类型配置与缓存
-│   │       │   ├── domain/               合成领域对象（含精确时间戳字幕）
-│   │       │   ├── dto/                  导出、时间轴、后台配置及识别测试出入参
-│   │       │   ├── enums/                分镜字幕识别检查点状态
-│   │       │   ├── service/              当前视频解析、同步自动字幕、配置与测试服务接口
-│   │       │   ├── service/impl/         导出编排、逐分镜断点识别及临时视频测试实现
-│   │       │   └── util/                 最终人声音源选择、媒体指纹、人物匹配与字幕分屏工具
-│   │       ├── media/
-│   │       │   ├── dto/                  厂商无关的语音识别标准结果
-│   │       │   └── provider/             语音识别扩展点与腾讯云录音文件识别实现
-│   │       └── storyboard/               分镜视频生成与选片同步
+│   │   ├── src/main/java/com/aid/
+│   │   │   ├── auth/                     登录、发码与扫码注册认证流程
+│   │   │   ├── promotion/                邀请码预校验、注册绑定与返佣业务
+│   │   │   ├── compose/
+│   │   │   │   ├── config/               腾讯云语音识别强类型配置与缓存
+│   │   │   │   ├── domain/               合成领域对象（含精确时间戳字幕）
+│   │   │   │   ├── dto/                  导出、时间轴、后台配置及识别测试出入参
+│   │   │   │   ├── enums/                分镜字幕识别检查点状态
+│   │   │   │   ├── service/              当前视频解析、同步自动字幕、配置与测试服务接口
+│   │   │   │   ├── service/impl/         导出编排、逐分镜断点识别及临时视频测试实现
+│   │   │   │   └── util/                 最终人声音源选择、媒体指纹、人物匹配与字幕分屏工具
+│   │   │   ├── media/
+│   │   │   │   ├── dto/                  厂商无关的语音识别标准结果
+│   │   │   │   └── provider/             语音识别扩展点与腾讯云录音文件识别实现
+│   │   │   └── storyboard/               分镜视频生成与选片同步
+│   │   └── src/test/java/com/aid/
+│   │       ├── auth/service/              发码前邀请码校验测试
+│   │       └── promotion/service/impl/    邀请码严格校验与注册绑定测试
 │   └── aid-interface-system/             实体、Mapper 与领域服务
 ├── doc/Business-API.md                   C 端接口文档
 └── sql/
     ├── aid-init.sql                      已合并全部初始化结构与配置数据
+    ├── v1.0.0-beta.2.sql                当前版本的幂等数据库迁移脚本
     └── update_creation_flow_step_names.sql  已有引导配置的流程名称更新脚本
+
+version/
+└── version.md                          飞书版本发布记录，后续版本内容继续追加

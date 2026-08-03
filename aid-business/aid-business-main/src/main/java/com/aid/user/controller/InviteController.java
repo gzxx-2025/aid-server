@@ -5,14 +5,11 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.aid.common.annotation.Anonymous;
 import com.aid.common.core.controller.BaseController;
 import com.aid.common.core.domain.AjaxResult;
 import com.aid.common.utils.SecurityUtils;
-import com.aid.promotion.dto.InviteCodeCheckRequest;
 import com.aid.promotion.dto.InvitePageRequest;
 import com.aid.promotion.service.IInviteService;
-import com.aid.promotion.vo.InviteCodeCheckVO;
 import com.aid.promotion.vo.InviteInfoVO;
 
 import io.swagger.v3.oas.annotations.Operation;
@@ -33,24 +30,6 @@ public class InviteController extends BaseController {
 
     @Resource
     private IInviteService inviteService;
-
-    /**
-     * 邀请码预校验（匿名接口）
-     *
-     * 注册页输入邀请码时预检有效性并回显邀请人昵称/头像；
-     * 无效时返回 valid=false + reason，不抛异常（邀请码错误不阻断注册流程）。
-     *
-     * @param request 入参（inviteCode 邀请码，大小写不敏感）
-     * @return data：{@link InviteCodeCheckVO}（valid 是否有效 / reason 无效原因 / inviterNickName 邀请人昵称 / inviterAvatar 邀请人头像）
-     */
-    @Operation(summary = "邀请码预校验", description = "匿名接口，注册页输入邀请码时预检并展示邀请人信息")
-    @Anonymous
-    @PostMapping("/check")
-    public AjaxResult checkInviteCode(@RequestBody InviteCodeCheckRequest request) {
-        // 空对象防御：body 为空时按空码处理，返回"邀请码无效"
-        String rawCode = request == null ? null : request.getInviteCode();
-        return AjaxResult.success(inviteService.checkInviteCode(rawCode));
-    }
 
     /**
      * 我的邀请信息（邀请页主数据，需登录）

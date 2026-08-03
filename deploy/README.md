@@ -1,13 +1,13 @@
 # AID 部署指南
 
-本目录包含 AID 全部部署设施。**统一入口为管理脚本 `aid.sh`**（菜单式），支持两种部署方式，均可使用后台「一键在线升级」：
+本目录包含 AID 全部部署设施。**普通用户只需下载一个 `aid.sh` 文件**：脚本会自动发现当前渠道最新版本、下载并校验完整发布包、落盘部署组件，然后完成首次安装；以后再次运行同一个文件会自动切换到已安装的最新版管理脚本。两种部署方式均可使用后台「一键在线升级」：
 
 | 方式 | 适用场景 | 说明 |
 |------|---------|------|
 | Docker 部署（推荐） | 绝大多数用户 | 中间件全部容器化 |
 | 手动部署 | 已有 MySQL/Redis 等基础设施 | systemd + Nginx 方式 |
 
-统一约定：**全部数据默认放在 `/data/aid`**——程序产物（`app/`）、上传文件（`uploadPath/` 与私有归档 `uploadPath-private/`）、日志（`logs/`）、MySQL/Redis/RocketMQ 数据、备份（`backups/`）、发布包缓存（`packages/`）与部署配置（`aid-deploy.conf`）都在这一个目录下，备份或迁移整个目录即可。
+统一约定：**全部数据默认放在 `/data/aid`**——程序产物（`app/`）、受管安装器和 Docker 配置（`installer/`）、上传文件（`uploadPath/` 与私有归档 `uploadPath-private/`）、日志（`logs/`）、MySQL/Redis/RocketMQ 数据、备份（`backups/`）、发布包缓存（`packages/`）与手动部署配置（`aid-deploy.conf`）都在这一个目录下，备份或迁移整个目录即可。
 
 ## 目录说明
 
@@ -26,22 +26,50 @@ deploy/
 └── aid-updater.config.example.json # 升级器配置模板
 ```
 
-## 统一管理脚本 aid.sh
+## 一键部署（推荐）
 
 ```bash
-git clone https://gitee.com/gzxx-2025/aid-server.git
-cd aid-server/deploy
-sudo bash aid.sh
+# 只下载这一个文件，不需要克隆源码，也不需要去 Release 页面手工下载程序包
+curl -fL https://gitee.com/gzxx-2025/aid-server/raw/master/deploy/aid.sh -o aid.sh
+
+# 直接执行 Docker 一键部署
+sudo bash aid.sh install
+
+# 也可以打开管理菜单后选择 1
+# sudo bash aid.sh
 ```
+
+`install` 是自动入口：未部署时执行推荐的 Docker 首次安装；检测到已经部署时自动改为检查并升级，不会重复初始化数据库。部署成功后还会安全创建 `sudo aid` 管理命令（如果系统已有同名命令则不覆盖），以后可直接执行 `sudo aid` 或 `sudo aid update`。
+
+Gitee 原始文件访问失败时，可改用 GitHub 备用地址：
+
+```bash
+curl -fL https://raw.githubusercontent.com/gzxx-2025/aid-server/master/deploy/aid.sh -o aid.sh
+sudo bash aid.sh install
+```
+
+首次执行会自动完成：读取官方签名版本清单 → 正式版/Beta 渠道判断 → 下载完整程序包 → SHA256 与包结构校验 → 提取受管安装器到 `/data/aid/installer` → 自动生成安全配置和强随机密钥 → 硬件检查 → 部署三端与中间件 → 初始化空数据库 → 安装在线升级器 → 健康检查。下载中断只会留下临时文件，不会替换现有服务；摘要异常的包会被隔离并拒绝执行。
+
+> 默认渠道为 `auto`：有正式版时安装正式版；尚无正式版时才选择最新 Beta，并用黄色/红色信息明确提醒。明确需要测试版时可执行 `sudo env AID_RELEASE_CHANNEL=beta bash aid.sh install`。生产服务器不要长期使用 Beta 渠道。
+
+### 自动化的安全边界
+
+- 脚本只接受 HTTPS，并限制为 AID 官方 Gitee/GitHub 制品地址；程序包必须通过清单 SHA256、目录结构、路径穿越、特殊链接和内置脚本语法检查。
+- OpenSSL 支持 Ed25519 `pkeyutl -rawin` 时会额外验证清单签名；较老的 OpenSSL 会以黄色信息明确提示降级为「HTTPS + 包 SHA256」校验。高安全环境建议先升级 OpenSSL，或使用后台在线升级器执行完整签名校验。
+- 脚本不会静默开放防火墙、修改 DNS/域名、配置 HTTPS 证书、删除已有数据库，也不会自动导入大体积官方资产包；这些动作依赖你的网络与对象存储方案，自动猜测风险更高。
+- 发现 `/data/aid` 已有非安装缓存内容、版本降级、数据库恢复、低于推荐硬件等情况时，默认拒绝或要求再次确认。`AID_ASSUME_YES=1` 只应在你已做好外部备份且明确授权的自动化环境使用。
+- 本机备份不能替代异机备份。上线前应把数据库、`/data/aid/uploadPath` 和配置文件定期备份到另一台机器或对象存储。
+
+## 统一管理脚本 aid.sh
 
 ```text
 ==================== AID 部署管理 ====================
- 部署方式: docker    脚本部署版本: 1.0.0（页面升级后以后台为准）
+ 部署方式: docker    当前版本: 1.0.0    渠道: stable
  数据目录: /data/aid
 ------------------------------------------------------
-  1) 首次部署（Docker，推荐）
-  2) 首次部署（手动 systemd）
-  3) 更新/切换到指定版本（升级前自动完整备份）
+  1) 一键首次部署（Docker，自动下载，推荐）
+  2) 首次部署（手动 systemd，自动下载）
+  3) 自动检查并升级到当前渠道最新版（升级前完整备份）
   4) 回滚到升级前备份（最近 3 份可选）
   5) 重启服务（配置变更后生效）
   6) 停止服务
@@ -55,13 +83,14 @@ sudo bash aid.sh
 ```
 
 - **自动判断每个环节**：自动识别部署方式与当前状态；数据库已初始化自动跳过；依赖缺失明确报错
-- **配置真源清晰（两种方式同一模式）**：模板必须 `cp` 成正式配置文件才能部署，用户自行维护、脚本绝不重写——Docker 用 `deploy/docker/.env`（模板 `.env.example`），手动用 `/data/aid/aid-deploy.conf`（模板 `deploy/aid-deploy.conf.example`）；密码/密钥留空自动生成强随机值写回
+- **配置真源清晰**：首次部署自动从模板创建正式配置——Docker 使用 `/data/aid/installer/deploy/docker/.env`，手动部署使用 `/data/aid/aid-deploy.conf`；密码和密钥留空时生成强随机值，后续只修改这份正式配置
 - **资源全部可调**：后端 JVM、MySQL 缓冲池、Redis 内存上限、RocketMQ Broker/NameServer 内存（镜像默认 8G 大堆已按 1G 覆盖）在部署时逐项询问，回车用默认值
-- **指定版本更新（菜单 3）**：输入任意版本号自动从发布页下载（也可指定本地包）；**升级前自动做完整备份**（程序产物 + 数据库全量 + 版本标记，保留最近 3 份）；包内增量 SQL 自动执行
+- **自动更新（菜单 3）**：按已保存渠道读取最新版本；相同版本直接提示已是最新，远端版本较低时拒绝自动降级；确认后才下载，且**升级前自动做完整备份**（程序产物 + 数据库全量 + 版本标记，保留最近 3 份）；包内增量 SQL 自动执行
 - **回滚（菜单 4）**：从最近 3 份升级前备份中选择还原——程序产物直接还原；数据库默认不还原（避免丢失升级后产生的业务数据），需要时显式确认还原；回滚前还会对当前状态再做一份保护备份，误操作可救
 - **在线升级器自动安装**：发布包内置升级器二进制，两种部署方式首次部署都会自动装好（Docker 为编排内 `aid-updater` 容器，手动为 systemd 服务），部署完成即可用后台页面一键升级；损坏时菜单 11（或 `sudo bash aid.sh setup-updater`）一键修复
 - **密钥自动生成**：数据库密码、JWT 密钥留空自动生成强随机值
-- 也支持直通子命令（便于 crontab 等）：`sudo bash aid.sh backup` / `restart` / `status` / `logs` / `update` / `rollback` / `setup-updater`
+- 也支持直通子命令：`sudo bash aid.sh install` / `update` / `backup` / `restart` / `status` / `logs` / `rollback` / `setup-updater`
+- 明确授权的无人值守环境可设置 `AID_ASSUME_YES=1` 跳过部署或升级确认；该变量会绕过风险确认，**不要在交互式生产运维中长期配置**
 
 ## 本地开发环境（面向开发者）
 
@@ -97,12 +126,11 @@ MySQL 首次启动自动创建 `aid_test` 库并导入 `sql/` 初始化脚本（
 
 合计：无 MQ ≈ 6G 常驻（8G 推荐留出生成任务峰值余量）；最低 4G 需依赖默认参数收紧与交换分区兜底，仅适合功能验证。磁盘 40G 为程序+数据库+日志的底线，媒体文件强烈建议配置 OSS/COS 对象存储（本地盘会很快写满）。安装时 `aid.sh` 按「部署方式 + 是否启用 MQ」动态套用上表校验：低于最低配置**直接拒绝安装**，介于最低与推荐之间给出警告并需确认继续。
 
-## 一、准备发布包
+## 一、自动下载与发布包
 
-到发布页下载最新的统一发布包（两个下载源内容一致）：
+正常部署和更新都由 `aid.sh` 自动处理，不需要用户访问发布页。版本清单优先从 Gitee 获取、GitHub 兜底；大体积二进制程序包以清单中的官方 GitHub Release 地址为准。每次下载都会先写入 `.part` 临时文件，完成后校验 SHA256 和目录结构，校验通过才会参与部署。
 
-- Gitee：https://gitee.com/gzxx-2025/aid-server/releases
-- GitHub：https://github.com/gzxx-2025/aid-server/releases
+只有离线部署或开发调试时才需要自行准备本地包，可通过 `sudo bash aid.sh install-docker /path/to/aid-vX.Y.Z.tar.gz` 使用。因为本地包不在在线签名链路中，脚本会以红色风险信息提示，只做结构校验。
 
 发布包 `aid-vX.Y.Z.tar.gz` 内部布局：
 
@@ -110,7 +138,10 @@ MySQL 首次启动自动创建 `aid_test` 库并导入 `sql/` 初始化脚本（
 ├── backend/aid-admin.jar    # 服务端
 ├── admin-dist/              # 管理端静态产物（Nginx 托管）
 ├── web-dist/                # 用户端 SSR 产物（Node 运行 server/index.mjs）
-└── sql/                     # 该版本增量 SQL（如有）
+├── updater/                 # 当前版本 Linux amd64/arm64 在线升级器
+├── installer/               # 单文件自举需要的部署配置、编排与初始化基线
+├── build-info.json          # 当前版本与构建来源
+└── sql/                     # 该版本增量 SQL（如有，不包含初始化基线）
 ```
 
 ## 二、Docker 部署（推荐）
@@ -119,6 +150,10 @@ MySQL 首次启动自动创建 `aid_test` 库并导入 `sql/` 初始化脚本（
 
 - Linux 服务器，4 核 8G 起步，磁盘 100G+
 - Docker Engine 24+，compose 插件 v2.20+（`docker compose version` 能正常输出；可选依赖声明需要 2.20+）
+
+Docker 一键部署固定使用 MySQL 5.7，因此服务器需要使用 `x86_64` 架构。官方 MySQL 5.7 镜像不提供 ARM64 版本，脚本检测到 ARM64 时会明确中止，不会擅自切换数据库大版本。
+
+如果没有安装 Docker，脚本只会用红色信息提示需要安装 Docker Engine 24+ 与 Compose v2 插件，然后安全退出；不会运行远程安装脚本、修改软件源或主动安装 Docker。
 
 **国内服务器注意**：Docker Hub 官方源在国内网络下通常无法直接拉取镜像，部署前先配置镜像加速（任选其一：云厂商容器镜像加速地址，或公开加速站）：
 
@@ -137,19 +172,14 @@ sudo systemctl daemon-reload && sudo systemctl restart docker
 
 阿里云/腾讯云服务器建议使用各自控制台提供的专属加速地址（更稳定）。
 
-### 部署步骤（配置真源 = .env 文件，无交互问答）
+### 部署步骤（自动下载、自动创建安全配置）
 
 ```bash
-git clone https://gitee.com/gzxx-2025/aid-server.git
-cd aid-server/deploy/docker
-cp .env.example .env      # 第一步（必须）：从模板复制出正式配置
-vim .env                  # 第二步：按注释调整（端口/内存/Redis与MQ选择；密码留空自动生成）
-cd ..
-sudo bash aid.sh          # 第三步：菜单选 1，提供发布包路径
-# 或直通：sudo bash aid.sh install-docker /path/to/aid-v1.0.0.tar.gz
+curl -fL https://gitee.com/gzxx-2025/aid-server/raw/master/deploy/aid.sh -o aid.sh
+sudo bash aid.sh install
 ```
 
-`.env.example` 是只读模板（每项带注释与组合示例），**必须复制为 `.env` 才能部署**——脚本检测不到 `.env` 会明确提示并中止，绝不代替你做配置选择；`.env` 里密码/密钥留空的项会自动生成强随机值写回。
+脚本会从发布包提取部署套件，并由 `.env.example` 自动生成正式 `.env`；数据库密码、JWT 密钥等空值会生成强随机值写回。默认采用内置 MySQL + Redis、关闭 RocketMQ 的保守组合。需要改端口、内存、外部 Redis 或 RocketMQ 时，在首次部署后编辑 `/data/aid/installer/deploy/docker/.env`，再运行 `sudo bash aid.sh restart` 生效。
 
 脚本自动完成：依赖预检 → `.env` 校验（缺失密钥自动生成）→ 硬件校验（按 `.env` 实际配置评估）→ 解包摆位到 `/data/aid/app` → 自动安装升级器 → 启动编排 → 首次启动自动建库导入 `sql/` 全部脚本 → 健康等待（最长 5 分钟）→ 成功摘要 / 失败诊断。
 
@@ -175,7 +205,7 @@ sudo bash aid.sh          # 第三步：菜单选 1，提供发布包路径
 
 - 修改 admin 默认密码
 - 生产环境为 Nginx 配置 HTTPS（修改 `docker/nginx/aid.conf` 增加 443 监听与证书）
-- 备份好 `/data/aid/aid-deploy.conf`（含数据库密码与密钥，权限已限制 600）
+- 备份好 `/data/aid/installer/deploy/docker/.env` 与 `/data/aid/aid-deploy.conf`（含数据库密码与密钥，权限已限制 600）
 
 ### 生产参数调优（部署时逐项询问 / 菜单 9 修改，默认按 4核8G 标定）
 
@@ -197,7 +227,7 @@ sudo bash aid.sh          # 第三步：菜单选 1，提供发布包路径
 
 ```bash
 crontab -e   # 追加：
-# 0 3 * * * bash /path/to/aid-server/deploy/aid.sh backup >> /var/log/aid-backup.log 2>&1
+# 0 3 * * * /usr/local/bin/aid backup >> /var/log/aid-backup.log 2>&1
 ```
 
 恢复：
@@ -207,7 +237,7 @@ crontab -e   # 追加：
 gunzip < /data/aid/backups/<时间戳>/db.sql.gz | docker exec -i aid-mysql mysql -uroot -p<root密码> aid
 # 恢复上传文件
 tar -xzf /data/aid/backups/<时间戳>/uploadPath.tar.gz -C /data/aid
-sudo bash aid.sh restart
+sudo aid restart
 ```
 
 一键升级前升级器还会自动做一次独立备份（含数据库），双保险。
@@ -234,7 +264,7 @@ sudo bash aid.sh restart
 | 组件 | 版本 | 说明 |
 |------|------|------|
 | JDK | 17+ | 后端运行 |
-| MySQL | 5.7（8.x 兼容） | 业务数据库（本机或远程均可） |
+| MySQL | 5.7 | 业务数据库（本机或远程均可） |
 | Redis | 6.x+ | 缓存与分布式锁 |
 | Node.js | 18+ | 用户端 SSR 运行 |
 | Nginx | 1.20+ | 静态托管与反向代理 |
@@ -243,20 +273,16 @@ sudo bash aid.sh restart
 
 以上环境按你团队的运维习惯安装（发行版包管理器 / 二进制包 / 已有实例均可），脚本启动时逐项检查，缺失或版本不足会明确报错并中止，不会擅自改动你的环境。
 
-### 部署步骤（配置真源 = aid-deploy.conf 文件，无交互问答）
+### 部署步骤（配置真源 = aid-deploy.conf）
 
 环境就绪后：
 
 ```bash
-cd aid-server/deploy
-mkdir -p /data/aid
-cp aid-deploy.conf.example /data/aid/aid-deploy.conf   # 第一步（必须）：从模板复制出正式配置
-vim /data/aid/aid-deploy.conf                          # 第二步：至少填写数据库密码，按需调整连接/端口/MQ
-sudo bash aid.sh                                       # 第三步：菜单选 2，提供发布包路径
-# 或直通：sudo bash aid.sh install-manual /path/to/aid-v1.0.0.tar.gz
+curl -fL https://gitee.com/gzxx-2025/aid-server/raw/master/deploy/aid.sh -o aid.sh
+sudo bash aid.sh install-manual
 ```
 
-与 Docker 部署完全一致的模式：`aid-deploy.conf.example` 是只读模板（每项带注释），**必须复制为 `/data/aid/aid-deploy.conf` 才能部署**——脚本检测不到配置文件会明确提示并中止；`TOKEN_SECRET` 留空自动生成强随机值写回，数据库密码必填（脚本会当场校验连通性）。
+脚本会自动生成 `/data/aid/aid-deploy.conf`。手动部署连接的是现有 MySQL/Redis，无法安全猜测外部数据库凭证，因此首次运行会要求输入数据库密码（输入不回显），并当场校验连通性；`TOKEN_SECRET` 留空时自动生成强随机值。主机、端口或外部中间件拓扑不是默认值时，先按脚本提示编辑该配置再重试。
 
 脚本自动完成：依赖检查（JDK17+/Node18+/mysql 客户端，版本不足明确报错）→ 配置文件校验 → 硬件校验 → 数据库连通性校验 → 空库自动导入基线（已有表跳过）→ 解包摆位到 `/data/aid/app` → 注册 `aid` + `aid-web` 双 systemd 服务（环境变量含 `LOG_PATH=/data/aid/logs`，日志统一落数据目录）→ 生成 Nginx 站点（已装 nginx 直接生效并备份旧配置）→ 自动安装升级器 → 健康等待。
 
@@ -300,8 +326,8 @@ aid-updater 让后台「项目升级配置」页具备一键升级/回退能力�
 **升级器异常时的修复方式**（后台页面「安装升级器 / 修复引导」弹窗也会提示同样的命令，并展示升级器运行日志辅助排查）：
 
 ```bash
-cd aid-server/deploy
-sudo bash aid.sh setup-updater     # 或 sudo bash aid.sh 选择菜单 11
+sudo bash /data/aid/installer/deploy/aid.sh setup-updater
+# 或重新执行最初下载的 aid.sh，它会自动切换到受管脚本
 ```
 
 命令自动识别部署方式，重新放置二进制、重写配置并重启升级器，幂等可反复执行。

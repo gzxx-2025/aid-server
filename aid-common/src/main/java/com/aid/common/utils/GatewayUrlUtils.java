@@ -16,6 +16,7 @@ public final class GatewayUrlUtils
 {
     private static final String HTTP_SCHEME = "http";
     private static final String HTTPS_SCHEME = "https";
+    private static final int MIN_PORT = 1;
     private static final int MAX_PORT = 65535;
 
     private GatewayUrlUtils()
@@ -40,11 +41,13 @@ public final class GatewayUrlUtils
             String scheme = StrUtil.nullToEmpty(uri.getScheme()).toLowerCase(Locale.ROOT);
             boolean supportedScheme = Objects.equals(HTTP_SCHEME, scheme) || Objects.equals(HTTPS_SCHEME, scheme);
             String rawPath = uri.getRawPath();
+            int port = uri.getPort();
             boolean basePath = StrUtil.isBlank(rawPath) || Objects.equals("/", rawPath);
+            boolean validPort = port < 0 || (port >= MIN_PORT && port <= MAX_PORT);
             return supportedScheme
                     && StrUtil.isNotBlank(uri.getHost())
                     && Objects.isNull(uri.getRawUserInfo())
-                    && uri.getPort() <= MAX_PORT
+                    && validPort
                     && basePath
                     && Objects.isNull(uri.getRawQuery())
                     && Objects.isNull(uri.getRawFragment());

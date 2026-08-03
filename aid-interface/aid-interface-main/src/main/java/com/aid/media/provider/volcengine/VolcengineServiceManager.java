@@ -76,10 +76,12 @@ public class VolcengineServiceManager {
 
     private String resolveBaseUrl(String apiHost) {
         if (StrUtil.isBlank(apiHost)) {
-            log.error("volcengine baseUrl 未配置，请在 aid_ai_provider 表配置 base_url");
-            throw new IllegalArgumentException("volcengine baseUrl 不能为空，请在 aid_ai_provider 表配置");
+            log.error("volcengine baseUrl 未配置");
+            throw new IllegalArgumentException("方舟地址未配置");
         }
-        String baseGateway = apiHost.endsWith("/") ? apiHost.substring(0, apiHost.length() - 1) : apiHost;
+        String normalizedHost = apiHost.trim();
+        String baseGateway = normalizedHost.endsWith("/")
+                ? normalizedHost.substring(0, normalizedHost.length() - 1) : normalizedHost;
         return baseGateway.endsWith(ARK_API_PREFIX) ? baseGateway : baseGateway + ARK_API_PREFIX;
     }
 }

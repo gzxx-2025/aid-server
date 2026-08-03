@@ -1,6 +1,7 @@
 package com.aid.config.test.tester;
 
 import java.util.Map;
+import java.util.Locale;
 
 import org.springframework.stereotype.Component;
 
@@ -10,6 +11,7 @@ import com.aliyun.teaopenapi.models.Config;
 import com.aid.common.config.test.ConfigConnectivityTester;
 import com.aid.common.config.test.ConfigTestRequest;
 import com.aid.common.config.test.ConfigTestResult;
+import com.aid.common.aid.sms.utils.SmsBaoResponseCodes;
 import com.tencentcloudapi.common.Credential;
 import com.tencentcloudapi.common.exception.TencentCloudSDKException;
 import com.tencentcloudapi.common.profile.ClientProfile;
@@ -18,6 +20,8 @@ import com.tencentcloudapi.sms.v20190711.SmsClient;
 import com.tencentcloudapi.sms.v20190711.models.DescribeSmsSignListRequest;
 
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.http.HttpRequest;
+import cn.hutool.http.HttpResponse;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -29,6 +33,12 @@ import lombok.extern.slf4j.Slf4j;
 @Component
 public class SmsConnectivityTester implements ConfigConnectivityTester {
 
+    /** 短信宝余额查询接口，只读探活且不会发送短信。 */
+    private static final String SMS_BAO_QUERY_ENDPOINT = "https://www.smsbao.com/query";
+
+    /** 短信宝探活超时（毫秒）。 */
+    private static final int SMS_BAO_TIMEOUT_MS = 8000;
+
     @Override
     public String testKey() {
         return "sms";
@@ -39,6 +49,9 @@ public class SmsConnectivityTester implements ConfigConnectivityTester {
         Map<String, Object> payload = request.getPayload();
         String endpoint = TesterPayloads.str(payload, "endpoint");
         String provider = resolveProvider(TesterPayloads.str(payload, "provider"), endpoint);
+        if ("smsbao".equals(provider)) {
+            return testSmsBao(payload);
+        }
         String accessKeyId = TesterPayloads.str(payload, "accessKeyId");
         String accessKeySecret = TesterPayloads.str(payload, "accessKeySecret");
 
@@ -56,6 +69,40 @@ public class SmsConnectivityTester implements ConfigConnectivityTester {
             log.error("短信连通性测试未知异常: provider={}, err={}", provider, e.getMessage(), e);
             return failWithDetails("短信配置测试失败",
                     "provider=" + provider + "; " + e.getClass().getSimpleName() + ": " + StrUtil.trimToEmpty(e.getMessage()));
+        }
+    }
+
+    /**
+     * 短信宝只读探活：查询账户余额，不发送短信。
+     */
+    private ConfigTestResult testSmsBao(Map<String, Object> payload) {
+        String username = TesterPayloads.str(payload, "smsBaoUsername");
+        String apiKey = TesterPayloads.str(payload, "smsBaoApiKey");
+        if (StrUtil.hasBlank(username, apiKey)) {
+            return ConfigTestResult.fail("请填写短信宝账号密钥");
+        }
+        try (HttpResponse response = HttpRequest.get(SMS_BAO_QUERY_ENDPOINT)
+                .form(Map.of("u", username, "p", apiKey))
+                .setConnectionTimeout(SMS_BAO_TIMEOUT_MS)
+                .setReadTimeout(SMS_BAO_TIMEOUT_MS)
+                .execute()) {
+            String body = StrUtil.trimToEmpty(response.body());
+            if (response.isOk() && SmsBaoResponseCodes.isSuccess(body)) {
+                ConfigTestResult result = ConfigTestResult.ok("连接成功", "smsbao");
+                result.setDetails("provider=smsbao; query=ok");
+                return result;
+            }
+            String message = response.isOk() ? SmsBaoResponseCodes.describe(body) : "短信宝连接失败";
+            log.warn("短信宝连通性测试失败: status={}, code={}",
+                    response.getStatus(), SmsBaoResponseCodes.firstLine(body));
+            return failWithDetails(message,
+                    "provider=smsbao; status=" + response.getStatus()
+                            + "; code=" + SmsBaoResponseCodes.firstLine(body));
+        } catch (Exception e) {
+            // 查询参数包含短信宝密钥，禁止记录可能携带完整请求 URL 的异常消息。
+            log.error("短信宝连通性测试连接失败: exception={}", e.getClass().getSimpleName());
+            return failWithDetails("短信宝连接失败",
+                    "provider=smsbao; " + e.getClass().getSimpleName());
         }
     }
 
@@ -159,10 +206,13 @@ public class SmsConnectivityTester implements ConfigConnectivityTester {
      *
      * @param provider 显式厂商标识
      * @param endpoint 接入点
-     * @return tencent 或 aliyun
+     * @return smsbao、tencent 或 aliyun
      */
     private String resolveProvider(String provider, String endpoint) {
-        String value = provider.toLowerCase();
+        String value = StrUtil.blankToDefault(provider, "").trim().toLowerCase(Locale.ROOT);
+        if (value.contains("smsbao")) {
+            return "smsbao";
+        }
         if (value.contains("tencent") || value.contains("qcloud")) {
             return "tencent";
         }

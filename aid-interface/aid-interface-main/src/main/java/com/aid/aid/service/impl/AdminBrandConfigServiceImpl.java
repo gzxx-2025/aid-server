@@ -16,7 +16,7 @@ import com.aid.aid.service.IAdminBrandConfigService;
 import com.aid.aid.service.IAidConfigService;
 
 /**
- * 后台管理端品牌配置：从 aid_config(category=admin_brand) 读取登录 Logo / 侧栏 Logo / 页签图标。
+ * 平台品牌配置：从 aid_config(category=admin_brand) 读取平台 LOGO / 页签图标。
  *
  * @author 视觉AID
  */
@@ -27,11 +27,14 @@ public class AdminBrandConfigServiceImpl implements IAdminBrandConfigService
     /** 配置分类 */
     public static final String CATEGORY = "admin_brand";
 
-    /** 登录页品牌 Logo */
-    public static final String KEY_LOGIN_LOGO = "login_logo_url";
+    /** 平台 LOGO */
+    public static final String KEY_PLATFORM_LOGO = "platform_logo_url";
 
-    /** 后台左上角 Logo */
-    public static final String KEY_SIDEBAR_LOGO = "sidebar_logo_url";
+    /** 旧登录页 Logo，仅用于兼容尚未执行迁移的数据库 */
+    private static final String LEGACY_KEY_LOGIN_LOGO = "login_logo_url";
+
+    /** 旧左上角 Logo，仅用于兼容尚未执行迁移的数据库 */
+    private static final String LEGACY_KEY_SIDEBAR_LOGO = "sidebar_logo_url";
 
     /** 浏览器页签图标 */
     public static final String KEY_FAVICON = "favicon_url";
@@ -53,6 +56,8 @@ public class AdminBrandConfigServiceImpl implements IAdminBrandConfigService
             {
                 return vo;
             }
+            String legacyLoginLogo = "";
+            String legacySidebarLogo = "";
             for (AidConfig item : list)
             {
                 if (Objects.isNull(item) || StrUtil.isBlank(item.getConfigName()))
@@ -64,24 +69,32 @@ public class AdminBrandConfigServiceImpl implements IAdminBrandConfigService
                 {
                     continue;
                 }
-                if (Objects.equals(KEY_LOGIN_LOGO, item.getConfigName()))
+                if (Objects.equals(KEY_PLATFORM_LOGO, item.getConfigName()))
                 {
-                    vo.setLoginLogoUrl(value);
+                    vo.setPlatformLogoUrl(value);
                 }
-                else if (Objects.equals(KEY_SIDEBAR_LOGO, item.getConfigName()))
+                else if (Objects.equals(LEGACY_KEY_LOGIN_LOGO, item.getConfigName()))
                 {
-                    vo.setSidebarLogoUrl(value);
+                    legacyLoginLogo = value;
+                }
+                else if (Objects.equals(LEGACY_KEY_SIDEBAR_LOGO, item.getConfigName()))
+                {
+                    legacySidebarLogo = value;
                 }
                 else if (Objects.equals(KEY_FAVICON, item.getConfigName()))
                 {
                     vo.setFaviconUrl(value);
                 }
             }
+            if (StrUtil.isBlank(vo.getPlatformLogoUrl()))
+            {
+                vo.setPlatformLogoUrl(StrUtil.isNotBlank(legacyLoginLogo) ? legacyLoginLogo : legacySidebarLogo);
+            }
         }
         catch (Exception e)
         {
             // 配置读取失败不影响登录/后台主流程，前端继续用内置默认图
-            log.error("读取后台品牌配置异常", e);
+            log.error("读取平台品牌配置异常", e);
         }
         return vo;
     }

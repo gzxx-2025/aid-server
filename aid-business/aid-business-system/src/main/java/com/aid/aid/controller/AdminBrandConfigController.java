@@ -11,7 +11,7 @@ import com.aid.common.core.controller.BaseController;
 import com.aid.common.core.domain.AjaxResult;
 
 /**
- * 后台管理端品牌图片配置（登录 Logo / 侧栏 Logo / 页签图标）。
+ * 平台品牌图片配置（平台 LOGO / 页签图标）。
  * 公开接口供登录页在未鉴权时拉取展示配置。
  *
  * @author 视觉AID
@@ -24,7 +24,7 @@ public class AdminBrandConfigController extends BaseController
     private IAdminBrandConfigService adminBrandConfigService;
 
     /**
-     * 查询可公开展示的后台品牌图片配置（匿名可访问）。
+     * 查询可公开展示的平台品牌图片配置（匿名可访问）。
      */
     @Anonymous
     @GetMapping("/public")

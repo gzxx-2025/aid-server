@@ -2,6 +2,7 @@ package com.aid.upgrade.gateway;
 
 import java.util.Arrays;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
@@ -108,8 +109,19 @@ public class OfficialGatewayConfigProvider {
                 .map(String::trim)
                 .filter(StrUtil::isNotBlank)
                 .filter(item -> item.chars().allMatch(Character::isDigit))
-                .map(Long::parseLong)
+                .map(this::parseLongSafely)
+                .filter(Objects::nonNull)
                 .filter(id -> id > 0)
                 .collect(Collectors.toUnmodifiableSet());
+    }
+
+    /** 超长数字按非法片段跳过，避免单个脏值让整套网关配置失效。 */
+    private Long parseLongSafely(String value) {
+        try {
+            return Long.parseLong(value);
+        } catch (NumberFormatException e) {
+            log.warn("忽略非法官方网关例外ID: length={}", value.length());
+            return null;
+        }
     }
 }

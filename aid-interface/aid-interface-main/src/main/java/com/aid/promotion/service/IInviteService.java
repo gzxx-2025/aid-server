@@ -2,33 +2,29 @@ package com.aid.promotion.service;
 
 import com.aid.common.core.domain.AjaxResult;
 import com.aid.promotion.dto.InvitePageRequest;
-import com.aid.promotion.vo.InviteCodeCheckVO;
 import com.aid.promotion.vo.InviteInfoVO;
 
 /**
- * 邀请Service接口（邀请码、邀请关系绑定、C端邀请页数据）
+ * 提供邀请码生成、注册绑定和邀请数据查询能力。
  *
  * @author 视觉AID
  */
 public interface IInviteService
 {
     /**
-     * 邀请码预校验（匿名，注册页输入邀请码时预检并展示邀请人信息）
+     * 校验首次注册携带的邀请码，不创建邀请关系。
+     * 用于发送登录验证码前拦截无效邀请码，最终注册时仍需再次校验。
      *
-     * @param rawCode 用户输入的邀请码（大小写不敏感）
-     * @return 校验结果（无效时带原因，不抛异常）
+     * @param rawCode 注册时携带的邀请码；为空时不参与邀请活动
      */
-    InviteCodeCheckVO checkInviteCode(String rawCode);
+    void validateForRegistration(String rawCode);
 
     /**
-     * 注册瞬间绑定邀请关系（静默处理，绝不抛异常阻断注册主流程）。
-     * 必须在注册事务内调用：注册回滚时关系一并回滚。
-     * 防护：活动开关、邀请码格式/存在性、邀请人状态、自邀、重复绑定均静默拦截。
-     * 注册后不提供补绑接口（防刷）。
+     * 在注册事务内校验邀请码并绑定邀请关系。
      *
      * @param inviteeUserId 新注册用户ID
-     * @param rawCode       注册时携带的邀请码（可空，空则不绑定）
-     * @param channel       注册渠道（sms手机号/email邮箱/wechat微信）
+     * @param rawCode 注册时携带的邀请码
+     * @param channel 注册渠道
      */
     void bindOnRegister(Long inviteeUserId, String rawCode, String channel);
 

@@ -48,7 +48,7 @@ public class LoginRequest {
     private String deviceInfo;
 
     /**
-     * 邀请码 (可选；仅首次注册瞬间生效，用于绑定邀请关系，老用户登录时忽略)
+     * 邀请码（可选，仅首次注册时严格校验并绑定，老用户登录时忽略）
      */
     private String inviteCode;
 }

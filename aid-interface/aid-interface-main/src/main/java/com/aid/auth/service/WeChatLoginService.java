@@ -91,6 +91,9 @@ public class WeChatLoginService {
      */
     private static final int INVITE_CODE_MAX_LENGTH = 32;
 
+    /** 超长邀请码的安全占位值，扫码注册时会按无效邀请码拒绝。 */
+    private static final String INVALID_INVITE_CODE = "__INVALID__";
+
     @Resource
     private RedisCache redisCache;
 
@@ -117,7 +120,7 @@ public class WeChatLoginService {
     @Resource
     private com.aid.auth.policy.OnlineSessionPolicy onlineSessionPolicy;
 
-    /** 邀请服务：新用户注册瞬间绑定邀请关系（静默，绝不阻断注册） */
+    /** 邀请服务：新用户注册事务内严格校验并绑定邀请关系 */
     @Resource
     private IInviteService inviteService;
 
@@ -136,9 +139,11 @@ public class WeChatLoginService {
         Map<String, Object> loginData = new HashMap<>();
         loginData.put("status", STATUS_WAITING);
         loginData.put("createTime", System.currentTimeMillis());
-        // 邀请码只做长度防御（防超长脏数据入 Redis），有效性在注册绑定时统一校验
-        if (StrUtil.isNotBlank(inviteCode) && inviteCode.trim().length() <= INVITE_CODE_MAX_LENGTH) {
-            loginData.put("inviteCode", inviteCode.trim());
+        // 邀请码只做长度防御，有效性在首次扫码注册事务内统一校验。
+        if (StrUtil.isNotBlank(inviteCode)) {
+            String normalizedInviteCode = inviteCode.trim();
+            loginData.put("inviteCode", normalizedInviteCode.length() <= INVITE_CODE_MAX_LENGTH
+                    ? normalizedInviteCode : INVALID_INVITE_CODE);
         }
         redisCache.setCacheObject(cacheKey, loginData, QRCODE_EXPIRE_SECONDS, TimeUnit.SECONDS);
         log.info("微信登录状态初始化: sceneStr={}", sceneStr);
@@ -518,7 +523,7 @@ public class WeChatLoginService {
 
         saveWechatBind(user.getUserId(), openId, wxMpUser);
 
-        // 注册瞬间绑定邀请关系（静默，注册事务内，回滚即解除；老用户扫码登录不会走到这里）
+        // 注册事务内严格校验并绑定邀请关系，失败时连同新用户一起回滚。
         inviteService.bindOnRegister(user.getUserId(), inviteCode, AuthConstants.BIND_TYPE_WECHAT);
         // 注册送积分（静默，事务提交后发放，幂等一人一次；微信渠道可在后台单独开关）
         registerBonusService.grantAfterRegister(user.getUserId(), AuthConstants.BIND_TYPE_WECHAT);

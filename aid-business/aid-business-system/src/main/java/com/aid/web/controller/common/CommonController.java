@@ -6,10 +6,11 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
@@ -19,6 +20,7 @@ import com.aid.common.config.AidAppConfig;
 import com.aid.common.core.domain.AjaxResult;
 import com.aid.common.utils.StringUtils;
 import com.aid.common.utils.file.FileUtils;
+import lombok.RequiredArgsConstructor;
 
 /**
  * 通用请求处理
@@ -27,12 +29,12 @@ import com.aid.common.utils.file.FileUtils;
  */
 @RestController
 @RequestMapping("/common")
+@RequiredArgsConstructor
 public class CommonController
 {
     private static final Logger log = LoggerFactory.getLogger(CommonController.class);
 
-    @Autowired
-    private IAdminUploadService adminUploadService;
+    private final IAdminUploadService adminUploadService;
 
     private static final String FILE_DELIMITER = ",";
 
@@ -71,8 +73,9 @@ public class CommonController
     /**
      * 通用上传请求（单个）
      */
+    @PreAuthorize("@ss.isBackendUser()")
     @PostMapping("/upload")
-    public AjaxResult uploadFile(MultipartFile file) throws Exception
+    public AjaxResult uploadFile(@RequestParam("file") MultipartFile file)
     {
         try
         {
@@ -86,15 +89,18 @@ public class CommonController
         }
         catch (Exception e)
         {
-            return AjaxResult.error(e.getMessage());
+            log.error("后台单文件上传失败, fileName={}, exception={}",
+                    file == null ? null : file.getOriginalFilename(), e.getClass().getSimpleName(), e);
+            return AjaxResult.error("上传失败");
         }
     }
 
     /**
      * 通用上传请求（多个）
      */
+    @PreAuthorize("@ss.isBackendUser()")
     @PostMapping("/uploads")
-    public AjaxResult uploadFiles(List<MultipartFile> files) throws Exception
+    public AjaxResult uploadFiles(@RequestParam("files") List<MultipartFile> files)
     {
         try
         {
@@ -119,7 +125,9 @@ public class CommonController
         }
         catch (Exception e)
         {
-            return AjaxResult.error(e.getMessage());
+            log.error("后台多文件上传失败, fileCount={}, exception={}",
+                    files == null ? 0 : files.size(), e.getClass().getSimpleName(), e);
+            return AjaxResult.error("上传失败");
         }
     }
 

@@ -1,5 +1,6 @@
 package com.aid.common.aid.sms.core;
 
+import cn.hutool.core.util.StrUtil;
 import com.aid.common.aid.sms.config.SmsConfigManager;
 import com.aid.common.aid.sms.config.properties.SmsProperties;
 import com.aid.common.aid.sms.entity.SmsResult;
@@ -8,7 +9,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * 短信模板工厂
@@ -41,18 +44,20 @@ public class SmsTemplateFactory {
         SmsProperties properties = smsConfigManager.getSmsProperties();
 
         if (!Boolean.TRUE.equals(properties.getEnabled())) {
+            log.info("短信发送失败: 短信服务未启用");
             throw new SmsException("短信服务未启用");
         }
 
-        String signature = buildSignature(properties);
+        String providerType = normalizeProviderType(smsConfigManager.getProviderType());
+        String signature = buildSignature(providerType, properties);
 
         // 配置变化时重建客户端
         if (!signature.equals(currentConfigSignature)) {
             synchronized (this) {
                 if (!signature.equals(currentConfigSignature)) {
-                    currentTemplate = createTemplate(smsConfigManager.getProviderType(), properties);
+                    currentTemplate = createTemplate(providerType, properties);
                     currentConfigSignature = signature;
-                    log.info("短信客户端已重建: signature={}", signature);
+                    log.info("短信客户端已重建: providerType={}", providerType);
                 }
             }
         }
@@ -71,9 +76,17 @@ public class SmsTemplateFactory {
      * 发送验证码（简化方法）
      */
     public SmsResult sendCode(String phone, String code) {
+        if (StrUtil.hasBlank(phone, code)) {
+            log.info("短信发送失败: 手机号或验证码为空");
+            throw new SmsException("短信参数不完整");
+        }
+        if ("smsbao".equals(normalizeProviderType(smsConfigManager.getProviderType()))) {
+            return send(phone, "", Map.of("code", code));
+        }
         String templateId = smsConfigManager.getDefaultTemplateId();
-        if (templateId == null || templateId.isEmpty()) {
-            throw new SmsException("未配置默认短信模板ID");
+        if (StrUtil.isBlank(templateId)) {
+            log.info("短信发送失败: 默认短信模板未配置");
+            throw new SmsException("短信模板未配置");
         }
         String paramName = smsConfigManager.getCodeParamName();
         return send(phone, templateId, Map.of(paramName, code));
@@ -100,44 +113,52 @@ public class SmsTemplateFactory {
     private SmsTemplate createTemplate(String providerType, SmsProperties properties) {
         log.info("创建短信客户端: providerType={}", providerType);
 
-        switch (providerType.toLowerCase()) {
+        switch (providerType) {
             case "aliyun":
                 checkClassExists("com.aliyun.dysmsapi20170525.Client",
-                    "阿里云短信SDK未引入，请在pom.xml中添加依赖:\n" +
-                    "<dependency>\n" +
-                    "    <groupId>com.aliyun</groupId>\n" +
-                    "    <artifactId>dysmsapi20170525</artifactId>\n" +
-                    "    <version>2.0.24</version>\n" +
-                    "</dependency>");
+                    "aliyun");
                 return new AliyunSmsTemplate(properties);
             case "tencent":
                 checkClassExists("com.tencentcloudapi.sms.v20190711.SmsClient",
-                    "腾讯云短信SDK未引入，请在pom.xml中添加依赖:\n" +
-                    "<dependency>\n" +
-                    "    <groupId>com.tencentcloudapi</groupId>\n" +
-                    "    <artifactId>tencentcloud-sdk-java-sms</artifactId>\n" +
-                    "    <version>3.1.574</version>\n" +
-                    "</dependency>");
+                    "tencent");
                 return new TencentSmsTemplate(properties);
+            case "smsbao":
+                return new SmsBaoSmsTemplate(properties);
             default:
-                throw new SmsException("不支持的短信服务商类型: " + providerType);
+                log.error("短信客户端创建失败: providerType={}", providerType);
+                throw new SmsException("短信渠道不支持");
         }
     }
 
     /**
      * 检查类是否存在
      */
-    private void checkClassExists(String className, String errorMsg) {
+    private void checkClassExists(String className, String providerType) {
         try {
             Class.forName(className);
         } catch (ClassNotFoundException e) {
-            throw new SmsException(errorMsg);
+            log.error("短信SDK未安装: providerType={}, className={}", providerType, className);
+            throw new SmsException("短信SDK未安装");
         }
     }
 
-    private String buildSignature(SmsProperties properties) {
-        return properties.getAccessKeyId() + ":" +
-               properties.getEndpoint() + ":" +
-               properties.getSignName();
+    /** 统一短信厂商编码，空配置安全回退到阿里云。 */
+    private String normalizeProviderType(String providerType) {
+        return StrUtil.blankToDefault(providerType, "aliyun").trim().toLowerCase(Locale.ROOT);
+    }
+
+    private String buildSignature(String providerType, SmsProperties properties) {
+        // 指纹包含密钥，确保密钥更新后重建客户端；仅记录哈希值，不把敏感内容写入日志。
+        return String.valueOf(Objects.hash(
+                providerType,
+                properties.getEndpoint(),
+                properties.getAccessKeyId(),
+                properties.getAccessKeySecret(),
+                properties.getSignName(),
+                properties.getSdkAppId(),
+                properties.getSmsBaoUsername(),
+                properties.getSmsBaoApiKey(),
+                properties.getSmsBaoProductId(),
+                properties.getSmsBaoContentTemplate()));
     }
 }
