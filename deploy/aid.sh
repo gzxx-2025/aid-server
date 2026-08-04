@@ -207,16 +207,14 @@ validate_port() { # validate_port <名称> <值>
 
 docker_profile_enabled() { # docker_profile_enabled <profile>
   local profiles
+  # 旧版 Docker 配置中 MySQL 固定内置，COMPOSE_PROFILES 可能只有 redis。
+  # DB_HOST=mysql 已能无歧义表示内置数据库，运行时兼容启用 mysql Profile，
+  # 无需改写用户原有的 COMPOSE_PROFILES 值。
+  if [[ "$1" == "mysql" && "$(env_get DB_HOST mysql)" == "mysql" ]]; then
+    return 0
+  fi
   profiles="$(env_get COMPOSE_PROFILES mysql,redis | tr -d '[:space:]')"
   [[ ",${profiles}," == *",$1,"* ]]
-}
-
-add_docker_profile() { # add_docker_profile <profile>
-  docker_profile_enabled "$1" && return 0
-  local profiles
-  profiles="$(env_get COMPOSE_PROFILES mysql,redis | tr -d '[:space:]')"
-  if [[ -n "${profiles}" ]]; then profiles="${profiles},$1"; else profiles="$1"; fi
-  env_set COMPOSE_PROFILES "${profiles}"
 }
 
 validate_compose_profiles() {
@@ -1529,8 +1527,7 @@ EOF
   # 兼容旧版配置：此前 MySQL 固定内置，配置中没有 DB_HOST/DB_PORT，且 Profile
   # 只写 redis。升级后显式补成 mysql Profile，防止旧用户被误判为外部数据库。
   if [[ "${legacyMissingDbHost}" == "1" ]]; then
-    add_docker_profile mysql
-    warn "检测到旧版 Docker 配置，已保持为内置 MySQL 模式"
+    warn "检测到旧版 Docker 配置，已保持原 COMPOSE_PROFILES 值并兼容启用内置 MySQL"
   elif ! grep -qE '^DB_PORT=' "${ENV_FILE}" 2>/dev/null; then
     env_set DB_PORT 3306
   fi
@@ -1671,7 +1668,16 @@ confirm_initial_configuration() { # confirm_initial_configuration <docker|manual
   ok "配置已确认，允许进入环境检查与源码构建"
 }
 
-compose_cmd() { docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_DIR}/docker-compose.yml" "$@"; }
+compose_cmd() {
+  local profiles
+  profiles="$(env_get COMPOSE_PROFILES mysql,redis | tr -d '[:space:]')"
+  if [[ "$(env_get DB_HOST mysql)" == "mysql" && ",${profiles}," != *",mysql,"* ]]; then
+    if [[ -n "${profiles}" ]]; then profiles="${profiles},mysql"; else profiles="mysql"; fi
+    COMPOSE_PROFILES="${profiles}" docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_DIR}/docker-compose.yml" "$@"
+    return $?
+  fi
+  docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_DIR}/docker-compose.yml" "$@"
+}
 
 validate_https_runtime() {
   docker_profile_enabled https || return 0
