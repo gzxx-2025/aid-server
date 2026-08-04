@@ -13,14 +13,23 @@ import (
 	"aid-updater/internal/config"
 )
 
-// buildDBCommand 组装 mysql/mysqldump 命令：execContainer 非空时经 `docker exec`
-// 在数据库容器内执行（Docker 部署无需本地 MySQL 客户端）。密码始终走环境变量
-// 链路（本地直调进程环境；容器模式 docker exec 的 -e 只传变量名，由 CLI 从自身
-// 环境取值转发），不出现在任何命令行参数中。
+// buildDBCommand 组装 mysql/mysqldump 命令：优先复用内置数据库容器；外部数据库
+// 使用一次性客户端镜像；手动部署直接调用宿主机客户端。密码始终走 MYSQL_PWD
+// 环境变量，不出现在命令行参数中。
 func buildDBCommand(db config.Database, tool string, toolArgs ...string) *exec.Cmd {
 	var cmd *exec.Cmd
 	if strings.TrimSpace(db.ExecContainer) != "" {
 		args := []string{"exec", "-i", "-e", "MYSQL_PWD", strings.TrimSpace(db.ExecContainer), tool}
+		args = append(args, toolArgs...)
+		cmd = exec.Command("docker", args...)
+	} else if strings.TrimSpace(db.ClientImage) != "" {
+		args := []string{"run", "--rm", "-i"}
+		if network := strings.TrimSpace(db.DockerNetwork); network != "" {
+			args = append(args, "--network", network)
+		}
+		args = append(args,
+			"--add-host", "host.docker.internal:host-gateway",
+			"-e", "MYSQL_PWD", strings.TrimSpace(db.ClientImage), tool)
 		args = append(args, toolArgs...)
 		cmd = exec.Command("docker", args...)
 	} else {

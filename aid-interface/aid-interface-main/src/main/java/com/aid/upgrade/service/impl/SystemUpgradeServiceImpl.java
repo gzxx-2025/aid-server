@@ -375,12 +375,31 @@ public class SystemUpgradeServiceImpl implements ISystemUpgradeService {
         putDeploymentValue(values, "DB_PASSWORD", dto.getDbPassword(), true);
         putDeploymentValue(values, "REDIS_HOST", dto.getRedisHost(), false);
         putDeploymentValue(values, "REDIS_PORT", dto.getRedisPort(), false);
-        putDeploymentValue(values, "REDIS_PASSWORD", dto.getRedisPassword(), true);
+        putDeploymentValue(values, "REDIS_USERNAME", dto.getRedisUsername(), false);
+        if (Boolean.TRUE.equals(dto.getClearRedisPassword())) {
+            values.put("REDIS_PASSWORD", "");
+        } else {
+            putDeploymentValue(values, "REDIS_PASSWORD", dto.getRedisPassword(), true);
+        }
+        putDeploymentValue(values, "REDIS_DATABASE", dto.getRedisDatabase(), false);
         putDeploymentValue(values, "TOKEN_SECRET", dto.getTokenSecret(), true);
         putDeploymentValue(values, "JAVA_OPTS", dto.getJavaOpts(), false);
         putDeploymentValue(values, "COMPOSE_PROFILES", dto.getComposeProfiles(), false);
         putDeploymentValue(values, "ROCKETMQ_ENABLED", dto.getRocketmqEnabled(), false);
         putDeploymentValue(values, "ROCKETMQ_NAMESERVER", dto.getRocketmqNameserver(), false);
+        if (Boolean.TRUE.equals(dto.getClearRocketmqCredentials())) {
+            values.put("ROCKETMQ_ACCESS_KEY", "");
+            values.put("ROCKETMQ_SECRET_KEY", "");
+        } else {
+            putDeploymentValue(values, "ROCKETMQ_ACCESS_KEY", dto.getRocketmqAccessKey(), true);
+            putDeploymentValue(values, "ROCKETMQ_SECRET_KEY", dto.getRocketmqSecretKey(), true);
+        }
+        putDeploymentValue(values, "HTTPS_ENABLED", dto.getHttpsEnabled(), false);
+        putDeploymentValue(values, "HTTPS_PORT", dto.getHttpsPort(), false);
+        putDeploymentValue(values, "HTTPS_PUBLIC_DOMAIN", dto.getHttpsPublicDomain(), false);
+        putDeploymentValue(values, "HTTPS_ADMIN_DOMAIN", dto.getHttpsAdminDomain(), false);
+        putDeploymentValue(values, "HTTPS_CERT_PATH", dto.getHttpsCertPath(), false);
+        putDeploymentValue(values, "HTTPS_KEY_PATH", dto.getHttpsKeyPath(), false);
         putDeploymentValue(values, "MYSQL_BUFFER_POOL", dto.getMysqlBufferPool(), false);
         putDeploymentValue(values, "MYSQL_MAX_CONNECTIONS", dto.getMysqlMaxConnections(), false);
         putDeploymentValue(values, "REDIS_MAXMEMORY", dto.getRedisMaxmemory(), false);

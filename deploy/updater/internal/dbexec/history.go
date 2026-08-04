@@ -51,6 +51,11 @@ func runQuery(db config.Database, query string) (string, error) {
 	return string(output), nil
 }
 
+// Query 执行只读检查语句并返回批处理结果，供配置切换前验证外部数据库使用。
+func Query(db config.Database, query string) (string, error) {
+	return runQuery(db, query)
+}
+
 // ensureHistoryTable 确保执行记录表存在（幂等）。
 func ensureHistoryTable(db config.Database) error {
 	if _, err := runQuery(db, historyTableDDL); err != nil {

@@ -153,6 +153,8 @@ sudo bash aid.sh install
 
 脚本会自动发现当前渠道最新版本，优先检测 GitHub 三端的同一版本标签；GitHub 不通时整组切到 Gitee，在服务器临时目录完成服务端、后台管理端、Web 用户端和升级器构建，校验通过后再生成安全配置、部署中间件、初始化空数据库。同一条 `sudo bash aid.sh install` 命令在已部署机器上会自动改为检查更新，不会重复初始化数据库；部署成功后也可直接使用 `sudo aid update`。直接运行 `sudo bash aid.sh` 会进入统一管理菜单。完整流程、构建依赖与风险说明见[部署指南](deploy/README.md)。Docker 为推荐方式，手动 systemd 部署可使用 `sudo bash aid.sh install-manual`。
 
+Docker 与手动 systemd 部署均支持可选 HTTPS：配置用户端与管理端两个域名、443 端口及 `DATA_ROOT/config/ssl` 下的证书即可启用 TLS；未启用时不会占用 443。Docker 可在内置 MySQL 5.7 与外部 MySQL 5.7 之间明确切换，外部模式不会启动内置数据库；Redis 支持可选 ACL 用户名、密码和数据库索引；内置及外部 RocketMQ 均支持可选 AccessKey/SecretKey，所有密钥均由升级器脱敏管理。不要把 `HTTP_PORT` 直接设置为 443，这不会产生 HTTPS。完整配置与切换保护见[部署指南](deploy/README.md#内置或外部-mysqlredisrocketmq)。
+
 **服务器配置要求**（安装脚本自动校验，低于最低配置拒绝安装）：
 
 | 部署内容 | 最低配置 | 推荐配置 |

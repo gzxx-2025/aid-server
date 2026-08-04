@@ -23,8 +23,8 @@ import org.springframework.data.redis.serializer.StringRedisSerializer;
 public class RedisConfig extends CachingConfigurerSupport
 {
     /**
-     * 空白密码归一化为 null：yml 占位符 ${REDIS_PASSWORD:} 会解析成空串，
-     * Redisson 对非 null 密码一律发送 AUTH，无密码 Redis 会报
+     * 空白用户名和密码归一化为 null：环境变量空值会解析成空串，
+     * Redisson 对非 null 凭证会发送 AUTH，无认证 Redis 会报
      * "ERR Client sent AUTH, but no password is set"，此处统一兜底
      */
     @Bean
@@ -48,6 +48,10 @@ public class RedisConfig extends CachingConfigurerSupport
             if (StrUtil.isBlank(serverConfig.getPassword()))
             {
                 serverConfig.setPassword(null);
+            }
+            if (StrUtil.isBlank(serverConfig.getUsername()))
+            {
+                serverConfig.setUsername(null);
             }
         };
     }

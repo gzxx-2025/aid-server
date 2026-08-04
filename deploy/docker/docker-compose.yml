@@ -5,7 +5,7 @@
 #   - 全部数据（应用产物/上传文件/日志/中间件数据）统一放宿主机 ${DATA_ROOT}
 #     （默认 /data/aid）目录级挂载——升级器替换宿主机 app/ 下产物后
 #     docker restart 即完成升级，无需重建镜像；备份迁移整个目录即可
-#   - RocketMQ 为可选组件：默认不启动，需要时 .env 里设 COMPOSE_PROFILES=mq
+#   - MySQL/Redis/RocketMQ/HTTPS 均由 Profile 控制；默认 mysql,redis，需要 MQ 时追加 mq
 #   - 全部资源参数（各组件内存/连接数/JVM）通过 .env 调节，默认值按 4核8G 服务器标定
 #   - 所有容器统一日志轮转，防止 docker 日志无限增长打满磁盘
 #
@@ -25,10 +25,11 @@ services:
     # 生产部署固定使用 MySQL 5.7，不自动切换数据库大版本
     image: mysql:5.7
     container_name: aid-mysql
+    profiles: ["mysql"]
     restart: unless-stopped
     logging: *default-logging
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请在 .env 中设置 MYSQL_ROOT_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-}
       MYSQL_DATABASE: ${DB_NAME:-aid}
       MYSQL_USER: ${DB_USERNAME:-aid}
       MYSQL_PASSWORD: ${DB_PASSWORD:?请在 .env 中设置 DB_PASSWORD}
@@ -100,21 +101,30 @@ services:
     environment:
       TZ: Asia/Shanghai
       JAVA_OPTS: ${JAVA_OPTS:--Xms1g -Xmx2g -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/home/aid/logs}
-      DB_HOST: mysql
-      DB_PORT: "3306"
+      # 默认连接内置 MySQL；使用外部 MySQL 时从 Profile 移除 mysql 并覆盖地址
+      DB_HOST: ${DB_HOST:-mysql}
+      DB_PORT: ${DB_PORT:-3306}
       DB_NAME: ${DB_NAME:-aid}
       DB_USERNAME: ${DB_USERNAME:-aid}
       DB_PASSWORD: ${DB_PASSWORD}
       # 默认连内置 redis 容器；使用外部 Redis 时在 .env 覆盖为外部地址
       REDIS_HOST: ${REDIS_HOST:-redis}
       REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_USERNAME: ${REDIS_USERNAME:-}
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_DATABASE: ${REDIS_DATABASE:-0}
       TOKEN_SECRET: ${TOKEN_SECRET:?请在 .env 中设置 TOKEN_SECRET}
       AID_PROFILE: /data/uploadPath
       LOG_PATH: /home/aid/logs
       ROCKETMQ_ENABLED: ${ROCKETMQ_ENABLED:-false}
       # 默认连内置 MQ 容器；使用外部 MQ 时在 .env 覆盖为外部 NameServer 地址
       ROCKETMQ_NAMESERVER: ${ROCKETMQ_NAMESERVER:-rocketmq-nameserver:9876}
+      # RocketMQ ACL；两项同时留空表示不启用 ACL，内置与外部 MQ 均适用
+      ROCKETMQ_ACCESS_KEY: ${ROCKETMQ_ACCESS_KEY:-}
+      ROCKETMQ_SECRET_KEY: ${ROCKETMQ_SECRET_KEY:-}
+    extra_hosts:
+      # 外部 MySQL/Redis/MQ 位于 Docker 宿主机时可使用该标准别名
+      - "host.docker.internal:host-gateway"
     ulimits:
       nofile:
         soft: 65536
@@ -144,6 +154,7 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+        required: false
       # required:false —— 使用外部 Redis（COMPOSE_PROFILES 无 redis）时自动忽略此依赖
       redis:
         condition: service_healthy
@@ -227,8 +238,36 @@ services:
       - aid-server
       - aid-web
 
+  # ------------------------- 可选 HTTPS 入口 -------------------------
+  # 启用方式：COMPOSE_PROFILES 加入 https。用户端和管理端使用两个域名，
+  # 共用一张覆盖两个域名的 SAN/通配符证书，并监听宿主机 HTTPS_PORT（默认443）。
+  nginx-https:
+    image: nginx:1.25-alpine
+    container_name: aid-nginx-https
+    profiles: ["https"]
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      HTTPS_PUBLIC_DOMAIN: ${HTTPS_PUBLIC_DOMAIN:-www.example.com}
+      HTTPS_ADMIN_DOMAIN: ${HTTPS_ADMIN_DOMAIN:-admin.example.com}
+    ports:
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./nginx/aid-https.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ${HTTPS_CERT_PATH:-/data/aid/config/ssl/fullchain.pem}:/etc/nginx/ssl/fullchain.pem:ro
+      - ${HTTPS_KEY_PATH:-/data/aid/config/ssl/privkey.pem}:/etc/nginx/ssl/privkey.pem:ro
+      - ${DATA_ROOT:-/data/aid}/app/admin-dist:/usr/share/nginx/aid/admin-dist:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-check-certificate -q -T 3 -O /dev/null https://127.0.0.1/healthz || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      - aid-server
+      - aid-web
+
   # ------------------------- 可选组件：RocketMQ -------------------------
-  # 启用方式：.env 里设 COMPOSE_PROFILES=mq 且 ROCKETMQ_ENABLED=true，
+  # 启用方式：.env 的 COMPOSE_PROFILES 加入 mq 且 ROCKETMQ_ENABLED=true，
   # 再到后台「消息队列配置」开启 MQ 派发模式。不启用时系统走本地任务模式。
   rocketmq-nameserver:
     image: apache/rocketmq:5.3.1
@@ -256,17 +295,21 @@ services:
     restart: unless-stopped
     logging: *default-logging
     profiles: ["mq"]
-    command: sh mqbroker -c /home/rocketmq/conf/broker.conf
+    command: ["sh", "/home/rocketmq/aid-broker-entrypoint.sh"]
     environment:
       TZ: Asia/Shanghai
       # 覆盖镜像默认 -Xms8g -Xmx8g（小服务器直接起不来）；按业务量在 .env 调节
       JAVA_OPT_EXT: ${MQ_BROKER_JAVA_OPTS:--Xms1g -Xmx1g -Xmn512m}
+      # 非空时入口脚本同步为内置 Broker 开启 ACL；留空时 Broker 不启用 ACL
+      ROCKETMQ_ACCESS_KEY: ${ROCKETMQ_ACCESS_KEY:-}
+      ROCKETMQ_SECRET_KEY: ${ROCKETMQ_SECRET_KEY:-}
     ulimits:
       nofile:
         soft: 65536
         hard: 65536
     volumes:
       - ./rocketmq/broker.conf:/home/rocketmq/conf/broker.conf:ro
+      - ./rocketmq/broker-entrypoint.sh:/home/rocketmq/aid-broker-entrypoint.sh:ro
       - ${DATA_ROOT:-/data/aid}/rocketmq/broker-data:/home/rocketmq/store
       - ${DATA_ROOT:-/data/aid}/rocketmq/broker-logs:/home/rocketmq/logs
     depends_on:

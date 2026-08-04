@@ -42,6 +42,10 @@ type Database struct {
 	// ExecContainer 非空时 mysql/mysqldump 经 `docker exec <容器>` 执行（Docker 部署
 	// 无需宿主机安装 MySQL 客户端）；为空时直接调用本机客户端
 	ExecContainer string `json:"execContainer"`
+	// ClientImage 非空且 ExecContainer 为空时，使用一次性 Docker 客户端容器执行。
+	ClientImage string `json:"clientImage"`
+	// DockerNetwork 是一次性客户端容器使用的网络模式，外部数据库默认 host。
+	DockerNetwork string `json:"dockerNetwork"`
 }
 
 // Deployment 描述部署配置文件的受控位置。业务运行配置始终以该文件为唯一真源，

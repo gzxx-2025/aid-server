@@ -30,10 +30,14 @@ type deploymentDescriptor struct {
 
 var commonDeploymentKeys = map[string]bool{
 	"HTTP_PORT": true, "ADMIN_PORT": true, "BACKEND_PORT": true,
-	"DB_NAME": true, "DB_USERNAME": true, "DB_PASSWORD": true,
-	"REDIS_HOST": true, "REDIS_PORT": true, "REDIS_PASSWORD": true,
+	"DB_HOST": true, "DB_PORT": true, "DB_NAME": true, "DB_USERNAME": true, "DB_PASSWORD": true,
+	"REDIS_HOST": true, "REDIS_PORT": true, "REDIS_USERNAME": true,
+	"REDIS_PASSWORD": true, "REDIS_DATABASE": true,
 	"TOKEN_SECRET": true, "JAVA_OPTS": true,
 	"ROCKETMQ_ENABLED": true, "ROCKETMQ_NAMESERVER": true,
+	"ROCKETMQ_ACCESS_KEY": true, "ROCKETMQ_SECRET_KEY": true,
+	"HTTPS_PORT": true, "HTTPS_PUBLIC_DOMAIN": true, "HTTPS_ADMIN_DOMAIN": true,
+	"HTTPS_CERT_PATH": true, "HTTPS_KEY_PATH": true,
 }
 
 var dockerDeploymentKeys = map[string]bool{
@@ -45,7 +49,7 @@ var dockerDeploymentKeys = map[string]bool{
 }
 
 var manualDeploymentKeys = map[string]bool{
-	"DB_HOST": true, "DB_PORT": true,
+	"DATA_ROOT": true, "HTTPS_ENABLED": true,
 }
 
 var secretDeploymentKeys = map[string]bool{
@@ -53,6 +57,8 @@ var secretDeploymentKeys = map[string]bool{
 	"DB_PASSWORD":         true,
 	"REDIS_PASSWORD":      true,
 	"TOKEN_SECRET":        true,
+	"ROCKETMQ_ACCESS_KEY": true,
+	"ROCKETMQ_SECRET_KEY": true,
 }
 
 // ReadDeploymentState 从唯一配置真源读取当前配置，并只生成不含密钥的页面快照。
@@ -75,6 +81,7 @@ func (c *Config) ReadDeploymentState() (*DeploymentState, error) {
 	if err != nil {
 		return nil, err
 	}
+	normalizeLegacyDockerDatabase(mode, values)
 	if err := validateDeploymentValues(mode, values); err != nil {
 		return nil, err
 	}
@@ -104,6 +111,30 @@ func (c *Config) ReadDeploymentState() (*DeploymentState, error) {
 	}, nil
 }
 
+// normalizeLegacyDockerDatabase 兼容旧版“固定内置 MySQL”的配置。只有 DB_HOST
+// 缺失时才推断为内置模式；新配置明确填写外部地址后绝不会被自动加入 mysql Profile。
+func normalizeLegacyDockerDatabase(mode string, values map[string]string) {
+	if mode != "docker" {
+		return
+	}
+	if strings.TrimSpace(values["DB_HOST"]) != "" {
+		if strings.TrimSpace(values["DB_PORT"]) == "" {
+			values["DB_PORT"] = "3306"
+		}
+		return
+	}
+	values["DB_HOST"] = "mysql"
+	values["DB_PORT"] = "3306"
+	profiles, _ := parseComposeProfiles(values["COMPOSE_PROFILES"])
+	if !profiles["mysql"] {
+		if strings.TrimSpace(values["COMPOSE_PROFILES"]) == "" {
+			values["COMPOSE_PROFILES"] = "mysql"
+		} else {
+			values["COMPOSE_PROFILES"] += ",mysql"
+		}
+	}
+}
+
 // RefreshDeployment 重新读取部署配置并同步升级器数据库连接，保证管理员修改配置后
 // 后续增量 SQL 与备份使用的仍是同一份配置。
 func (c *Config) RefreshDeployment() (*DeploymentState, error) {
@@ -115,12 +146,28 @@ func (c *Config) RefreshDeployment() (*DeploymentState, error) {
 	values := state.Values
 	if state.Mode == "docker" {
 		c.Database.Enabled = true
-		c.Database.Host = "127.0.0.1"
-		c.Database.Port = 3306
 		c.Database.Name = valueOr(values, "DB_NAME", "aid")
-		c.Database.User = "root"
-		c.Database.Password = values["MYSQL_ROOT_PASSWORD"]
-		c.Database.ExecContainer = "aid-mysql"
+		profiles, profileErr := parseComposeProfiles(values["COMPOSE_PROFILES"])
+		if profileErr != nil {
+			return nil, profileErr
+		}
+		if profiles["mysql"] {
+			c.Database.Host = "127.0.0.1"
+			c.Database.Port = 3306
+			c.Database.User = "root"
+			c.Database.Password = values["MYSQL_ROOT_PASSWORD"]
+			c.Database.ExecContainer = "aid-mysql"
+			c.Database.ClientImage = ""
+			c.Database.DockerNetwork = ""
+		} else {
+			c.Database.Host = values["DB_HOST"]
+			c.Database.Port, _ = strconv.Atoi(valueOr(values, "DB_PORT", "3306"))
+			c.Database.User = values["DB_USERNAME"]
+			c.Database.Password = values["DB_PASSWORD"]
+			c.Database.ExecContainer = ""
+			c.Database.ClientImage = "mysql:5.7"
+			c.Database.DockerNetwork = "host"
+		}
 	} else {
 		c.Database.Enabled = true
 		c.Database.Host = valueOr(values, "DB_HOST", "127.0.0.1")
@@ -129,6 +176,8 @@ func (c *Config) RefreshDeployment() (*DeploymentState, error) {
 		c.Database.User = valueOr(values, "DB_USERNAME", "root")
 		c.Database.Password = values["DB_PASSWORD"]
 		c.Database.ExecContainer = ""
+		c.Database.ClientImage = ""
+		c.Database.DockerNetwork = ""
 		// 手动部署的监听端口可以在后台配置页调整。健康检查必须随唯一配置真源
 		// 一起刷新，否则端口变更后升级器会误判启动失败并触发回滚。
 		backendPort := valueOr(values, "BACKEND_PORT", "8080")
@@ -283,18 +332,19 @@ func mergeEnvFile(sourcePath string, allValues, changes map[string]string) ([]by
 }
 
 func validateDeploymentValues(mode string, values map[string]string) error {
-	required := []string{"HTTP_PORT", "ADMIN_PORT", "BACKEND_PORT", "DB_NAME", "DB_USERNAME", "DB_PASSWORD", "TOKEN_SECRET", "REDIS_HOST", "REDIS_PORT"}
+	required := []string{"HTTP_PORT", "ADMIN_PORT", "BACKEND_PORT", "DB_HOST", "DB_PORT", "DB_NAME", "DB_USERNAME", "DB_PASSWORD", "TOKEN_SECRET", "REDIS_HOST", "REDIS_PORT"}
 	if mode == "docker" {
-		required = append(required, "DATA_ROOT", "MYSQL_ROOT_PASSWORD", "MYSQL_PORT")
-	} else {
-		required = append(required, "DB_HOST", "DB_PORT")
+		required = append(required, "DATA_ROOT")
 	}
 	for _, key := range required {
 		if strings.TrimSpace(values[key]) == "" {
 			return fmt.Errorf("配置项 %s 不能为空", key)
 		}
 	}
-	for _, key := range []string{"HTTP_PORT", "ADMIN_PORT", "BACKEND_PORT", "REDIS_PORT", "DB_PORT", "MYSQL_PORT"} {
+	if !alphaNumericUnderscore(strings.TrimSpace(values["DB_NAME"])) {
+		return fmt.Errorf("DB_NAME仅允许字母数字和下划线")
+	}
+	for _, key := range []string{"HTTP_PORT", "ADMIN_PORT", "BACKEND_PORT", "REDIS_PORT", "DB_PORT", "MYSQL_PORT", "HTTPS_PORT"} {
 		value := strings.TrimSpace(values[key])
 		if value == "" {
 			continue
@@ -306,6 +356,175 @@ func validateDeploymentValues(mode string, values map[string]string) error {
 	}
 	if enabled := values["ROCKETMQ_ENABLED"]; enabled != "" && enabled != "true" && enabled != "false" {
 		return fmt.Errorf("ROCKETMQ_ENABLED 只支持 true 或 false")
+	}
+	if enabled := values["HTTPS_ENABLED"]; enabled != "" && enabled != "true" && enabled != "false" {
+		return fmt.Errorf("HTTPS_ENABLED 只支持 true 或 false")
+	}
+	if database := strings.TrimSpace(values["REDIS_DATABASE"]); database != "" {
+		index, err := strconv.Atoi(database)
+		if err != nil || index < 0 {
+			return fmt.Errorf("REDIS_DATABASE 必须是非负整数")
+		}
+	}
+	accessKey := strings.TrimSpace(values["ROCKETMQ_ACCESS_KEY"])
+	secretKey := strings.TrimSpace(values["ROCKETMQ_SECRET_KEY"])
+	if (accessKey == "") != (secretKey == "") {
+		return fmt.Errorf("RocketMQ ACL凭证必须同时填写")
+	}
+	if accessKey != "" && (!alphaNumeric(accessKey) || !alphaNumeric(secretKey)) {
+		return fmt.Errorf("RocketMQ ACL凭证仅允许字母和数字")
+	}
+	if values["ROCKETMQ_ENABLED"] == "true" && strings.TrimSpace(values["ROCKETMQ_NAMESERVER"]) == "" {
+		return fmt.Errorf("RocketMQ地址不能为空")
+	}
+	if mode == "docker" {
+		profiles, err := parseComposeProfiles(values["COMPOSE_PROFILES"])
+		if err != nil {
+			return err
+		}
+		if profiles["redis"] {
+			username := strings.TrimSpace(values["REDIS_USERNAME"])
+			if username != "" && username != "default" {
+				return fmt.Errorf("内置Redis仅支持default用户")
+			}
+		}
+		if profiles["mysql"] {
+			if strings.TrimSpace(values["MYSQL_ROOT_PASSWORD"]) == "" || strings.TrimSpace(values["MYSQL_PORT"]) == "" {
+				return fmt.Errorf("内置MySQL必须配置root密码和映射端口")
+			}
+			if values["DB_HOST"] != "mysql" || values["DB_PORT"] != "3306" {
+				return fmt.Errorf("内置MySQL地址必须为mysql:3306")
+			}
+		} else {
+			host := strings.TrimSpace(values["DB_HOST"])
+			if host == "mysql" || host == "localhost" || host == "127.0.0.1" || host == "::1" {
+				return fmt.Errorf("外部MySQL地址不能使用容器回环地址")
+			}
+		}
+		if profiles["https"] {
+			if err := validateHTTPSValues(values); err != nil {
+				return err
+			}
+		}
+	} else if values["HTTPS_ENABLED"] == "true" {
+		if strings.TrimSpace(values["DATA_ROOT"]) == "" {
+			return fmt.Errorf("启用HTTPS时DATA_ROOT不能为空")
+		}
+		if err := validateHTTPSValues(values); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func alphaNumeric(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, char := range value {
+		if (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') ||
+			(char >= '0' && char <= '9') {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func alphaNumericUnderscore(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, char := range value {
+		if (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') ||
+			(char >= '0' && char <= '9') || char == '_' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func parseComposeProfiles(raw string) (map[string]bool, error) {
+	profiles := make(map[string]bool)
+	for _, item := range strings.Split(raw, ",") {
+		profile := strings.TrimSpace(item)
+		if profile == "" {
+			continue
+		}
+		if profile != "mysql" && profile != "redis" && profile != "mq" && profile != "https" {
+			return nil, fmt.Errorf("COMPOSE_PROFILES仅支持mysql、redis、mq、https")
+		}
+		profiles[profile] = true
+	}
+	return profiles, nil
+}
+
+func validateHTTPSValues(values map[string]string) error {
+	httpsPort := strings.TrimSpace(valueOr(values, "HTTPS_PORT", "443"))
+	if httpsPort == strings.TrimSpace(values["HTTP_PORT"]) || httpsPort == strings.TrimSpace(values["ADMIN_PORT"]) {
+		return fmt.Errorf("HTTPS端口与HTTP端口冲突")
+	}
+	publicDomain := strings.TrimSpace(values["HTTPS_PUBLIC_DOMAIN"])
+	adminDomain := strings.TrimSpace(values["HTTPS_ADMIN_DOMAIN"])
+	if !validServerName(publicDomain) || !validServerName(adminDomain) {
+		return fmt.Errorf("HTTPS域名格式错误")
+	}
+	if publicDomain == adminDomain {
+		return fmt.Errorf("HTTPS用户端和管理端域名不能相同")
+	}
+	dataRootValue := strings.TrimSpace(values["DATA_ROOT"])
+	if !filepath.IsAbs(dataRootValue) {
+		return fmt.Errorf("DATA_ROOT必须是绝对路径")
+	}
+	dataRoot := filepath.Clean(dataRootValue)
+	sslRoot := filepath.Join(dataRoot, "config", "ssl")
+	for _, key := range []string{"HTTPS_CERT_PATH", "HTTPS_KEY_PATH"} {
+		if err := validateTLSFile(values[key], sslRoot); err != nil {
+			return fmt.Errorf("%s校验失败: %w", key, err)
+		}
+	}
+	return nil
+}
+
+func validServerName(value string) bool {
+	if value == "" || strings.ContainsAny(value, " /\\:\t\r\n") {
+		return false
+	}
+	first := value[0]
+	last := value[len(value)-1]
+	if !((first >= 'a' && first <= 'z') || (first >= 'A' && first <= 'Z') || (first >= '0' && first <= '9')) ||
+		!((last >= 'a' && last <= 'z') || (last >= 'A' && last <= 'Z') || (last >= '0' && last <= '9')) {
+		return false
+	}
+	for index, char := range value {
+		if (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') ||
+			(char >= '0' && char <= '9') || char == '.' || (char == '-' && index > 0) {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func validateTLSFile(path, sslRoot string) error {
+	path = filepath.Clean(strings.TrimSpace(path))
+	if !filepath.IsAbs(path) {
+		return fmt.Errorf("必须使用绝对路径")
+	}
+	relative, err := filepath.Rel(filepath.Clean(sslRoot), path)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(os.PathSeparator)) {
+		return fmt.Errorf("只能位于%s", sslRoot)
+	}
+	if err := rejectSymlinkComponents(path); err != nil {
+		return err
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("文件不存在")
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return fmt.Errorf("必须是非软链接普通文件")
 	}
 	return nil
 }

@@ -15,12 +15,23 @@
 # ============================================================================
 
 # ---------------- 端口 ----------------
+DATA_ROOT=/data/aid
 # 用户端（C端）对外端口，由 Nginx 监听
 HTTP_PORT=80
 # 后台管理端对外端口（独立端口、根路径托管）
 ADMIN_PORT=8090
 # 后端 Java 服务本机端口
 BACKEND_PORT=8080
+
+# ---------------- HTTPS（可选） ----------------
+# true=由脚本生成并校验 Nginx HTTPS 站点；false=仅保留 HTTP
+HTTPS_ENABLED=false
+HTTPS_PORT=443
+HTTPS_PUBLIC_DOMAIN=www.example.com
+HTTPS_ADMIN_DOMAIN=admin.example.com
+# 证书必须放在 DATA_ROOT/config/ssl 下且不能使用软链接
+HTTPS_CERT_PATH=/data/aid/config/ssl/fullchain.pem
+HTTPS_KEY_PATH=/data/aid/config/ssl/privkey.pem
 
 # ---------------- 数据库（固定使用 MySQL 5.7） ----------------
 DB_HOST=127.0.0.1
@@ -34,8 +45,11 @@ DB_PASSWORD=
 # ---------------- Redis（自备 6.x+） ----------------
 REDIS_HOST=127.0.0.1
 REDIS_PORT=6379
+# Redis 6+ ACL 用户名；传统 requirepass 或无认证模式留空
+REDIS_USERNAME=
 # 留空表示无密码
 REDIS_PASSWORD=
+REDIS_DATABASE=0
 
 # ---------------- 后端 ----------------
 # JWT 令牌密钥（留空=部署脚本自动生成强随机值；泄露等于全部账号失守）
@@ -48,3 +62,6 @@ JAVA_OPTS=-Xms1g -Xmx2g
 ROCKETMQ_ENABLED=false
 # NameServer 地址（本机自装或另一台机器均可）
 ROCKETMQ_NAMESERVER=127.0.0.1:9876
+# RocketMQ ACL AccessKey/SecretKey；未启用 ACL 时同时留空
+ROCKETMQ_ACCESS_KEY=
+ROCKETMQ_SECRET_KEY=

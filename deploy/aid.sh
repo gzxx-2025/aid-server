@@ -83,8 +83,12 @@ require_root() { [[ "$(id -u)" -eq 0 ]] || die "请使用 root 执行（sudo bas
 # 配置读写：key=value 存于 ${CONF}
 conf_get() { # conf_get <key> <默认值>
   local value=""
-  [[ -f "${CONF}" ]] && value="$(grep -E "^${1}=" "${CONF}" 2>/dev/null | head -n 1 | cut -d= -f2-)"
-  echo "${value:-${2:-}}"
+  if [[ -f "${CONF}" ]] && grep -qE "^${1}=" "${CONF}" 2>/dev/null; then
+    value="$(grep -E "^${1}=" "${CONF}" 2>/dev/null | head -n 1 | cut -d= -f2-)"
+    echo "${value}"
+  else
+    echo "${2:-}"
+  fi
 }
 conf_set() { # conf_set <key> <value>
   mkdir -p "${DATA_ROOT}"
@@ -131,8 +135,12 @@ gen_secret() { tr -dc 'A-Za-z0-9' </dev/urandom | head -c 48 || true; }
 # Docker 部署配置真源：默认 deploy/docker/.env；单文件首次部署或后台迁移时可位于 DATA_ROOT/config。
 env_get() { # env_get <key> <默认值>
   local value=""
-  [[ -f "${ENV_FILE}" ]] && value="$(grep -E "^${1}=" "${ENV_FILE}" 2>/dev/null | head -n 1 | cut -d= -f2-)"
-  echo "${value:-${2:-}}"
+  if [[ -f "${ENV_FILE}" ]] && grep -qE "^${1}=" "${ENV_FILE}" 2>/dev/null; then
+    value="$(grep -E "^${1}=" "${ENV_FILE}" 2>/dev/null | head -n 1 | cut -d= -f2-)"
+    echo "${value}"
+  else
+    echo "${2:-}"
+  fi
 }
 env_set() { # env_set <key> <value>（仅用于自动生成缺失密钥，其余内容不动）
   if grep -qE "^${1}=" "${ENV_FILE}" 2>/dev/null; then
@@ -179,6 +187,96 @@ validate_secret() { # validate_secret <名称> <值>
 validate_port() { # validate_port <名称> <值>
   [[ "$2" =~ ^[0-9]+$ ]] && (( 10#$2 >= 1 && 10#$2 <= 65535 )) \
     || die "$1 必须是 1-65535 的端口"
+}
+
+docker_profile_enabled() { # docker_profile_enabled <profile>
+  local profiles
+  profiles="$(env_get COMPOSE_PROFILES mysql,redis | tr -d '[:space:]')"
+  [[ ",${profiles}," == *",$1,"* ]]
+}
+
+add_docker_profile() { # add_docker_profile <profile>
+  docker_profile_enabled "$1" && return 0
+  local profiles
+  profiles="$(env_get COMPOSE_PROFILES mysql,redis | tr -d '[:space:]')"
+  if [[ -n "${profiles}" ]]; then profiles="${profiles},$1"; else profiles="$1"; fi
+  env_set COMPOSE_PROFILES "${profiles}"
+}
+
+validate_compose_profiles() {
+  local profiles item
+  local -a items=()
+  profiles="$(env_get COMPOSE_PROFILES mysql,redis)"
+  IFS=',' read -ra items <<< "${profiles}"
+  for item in "${items[@]}"; do
+    item="$(echo "${item}" | xargs)"
+    [[ -z "${item}" || "${item}" == "mysql" || "${item}" == "redis" || "${item}" == "mq" || "${item}" == "https" ]] \
+      || die "COMPOSE_PROFILES 仅支持 mysql、redis、mq、https"
+  done
+}
+
+validate_https_file() { # validate_https_file <配置名> <路径>
+  local key="$1" path="$2" allowedRoot resolved
+  [[ "${path}" == /* ]] || die "${key} 必须是绝对路径"
+  [[ -f "${path}" && -r "${path}" ]] || die "${key} 文件不存在或不可读: ${path}"
+  [[ ! -L "${path}" ]] || die "${key} 禁止使用软链接，请复制证书到 ${DATA_ROOT}/config/ssl"
+  allowedRoot="$(readlink -f "${DATA_ROOT}/config/ssl" 2>/dev/null || true)"
+  resolved="$(readlink -f "${path}" 2>/dev/null || true)"
+  [[ -n "${allowedRoot}" && "${resolved}" == "${allowedRoot}/"* ]] \
+    || die "${key} 只能放在 ${DATA_ROOT}/config/ssl"
+}
+
+validate_docker_extended_config() {
+  local dbHost dbPort redisUser redisPwd mqAccessKey mqSecretKey domain adminDomain certPath keyPath
+  validate_compose_profiles
+  dbHost="$(env_get DB_HOST mysql)"; dbPort="$(env_get DB_PORT 3306)"
+  validate_port DB_PORT "${dbPort}"
+  [[ "$(env_get DB_NAME '')" =~ ^[A-Za-z0-9_]+$ ]] || die "DB_NAME 仅允许字母、数字和下划线"
+  [[ "$(env_get DB_USERNAME '')" =~ ^[A-Za-z0-9_.-]+$ ]] || die "DB_USERNAME 格式错误"
+  if docker_profile_enabled mysql; then
+    [[ "${dbHost}" == "mysql" && "${dbPort}" == "3306" ]] \
+      || die "启用内置 MySQL 时 DB_HOST/DB_PORT 必须为 mysql/3306"
+    [[ -n "$(env_get MYSQL_ROOT_PASSWORD '')" ]] || die "内置 MySQL 必须配置 MYSQL_ROOT_PASSWORD"
+  else
+    [[ -n "${dbHost}" && "${dbHost}" != "mysql" ]] || die "外部 MySQL 必须配置可访问的 DB_HOST"
+    case "${dbHost}" in localhost|127.0.0.1|::1) die "Docker 外部 MySQL 不能填写本容器回环地址，请使用内网 IP、DNS 或 host.docker.internal" ;; esac
+    [[ -n "$(env_get DB_PASSWORD '')" ]] || die "外部 MySQL 必须填写真实 DB_PASSWORD"
+  fi
+  redisUser="$(env_get REDIS_USERNAME '')"; redisPwd="$(env_get REDIS_PASSWORD '')"
+  [[ -n "${redisUser}" ]] && validate_secret 'REDIS_USERNAME' "${redisUser}"
+  [[ -n "${redisPwd}" ]] && validate_secret 'REDIS_PASSWORD' "${redisPwd}"
+  if docker_profile_enabled redis && [[ -n "${redisUser}" && "${redisUser}" != "default" ]]; then
+    die "内置 Redis 只支持空用户名或 default；自定义 ACL 用户请使用外部 Redis"
+  fi
+  mqAccessKey="$(env_get ROCKETMQ_ACCESS_KEY '')"; mqSecretKey="$(env_get ROCKETMQ_SECRET_KEY '')"
+  [[ -n "${mqAccessKey}" ]] && validate_secret 'ROCKETMQ_ACCESS_KEY' "${mqAccessKey}"
+  [[ -n "${mqSecretKey}" ]] && validate_secret 'ROCKETMQ_SECRET_KEY' "${mqSecretKey}"
+  [[ -z "${mqAccessKey}" && -z "${mqSecretKey}" || -n "${mqAccessKey}" && -n "${mqSecretKey}" ]] \
+    || die "RocketMQ ACL 的 AccessKey 与 SecretKey 必须同时填写或同时留空"
+  if [[ -n "${mqAccessKey}" ]]; then
+    [[ "${mqAccessKey}" =~ ^[A-Za-z0-9]+$ && "${mqSecretKey}" =~ ^[A-Za-z0-9]+$ ]] \
+      || die "RocketMQ ACL 凭证仅允许字母和数字"
+  fi
+  case "$(env_get ROCKETMQ_ENABLED false)" in true|false) ;; *) die "ROCKETMQ_ENABLED 只支持 true 或 false" ;; esac
+  if [[ "$(env_get ROCKETMQ_ENABLED false)" == "true" ]]; then
+    [[ -n "$(env_get ROCKETMQ_NAMESERVER '')" ]] || die "启用 RocketMQ 时必须配置 ROCKETMQ_NAMESERVER"
+  fi
+  [[ "$(env_get REDIS_DATABASE 0)" =~ ^[0-9]+$ ]] || die "REDIS_DATABASE 必须是非负整数"
+  if docker_profile_enabled https; then
+    validate_port HTTPS_PORT "$(env_get HTTPS_PORT 443)"
+    domain="$(env_get HTTPS_PUBLIC_DOMAIN '')"; adminDomain="$(env_get HTTPS_ADMIN_DOMAIN '')"
+    [[ "${domain}" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]] || die "HTTPS_PUBLIC_DOMAIN 格式错误"
+    [[ "${adminDomain}" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]] || die "HTTPS_ADMIN_DOMAIN 格式错误"
+    [[ "${domain}" != "${adminDomain}" ]] || die "用户端与管理端 HTTPS 域名不能相同"
+    [[ "$(env_get HTTPS_PORT 443)" != "$(env_get HTTP_PORT 80)" \
+       && "$(env_get HTTPS_PORT 443)" != "$(env_get ADMIN_PORT 8090)" ]] \
+      || die "HTTPS_PORT 不能与 HTTP_PORT 或 ADMIN_PORT 重复"
+    mkdir -p "${DATA_ROOT}/config/ssl"; chmod 700 "${DATA_ROOT}/config/ssl"
+    certPath="$(env_get HTTPS_CERT_PATH "${DATA_ROOT}/config/ssl/fullchain.pem")"
+    keyPath="$(env_get HTTPS_KEY_PATH "${DATA_ROOT}/config/ssl/privkey.pem")"
+    validate_https_file HTTPS_CERT_PATH "${certPath}"
+    validate_https_file HTTPS_KEY_PATH "${keyPath}"
+  fi
 }
 
 # ----------------------------------------------------------------------------
@@ -479,7 +577,9 @@ validate_release_package() { # validate_release_package <包> <是否要求安�
   fi
   if [[ "${requireInstaller}" == "yes" ]]; then
     for entry in installer/deploy/aid.sh installer/deploy/docker/.env.example \
-        installer/deploy/docker/docker-compose.yml installer/sql/aid-init.sql; do
+        installer/deploy/docker/docker-compose.yml installer/deploy/docker/nginx/aid-https.conf.template \
+        installer/deploy/docker/rocketmq/broker-entrypoint.sh \
+        installer/sql/aid-init.sql; do
       grep -Eq "(^|/)${entry}$" "${listFile}" \
         || { rm -f "${listFile}"; die "发布包缺少一键安装组件: ${entry}"; }
     done
@@ -776,11 +876,18 @@ ensure_conf_file() {
     if [[ -f "${SCRIPT_DIR}/aid-deploy.conf.example" ]]; then
       cp "${SCRIPT_DIR}/aid-deploy.conf.example" "${CONF}"
     else
-      cat > "${CONF}" <<'EOF'
+      cat > "${CONF}" <<EOF
 # AID 手动部署配置（唯一配置真源）
+DATA_ROOT=${DATA_ROOT}
 HTTP_PORT=80
 ADMIN_PORT=8090
 BACKEND_PORT=8080
+HTTPS_ENABLED=false
+HTTPS_PORT=443
+HTTPS_PUBLIC_DOMAIN=www.example.com
+HTTPS_ADMIN_DOMAIN=admin.example.com
+HTTPS_CERT_PATH=${DATA_ROOT}/config/ssl/fullchain.pem
+HTTPS_KEY_PATH=${DATA_ROOT}/config/ssl/privkey.pem
 DB_HOST=127.0.0.1
 DB_PORT=3306
 DB_NAME=aid
@@ -788,11 +895,15 @@ DB_USERNAME=root
 DB_PASSWORD=
 REDIS_HOST=127.0.0.1
 REDIS_PORT=6379
+REDIS_USERNAME=
 REDIS_PASSWORD=
+REDIS_DATABASE=0
 TOKEN_SECRET=
 JAVA_OPTS=-Xms1g -Xmx2g
 ROCKETMQ_ENABLED=false
 ROCKETMQ_NAMESERVER=127.0.0.1:9876
+ROCKETMQ_ACCESS_KEY=
+ROCKETMQ_SECRET_KEY=
 EOF
     fi
     chmod 600 "${CONF}"
@@ -800,6 +911,14 @@ EOF
     warn "手动部署使用本机或外部 MySQL/Redis/Node/Nginx，默认连接参数不一定适合你的环境"
   fi
   chmod 600 "${CONF}" 2>/dev/null || true
+  local configuredDataRoot
+  configuredDataRoot="$(conf_get DATA_ROOT "${DATA_ROOT}")"
+  [[ "${configuredDataRoot}" == "${DATA_ROOT}" ]] \
+    || die "DATA_ROOT 必须与脚本数据目录一致；自定义目录请设置 AID_DATA_ROOT 后重试"
+  local requiredKey
+  for requiredKey in DB_HOST DB_PORT DB_NAME DB_USERNAME REDIS_HOST REDIS_PORT; do
+    [[ -n "$(conf_get "${requiredKey}" '')" ]] || die "${requiredKey} 不能为空"
+  done
   # 必填校验：数据库密码必须由用户提供（无合理默认值）
   local dbPwd
   dbPwd="$(conf_get DB_PASSWORD '')"
@@ -814,6 +933,41 @@ EOF
   local redisPwd
   redisPwd="$(conf_get REDIS_PASSWORD '')"
   [[ -n "${redisPwd}" ]] && validate_secret 'REDIS_PASSWORD' "${redisPwd}"
+  local redisUser mqAccessKey mqSecretKey
+  redisUser="$(conf_get REDIS_USERNAME '')"
+  [[ -n "${redisUser}" ]] && validate_secret 'REDIS_USERNAME' "${redisUser}"
+  mqAccessKey="$(conf_get ROCKETMQ_ACCESS_KEY '')"; mqSecretKey="$(conf_get ROCKETMQ_SECRET_KEY '')"
+  [[ -n "${mqAccessKey}" ]] && validate_secret 'ROCKETMQ_ACCESS_KEY' "${mqAccessKey}"
+  [[ -n "${mqSecretKey}" ]] && validate_secret 'ROCKETMQ_SECRET_KEY' "${mqSecretKey}"
+  [[ -z "${mqAccessKey}" && -z "${mqSecretKey}" || -n "${mqAccessKey}" && -n "${mqSecretKey}" ]] \
+    || die "RocketMQ ACL 的 AccessKey 与 SecretKey 必须同时填写或同时留空"
+  if [[ -n "${mqAccessKey}" ]]; then
+    [[ "${mqAccessKey}" =~ ^[A-Za-z0-9]+$ && "${mqSecretKey}" =~ ^[A-Za-z0-9]+$ ]] \
+      || die "RocketMQ ACL 凭证仅允许字母和数字"
+  fi
+  case "$(conf_get ROCKETMQ_ENABLED false)" in true|false) ;; *) die "ROCKETMQ_ENABLED 只支持 true 或 false" ;; esac
+  if [[ "$(conf_get ROCKETMQ_ENABLED false)" == "true" ]]; then
+    [[ -n "$(conf_get ROCKETMQ_NAMESERVER '')" ]] || die "启用 RocketMQ 时必须配置 ROCKETMQ_NAMESERVER"
+  fi
+  [[ "$(conf_get REDIS_DATABASE 0)" =~ ^[0-9]+$ ]] || die "REDIS_DATABASE 必须是非负整数"
+  case "$(conf_get HTTPS_ENABLED false)" in true|false) ;; *) die "HTTPS_ENABLED 只支持 true 或 false" ;; esac
+  if [[ "$(conf_get HTTPS_ENABLED false)" == "true" ]]; then
+    local httpsDomain httpsAdminDomain httpsCertPath httpsKeyPath
+    validate_port HTTPS_PORT "$(conf_get HTTPS_PORT 443)"
+    httpsDomain="$(conf_get HTTPS_PUBLIC_DOMAIN '')"
+    httpsAdminDomain="$(conf_get HTTPS_ADMIN_DOMAIN '')"
+    [[ "${httpsDomain}" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]] || die "HTTPS_PUBLIC_DOMAIN 格式错误"
+    [[ "${httpsAdminDomain}" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]] || die "HTTPS_ADMIN_DOMAIN 格式错误"
+    [[ "${httpsDomain}" != "${httpsAdminDomain}" ]] || die "用户端与管理端 HTTPS 域名不能相同"
+    [[ "$(conf_get HTTPS_PORT 443)" != "$(conf_get HTTP_PORT 80)" \
+       && "$(conf_get HTTPS_PORT 443)" != "$(conf_get ADMIN_PORT 8090)" ]] \
+      || die "HTTPS_PORT 不能与 HTTP_PORT 或 ADMIN_PORT 重复"
+    mkdir -p "${DATA_ROOT}/config/ssl"; chmod 700 "${DATA_ROOT}/config/ssl"
+    httpsCertPath="$(conf_get HTTPS_CERT_PATH "${DATA_ROOT}/config/ssl/fullchain.pem")"
+    httpsKeyPath="$(conf_get HTTPS_KEY_PATH "${DATA_ROOT}/config/ssl/privkey.pem")"
+    validate_https_file HTTPS_CERT_PATH "${httpsCertPath}"
+    validate_https_file HTTPS_KEY_PATH "${httpsKeyPath}"
+  fi
   # JWT 密钥留空自动生成写回
   if [[ -z "$(conf_get TOKEN_SECRET '')" ]]; then
     conf_set TOKEN_SECRET "$(gen_secret)"
@@ -838,39 +992,73 @@ ensure_env_file() {
 DATA_ROOT=${DATA_ROOT}
 HTTP_PORT=80
 ADMIN_PORT=8090
+HTTPS_PORT=443
+HTTPS_PUBLIC_DOMAIN=www.example.com
+HTTPS_ADMIN_DOMAIN=admin.example.com
+HTTPS_CERT_PATH=${DATA_ROOT}/config/ssl/fullchain.pem
+HTTPS_KEY_PATH=${DATA_ROOT}/config/ssl/privkey.pem
 MYSQL_ROOT_PASSWORD=
+DB_HOST=mysql
+DB_PORT=3306
 DB_NAME=aid
 DB_USERNAME=aid
 DB_PASSWORD=
 MYSQL_PORT=3306
 REDIS_HOST=redis
 REDIS_PORT=6379
+REDIS_USERNAME=
 REDIS_PASSWORD=
+REDIS_DATABASE=0
 TOKEN_SECRET=
 BACKEND_PORT=8080
-COMPOSE_PROFILES=redis
+COMPOSE_PROFILES=mysql,redis
 ROCKETMQ_ENABLED=false
 ROCKETMQ_NAMESERVER=rocketmq-nameserver:9876
+ROCKETMQ_ACCESS_KEY=
+ROCKETMQ_SECRET_KEY=
 EOF
     fi
     chmod 600 "${ENV_FILE}"
     ok "已自动生成 Docker 配置: ${ENV_FILE}"
     warn "首次安装采用安全默认方案：内置 MySQL + Redis、暂不启用 RocketMQ、密码与 JWT 密钥自动生成"
   fi
+  # 兼容旧版配置：此前 MySQL 固定内置，配置中没有 DB_HOST/DB_PORT，且 Profile
+  # 只写 redis。升级后显式补成 mysql Profile，防止旧用户被误判为外部数据库。
+  if ! grep -qE '^DB_HOST=' "${ENV_FILE}" 2>/dev/null; then
+    env_set DB_HOST mysql
+    env_set DB_PORT 3306
+    add_docker_profile mysql
+    warn "检测到旧版 Docker 配置，已保持为内置 MySQL 模式"
+  elif ! grep -qE '^DB_PORT=' "${ENV_FILE}" 2>/dev/null; then
+    env_set DB_PORT 3306
+  fi
   # 关键密钥留空自动生成（字母数字强随机，写回 .env 持久化）
   local key
-  for key in MYSQL_ROOT_PASSWORD DB_PASSWORD TOKEN_SECRET; do
+  for key in TOKEN_SECRET; do
     if [[ -z "$(env_get "${key}" '')" ]]; then
       env_set "${key}" "$(gen_secret)"
       ok "${key} 留空，已自动生成强随机值写入 .env"
     fi
   done
+  if docker_profile_enabled mysql; then
+    for key in MYSQL_ROOT_PASSWORD DB_PASSWORD; do
+      if [[ -z "$(env_get "${key}" '')" ]]; then
+        env_set "${key}" "$(gen_secret)"
+        ok "${key} 留空，已为内置 MySQL 生成强随机值写入 .env"
+      fi
+    done
+  fi
+  local requiredKey
+  for requiredKey in DATA_ROOT DB_HOST DB_PORT DB_NAME DB_USERNAME DB_PASSWORD TOKEN_SECRET REDIS_HOST REDIS_PORT; do
+    [[ -n "$(env_get "${requiredKey}" '')" ]] || die "${requiredKey} 不能为空"
+  done
   # 校验密码字符不破坏 .env/JSON 解析
-  validate_secret 'MYSQL_ROOT_PASSWORD' "$(env_get MYSQL_ROOT_PASSWORD '')"
+  [[ -z "$(env_get MYSQL_ROOT_PASSWORD '')" ]] || validate_secret 'MYSQL_ROOT_PASSWORD' "$(env_get MYSQL_ROOT_PASSWORD '')"
   validate_secret 'DB_PASSWORD' "$(env_get DB_PASSWORD '')"
   local redisPwd
   redisPwd="$(env_get REDIS_PASSWORD '')"
   [[ -n "${redisPwd}" ]] && validate_secret 'REDIS_PASSWORD' "${redisPwd}"
+  validate_docker_extended_config
   # 提醒 DATA_ROOT 与脚本运行目录保持一致
   local envDataRoot
   envDataRoot="$(env_get DATA_ROOT /data/aid)"
@@ -913,8 +1101,10 @@ confirm_initial_configuration() { # confirm_initial_configuration <docker|manual
     validate_port HTTP_PORT "$(env_get HTTP_PORT 80)"
     validate_port ADMIN_PORT "$(env_get ADMIN_PORT 8090)"
     validate_port BACKEND_PORT "$(env_get BACKEND_PORT 8080)"
-    validate_port MYSQL_PORT "$(env_get MYSQL_PORT 3306)"
+    validate_port DB_PORT "$(env_get DB_PORT 3306)"
+    docker_profile_enabled mysql && validate_port MYSQL_PORT "$(env_get MYSQL_PORT 3306)"
     validate_port REDIS_PORT "$(env_get REDIS_PORT 6379)"
+    docker_profile_enabled https && validate_port HTTPS_PORT "$(env_get HTTPS_PORT 443)"
   else
     validate_port HTTP_PORT "$(conf_get HTTP_PORT 80)"
     validate_port ADMIN_PORT "$(conf_get ADMIN_PORT 8090)"
@@ -926,12 +1116,22 @@ confirm_initial_configuration() { # confirm_initial_configuration <docker|manual
     echo "  用户端口 : $(env_get HTTP_PORT 80)"
     echo "  管理端口 : $(env_get ADMIN_PORT 8090)"
     echo "  后端端口 : $(env_get BACKEND_PORT 8080)"
-    echo "  数据库   : 内置MySQL:$(env_get MYSQL_PORT 3306)/$(env_get DB_NAME aid)"
+    if docker_profile_enabled mysql; then
+      echo "  数据库   : 内置 MySQL 5.7:$(env_get MYSQL_PORT 3306)/$(env_get DB_NAME aid)"
+    else
+      echo "  数据库   : 外部 MySQL $(env_get DB_HOST):$(env_get DB_PORT 3306)/$(env_get DB_NAME aid)（不会启动内置容器）"
+    fi
+    if docker_profile_enabled https; then
+      echo "  HTTPS    : $(env_get HTTPS_PUBLIC_DOMAIN) / $(env_get HTTPS_ADMIN_DOMAIN) :$(env_get HTTPS_PORT 443)"
+    fi
   else
     echo "  用户端口 : $(conf_get HTTP_PORT 80)"
     echo "  管理端口 : $(conf_get ADMIN_PORT 8090)"
     echo "  后端端口 : $(conf_get BACKEND_PORT 8080)"
     echo "  数据库   : $(conf_get DB_HOST 127.0.0.1):$(conf_get DB_PORT 3306)/$(conf_get DB_NAME aid)"
+    if [[ "$(conf_get HTTPS_ENABLED false)" == "true" ]]; then
+      echo "  HTTPS    : $(conf_get HTTPS_PUBLIC_DOMAIN) / $(conf_get HTTPS_ADMIN_DOMAIN) :$(conf_get HTTPS_PORT 443)"
+    fi
   fi
   if [[ "${AID_ASSUME_YES:-0}" != "1" ]]; then
     confirmed="$(ask '确认以上配置作为本次部署唯一配置真源？(yes/no)' 'no')"
@@ -945,6 +1145,26 @@ confirm_initial_configuration() { # confirm_initial_configuration <docker|manual
 }
 
 compose_cmd() { docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_DIR}/docker-compose.yml" "$@"; }
+
+validate_https_runtime() {
+  docker_profile_enabled https || return 0
+  log "校验 HTTPS 证书与 Nginx 配置..."
+  compose_cmd run --rm --no-deps nginx-https nginx -t \
+    || die "HTTPS 证书、私钥或 Nginx 配置校验失败"
+}
+
+wait_https_healthy() {
+  docker_profile_enabled https || return 0
+  local elapsed=0 status=""
+  while (( elapsed < 90 )); do
+    status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' aid-nginx-https 2>/dev/null || true)"
+    [[ "${status}" == "healthy" ]] && { ok "HTTPS 入口已就绪"; return 0; }
+    [[ "${status}" == "unhealthy" || "${status}" == "exited" || "${status}" == "dead" ]] \
+      && die "HTTPS 容器状态异常: ${status}，请查看 docker logs aid-nginx-https"
+    sleep 2; elapsed=$((elapsed + 2))
+  done
+  die "HTTPS 容器健康检查超时，请查看 docker logs aid-nginx-https"
+}
 
 # ----------------------------------------------------------------------------
 # 产物摆位（两种模式共用）：发布包 -> DATA_ROOT/app/
@@ -1018,17 +1238,25 @@ UPDATER_CONFIG_FILE="${UPDATER_CONFIG_DIR}/config.json"
 UPDATER_DATA_DIR="/var/lib/aid-updater"
 
 write_updater_config() { # write_updater_config <docker|manual>
-  local mode="$1" serviceManager backendService restartServices healthUrl execContainer dbHost dbPort dbUser dbPwd dbName configPath defaultConfigPath
+  local mode="$1" serviceManager backendService restartServices healthUrl execContainer clientImage dockerNetwork dbHost dbPort dbUser dbPwd dbName configPath defaultConfigPath
   mkdir -p "${UPDATER_CONFIG_DIR}" "${UPDATER_DATA_DIR}/inbox" "${UPDATER_DATA_DIR}/work" "${UPDATER_DATA_DIR}/backups"
   if [[ "${mode}" == "docker" ]]; then
     serviceManager="docker"; backendService="aid-server"
     restartServices='["aid-web", "aid-nginx"]'
+    docker_profile_enabled https && restartServices='["aid-web", "aid-nginx", "aid-nginx-https"]'
     # 升级器容器与后端同网络，直连服务名探活，不受宿主机端口映射影响
     healthUrl="http://aid-server:8080"
-    # SQL/备份经 docker exec 在数据库容器内执行，宿主机与升级器容器都无需 MySQL 客户端
-    execContainer="aid-mysql"
-    dbHost="127.0.0.1"; dbPort="3306"
-    dbUser="root"; dbPwd="$(env_get MYSQL_ROOT_PASSWORD '')"
+    if docker_profile_enabled mysql; then
+      # 内置数据库直接复用 aid-mysql 内的客户端。
+      execContainer="aid-mysql"; clientImage=""; dockerNetwork=""
+      dbHost="127.0.0.1"; dbPort="3306"
+      dbUser="root"; dbPwd="$(env_get MYSQL_ROOT_PASSWORD '')"
+    else
+      # 外部数据库使用一次性 MySQL 5.7 客户端容器，升级器本身无需安装客户端。
+      execContainer=""; clientImage="mysql:5.7"; dockerNetwork="host"
+      dbHost="$(env_get DB_HOST)"; dbPort="$(env_get DB_PORT 3306)"
+      dbUser="$(env_get DB_USERNAME)"; dbPwd="$(env_get DB_PASSWORD '')"
+    fi
     dbName="$(env_get DB_NAME aid)"
     configPath="${ENV_FILE}"; defaultConfigPath="${DEFAULT_DOCKER_CONFIG}"
     write_deployment_descriptor docker "${configPath}"
@@ -1036,7 +1264,7 @@ write_updater_config() { # write_updater_config <docker|manual>
     serviceManager="systemd"; backendService="aid"
     restartServices='["aid-web"]'
     healthUrl="http://127.0.0.1:$(conf_get BACKEND_PORT 8080)"
-    execContainer=""
+    execContainer=""; clientImage=""; dockerNetwork=""
     dbHost="$(conf_get DB_HOST 127.0.0.1)"; dbPort="$(conf_get DB_PORT 3306)"
     dbUser="$(conf_get DB_USERNAME root)"; dbPwd="$(conf_get DB_PASSWORD '')"
     dbName="$(conf_get DB_NAME aid)"
@@ -1073,7 +1301,9 @@ write_updater_config() { # write_updater_config <docker|manual>
     "name": "${dbName}",
     "user": "${dbUser}",
     "password": "${dbPwd}",
-    "execContainer": "${execContainer}"
+    "execContainer": "${execContainer}",
+    "clientImage": "${clientImage}",
+    "dockerNetwork": "${dockerNetwork}"
   },
   "deployment": {
     "descriptorFile": "${DEPLOYMENT_DESCRIPTOR}",
@@ -1138,17 +1368,119 @@ version_from_package() {
   fi
 }
 
-# 确保 MySQL 就绪（docker 模式：容器不在运行则拉起并等待健康，最长 90s）
+# Docker 模式统一数据库客户端：内置库经 aid-mysql 执行；外部库使用一次性
+# mysql:5.7 客户端容器，不要求宿主机或升级器容器安装 mysql/mysqldump。
+docker_mysql_tool() { # docker_mysql_tool <mysql|mysqldump> [参数...]
+  local tool="$1"
+  shift
+  if docker_profile_enabled mysql; then
+    MYSQL_PWD="$(env_get MYSQL_ROOT_PASSWORD '')" \
+      docker exec -i -e MYSQL_PWD aid-mysql "${tool}" \
+        --host 127.0.0.1 --port 3306 --user root "$@"
+  else
+    MYSQL_PWD="$(env_get DB_PASSWORD '')" \
+      docker run --rm -i --network host \
+        --add-host host.docker.internal:host-gateway \
+        -e MYSQL_PWD mysql:5.7 "${tool}" \
+        --host "$(env_get DB_HOST)" --port "$(env_get DB_PORT 3306)" \
+        --user "$(env_get DB_USERNAME)" "$@"
+  fi
+}
+
+# 确保 MySQL 就绪。外部模式只做连接及 5.7 版本校验，绝不拉起 aid-mysql。
 ensure_mysql_ready() {
   local mode; mode="$(detect_mode)"
   if [[ "${mode}" != "docker" ]]; then return 0; fi
-  compose_cmd up -d mysql >/dev/null 2>&1 || true
-  local deadline=$(( $(date +%s) + 90 ))
-  until [[ "$(docker inspect -f '{{.State.Health.Status}}' aid-mysql 2>/dev/null)" == "healthy" ]]; do
-    [[ $(date +%s) -ge ${deadline} ]] && { err "MySQL 容器未就绪"; return 1; }
-    sleep 3
-  done
+  if docker_profile_enabled mysql; then
+    compose_cmd up -d mysql >/dev/null 2>&1 || true
+    local deadline=$(( $(date +%s) + 90 ))
+    until [[ "$(docker inspect -f '{{.State.Health.Status}}' aid-mysql 2>/dev/null)" == "healthy" ]]; do
+      [[ $(date +%s) -ge ${deadline} ]] && { err "MySQL 容器未就绪"; return 1; }
+      sleep 3
+    done
+  else
+    local version
+    log "检查外部 MySQL: $(env_get DB_HOST):$(env_get DB_PORT 3306)"
+    version="$(docker_mysql_tool mysql --batch --skip-column-names --execute 'SELECT VERSION()' 2>/dev/null | head -n 1)" \
+      || { err "外部 MySQL 连接失败，请检查地址、账号、密码及网络白名单"; return 1; }
+    [[ "${version}" == 5.7.* ]] \
+      || { err "外部数据库版本必须是 MySQL 5.7（当前: ${version:-未知}）"; return 1; }
+    ok "外部 MySQL 5.7 连接正常"
+  fi
   return 0
+}
+
+initialize_external_mysql() {
+  docker_profile_enabled mysql && return 0
+  ensure_mysql_ready || return 1
+  local dbName schemaCount tableCount coreTableCount sqlFile existingInternal="false"
+  docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx 'aid-mysql' && existingInternal="true"
+  dbName="$(env_get DB_NAME aid)"
+  schemaCount="$(docker_mysql_tool mysql --batch --skip-column-names \
+    --execute "SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name='${dbName}'" 2>/dev/null | tail -n 1)" \
+    || return 1
+  if [[ "${schemaCount}" == "0" ]]; then
+    log "外部 MySQL 中创建数据库 ${dbName}..."
+    docker_mysql_tool mysql --execute \
+      "CREATE DATABASE \`${dbName}\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" \
+      || { err "外部 MySQL 账号无建库权限，请预先创建 ${dbName} 并授权"; return 1; }
+  fi
+  tableCount="$(docker_mysql_tool mysql --batch --skip-column-names \
+    --execute "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='${dbName}'" 2>/dev/null | tail -n 1)" \
+    || return 1
+  if [[ "${tableCount}" =~ ^[0-9]+$ && "${tableCount}" -gt 0 ]]; then
+    coreTableCount="$(docker_mysql_tool mysql --batch --skip-column-names \
+      --execute "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='${dbName}' AND table_name IN ('aid_config','sys_user')" 2>/dev/null | tail -n 1)" \
+      || return 1
+    [[ "${coreTableCount}" == "2" ]] \
+      || { err "外部数据库已有表但缺少 AID 核心表，请检查目标库或先完成数据库迁移"; return 1; }
+    ok "外部数据库 ${dbName} 已有 ${tableCount} 张表，跳过首次初始化"
+    return 0
+  fi
+  if [[ "${existingInternal}" == "true" ]]; then
+    err "检测到现有内置 MySQL，但外部数据库为空；禁止自动切库以避免业务数据丢失"
+    err "请先把 ${DATA_ROOT}/mysql-data 中的业务库迁移到外部 MySQL，再重新应用配置"
+    return 1
+  fi
+  log "外部数据库为空，按文件名顺序导入初始化 SQL..."
+  for sqlFile in "${REPO_DIR}/sql/"*.sql; do
+    [[ -f "${sqlFile}" ]] || continue
+    log "导入 $(basename "${sqlFile}")"
+    docker_mysql_tool mysql --default-character-set=utf8mb4 "${dbName}" < "${sqlFile}" \
+      || { err "初始化 SQL 执行失败: $(basename "${sqlFile}")"; return 1; }
+  done
+  coreTableCount="$(docker_mysql_tool mysql --batch --skip-column-names \
+    --execute "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='${dbName}' AND table_name IN ('aid_config','sys_user')" 2>/dev/null | tail -n 1)" \
+    || return 1
+  [[ "${coreTableCount}" == "2" ]] \
+    || { err "外部 MySQL 初始化后核心表校验失败"; return 1; }
+  ok "外部 MySQL 初始化完成"
+}
+
+disable_internal_mysql_for_external() {
+  docker_profile_enabled mysql && return 0
+  initialize_external_mysql || return 1
+  if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx 'aid-mysql'; then
+    docker rm -f aid-mysql >/dev/null 2>&1 || return 1
+    ok "已停用内置 MySQL 容器（数据目录保留，可用于人工回退）"
+  fi
+}
+
+# Compose Profile 关闭后不会自动删除之前由该 Profile 启动的容器。显式移除这些
+# 可选服务，保证切换到外部组件后本机不再继续运行或占用端口；绑定数据目录保留。
+disable_unused_docker_services() {
+  local container
+  if ! docker_profile_enabled redis; then
+    docker rm -f aid-redis >/dev/null 2>&1 || true
+  fi
+  if ! docker_profile_enabled mq; then
+    for container in aid-rocketmq-broker aid-rocketmq-nameserver; do
+      docker rm -f "${container}" >/dev/null 2>&1 || true
+    done
+  fi
+  if ! docker_profile_enabled https; then
+    docker rm -f aid-nginx-https >/dev/null 2>&1 || true
+  fi
 }
 
 # 数据库全量备份到指定文件（两种部署模式通用）
@@ -1159,8 +1491,7 @@ backup_database() { # backup_database <输出文件.sql.gz>
   mode="$(detect_mode)"
   if ! command -v gzip >/dev/null 2>&1; then err "缺少 gzip"; return 1; fi
   if [[ "${mode}" == "docker" ]]; then
-    docker exec -e MYSQL_PWD="$(env_get MYSQL_ROOT_PASSWORD '')" aid-mysql \
-      mysqldump -uroot --single-transaction --routines --triggers "$(env_get DB_NAME aid)" \
+    docker_mysql_tool mysqldump --single-transaction --routines --triggers "$(env_get DB_NAME aid)" \
       | gzip > "${outFile}" || return 1
   else
     command -v mysqldump >/dev/null 2>&1 || { err "缺少 mysqldump（数据库备份需要）"; return 1; }
@@ -1177,8 +1508,7 @@ restore_database() { # restore_database <备份文件.sql.gz>
   local dumpFile="$1" mode
   mode="$(detect_mode)"
   if [[ "${mode}" == "docker" ]]; then
-    gunzip < "${dumpFile}" | docker exec -i -e MYSQL_PWD="$(env_get MYSQL_ROOT_PASSWORD '')" aid-mysql \
-      mysql -uroot --default-character-set=utf8mb4 "$(env_get DB_NAME aid)" || return 1
+    gunzip < "${dumpFile}" | docker_mysql_tool mysql --default-character-set=utf8mb4 "$(env_get DB_NAME aid)" || return 1
   else
     gunzip < "${dumpFile}" | MYSQL_PWD="$(conf_get DB_PASSWORD)" mysql --host "$(conf_get DB_HOST 127.0.0.1)" --port "$(conf_get DB_PORT 3306)" \
       --user "$(conf_get DB_USERNAME root)" --default-character-set=utf8mb4 "$(conf_get DB_NAME aid)" || return 1
@@ -1191,8 +1521,7 @@ run_sql_file() { # run_sql_file <sql文件>
   local sqlFile="$1" mode
   mode="$(detect_mode)"
   if [[ "${mode}" == "docker" ]]; then
-    docker exec -i -e MYSQL_PWD="$(env_get MYSQL_ROOT_PASSWORD '')" aid-mysql \
-      mysql -uroot --default-character-set=utf8mb4 "$(env_get DB_NAME aid)" < "${sqlFile}" || return 1
+    docker_mysql_tool mysql --default-character-set=utf8mb4 "$(env_get DB_NAME aid)" < "${sqlFile}" || return 1
   else
     MYSQL_PWD="$(conf_get DB_PASSWORD)" mysql --host "$(conf_get DB_HOST 127.0.0.1)" --port "$(conf_get DB_PORT 3306)" \
       --user "$(conf_get DB_USERNAME root)" --default-character-set=utf8mb4 "$(conf_get DB_NAME aid)" < "${sqlFile}" || return 1
@@ -1214,7 +1543,11 @@ wait_backend_healthy() {
       err "后端在 ${HEALTH_WAIT_SECONDS}s 内未就绪，诊断信息："
       if [[ "$(detect_mode)" == "docker" ]]; then
         compose_cmd ps || true
-        echo "排查: docker logs --tail 100 aid-server / docker logs aid-mysql"
+        if docker_profile_enabled mysql; then
+          echo "排查: docker logs --tail 100 aid-server / docker logs --tail 100 aid-mysql"
+        else
+          echo "排查: docker logs --tail 100 aid-server，并检查外部 MySQL $(env_get DB_HOST):$(env_get DB_PORT 3306) 的网络与授权"
+        fi
       else
         systemctl --no-pager --lines 0 status aid || true
         echo "排查: journalctl -u aid --no-pager -n 100"
@@ -1235,6 +1568,19 @@ print_access_info() {
   echo "访问地址:"
   echo "  管理端: http://服务器IP:$(setting_get ADMIN_PORT 8090)/   （默认账号 admin / admin123，登录后立即改密）"
   echo "  用户端: http://服务器IP:$(setting_get HTTP_PORT 80)/"
+  if [[ "${mode}" == "docker" ]] && docker_profile_enabled https; then
+    local httpsPort httpsPortSuffix=""
+    httpsPort="$(env_get HTTPS_PORT 443)"
+    [[ "${httpsPort}" == "443" ]] || httpsPortSuffix=":${httpsPort}"
+    echo "  HTTPS用户端: https://$(env_get HTTPS_PUBLIC_DOMAIN)${httpsPortSuffix}/"
+    echo "  HTTPS管理端: https://$(env_get HTTPS_ADMIN_DOMAIN)${httpsPortSuffix}/<访问码>"
+  elif [[ "${mode}" == "manual" && "$(conf_get HTTPS_ENABLED false)" == "true" ]]; then
+    local httpsPort httpsPortSuffix=""
+    httpsPort="$(conf_get HTTPS_PORT 443)"
+    [[ "${httpsPort}" == "443" ]] || httpsPortSuffix=":${httpsPort}"
+    echo "  HTTPS用户端: https://$(conf_get HTTPS_PUBLIC_DOMAIN)${httpsPortSuffix}/"
+    echo "  HTTPS管理端: https://$(conf_get HTTPS_ADMIN_DOMAIN)${httpsPortSuffix}/<访问码>"
+  fi
   echo "数据目录: ${DATA_ROOT}（程序/上传/日志/数据/备份全部在此）"
   echo "配置文件: ${configFile}（菜单「修改配置」可调整）"
   [[ -f "${MANAGED_SCRIPT}" ]] && echo "管理命令: sudo aid 或 sudo bash ${MANAGED_SCRIPT}"
@@ -1290,9 +1636,15 @@ do_install_docker() {
   state_set DEPLOY_MODE "docker"
   state_set DATA_ROOT "${DATA_ROOT}"
 
+  # 外部 MySQL 必须在启动业务容器前完成连通性、版本和库结构校验；校验成功后
+  # 才停用可能存在的内置容器，且始终保留 mysql-data 目录。
+  disable_internal_mysql_for_external \
+    || die "外部 MySQL 未准备完成，部署已中止且不会启动内置 MySQL"
+  disable_unused_docker_services
+
   # 硬件校验基线按 .env 实际配置评估：profiles 含 mq 才计入内置 MQ 内存
   local mqPlan="no"
-  [[ ",$(env_get COMPOSE_PROFILES redis)," == *",mq,"* ]] && mqPlan="yes"
+  docker_profile_enabled mq && mqPlan="yes"
   check_hardware docker "${mqPlan}"
 
   place_artifacts "${package}"
@@ -1301,14 +1653,21 @@ do_install_docker() {
     write_updater_config docker
   fi
   # RocketMQ 数据目录属主（镜像内 rocketmq 用户 uid=3000）；profiles 含 mq 即启用了内置 MQ
-  if [[ ",$(env_get COMPOSE_PROFILES redis)," == *",mq,"* ]]; then
+  if docker_profile_enabled mq; then
     mkdir -p "${DATA_ROOT}/rocketmq/broker-data" "${DATA_ROOT}/rocketmq/broker-logs" "${DATA_ROOT}/rocketmq/namesrv-logs"
     chown -R 3000:3000 "${DATA_ROOT}/rocketmq" 2>/dev/null || true
   fi
 
   log "启动容器编排..."
+  validate_https_runtime
   compose_cmd up -d || die "容器编排启动失败"
-  wait_backend_healthy || die "部署未完成，按上方提示排查后可重新执行本菜单项（数据库初始化失败需先清空再重装: cd ${COMPOSE_DIR} && docker compose down && rm -rf ${DATA_ROOT}/mysql-data）"
+  if ! wait_backend_healthy; then
+    if docker_profile_enabled mysql; then
+      die "部署未完成；若确认是首次内置数据库初始化失败，请备份后再按日志人工处理 ${DATA_ROOT}/mysql-data"
+    fi
+    die "部署未完成；外部 MySQL 模式不会创建或清理本地 mysql-data，请按上方连接信息排查"
+  fi
+  wait_https_healthy
   targetVersion="${RESOLVED_VERSION:-$(version_from_package "${package}")}"
   targetChannel="${REQUESTED_RELEASE_CHANNEL:-auto}"
   state_set CURRENT_VERSION "${targetVersion}"
@@ -1372,7 +1731,7 @@ EOF
 }
 
 write_nginx_site() {
-  local httpPort adminPort backendPort content
+  local httpPort adminPort backendPort content httpsPort httpsDomain httpsAdminDomain certPath keyPath
   httpPort="$(conf_get HTTP_PORT 80)"
   adminPort="$(conf_get ADMIN_PORT 8090)"
   backendPort="$(conf_get BACKEND_PORT 8080)"
@@ -1431,12 +1790,91 @@ server {
         proxy_pass http://127.0.0.1:${backendPort}/profile/;
     }
 }"
+  if [[ "$(conf_get HTTPS_ENABLED false)" == "true" ]]; then
+    httpsPort="$(conf_get HTTPS_PORT 443)"
+    httpsDomain="$(conf_get HTTPS_PUBLIC_DOMAIN)"
+    httpsAdminDomain="$(conf_get HTTPS_ADMIN_DOMAIN)"
+    certPath="$(conf_get HTTPS_CERT_PATH "${DATA_ROOT}/config/ssl/fullchain.pem")"
+    keyPath="$(conf_get HTTPS_KEY_PATH "${DATA_ROOT}/config/ssl/privkey.pem")"
+    content="${content}
+
+ssl_protocols TLSv1.2 TLSv1.3;
+ssl_session_cache shared:AIDSSL:10m;
+ssl_session_timeout 1d;
+ssl_session_tickets off;
+
+server {
+    listen ${httpsPort} ssl http2;
+    server_name ${httpsDomain};
+    ssl_certificate ${certPath};
+    ssl_certificate_key ${keyPath};
+    client_max_body_size 1024m;
+    location = /healthz { access_log off; return 200 \"ok\"; }
+    location /aid/ {
+        proxy_pass http://127.0.0.1:${backendPort}/;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_read_timeout 300s;
+        proxy_buffering off;
+    }
+    location /profile/ {
+        proxy_pass http://127.0.0.1:${backendPort}/profile/;
+        proxy_set_header X-Forwarded-Proto https;
+    }
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection \$connection_upgrade;
+    }
+}
+
+server {
+    listen ${httpsPort} ssl http2;
+    server_name ${httpsAdminDomain};
+    ssl_certificate ${certPath};
+    ssl_certificate_key ${keyPath};
+    client_max_body_size 1024m;
+    root ${DATA_ROOT}/app/admin-dist;
+    index index.html;
+    location = /healthz { access_log off; return 200 \"ok\"; }
+    location / { try_files \$uri \$uri/ /index.html; }
+    location /prod-api/ {
+        proxy_pass http://127.0.0.1:${backendPort}/;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_read_timeout 300s;
+        proxy_buffering off;
+    }
+    location /profile/ {
+        proxy_pass http://127.0.0.1:${backendPort}/profile/;
+        proxy_set_header X-Forwarded-Proto https;
+    }
+}"
+  fi
   if command -v nginx >/dev/null 2>&1 && [[ -d /etc/nginx/conf.d ]]; then
-    [[ -f /etc/nginx/conf.d/aid.conf ]] && cp /etc/nginx/conf.d/aid.conf "/etc/nginx/conf.d/aid.conf.bak.$(date +%s)"
+    local backupPath=""
+    if [[ -f /etc/nginx/conf.d/aid.conf ]]; then
+      backupPath="/etc/nginx/conf.d/aid.conf.bak.$(date +%s)"
+      cp /etc/nginx/conf.d/aid.conf "${backupPath}"
+    fi
     echo "${content}" > /etc/nginx/conf.d/aid.conf
-    nginx -t >/dev/null 2>&1 && systemctl reload nginx && ok "Nginx 站点已生效" \
-      || warn "nginx 配置校验失败，请人工检查 /etc/nginx/conf.d/aid.conf"
+    if ! nginx -t >/dev/null 2>&1; then
+      if [[ -n "${backupPath}" ]]; then cp "${backupPath}" /etc/nginx/conf.d/aid.conf; else rm -f /etc/nginx/conf.d/aid.conf; fi
+      die "Nginx 配置校验失败，已恢复原站点配置"
+    fi
+    systemctl reload nginx || die "Nginx 重载失败"
+    ok "Nginx 站点已生效"
   else
+    [[ "$(conf_get HTTPS_ENABLED false)" != "true" ]] || die "启用 HTTPS 前必须先安装并启动 Nginx"
     echo "${content}" > "${DATA_ROOT}/aid-nginx.conf"
     warn "未检测到 nginx，站点配置已生成到 ${DATA_ROOT}/aid-nginx.conf 供手工放置"
   fi
@@ -1723,6 +2161,10 @@ do_restart() {
   local mode; mode="$(detect_mode)"
   case "${mode}" in
     docker)
+      ensure_env_file
+      disable_internal_mysql_for_external \
+        || die "外部 MySQL 未准备完成，配置未生效"
+      disable_unused_docker_services
       # 每次重启都从唯一配置真源重建升级器配置，确保数据库凭证、配置路径等
       # 与业务容器一致；随后显式重启升级器，不能依赖旧进程内存中的配置。
       if [[ "${AID_SKIP_UPDATER_RESTART:-0}" != "1" && -f "${DATA_ROOT}/app/updater/aid-updater" ]]; then
@@ -1730,19 +2172,28 @@ do_restart() {
       fi
       # .env 由用户维护，up -d 会应用其中的变更（环境/端口/内存等按需重建容器）
       log "重启容器编排（.env 配置变更同时生效）..."
+      validate_https_runtime
       compose_cmd up -d
       compose_cmd restart aid-server aid-web nginx 2>/dev/null || true
+      if docker_profile_enabled https; then
+        compose_cmd restart nginx-https 2>/dev/null || true
+      else
+        # Compose 不会自动删除已退出当前 Profile 的旧服务，关闭 HTTPS 时显式释放443。
+        docker rm -f aid-nginx-https >/dev/null 2>&1 || true
+      fi
+      wait_https_healthy
       [[ "${AID_SKIP_UPDATER_RESTART:-0}" == "1" ]] || compose_cmd restart aid-updater 2>/dev/null || true
       ;;
     manual)
+      ensure_conf_file
       if [[ "${AID_SKIP_UPDATER_RESTART:-0}" != "1" && -f "${DATA_ROOT}/app/updater/aid-updater" ]]; then
         write_updater_config manual
       fi
       write_systemd_units
       systemctl restart aid
       systemctl restart aid-web 2>/dev/null || true
+      write_nginx_site
       [[ "${AID_SKIP_UPDATER_RESTART:-0}" == "1" ]] || systemctl restart aid-updater 2>/dev/null || true
-      systemctl reload nginx 2>/dev/null || true
       ;;
     *) die "尚未部署" ;;
   esac
@@ -1796,7 +2247,12 @@ do_logs() {
       if [[ "${mode}" == "docker" ]]; then docker logs -f --tail 200 aid-web
       else journalctl -u aid-web -f -n 200; fi ;;
     4)
-      if [[ "${mode}" == "docker" ]]; then docker logs -f --tail 100 aid-mysql
+      if [[ "${mode}" == "docker" ]]; then
+        if docker_profile_enabled mysql; then
+          docker logs -f --tail 100 aid-mysql
+        else
+          warn "当前使用外部 MySQL $(env_get DB_HOST):$(env_get DB_PORT 3306)，请到数据库服务端查看日志"
+        fi
       else warn "手动部署的 MySQL 日志位置取决于你的安装方式"; fi ;;
     5)
       # 先判断服务是否安装，避免 Ctrl+C 退出日志跟踪时误报"未安装"

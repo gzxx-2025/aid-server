@@ -6,10 +6,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"aid-updater/internal/config"
+	"aid-updater/internal/dbexec"
 	"aid-updater/internal/health"
 	"aid-updater/internal/sysctl"
 )
@@ -113,15 +115,31 @@ func (r *Runner) validateRenderedConfiguration(state *config.DeploymentState, ra
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("Docker配置校验失败: %v, 输出: %s", err, strings.TrimSpace(string(output)))
 	}
+	if deploymentProfileEnabled(state.Values["COMPOSE_PROFILES"], "https") {
+		cmd = exec.Command("docker", "compose", "--env-file", temporaryPath,
+			"-f", r.cfg.Deployment.ComposeFile, "run", "--rm", "--no-deps",
+			"nginx-https", "nginx", "-t")
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("HTTPS证书或Nginx配置校验失败: %v, 输出: %s", err, strings.TrimSpace(string(output)))
+		}
+	}
 	return nil
 }
 
 func (r *Runner) restartWithDeploymentConfiguration(state *config.DeploymentState) error {
 	if state.Mode == sysctl.ManagerDocker {
+		if err := prepareDockerServices(state); err != nil {
+			return err
+		}
 		cmd := exec.Command("docker", "compose", "--env-file", state.ConfigPath,
 			"-f", r.cfg.Deployment.ComposeFile, "up", "-d")
 		if output, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("重建Docker服务失败: %v, 输出: %s", err, strings.TrimSpace(string(output)))
+		}
+		if deploymentProfileEnabled(state.Values["COMPOSE_PROFILES"], "https") {
+			if err := waitDockerContainerHealthy("aid-nginx-https", 90*time.Second); err != nil {
+				return err
+			}
 		}
 	} else {
 		cmd := exec.Command("bash", r.cfg.Deployment.ManagerScript, "restart")
@@ -134,6 +152,100 @@ func (r *Runner) restartWithDeploymentConfiguration(state *config.DeploymentStat
 	}
 	return sysctl.WaitHealthy(r.cfg.Install.HealthCheckURL,
 		time.Duration(r.cfg.Install.HealthCheckTimeoutSeconds)*time.Second)
+}
+
+// prepareDockerServices 在 Compose 启动前处理可选服务。外部 MySQL 必须先通过
+// 版本与 AID 核心表只读校验，才允许停用旧内置容器；失败时上层会恢复旧配置。
+func prepareDockerServices(state *config.DeploymentState) error {
+	profiles := state.Values["COMPOSE_PROFILES"]
+	if !deploymentProfileEnabled(profiles, "mysql") {
+		port, _ := strconv.Atoi(state.Values["DB_PORT"])
+		database := config.Database{
+			Enabled:       true,
+			Host:          state.Values["DB_HOST"],
+			Port:          port,
+			Name:          state.Values["DB_NAME"],
+			User:          state.Values["DB_USERNAME"],
+			Password:      state.Values["DB_PASSWORD"],
+			ClientImage:   "mysql:5.7",
+			DockerNetwork: "host",
+		}
+		version, err := dbexec.Query(database, "SELECT VERSION()")
+		if err != nil {
+			return fmt.Errorf("外部MySQL连接失败: %w", err)
+		}
+		version = strings.TrimSpace(version)
+		if !strings.HasPrefix(version, "5.7.") {
+			return fmt.Errorf("外部MySQL必须为5.7，当前为%s", version)
+		}
+		coreTables, err := dbexec.Query(database,
+			"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name IN ('aid_config','sys_user')")
+		if err != nil {
+			return fmt.Errorf("外部MySQL结构检查失败: %w", err)
+		}
+		if strings.TrimSpace(coreTables) != "2" {
+			return fmt.Errorf("外部MySQL缺少AID核心表，请先完成数据库迁移")
+		}
+		if err := removeDockerContainer("aid-mysql"); err != nil {
+			return fmt.Errorf("停用内置MySQL失败: %w", err)
+		}
+	}
+	if !deploymentProfileEnabled(profiles, "redis") {
+		if err := removeDockerContainer("aid-redis"); err != nil {
+			return fmt.Errorf("停用内置Redis失败: %w", err)
+		}
+	}
+	if !deploymentProfileEnabled(profiles, "mq") {
+		for _, container := range []string{"aid-rocketmq-broker", "aid-rocketmq-nameserver"} {
+			if err := removeDockerContainer(container); err != nil {
+				return fmt.Errorf("停用内置RocketMQ失败: %w", err)
+			}
+		}
+	}
+	if !deploymentProfileEnabled(profiles, "https") {
+		if err := removeDockerContainer("aid-nginx-https"); err != nil {
+			return fmt.Errorf("停用内置HTTPS失败: %w", err)
+		}
+	}
+	return nil
+}
+
+func removeDockerContainer(container string) error {
+	inspect := exec.Command("docker", "inspect", container)
+	if err := inspect.Run(); err != nil {
+		return nil
+	}
+	remove := exec.Command("docker", "rm", "-f", container)
+	if output, err := remove.CombinedOutput(); err != nil {
+		return fmt.Errorf("%v, 输出: %s", err, strings.TrimSpace(string(output)))
+	}
+	return nil
+}
+
+func deploymentProfileEnabled(raw, target string) bool {
+	for _, item := range strings.Split(raw, ",") {
+		if strings.TrimSpace(item) == target {
+			return true
+		}
+	}
+	return false
+}
+
+func waitDockerContainerHealthy(container string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		cmd := exec.Command("docker", "inspect", "--format", "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}", container)
+		output, err := cmd.CombinedOutput()
+		status := strings.TrimSpace(string(output))
+		if err == nil && (status == "healthy" || status == "running") {
+			return nil
+		}
+		if status == "unhealthy" || status == "exited" || status == "dead" {
+			return fmt.Errorf("HTTPS容器状态异常: %s", status)
+		}
+		time.Sleep(2 * time.Second)
+	}
+	return fmt.Errorf("HTTPS容器健康检查超时")
 }
 
 func (r *Runner) restartCurrentDeployment() error {

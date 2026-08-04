@@ -1,0 +1,91 @@
+# AID Docker HTTPS 入口。由 nginx 官方镜像在启动时替换两个域名变量。
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      '';
+}
+
+ssl_protocols TLSv1.2 TLSv1.3;
+ssl_session_cache shared:AIDSSL:10m;
+ssl_session_timeout 1d;
+ssl_session_tickets off;
+
+# C端用户端：HTTPS_PUBLIC_DOMAIN
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name ${HTTPS_PUBLIC_DOMAIN};
+
+    ssl_certificate /etc/nginx/ssl/fullchain.pem;
+    ssl_certificate_key /etc/nginx/ssl/privkey.pem;
+    client_max_body_size 1024m;
+
+    location = /healthz {
+        access_log off;
+        return 200 "ok";
+    }
+
+    location /aid/ {
+        proxy_pass http://aid-server:8080/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_read_timeout 300s;
+        proxy_buffering off;
+    }
+
+    location /profile/ {
+        proxy_pass http://aid-server:8080/profile/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+    }
+
+    location / {
+        proxy_pass http://aid-web:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+    }
+}
+
+# 后台管理端：HTTPS_ADMIN_DOMAIN
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name ${HTTPS_ADMIN_DOMAIN};
+
+    ssl_certificate /etc/nginx/ssl/fullchain.pem;
+    ssl_certificate_key /etc/nginx/ssl/privkey.pem;
+    client_max_body_size 1024m;
+    root /usr/share/nginx/aid/admin-dist;
+    index index.html;
+
+    location = /healthz {
+        access_log off;
+        return 200 "ok";
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    location /prod-api/ {
+        proxy_pass http://aid-server:8080/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_read_timeout 300s;
+        proxy_buffering off;
+    }
+
+    location /profile/ {
+        proxy_pass http://aid-server:8080/profile/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+    }
+}

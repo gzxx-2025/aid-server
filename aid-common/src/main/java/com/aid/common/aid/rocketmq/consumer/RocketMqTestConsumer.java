@@ -1,8 +1,11 @@
 package com.aid.common.aid.rocketmq.consumer;
 
+import cn.hutool.core.util.StrUtil;
 import com.aid.common.aid.rocketmq.config.properties.RocketMqProperties;
 import com.aid.common.aid.rocketmq.exception.MqException;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.rocketmq.acl.common.AclClientRPCHook;
+import org.apache.rocketmq.acl.common.SessionCredentials;
 import org.apache.rocketmq.client.consumer.DefaultMQPushConsumer;
 import org.apache.rocketmq.client.consumer.listener.ConsumeConcurrentlyStatus;
 import org.apache.rocketmq.client.consumer.listener.MessageListenerConcurrently;
@@ -41,7 +44,14 @@ public class RocketMqTestConsumer {
      */
     public String consumeOne(String topic) {
         try {
-            consumer = new DefaultMQPushConsumer(TEST_CONSUMER_GROUP);
+            if (StrUtil.isNotBlank(properties.getAccessKey())) {
+                SessionCredentials credentials = new SessionCredentials(
+                        properties.getAccessKey(), properties.getSecretKey());
+                consumer = new DefaultMQPushConsumer(TEST_CONSUMER_GROUP,
+                        new AclClientRPCHook(credentials));
+            } else {
+                consumer = new DefaultMQPushConsumer(TEST_CONSUMER_GROUP);
+            }
             consumer.setNamesrvAddr(properties.getNameServer());
             consumer.setConsumeFromWhere(ConsumeFromWhere.CONSUME_FROM_FIRST_OFFSET);
             consumer.subscribe(topic, "*");

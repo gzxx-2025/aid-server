@@ -86,7 +86,7 @@ sudo bash aid.sh install
 ```
 
 - **自动判断每个环节**：自动识别部署方式与当前状态；数据库已初始化自动跳过；依赖缺失明确报错
-- **配置真源清晰**：首次部署自动从模板创建正式配置——Docker 使用 `/data/aid/installer/deploy/docker/.env`，手动部署使用 `/data/aid/aid-deploy.conf`；密码和密钥留空时生成强随机值，后续只修改这份正式配置
+- **配置真源清晰**：首次部署自动从模板创建正式配置——单文件 Docker 部署默认使用 `/data/aid/config/docker.env`，手动部署使用 `/data/aid/aid-deploy.conf`；最终以脚本打印和 `/data/aid/config/deployment.json` 指向的绝对路径为准。密码和密钥留空时生成强随机值，后续只修改这一份正式配置
 - **配置变更受控**：后台「项目升级配置 → 运行配置」只展示脱敏字段，可校验、应用或恢复上一份配置；升级器会先备份配置，原子写入后重启并健康检查，失败自动恢复。自定义配置文件只能位于 `/data/aid/config`，禁止软链接和任意路径读写
 - **资源全部可调**：后端 JVM、MySQL 缓冲池、Redis 内存上限、RocketMQ Broker/NameServer 内存（镜像默认 8G 大堆已按 1G 覆盖）在部署时逐项询问，回车用默认值
 - **自动更新（菜单 3）**：按已保存渠道读取最新版本；相同版本直接提示已是最新，远端版本较低时拒绝自动降级；确认后才拉取标签并构建，且**升级前自动做完整备份**（程序产物 + 数据库全量 + 版本标记，保留最近 3 份）；构建包内增量 SQL 自动执行
@@ -186,7 +186,7 @@ curl -fL https://gitee.com/gzxx-2025/aid-server/raw/master/deploy/aid.sh -o aid.
 sudo bash aid.sh install
 ```
 
-脚本会先从版本标签源码构建本地包，再从本地包提取部署套件，并由 `.env.example` 自动生成正式 `.env`；数据库密码、JWT 密钥等空值会生成强随机值写回。默认采用内置 MySQL + Redis、关闭 RocketMQ 的保守组合。需要改端口、内存、外部 Redis 或 RocketMQ 时，在首次部署后编辑 `/data/aid/installer/deploy/docker/.env`，再运行 `sudo bash aid.sh restart` 生效。
+脚本会先从版本标签源码构建本地包，再从本地包提取部署套件，并由 `.env.example` 自动生成正式配置；数据库密码、JWT 密钥等空值会生成强随机值写回。单文件首次部署的配置真源是 `/data/aid/config/docker.env`，完成后脚本也会明确打印实际路径。默认采用内置 MySQL + Redis、关闭 RocketMQ 与 HTTPS 的保守组合。需要改端口、HTTPS、外部 MySQL/Redis 或 RocketMQ 时，编辑实际配置文件后执行 `sudo aid restart` 生效。
 
 脚本自动完成：依赖预检 → 三仓同标签源码拉取与隔离构建 → `.env` 校验（缺失密钥自动生成）→ 硬件校验（按 `.env` 实际配置评估）→ 本地构建包摆位到 `/data/aid/app` → 自动安装升级器 → 启动编排 → 首次启动自动建库导入 `sql/` 全部脚本 → 健康等待（最长 5 分钟）→ 成功摘要 / 失败诊断。
 
@@ -197,22 +197,68 @@ sudo bash aid.sh install
 - 用户端：`http://服务器IP/`（`HTTP_PORT` 可配，默认 80）
 - 管理端：`http://服务器IP:8090/`（独立端口、根路径托管，`ADMIN_PORT` 可配），默认账号 `admin / admin123`，**登录后立即修改密码**
 
-### Redis 与 RocketMQ 的三种用法（.env 两行配置）
+### Docker 内置 HTTPS（可选 Profile）
 
-**Redis**：默认内置容器（`COMPOSE_PROFILES=redis`，零维护）；使用外部实例时去掉 `redis` 并把 `REDIS_HOST/REDIS_PORT/REDIS_PASSWORD` 改为外部地址，内置 Redis 容器不会启动。
+`HTTP_PORT=443` 只会把明文 HTTP 映射到 443，并不会启用 TLS，禁止这样配置。标准 HTTPS 使用独立 `https` Profile：用户端和管理端使用两个不同域名，共用一张覆盖两个域名的 SAN 或通配符证书。
+
+```bash
+mkdir -p /data/aid/config/ssl
+cp /安全来源/fullchain.pem /data/aid/config/ssl/fullchain.pem
+cp /安全来源/privkey.pem /data/aid/config/ssl/privkey.pem
+chmod 600 /data/aid/config/ssl/fullchain.pem /data/aid/config/ssl/privkey.pem
+```
+
+配置示例：
+
+```dotenv
+COMPOSE_PROFILES=mysql,redis,https
+HTTPS_PORT=443
+HTTPS_PUBLIC_DOMAIN=www.example.com
+HTTPS_ADMIN_DOMAIN=admin.example.com
+HTTPS_CERT_PATH=/data/aid/config/ssl/fullchain.pem
+HTTPS_KEY_PATH=/data/aid/config/ssl/privkey.pem
+```
+
+证书文件必须位于 `DATA_ROOT/config/ssl` 且不能是软链接。用户端访问 `https://www.example.com/`，管理端访问 `https://admin.example.com/<访问码>`。证书续期后复制覆盖这两个文件并执行 `sudo aid restart`。未加入 `https` Profile 时不会启动 HTTPS 容器，也不会占用 443。
+
+### 内置或外部 MySQL、Redis、RocketMQ
+
+**MySQL**：默认 `COMPOSE_PROFILES=mysql,redis`，启动内置 MySQL 5.7。使用外部 MySQL 5.7 时，从 `COMPOSE_PROFILES` 中移除 `mysql`，并配置：
+
+```dotenv
+COMPOSE_PROFILES=redis
+DB_HOST=10.0.0.20
+DB_PORT=3306
+DB_NAME=aid
+DB_USERNAME=aid
+DB_PASSWORD=请填写真实强密码
+```
+
+外部地址必须同时能被 AID 业务容器和临时数据库客户端访问；数据库在 Docker 宿主机时可使用 `host.docker.internal`，远程数据库建议使用内网 IP 或内部 DNS。外部账号应对目标库具备建表、索引、数据读写、事务、视图、触发器及备份/恢复所需权限；若账号没有建库权限，请先由 DBA 创建 UTF-8 MB4 的目标库并授权。
+
+- 全新安装且目标库为空：脚本验证 MySQL 必须为 5.7 后，自动导入该版本的初始化与扩展 SQL。
+- 从内置 MySQL 切换到外部 MySQL：必须先迁移数据；检测到旧内置容器但外部库为空时会拒绝切换，防止“成功启动但业务数据消失”。
+- 外部库通过连接、版本及 AID 核心表校验后，`aid-mysql` 才会被停止并移除，`${DATA_ROOT}/mysql-data` 保留用于人工回退；后续 Compose、重启和升级都不会再次启动内置 MySQL。
+- 备份、恢复和增量 SQL 使用一次性的 `mysql:5.7` 客户端容器，执行后自动删除；它不是数据库服务，不保存业务数据，宿主机无需安装 MySQL 客户端。
+
+不要只修改 `DB_HOST` 而保留 `mysql` Profile：这种矛盾配置会被安装脚本和升级器拒绝。后台「项目升级配置」页面同样支持切换，但只接受已经完成数据迁移且包含 AID 核心表的外部库。
+
+**Redis**：默认 `COMPOSE_PROFILES` 包含 `redis`，因此启动内置容器；使用外部实例时去掉 `redis`，并配置 `REDIS_HOST/REDIS_PORT/REDIS_USERNAME/REDIS_PASSWORD/REDIS_DATABASE`。用户名和密码均可留空；Redis 6+ ACL 填用户名与密码，传统 `requirepass` 只填密码。外部地址不能写 `127.0.0.1`，应使用容器可访问的内网 IP 或 DNS。
 
 **RocketMQ 三态**（`.env` 内注释有完整组合示例）：
 - **不启用（默认）**：`ROCKETMQ_ENABLED=false`，系统走本地任务模式，功能完整，MQ 组件完全不加载
-- **内置容器**：`COMPOSE_PROFILES=redis,mq` + `ROCKETMQ_ENABLED=true`；Broker/NameServer 内存用 `MQ_BROKER_JAVA_OPTS`/`MQ_NAMESRV_JAVA_OPTS` 调整（镜像默认 8G 大堆已覆盖为 1G/256m）；启用后到后台「消息队列配置」开启 MQ 派发并测试连接
-- **外部实例**（另一台机器的 MQ）：`ROCKETMQ_ENABLED=true` + `ROCKETMQ_NAMESERVER=192.168.1.10:9876`，本机不启动 MQ 容器、不占内存
+- **内置容器**：`COMPOSE_PROFILES=mysql,redis,mq` + `ROCKETMQ_ENABLED=true`；Broker/NameServer 内存用 `MQ_BROKER_JAVA_OPTS`/`MQ_NAMESRV_JAVA_OPTS` 调整（镜像默认 8G 大堆已覆盖为 1G/256m）。如同时填写 `ROCKETMQ_ACCESS_KEY` 与 `ROCKETMQ_SECRET_KEY`，内置 Broker 会自动开启 ACL；两项同时留空则只适合可信内网。启用后到后台「消息队列配置」开启 MQ 派发并测试连接
+- **外部实例**（另一台机器的 MQ）：`ROCKETMQ_ENABLED=true` + `ROCKETMQ_NAMESERVER=192.168.1.10:9876`，本机不启动 MQ 容器、不占内存；外部服务启用 ACL 时同时填写 `ROCKETMQ_ACCESS_KEY` 与 `ROCKETMQ_SECRET_KEY`，未启用 ACL 时两项同时留空
+
+外部 MySQL、外部 Redis、外部 RocketMQ，同时启用内置 HTTPS 的完整 Profile 写法是 `COMPOSE_PROFILES=https`；外部组件不加入 `mysql`/`redis`/`mq` Profile。RocketMQ ACL 凭证仅允许字母和数字，会同时注入生产者、声明式消费者和后台连接测试；使用内置 MQ 时还会在容器运行期生成 Broker ACL 文件。页面只显示“已配置”，不会回传原文；真实凭证只保存在权限为 600 的正式运行配置中，不会写入仓库或配置模板。
 
 **跨机共享本机内置 MQ**（本机 compose 里的 MQ 给其他机器用）：修改 `docker/rocketmq/broker.conf` 的 `brokerIP1` 为本机对外 IP，并在 `docker-compose.yml` 的 `rocketmq-broker` 服务上开放 `10909/10911` 端口映射后重启。
 
 ### 必做的安全项
 
 - 修改 admin 默认密码
-- 生产环境为 Nginx 配置 HTTPS（修改 `docker/nginx/aid.conf` 增加 443 监听与证书）
-- 备份好 `/data/aid/installer/deploy/docker/.env` 与 `/data/aid/aid-deploy.conf`（含数据库密码与密钥，权限已限制 600）
+- 生产环境启用 `https` Profile，证书和私钥放在受限证书目录，并只开放 80/443 所需端口
+- 备份好脚本最终打印的 Docker 配置文件（单文件部署默认 `/data/aid/config/docker.env`）或 `/data/aid/aid-deploy.conf`（含数据库密码与密钥，权限已限制 600）
 
 ### 生产参数调优（部署时逐项询问 / 菜单 9 修改，默认按 4核8G 标定）
 
@@ -299,6 +345,21 @@ sudo bash aid.sh install-manual
 
 全部业务配置项通过环境变量注入 systemd 服务定义（`DB_*`、`REDIS_*`、`TOKEN_SECRET`、`AID_PROFILE`、`LOG_PATH`、`ROCKETMQ_*`），jar 内配置永不修改；后续调整都编辑 `/data/aid/aid-deploy.conf` 后执行菜单「重启服务」生效（服务定义自动重写）。
 
+### 手动部署 HTTPS（可选）
+
+证书同样复制到 `/data/aid/config/ssl/fullchain.pem` 与 `/data/aid/config/ssl/privkey.pem`，然后在 `aid-deploy.conf` 中设置：
+
+```dotenv
+HTTPS_ENABLED=true
+HTTPS_PORT=443
+HTTPS_PUBLIC_DOMAIN=www.example.com
+HTTPS_ADMIN_DOMAIN=admin.example.com
+HTTPS_CERT_PATH=/data/aid/config/ssl/fullchain.pem
+HTTPS_KEY_PATH=/data/aid/config/ssl/privkey.pem
+```
+
+执行 `sudo aid restart` 后，脚本会重新生成 Nginx 站点，先运行 `nginx -t` 校验证书和配置，再重载服务；校验失败会恢复原站点配置并中止。设置 `HTTPS_ENABLED=false` 即关闭脚本生成的 HTTPS Server。证书仍必须位于 `DATA_ROOT/config/ssl` 且不能使用软链接。
+
 ### RocketMQ（可选）内存配置
 
 RocketMQ 发行包默认 JVM 堆极大（NameServer 4G、Broker 8G），中小服务器直接启动会失败或挤占业务内存。**推荐用 `JAVA_OPT_EXT` 环境变量覆盖堆参数**（发行包启动脚本会把它追加到 JVM 参数末尾，后者覆盖前者），不改发行包文件、升级 RocketMQ 也不丢配置：
@@ -329,7 +390,7 @@ RocketMQ 起好后，在部署配置（或菜单 9）里「启用 RocketMQ」并
 
 aid-updater 让后台「项目升级配置」页具备一键升级/回退能力。**服务器构建出的本地包内置升级器二进制，`aid.sh` 首次部署时两种方式都会自动安装并启动**，部署完成即可在后台页面看到升级器「运行正常」：
 
-- **Docker 部署**：升级器以编排内 `aid-updater` 容器运行（通过 docker.sock 控制业务容器起停；增量 SQL 与数据库备份经 `docker exec` 在 MySQL 容器内执行，**宿主机无需安装 MySQL 客户端**）
+- **Docker 部署**：升级器以编排内 `aid-updater` 容器运行（通过 docker.sock 控制业务容器起停；内置库经 `docker exec` 执行增量 SQL 与备份，外部库使用执行即销毁的 MySQL 5.7 客户端容器，**宿主机无需安装 MySQL 客户端**）
 - **手动部署**：升级器以 `aid-updater` systemd 服务运行（配置自动生成，含数据库凭证，SQL 与备份直连本地客户端）
 
 配置文件 `/etc/aid-updater/config.json` 与数据目录 `/var/lib/aid-updater/`（任务/健康/日志/备份）由脚本自动生成，正常情况下不需要手工修改。

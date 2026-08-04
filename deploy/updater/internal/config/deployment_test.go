@@ -12,8 +12,9 @@ func TestRefreshDeploymentUsesRuntimeConfigAndHidesSecrets(t *testing.T) {
 	configPath := filepath.Join(root, "aid-deploy.conf")
 	raw := []byte("HTTP_PORT=80\nADMIN_PORT=8090\nBACKEND_PORT=9090\n" +
 		"DB_HOST=10.0.0.8\nDB_PORT=3307\nDB_NAME=aid\nDB_USERNAME=aid\nDB_PASSWORD=db-secret\n" +
-		"REDIS_HOST=127.0.0.1\nREDIS_PORT=6379\nREDIS_PASSWORD=redis-secret\n" +
-		"TOKEN_SECRET=token-secret\nJAVA_OPTS=-Xmx2g\nROCKETMQ_ENABLED=false\n")
+		"REDIS_HOST=127.0.0.1\nREDIS_PORT=6379\nREDIS_USERNAME=acl-user\nREDIS_PASSWORD=redis-secret\n" +
+		"TOKEN_SECRET=token-secret\nJAVA_OPTS=-Xmx2g\nROCKETMQ_ENABLED=true\nROCKETMQ_NAMESERVER=10.0.0.9:9876\n" +
+		"ROCKETMQ_ACCESS_KEY=mqaccess\nROCKETMQ_SECRET_KEY=mqsecret\n")
 	if err := os.WriteFile(configPath, raw, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -38,8 +39,71 @@ func TestRefreshDeploymentUsesRuntimeConfigAndHidesSecrets(t *testing.T) {
 	if _, leaked := state.SafeValues["DB_PASSWORD"]; leaked {
 		t.Fatal("database password leaked into safe values")
 	}
-	if len(state.ConfiguredSecrets) != 3 {
+	if len(state.ConfiguredSecrets) != 5 {
 		t.Fatalf("unexpected configured secret list: %#v", state.ConfiguredSecrets)
+	}
+	if _, leaked := state.SafeValues["ROCKETMQ_ACCESS_KEY"]; leaked {
+		t.Fatal("RocketMQ access key leaked into safe values")
+	}
+}
+
+func TestRefreshDockerExternalMySQLUsesEphemeralClient(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "docker.env")
+	raw := []byte("DATA_ROOT=/data/aid\nHTTP_PORT=80\nADMIN_PORT=8090\nBACKEND_PORT=8080\n" +
+		"DB_HOST=db.internal\nDB_PORT=3307\nDB_NAME=aid\nDB_USERNAME=aid\nDB_PASSWORD=db-secret\n" +
+		"REDIS_HOST=redis\nREDIS_PORT=6379\nTOKEN_SECRET=token-secret\n" +
+		"COMPOSE_PROFILES=redis\nROCKETMQ_ENABLED=false\n")
+	if err := os.WriteFile(configPath, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &Config{
+		Install: Install{ServiceManager: "docker", HealthCheckURL: "http://aid-server:8080"},
+		Deployment: Deployment{
+			ConfigPath: configPath, DefaultConfigPath: configPath,
+			AllowedConfigRoot: root,
+			DescriptorFile:    filepath.Join(root, "deployment.json"),
+		},
+	}
+	if _, err := cfg.RefreshDeployment(); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Database.ExecContainer != "" || cfg.Database.ClientImage != "mysql:5.7" ||
+		cfg.Database.DockerNetwork != "host" {
+		t.Fatalf("external MySQL client mode was not selected: %+v", cfg.Database)
+	}
+	if cfg.Database.Host != "db.internal" || cfg.Database.Port != 3307 || cfg.Database.User != "aid" {
+		t.Fatalf("external MySQL connection was not loaded: %+v", cfg.Database)
+	}
+}
+
+func TestRefreshLegacyDockerConfigKeepsInternalMySQL(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "docker.env")
+	raw := []byte("DATA_ROOT=/data/aid\nHTTP_PORT=80\nADMIN_PORT=8090\nBACKEND_PORT=8080\n" +
+		"DB_NAME=aid\nDB_USERNAME=aid\nDB_PASSWORD=db-secret\nMYSQL_ROOT_PASSWORD=root-secret\nMYSQL_PORT=3306\n" +
+		"REDIS_HOST=redis\nREDIS_PORT=6379\nTOKEN_SECRET=token-secret\n" +
+		"COMPOSE_PROFILES=redis\nROCKETMQ_ENABLED=false\n")
+	if err := os.WriteFile(configPath, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &Config{
+		Install: Install{ServiceManager: "docker", HealthCheckURL: "http://aid-server:8080"},
+		Deployment: Deployment{
+			ConfigPath: configPath, DefaultConfigPath: configPath,
+			AllowedConfigRoot: root,
+			DescriptorFile:    filepath.Join(root, "deployment.json"),
+		},
+	}
+	state, err := cfg.RefreshDeployment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Database.ExecContainer != "aid-mysql" || cfg.Database.ClientImage != "" {
+		t.Fatalf("legacy Docker config was not kept on internal MySQL: %+v", cfg.Database)
+	}
+	if !strings.Contains(state.Values["COMPOSE_PROFILES"], "mysql") || state.Values["DB_HOST"] != "mysql" {
+		t.Fatalf("legacy internal MySQL values were not normalized: %#v", state.Values)
 	}
 }
 
@@ -74,5 +138,94 @@ func TestBuildDeploymentConfigRestrictsPathAndPreservesComments(t *testing.T) {
 	outside := filepath.Join(root, "outside.conf")
 	if _, _, err := cfg.BuildDeploymentConfig(outside, map[string]string{"BACKEND_PORT": "9090"}); err == nil {
 		t.Fatal("outside path should be rejected")
+	}
+}
+
+func TestValidateDockerExternalServicesAndHTTPS(t *testing.T) {
+	root := t.TempDir()
+	sslRoot := filepath.Join(root, "config", "ssl")
+	if err := os.MkdirAll(sslRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	certPath := filepath.Join(sslRoot, "fullchain.pem")
+	keyPath := filepath.Join(sslRoot, "privkey.pem")
+	if err := os.WriteFile(certPath, []byte("certificate"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(keyPath, []byte("private-key"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	values := map[string]string{
+		"HTTP_PORT": "80", "ADMIN_PORT": "8090", "BACKEND_PORT": "8080",
+		"DB_HOST": "mysql.internal", "DB_PORT": "3306", "DB_NAME": "aid",
+		"DB_USERNAME": "aid", "DB_PASSWORD": "db-secret",
+		"REDIS_HOST": "redis.internal", "REDIS_PORT": "6379", "REDIS_USERNAME": "aid",
+		"REDIS_PASSWORD": "", "REDIS_DATABASE": "1", "TOKEN_SECRET": "token-secret",
+		"DATA_ROOT": root, "MYSQL_ROOT_PASSWORD": "mysql-secret", "MYSQL_PORT": "3306",
+		"COMPOSE_PROFILES": "https", "HTTPS_PORT": "443",
+		"HTTPS_PUBLIC_DOMAIN": "www.example.com", "HTTPS_ADMIN_DOMAIN": "admin.example.com",
+		"HTTPS_CERT_PATH": certPath, "HTTPS_KEY_PATH": keyPath,
+		"ROCKETMQ_ENABLED": "true", "ROCKETMQ_NAMESERVER": "mq.internal:9876",
+		"ROCKETMQ_ACCESS_KEY": "access", "ROCKETMQ_SECRET_KEY": "secret",
+	}
+	if err := validateDeploymentValues("docker", values); err != nil {
+		t.Fatalf("valid external-service HTTPS config was rejected: %v", err)
+	}
+	values["ROCKETMQ_SECRET_KEY"] = ""
+	if err := validateDeploymentValues("docker", values); err == nil {
+		t.Fatal("incomplete RocketMQ ACL credentials should be rejected")
+	}
+	values["ROCKETMQ_SECRET_KEY"] = "invalid-secret"
+	if err := validateDeploymentValues("docker", values); err == nil {
+		t.Fatal("RocketMQ ACL credentials with punctuation should be rejected")
+	}
+}
+
+func TestValidateDockerInternalMySQLProfile(t *testing.T) {
+	values := map[string]string{
+		"DATA_ROOT": "/data/aid", "HTTP_PORT": "80", "ADMIN_PORT": "8090", "BACKEND_PORT": "8080",
+		"DB_HOST": "mysql", "DB_PORT": "3306", "DB_NAME": "aid", "DB_USERNAME": "aid",
+		"DB_PASSWORD": "dbsecret", "MYSQL_ROOT_PASSWORD": "rootsecret", "MYSQL_PORT": "3306",
+		"REDIS_HOST": "redis", "REDIS_PORT": "6379", "TOKEN_SECRET": "tokensecret",
+		"COMPOSE_PROFILES": "mysql,redis", "ROCKETMQ_ENABLED": "false",
+	}
+	if err := validateDeploymentValues("docker", values); err != nil {
+		t.Fatalf("valid internal MySQL config was rejected: %v", err)
+	}
+	values["DB_HOST"] = "db.internal"
+	if err := validateDeploymentValues("docker", values); err == nil {
+		t.Fatal("internal MySQL profile with external host should be rejected")
+	}
+}
+
+func TestValidateManualHTTPS(t *testing.T) {
+	root := t.TempDir()
+	sslRoot := filepath.Join(root, "config", "ssl")
+	if err := os.MkdirAll(sslRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	certPath := filepath.Join(sslRoot, "fullchain.pem")
+	keyPath := filepath.Join(sslRoot, "privkey.pem")
+	if err := os.WriteFile(certPath, []byte("certificate"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(keyPath, []byte("private-key"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	values := map[string]string{
+		"DATA_ROOT": root, "HTTP_PORT": "80", "ADMIN_PORT": "8090", "BACKEND_PORT": "8080",
+		"DB_HOST": "127.0.0.1", "DB_PORT": "3306", "DB_NAME": "aid",
+		"DB_USERNAME": "aid", "DB_PASSWORD": "dbsecret", "TOKEN_SECRET": "tokensecret",
+		"REDIS_HOST": "127.0.0.1", "REDIS_PORT": "6379", "ROCKETMQ_ENABLED": "false",
+		"HTTPS_ENABLED": "true", "HTTPS_PORT": "443",
+		"HTTPS_PUBLIC_DOMAIN": "www.example.com", "HTTPS_ADMIN_DOMAIN": "admin.example.com",
+		"HTTPS_CERT_PATH": certPath, "HTTPS_KEY_PATH": keyPath,
+	}
+	if err := validateDeploymentValues("systemd", values); err != nil {
+		t.Fatalf("valid manual HTTPS config was rejected: %v", err)
+	}
+	values["HTTPS_CERT_PATH"] = filepath.Join(root, "outside.pem")
+	if err := validateDeploymentValues("systemd", values); err == nil {
+		t.Fatal("manual HTTPS certificate outside DATA_ROOT/config/ssl should be rejected")
 	}
 }
