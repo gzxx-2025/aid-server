@@ -14,7 +14,7 @@
 #   - 数据目录默认 /data/aid，如需更换：执行脚本前 export AID_DATA_ROOT=/你的路径
 # ============================================================================
 
-# ---------------- 端口 ----------------
+# ---------------- HTTP 端口（无需域名） ----------------
 DATA_ROOT=/data/aid
 # 用户端（C端）对外端口，由 Nginx 监听
 HTTP_PORT=80
@@ -25,6 +25,8 @@ BACKEND_PORT=8080
 
 # ---------------- HTTPS（可选） ----------------
 # true=由脚本生成并校验 Nginx HTTPS 站点；false=仅保留 HTTP
+# 没有域名或尚未完成 DNS 解析时保持 false；下列 HTTPS 字段会被完全忽略。
+# 此时用户端使用 http://服务器IP，管理端使用 http://服务器IP:ADMIN_PORT。
 HTTPS_ENABLED=false
 HTTPS_PORT=443
 HTTPS_PUBLIC_DOMAIN=www.example.com

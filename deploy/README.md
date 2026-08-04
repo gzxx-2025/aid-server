@@ -197,6 +197,8 @@ sudo bash aid.sh install
 - 用户端：`http://服务器IP/`（`HTTP_PORT` 可配，默认 80）
 - 管理端：`http://服务器IP:8090/`（独立端口、根路径托管，`ADMIN_PORT` 可配），默认账号 `admin / admin123`，**登录后立即修改密码**
 
+没有域名不影响 HTTP 部署：必须保留 `HTTP_PORT` 和 `ADMIN_PORT`，直接用服务器 IP 访问即可。Docker 保持 `COMPOSE_PROFILES=mysql,redis`（不要加入 `https`）；手动部署保持 `HTTPS_ENABLED=false`。此时 `HTTPS_PUBLIC_DOMAIN`、`HTTPS_ADMIN_DOMAIN`、证书和私钥路径只是占位值，不会读取或校验。不要把 `HTTP_PORT` 改成 443，443 端口本身不代表已启用 TLS。
+
 ### Docker 内置 HTTPS（可选 Profile）
 
 `HTTP_PORT=443` 只会把明文 HTTP 映射到 443，并不会启用 TLS，禁止这样配置。标准 HTTPS 使用独立 `https` Profile：用户端和管理端使用两个不同域名，共用一张覆盖两个域名的 SAN 或通配符证书。
@@ -346,6 +348,8 @@ sudo bash aid.sh install-manual
 全部业务配置项通过环境变量注入 systemd 服务定义（`DB_*`、`REDIS_*`、`TOKEN_SECRET`、`AID_PROFILE`、`LOG_PATH`、`ROCKETMQ_*`），jar 内配置永不修改；后续调整都编辑 `/data/aid/aid-deploy.conf` 后执行菜单「重启服务」生效（服务定义自动重写）。
 
 ### 手动部署 HTTPS（可选）
+
+没有域名时无需配置本节：保留 `HTTP_PORT`、`ADMIN_PORT` 和 `HTTPS_ENABLED=false`，通过服务器 IP 访问。域名完成 DNS 解析并准备好有效证书后，再按下列配置启用。
 
 证书同样复制到 `/data/aid/config/ssl/fullchain.pem` 与 `/data/aid/config/ssl/privkey.pem`，然后在 `aid-deploy.conf` 中设置：
 

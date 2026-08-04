@@ -877,31 +877,61 @@ ensure_conf_file() {
       cp "${SCRIPT_DIR}/aid-deploy.conf.example" "${CONF}"
     else
       cat > "${CONF}" <<EOF
+# ============================================================================
 # AID 手动部署配置（唯一配置真源）
+# 修改后执行 sudo aid restart 生效。
+# 没有域名时保持 HTTPS_ENABLED=false，HTTP 仍可通过服务器 IP 正常访问。
+# 密码与密钥禁止发送给他人；TOKEN_SECRET 留空时由脚本生成强随机值。
+# ============================================================================
+
+# ---------------- 数据目录 ----------------
 DATA_ROOT=${DATA_ROOT}
+
+# ---------------- HTTP 访问（无需域名） ----------------
+# 用户端：http://服务器IP；非 80 端口需在地址后追加端口。
 HTTP_PORT=80
+# 管理端：http://服务器IP:8090；访问码按系统配置继续拼接。
 ADMIN_PORT=8090
+# Java 后端仅供本机 Nginx 反向代理。
 BACKEND_PORT=8080
+
+# ---------------- HTTPS（可选，需要域名和证书） ----------------
+# 无域名或尚未完成 DNS 解析时必须保持 false；以下 HTTPS 字段会被忽略。
 HTTPS_ENABLED=false
 HTTPS_PORT=443
 HTTPS_PUBLIC_DOMAIN=www.example.com
 HTTPS_ADMIN_DOMAIN=admin.example.com
+# 启用 HTTPS 前，把证书复制到数据目录的 config/ssl 下。
 HTTPS_CERT_PATH=${DATA_ROOT}/config/ssl/fullchain.pem
 HTTPS_KEY_PATH=${DATA_ROOT}/config/ssl/privkey.pem
+
+# ---------------- MySQL 5.7 ----------------
 DB_HOST=127.0.0.1
 DB_PORT=3306
 DB_NAME=aid
 DB_USERNAME=root
+# 手动部署必须填写现有数据库账号的真实密码。
 DB_PASSWORD=
+
+# ---------------- Redis ----------------
 REDIS_HOST=127.0.0.1
 REDIS_PORT=6379
+# Redis 6+ ACL 填用户名；传统 requirepass 或无认证模式留空。
 REDIS_USERNAME=
+# 无密码可留空。
 REDIS_PASSWORD=
 REDIS_DATABASE=0
+
+# ---------------- 后端安全与运行参数 ----------------
+# 留空时由脚本自动生成；生成后请妥善备份，禁止随意更换。
 TOKEN_SECRET=
 JAVA_OPTS=-Xms1g -Xmx2g
+
+# ---------------- RocketMQ（可选） ----------------
+# false 表示使用本地任务模式，不要求安装 RocketMQ。
 ROCKETMQ_ENABLED=false
 ROCKETMQ_NAMESERVER=127.0.0.1:9876
+# 外部 RocketMQ 启用 ACL 时两项同时填写；未启用 ACL 时同时留空。
 ROCKETMQ_ACCESS_KEY=
 ROCKETMQ_SECRET_KEY=
 EOF
@@ -988,32 +1018,66 @@ ensure_env_file() {
       cp "${COMPOSE_DIR}/.env.example" "${ENV_FILE}"
     else
       cat > "${ENV_FILE}" <<EOF
+# ============================================================================
 # AID Docker 部署配置（唯一配置真源）
+# 修改后执行 sudo aid restart 生效。
+# 没有域名时仍须保留 HTTP_PORT 和 ADMIN_PORT，并且不要启用 https Profile。
+# 密码与密钥留空时由脚本生成强随机值；生成后禁止公开或提交到仓库。
+# ============================================================================
+
+# ---------------- 数据目录 ----------------
 DATA_ROOT=${DATA_ROOT}
+
+# ---------------- HTTP 访问（无需域名） ----------------
+# 用户端：http://服务器IP；非 80 端口需在地址后追加端口。
 HTTP_PORT=80
+# 管理端：http://服务器IP:8090；访问码按系统配置继续拼接。
 ADMIN_PORT=8090
+
+# ---------------- HTTPS（可选，需要域名和证书） ----------------
+# 只有 COMPOSE_PROFILES 包含 https 时才会启用。
+# 无域名或尚未完成 DNS 解析时，以下字段仅为占位，不会被读取或校验。
 HTTPS_PORT=443
 HTTPS_PUBLIC_DOMAIN=www.example.com
 HTTPS_ADMIN_DOMAIN=admin.example.com
 HTTPS_CERT_PATH=${DATA_ROOT}/config/ssl/fullchain.pem
 HTTPS_KEY_PATH=${DATA_ROOT}/config/ssl/privkey.pem
+
+# ---------------- MySQL 5.7 ----------------
+# 内置 MySQL 使用默认 Profile；密码留空时由脚本生成。
 MYSQL_ROOT_PASSWORD=
 DB_HOST=mysql
 DB_PORT=3306
 DB_NAME=aid
 DB_USERNAME=aid
 DB_PASSWORD=
+# 内置 MySQL 对宿主机的映射端口；外部 MySQL 模式不使用。
 MYSQL_PORT=3306
+
+# ---------------- Redis ----------------
 REDIS_HOST=redis
 REDIS_PORT=6379
+# Redis 6+ ACL 填用户名；传统 requirepass 或无认证模式留空。
 REDIS_USERNAME=
+# 无密码可留空。
 REDIS_PASSWORD=
 REDIS_DATABASE=0
+
+# ---------------- 后端安全与端口 ----------------
+# 留空时由脚本自动生成；生成后请妥善备份，禁止随意更换。
 TOKEN_SECRET=
 BACKEND_PORT=8080
+
+# ---------------- 内置组件开关 ----------------
+# 默认启动内置 MySQL 5.7 + Redis，不启用 HTTPS 和 RocketMQ。
+# 启用 HTTPS：mysql,redis,https；启用内置 MQ：mysql,redis,mq。
 COMPOSE_PROFILES=mysql,redis
+
+# ---------------- RocketMQ（可选） ----------------
+# false 表示使用本地任务模式，不启动也不连接 RocketMQ。
 ROCKETMQ_ENABLED=false
 ROCKETMQ_NAMESERVER=rocketmq-nameserver:9876
+# 启用 ACL 时两项同时填写；未启用 ACL 时同时留空。
 ROCKETMQ_ACCESS_KEY=
 ROCKETMQ_SECRET_KEY=
 EOF
