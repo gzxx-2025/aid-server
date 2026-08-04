@@ -226,6 +226,8 @@ services:
       - "${HTTP_PORT:-80}:80"
       - "${ADMIN_PORT:-8090}:8090"
     volumes:
+      # 宿主机：/data/aid/installer/deploy/docker/nginx/aid.conf
+      # 容器内：/etc/nginx/conf.d/default.conf（只读）
       - ./nginx/aid.conf:/etc/nginx/conf.d/default.conf:ro
       - ${DATA_ROOT:-/data/aid}/app/admin-dist:/usr/share/nginx/aid/admin-dist:ro
     healthcheck:
@@ -253,6 +255,7 @@ services:
     ports:
       - "${HTTPS_PORT:-443}:443"
     volumes:
+      # HTTPS模板同样由 Compose 显式挂载，宿主机位于 installer/deploy/docker/nginx。
       - ./nginx/aid-https.conf.template:/etc/nginx/templates/default.conf.template:ro
       - ${HTTPS_CERT_PATH:-/data/aid/config/ssl/fullchain.pem}:/etc/nginx/ssl/fullchain.pem:ro
       - ${HTTPS_KEY_PATH:-/data/aid/config/ssl/privkey.pem}:/etc/nginx/ssl/privkey.pem:ro
@@ -303,6 +306,8 @@ services:
       # 非空时入口脚本同步为内置 Broker 开启 ACL；留空时 Broker 不启用 ACL
       ROCKETMQ_ACCESS_KEY: ${ROCKETMQ_ACCESS_KEY:-}
       ROCKETMQ_SECRET_KEY: ${ROCKETMQ_SECRET_KEY:-}
+      # ASYNC_FLUSH性能优先；SYNC_FLUSH持久性优先，由入口脚本写入运行时配置。
+      ROCKETMQ_FLUSH_DISK_TYPE: ${ROCKETMQ_FLUSH_DISK_TYPE:-ASYNC_FLUSH}
     ulimits:
       nofile:
         soft: 65536

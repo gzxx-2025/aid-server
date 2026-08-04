@@ -33,10 +33,11 @@ var commonDeploymentKeys = map[string]bool{
 	"DB_HOST": true, "DB_PORT": true, "DB_NAME": true, "DB_USERNAME": true, "DB_PASSWORD": true,
 	"REDIS_HOST": true, "REDIS_PORT": true, "REDIS_USERNAME": true,
 	"REDIS_PASSWORD": true, "REDIS_DATABASE": true,
-	"TOKEN_SECRET": true, "JAVA_OPTS": true,
+	"TOKEN_SECRET": true, "JAVA_OPTS": true, "DEPENDENCY_INSTALL_MODE": true,
 	"ROCKETMQ_ENABLED": true, "ROCKETMQ_NAMESERVER": true,
 	"ROCKETMQ_ACCESS_KEY": true, "ROCKETMQ_SECRET_KEY": true,
-	"HTTPS_PORT": true, "HTTPS_PUBLIC_DOMAIN": true, "HTTPS_ADMIN_DOMAIN": true,
+	"ROCKETMQ_FLUSH_DISK_TYPE": true,
+	"HTTPS_PORT":               true, "HTTPS_PUBLIC_DOMAIN": true, "HTTPS_ADMIN_DOMAIN": true,
 	"HTTPS_CERT_PATH": true, "HTTPS_KEY_PATH": true,
 }
 
@@ -356,6 +357,14 @@ func validateDeploymentValues(mode string, values map[string]string) error {
 	}
 	if enabled := values["ROCKETMQ_ENABLED"]; enabled != "" && enabled != "true" && enabled != "false" {
 		return fmt.Errorf("ROCKETMQ_ENABLED 只支持 true 或 false")
+	}
+	dependencyMode := valueOr(values, "DEPENDENCY_INSTALL_MODE", "auto")
+	if dependencyMode != "auto" && dependencyMode != "manual" {
+		return fmt.Errorf("DEPENDENCY_INSTALL_MODE 只支持 auto 或 manual")
+	}
+	flushDiskType := valueOr(values, "ROCKETMQ_FLUSH_DISK_TYPE", "ASYNC_FLUSH")
+	if flushDiskType != "ASYNC_FLUSH" && flushDiskType != "SYNC_FLUSH" {
+		return fmt.Errorf("ROCKETMQ_FLUSH_DISK_TYPE 只支持 ASYNC_FLUSH 或 SYNC_FLUSH")
 	}
 	if enabled := values["HTTPS_ENABLED"]; enabled != "" && enabled != "true" && enabled != "false" {
 		return fmt.Errorf("HTTPS_ENABLED 只支持 true 或 false")

@@ -51,12 +51,16 @@ public class DeploymentConfigSaveDto {
     private String tokenSecret;
     /** 后端 JVM 启动参数 */
     private String javaOpts;
+    /** 依赖处理模式；auto 自动安装或拉取，manual 仅提示 */
+    private String dependencyInstallMode;
     /** Docker Compose 可选组件列表；包含 mysql 表示使用内置 MySQL */
     private String composeProfiles;
     /** 是否启用 RocketMQ */
     private String rocketmqEnabled;
     /** RocketMQ NameServer 地址 */
     private String rocketmqNameserver;
+    /** 内置 RocketMQ Broker 刷盘模式 */
+    private String rocketmqFlushDiskType;
     /** RocketMQ ACL AccessKey，留空保持原值 */
     private String rocketmqAccessKey;
     /** RocketMQ ACL SecretKey，留空保持原值 */

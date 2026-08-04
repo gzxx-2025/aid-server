@@ -68,6 +68,10 @@ MANAGED_SCRIPT="${INSTALLER_ROOT}/deploy/aid.sh"
 DOWNLOAD_TIMEOUT_SECONDS="${AID_DOWNLOAD_TIMEOUT_SECONDS:-1800}"
 SOURCE_BUILDER_NAME="build-release-from-source.sh"
 SOURCE_GIT_IMAGE="${AID_GIT_IMAGE:-alpine/git:2.47.2}"
+SOURCE_MAVEN_IMAGE="${AID_MAVEN_IMAGE:-maven:3.9.9-eclipse-temurin-17}"
+SOURCE_NODE_IMAGE="${AID_NODE_IMAGE:-node:20-bookworm-slim}"
+SOURCE_GO_IMAGE="${AID_GO_IMAGE:-golang:1.22-bookworm}"
+OS_PACKAGE_INDEX_READY=0
 
 risk() {
   echo -e "[$(date '+%H:%M:%S')] ${C_RED}${C_BOLD}[风险提醒]${C_RESET} $1" >&2
@@ -228,6 +232,7 @@ validate_https_file() { # validate_https_file <配置名> <路径>
 
 validate_docker_extended_config() {
   local dbHost dbPort redisUser redisPwd mqAccessKey mqSecretKey domain adminDomain certPath keyPath
+  dependency_install_mode docker >/dev/null
   validate_compose_profiles
   dbHost="$(env_get DB_HOST mysql)"; dbPort="$(env_get DB_PORT 3306)"
   validate_port DB_PORT "${dbPort}"
@@ -258,6 +263,10 @@ validate_docker_extended_config() {
       || die "RocketMQ ACL 凭证仅允许字母和数字"
   fi
   case "$(env_get ROCKETMQ_ENABLED false)" in true|false) ;; *) die "ROCKETMQ_ENABLED 只支持 true 或 false" ;; esac
+  case "$(env_get ROCKETMQ_FLUSH_DISK_TYPE ASYNC_FLUSH)" in
+    ASYNC_FLUSH|SYNC_FLUSH) ;;
+    *) die "ROCKETMQ_FLUSH_DISK_TYPE 只支持 ASYNC_FLUSH 或 SYNC_FLUSH" ;;
+  esac
   if [[ "$(env_get ROCKETMQ_ENABLED false)" == "true" ]]; then
     [[ -n "$(env_get ROCKETMQ_NAMESERVER '')" ]] || die "启用 RocketMQ 时必须配置 ROCKETMQ_NAMESERVER"
   fi
@@ -366,6 +375,186 @@ require_docker_runtime() {
   ok "Docker 运行环境可用；Git/JDK/Nginx/Redis 将按构建流程与 COMPOSE_PROFILES 使用容器"
 }
 
+dependency_install_mode() { # dependency_install_mode <docker|manual>
+  local mode="$1" value
+  if [[ "${mode}" == "docker" ]]; then
+    value="$(env_get DEPENDENCY_INSTALL_MODE auto)"
+  else
+    value="$(conf_get DEPENDENCY_INSTALL_MODE auto)"
+  fi
+  case "${value}" in
+    auto|manual) echo "${value}" ;;
+    *) die "DEPENDENCY_INSTALL_MODE 只支持 auto 或 manual" ;;
+  esac
+}
+
+ensure_docker_image() { # ensure_docker_image <镜像> <用途>
+  local image="$1" label="$2" installMode="${AID_DEPENDENCY_INSTALL_MODE:-auto}"
+  if docker image inspect "${image}" >/dev/null 2>&1; then
+    ok "${label}镜像已存在，跳过下载: ${image}"
+    return 0
+  fi
+  if [[ "${installMode}" == "manual" ]]; then
+    die "缺少${label}镜像 ${image}；请先执行 docker pull ${image}，或把 DEPENDENCY_INSTALL_MODE 改为 auto"
+  fi
+  log "下载${label}镜像: ${image}"
+  docker pull "${image}" || die "${label}镜像下载失败: ${image}"
+}
+
+prepare_source_build_images() {
+  command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 || return 0
+  [[ -n "$(command -v git 2>/dev/null || true)" ]] || ensure_docker_image "${SOURCE_GIT_IMAGE}" "Git源码拉取"
+  ensure_docker_image "${SOURCE_MAVEN_IMAGE}" "JDK17/Maven构建"
+  ensure_docker_image "${SOURCE_NODE_IMAGE}" "Node.js构建"
+  ensure_docker_image "${SOURCE_GO_IMAGE}" "Go构建"
+}
+
+prepare_docker_runtime_images() {
+  ensure_docker_image "eclipse-temurin:17-jre" "JDK17运行时"
+  ensure_docker_image "node:20-alpine" "Web运行时"
+  ensure_docker_image "nginx:1.25-alpine" "Nginx网关"
+  ensure_docker_image "docker:27-cli" "升级器Docker客户端"
+  # 内置 MySQL 使用该镜像；外部 MySQL 也需要它作为一次性5.7兼容客户端。
+  ensure_docker_image "mysql:5.7" "MySQL5.7"
+  docker_profile_enabled redis && ensure_docker_image "redis:7-alpine" "Redis"
+  docker_profile_enabled mq && ensure_docker_image "apache/rocketmq:5.3.1" "RocketMQ"
+}
+
+install_os_packages() { # install_os_packages <用途> <apt包列表> <rpm包列表>
+  local label="$1" aptPackages="$2" rpmPackages="$3" manager=""
+  local -a packages=()
+  if command -v apt-get >/dev/null 2>&1; then
+    manager="apt-get"
+    if [[ "${OS_PACKAGE_INDEX_READY}" != "1" ]]; then
+      log "刷新系统软件包索引（仅本次自动安装执行一次）..."
+      DEBIAN_FRONTEND=noninteractive apt-get update || die "系统软件包索引刷新失败，请切换 DEPENDENCY_INSTALL_MODE=manual 后人工处理"
+      OS_PACKAGE_INDEX_READY=1
+    fi
+    read -ra packages <<< "${aptPackages}"
+    log "自动安装缺失依赖 ${label}: ${aptPackages}"
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${packages[@]}" \
+      || die "自动安装 ${label} 失败，请改为 manual 后按发行版文档安装"
+  elif command -v dnf >/dev/null 2>&1; then
+    manager="dnf"; read -ra packages <<< "${rpmPackages}"
+    log "自动安装缺失依赖 ${label}: ${rpmPackages}"
+    dnf install -y "${packages[@]}" || die "自动安装 ${label} 失败，请改为 manual 后按发行版文档安装"
+  elif command -v yum >/dev/null 2>&1; then
+    manager="yum"; read -ra packages <<< "${rpmPackages}"
+    log "自动安装缺失依赖 ${label}: ${rpmPackages}"
+    yum install -y "${packages[@]}" || die "自动安装 ${label} 失败，请改为 manual 后按发行版文档安装"
+  else
+    die "未识别受支持的软件包管理器，无法自动安装 ${label}；请改为 DEPENDENCY_INSTALL_MODE=manual 后人工安装"
+  fi
+  ok "${label} 自动安装命令执行完成（${manager}）"
+}
+
+ensure_host_command() { # ensure_host_command <命令> <用途> <apt包列表> <rpm包列表> <安装模式>
+  local commandName="$1" label="$2" aptPackages="$3" rpmPackages="$4" installMode="$5"
+  if command -v "${commandName}" >/dev/null 2>&1; then
+    ok "${label} 已安装，跳过"
+    return 0
+  fi
+  [[ "${installMode}" == "auto" ]] \
+    || die "缺少 ${label}（命令 ${commandName}）；请人工安装后重试，或设置 DEPENDENCY_INSTALL_MODE=auto"
+  install_os_packages "${label}" "${aptPackages}" "${rpmPackages}"
+  command -v "${commandName}" >/dev/null 2>&1 || die "已执行安装但仍未找到 ${commandName}，请检查系统 PATH"
+}
+
+version_at_least() { # version_at_least <当前版本> <最低版本>
+  local current="$1" required="$2" first
+  first="$(printf '%s\n%s\n' "${required}" "${current}" | sort -V | head -n 1)"
+  [[ "${first}" == "${required}" ]]
+}
+
+tcp_reachable() { # tcp_reachable <host> <port>
+  command -v timeout >/dev/null 2>&1 \
+    && timeout 3 bash -c 'exec 3<>/dev/tcp/"$1"/"$2"' _ "$1" "$2" >/dev/null 2>&1
+}
+
+ensure_manual_host_dependencies() {
+  local installMode javaMajor nodeMajor mavenVersion goVersion redisHost redisPort redisUser redisPwd redisVersion redisMajor
+  installMode="$(dependency_install_mode manual)"
+  export AID_DEPENDENCY_INSTALL_MODE="${installMode}"
+  command -v systemctl >/dev/null 2>&1 || die "手动部署要求使用 systemd"
+
+  ensure_host_command java "JDK 17" "openjdk-17-jdk-headless" "java-17-openjdk-devel" "${installMode}"
+  javaMajor="$(java -version 2>&1 | head -n 1 | sed -E 's/.*version "([0-9]+).*/\1/')"
+  if [[ ! "${javaMajor}" =~ ^[0-9]+$ || "${javaMajor}" -lt 17 ]]; then
+    [[ "${installMode}" == "auto" ]] || die "JDK版本过低（当前${javaMajor:-未知}，需要17+）"
+    install_os_packages "JDK 17" "openjdk-17-jdk-headless" "java-17-openjdk-devel"
+    javaMajor="$(java -version 2>&1 | head -n 1 | sed -E 's/.*version "([0-9]+).*/\1/')"
+  fi
+  [[ "${javaMajor}" =~ ^[0-9]+$ && "${javaMajor}" -ge 17 ]] \
+    || die "JDK 版本过低（当前 ${javaMajor:-未知}，需要17+）；自动安装未能切换系统默认 Java，请人工配置 alternatives"
+
+  ensure_host_command node "Node.js 18+" "nodejs npm" "nodejs npm" "${installMode}"
+  ensure_host_command npm "npm" "npm" "npm" "${installMode}"
+  nodeMajor="$(node -v 2>/dev/null | sed -E 's/v([0-9]+).*/\1/')"
+  if [[ ! "${nodeMajor}" =~ ^[0-9]+$ || "${nodeMajor}" -lt 18 ]]; then
+    [[ "${installMode}" == "auto" ]] || die "Node.js版本过低（当前${nodeMajor:-未知}，需要18+）"
+    install_os_packages "Node.js 18+" "nodejs npm" "nodejs npm"
+    nodeMajor="$(node -v 2>/dev/null | sed -E 's/v([0-9]+).*/\1/')"
+  fi
+  [[ "${nodeMajor}" =~ ^[0-9]+$ && "${nodeMajor}" -ge 18 ]] \
+    || die "Node.js 版本过低（当前 ${nodeMajor:-未知}，需要18+）；请安装发行版支持的Node.js LTS"
+
+  ensure_host_command mysql "MySQL客户端" "default-mysql-client" "mariadb" "${installMode}"
+  ensure_host_command nginx "Nginx" "nginx" "nginx" "${installMode}"
+  if ! systemctl is-active --quiet nginx; then
+    [[ "${installMode}" == "auto" ]] || die "Nginx 未运行，请启动后重试"
+    systemctl enable --now nginx >/dev/null 2>&1 || die "Nginx 自动启动失败，请执行 systemctl status nginx 排查"
+    ok "Nginx 已启用并启动"
+  fi
+
+  # 有可用 Docker 时源码构建全部走容器，不要求宿主机重复安装 Git/Maven/Go。
+  if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+    prepare_source_build_images
+  else
+    ensure_host_command git "Git" "git" "git" "${installMode}"
+    ensure_host_command mvn "Maven 3.8+" "maven" "maven" "${installMode}"
+    mavenVersion="$(mvn -v 2>/dev/null | head -n 1 | awk '{print $3}')"
+    if ! version_at_least "${mavenVersion:-0}" "3.8"; then
+      [[ "${installMode}" == "auto" ]] || die "Maven版本过低（当前${mavenVersion:-未知}，需要3.8+）"
+      install_os_packages "Maven 3.8+" "maven" "maven"
+      mavenVersion="$(mvn -v 2>/dev/null | head -n 1 | awk '{print $3}')"
+    fi
+    version_at_least "${mavenVersion:-0}" "3.8" || die "Maven版本过低（当前${mavenVersion:-未知}，需要3.8+）"
+    ensure_host_command go "Go 1.22+" "golang-go" "golang" "${installMode}"
+    goVersion="$(go version 2>/dev/null | sed -E 's/.*go([0-9]+\.[0-9]+(\.[0-9]+)?).*/\1/')"
+    if ! version_at_least "${goVersion:-0}" "1.22"; then
+      [[ "${installMode}" == "auto" ]] || die "Go版本过低（当前${goVersion:-未知}，需要1.22+）"
+      install_os_packages "Go 1.22+" "golang-go" "golang"
+      goVersion="$(go version 2>/dev/null | sed -E 's/.*go([0-9]+\.[0-9]+(\.[0-9]+)?).*/\1/')"
+    fi
+    version_at_least "${goVersion:-0}" "1.22" || die "Go版本过低（当前${goVersion:-未知}，需要1.22+）"
+  fi
+
+  # 手动部署只有配置为本机 Redis 时才负责检查/可选安装；外部 Redis 永不改本机。
+  redisHost="$(conf_get REDIS_HOST 127.0.0.1)"; redisPort="$(conf_get REDIS_PORT 6379)"
+  redisUser="$(conf_get REDIS_USERNAME '')"; redisPwd="$(conf_get REDIS_PASSWORD '')"
+  case "${redisHost}" in
+    127.0.0.1|localhost)
+      if ! tcp_reachable "${redisHost}" "${redisPort}"; then
+        [[ "${installMode}" == "auto" ]] || die "本机 Redis ${redisHost}:${redisPort} 不可用，请启动后重试"
+        [[ -z "${redisUser}" && -z "${redisPwd}" ]] \
+          || die "配置了 Redis 认证，脚本不会覆盖本机 Redis 安全配置；请人工配置并启动"
+        ensure_host_command redis-server "Redis" "redis-server" "redis" "${installMode}"
+        redisVersion="$(redis-server --version 2>/dev/null | sed -E 's/.*v=([0-9]+(\.[0-9]+)*).*/\1/')"
+        redisMajor="${redisVersion%%.*}"
+        [[ "${redisMajor}" =~ ^[0-9]+$ && "${redisMajor}" -ge 6 ]] \
+          || die "系统软件源中的 Redis 版本过低（当前${redisVersion:-未知}，需要6+），请人工升级或使用外部Redis"
+        systemctl enable --now redis-server >/dev/null 2>&1 \
+          || systemctl enable --now redis >/dev/null 2>&1 \
+          || die "Redis 自动启动失败，请检查 systemctl status redis"
+        tcp_reachable "${redisHost}" "${redisPort}" || die "Redis 已安装但端口仍不可用"
+        ok "本机 Redis 已安装并启动"
+      else
+        ok "Redis ${redisHost}:${redisPort} 已可用，跳过安装"
+      fi ;;
+    *) ok "已配置外部 Redis ${redisHost}:${redisPort}，不会安装本机 Redis" ;;
+  esac
+}
+
 # 当前部署版本优先读取升级器同步维护的 build-info.json，旧环境回退到配置记录。
 current_version() {
   local buildInfo="${DATA_ROOT}/app/build-info.json" version=""
@@ -400,9 +589,17 @@ sha256_file() { # sha256_file <文件>
 }
 
 require_download_tools() {
-  command -v curl >/dev/null 2>&1 || die "未检测到 curl，无法获取版本清单：请先安装 curl"
-  command -v tar >/dev/null 2>&1 || die "未检测到 tar，无法组装或解压本地构建包"
-  sha256_file "${BASH_SOURCE[0]}" >/dev/null 2>&1 || die "缺少 SHA256 校验工具（sha256sum/shasum/openssl）"
+  local installMode="${AID_DEPENDENCY_INSTALL_MODE:-auto}"
+  ensure_host_command curl "curl" "curl ca-certificates" "curl ca-certificates" "${installMode}"
+  ensure_host_command tar "tar" "tar" "tar" "${installMode}"
+  if ! sha256_file "${BASH_SOURCE[0]}" >/dev/null 2>&1; then
+    [[ "${installMode}" == "auto" ]] \
+      || die "缺少 SHA256 校验工具（sha256sum/shasum/openssl），请安装后重试"
+    install_os_packages "SHA256校验工具" "coreutils" "coreutils"
+    sha256_file "${BASH_SOURCE[0]}" >/dev/null 2>&1 || die "SHA256校验工具安装后仍不可用"
+  else
+    ok "SHA256校验工具已存在，跳过安装"
+  fi
 }
 
 try_download() { # try_download <URL> <目标文件> <名称>
@@ -629,6 +826,7 @@ bootstrap_source_builder() {
   if ! command -v git >/dev/null 2>&1; then
     command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 \
       || die "源码构建需要 Git 或可用的 Docker Engine；Docker 部署请先启动 Docker，手动部署可安装 Git"
+    ensure_docker_image "${SOURCE_GIT_IMAGE}" "Git源码拉取"
     warn "宿主机未安装 Git，将使用隔离的 ${SOURCE_GIT_IMAGE} 容器拉取源码，不会修改系统软件"
   fi
   tmpDir="$(mktemp -d)"
@@ -705,6 +903,7 @@ ensure_source_package() {
   fi
 
   bootstrap_source_builder
+  prepare_source_build_images
   builder="${SOURCE_BUILDER_PATH}"
   section "远程源码构建 AID v${RESOLVED_VERSION}"
   warn "只拉取三个公开仓库的 v${RESOLVED_VERSION} 标签；GitHub 不通时整组回退到 Gitee"
@@ -906,6 +1105,10 @@ ensure_conf_file() {
 # ---------------- 数据目录 ----------------
 DATA_ROOT=${DATA_ROOT}
 
+# ---------------- 依赖处理 ----------------
+# auto=缺失依赖自动安装；manual=只提示，不修改系统。
+DEPENDENCY_INSTALL_MODE=auto
+
 # ---------------- HTTP 访问（无需域名） ----------------
 # 用户端：http://服务器IP；非 80 端口需在地址后追加端口。
 HTTP_PORT=80
@@ -950,6 +1153,8 @@ JAVA_OPTS=-Xms1g -Xmx2g
 # false 表示使用本地任务模式，不要求安装 RocketMQ。
 ROCKETMQ_ENABLED=false
 ROCKETMQ_NAMESERVER=127.0.0.1:9876
+# Broker刷盘：ASYNC_FLUSH性能优先；SYNC_FLUSH持久性优先。
+ROCKETMQ_FLUSH_DISK_TYPE=ASYNC_FLUSH
 # 外部 RocketMQ 启用 ACL 时两项同时填写；未启用 ACL 时同时留空。
 ROCKETMQ_ACCESS_KEY=
 ROCKETMQ_SECRET_KEY=
@@ -995,6 +1200,11 @@ EOF
       || die "RocketMQ ACL 凭证仅允许字母和数字"
   fi
   case "$(conf_get ROCKETMQ_ENABLED false)" in true|false) ;; *) die "ROCKETMQ_ENABLED 只支持 true 或 false" ;; esac
+  dependency_install_mode manual >/dev/null
+  case "$(conf_get ROCKETMQ_FLUSH_DISK_TYPE ASYNC_FLUSH)" in
+    ASYNC_FLUSH|SYNC_FLUSH) ;;
+    *) die "ROCKETMQ_FLUSH_DISK_TYPE 只支持 ASYNC_FLUSH 或 SYNC_FLUSH" ;;
+  esac
   if [[ "$(conf_get ROCKETMQ_ENABLED false)" == "true" ]]; then
     [[ -n "$(conf_get ROCKETMQ_NAMESERVER '')" ]] || die "启用 RocketMQ 时必须配置 ROCKETMQ_NAMESERVER"
   fi
@@ -1047,6 +1257,10 @@ ensure_env_file() {
 # ---------------- 数据目录 ----------------
 DATA_ROOT=${DATA_ROOT}
 
+# ---------------- 依赖处理 ----------------
+# auto=自动下载缺失镜像；manual=缺镜像时停止并打印 docker pull 命令。
+DEPENDENCY_INSTALL_MODE=auto
+
 # ---------------- HTTP 访问（无需域名） ----------------
 # 用户端：http://服务器IP；非 80 端口需在地址后追加端口。
 HTTP_PORT=80
@@ -1096,6 +1310,8 @@ COMPOSE_PROFILES=mysql,redis
 # false 表示使用本地任务模式，不启动也不连接 RocketMQ。
 ROCKETMQ_ENABLED=false
 ROCKETMQ_NAMESERVER=rocketmq-nameserver:9876
+# 内置Broker刷盘：ASYNC_FLUSH性能优先；SYNC_FLUSH持久性优先。
+ROCKETMQ_FLUSH_DISK_TYPE=ASYNC_FLUSH
 # 启用 ACL 时两项同时填写；未启用 ACL 时同时留空。
 ROCKETMQ_ACCESS_KEY=
 ROCKETMQ_SECRET_KEY=
@@ -1210,6 +1426,7 @@ confirm_initial_configuration() { # confirm_initial_configuration <docker|manual
       echo "  Redis    : 外部服务 $(env_get REDIS_HOST):$(env_get REDIS_PORT 6379)（不会启动内置容器）"
     fi
     echo "  HTTP网关 : 内置 Nginx 容器"
+    echo "  依赖处理 : $(dependency_install_mode docker)（已有镜像自动跳过）"
     if docker_profile_enabled https; then
       echo "  HTTPS    : $(env_get HTTPS_PUBLIC_DOMAIN) / $(env_get HTTPS_ADMIN_DOMAIN) :$(env_get HTTPS_PORT 443)"
     else
@@ -1218,7 +1435,7 @@ confirm_initial_configuration() { # confirm_initial_configuration <docker|manual
     if [[ "$(env_get ROCKETMQ_ENABLED false)" != "true" ]]; then
       echo "  RocketMQ : 未启用（本地任务模式）"
     elif docker_profile_enabled mq; then
-      echo "  RocketMQ : 内置容器"
+      echo "  RocketMQ : 内置容器，$(env_get ROCKETMQ_FLUSH_DISK_TYPE ASYNC_FLUSH)"
     else
       echo "  RocketMQ : 外部服务 $(env_get ROCKETMQ_NAMESERVER)"
     fi
@@ -1228,6 +1445,7 @@ confirm_initial_configuration() { # confirm_initial_configuration <docker|manual
     echo "  后端端口 : $(conf_get BACKEND_PORT 8080)"
     echo "  数据库   : $(conf_get DB_HOST 127.0.0.1):$(conf_get DB_PORT 3306)/$(conf_get DB_NAME aid)"
     echo "  Redis    : $(conf_get REDIS_HOST 127.0.0.1):$(conf_get REDIS_PORT 6379)"
+    echo "  依赖处理 : $(dependency_install_mode manual)（已有且版本合格自动跳过）"
     if [[ "$(conf_get HTTPS_ENABLED false)" == "true" ]]; then
       echo "  HTTPS    : $(conf_get HTTPS_PUBLIC_DOMAIN) / $(conf_get HTTPS_ADMIN_DOMAIN) :$(conf_get HTTPS_PORT 443)"
     else
@@ -1477,13 +1695,15 @@ version_from_package() {
 # Docker 模式统一数据库客户端：内置库经 aid-mysql 执行；外部库使用一次性
 # mysql:5.7 客户端容器，不要求宿主机或升级器容器安装 mysql/mysqldump。
 docker_mysql_tool() { # docker_mysql_tool <mysql|mysqldump> [参数...]
-  local tool="$1"
+  local tool="$1" AID_DEPENDENCY_INSTALL_MODE
   shift
   if docker_profile_enabled mysql; then
     MYSQL_PWD="$(env_get MYSQL_ROOT_PASSWORD '')" \
       docker exec -i -e MYSQL_PWD aid-mysql "${tool}" \
         --host 127.0.0.1 --port 3306 --user root "$@"
   else
+    AID_DEPENDENCY_INSTALL_MODE="$(dependency_install_mode docker)"
+    ensure_docker_image "mysql:5.7" "MySQL5.7客户端"
     MYSQL_PWD="$(env_get DB_PASSWORD '')" \
       docker run --rm -i --network host \
         --add-host host.docker.internal:host-gateway \
@@ -1495,8 +1715,10 @@ docker_mysql_tool() { # docker_mysql_tool <mysql|mysqldump> [参数...]
 
 # 确保 MySQL 就绪。外部模式只做连接及 5.7 版本校验，绝不拉起 aid-mysql。
 ensure_mysql_ready() {
-  local mode; mode="$(detect_mode)"
+  local mode AID_DEPENDENCY_INSTALL_MODE; mode="$(detect_mode)"
   if [[ "${mode}" != "docker" ]]; then return 0; fi
+  AID_DEPENDENCY_INSTALL_MODE="$(dependency_install_mode docker)"
+  ensure_docker_image "mysql:5.7" "MySQL5.7"
   if docker_profile_enabled mysql; then
     compose_cmd up -d mysql >/dev/null 2>&1 || true
     local deadline=$(( $(date +%s) + 90 ))
@@ -1723,12 +1945,14 @@ do_install_docker() {
   # 配置是部署的第一道闸门：完成生成、编辑、校验和人工确认后才检查环境或拉取源码。
   ensure_env_file
   confirm_initial_configuration docker
+  export AID_DEPENDENCY_INSTALL_MODE="$(dependency_install_mode docker)"
   require_docker_runtime
   if [[ "$(uname -m)" == "aarch64" ]]; then
     die "Docker 一键部署固定使用 MySQL 5.7，官方镜像不支持 ARM64；请改用 x86_64 服务器"
   fi
   prepare_install_package "${1:-}"
   package="${RESOLVED_PACKAGE_PATH}"
+  prepare_docker_runtime_images
   bootstrap_installer_if_needed "${package}" install-docker
 
   [[ "${existingMode}" == "none" ]] && confirm_first_install docker
@@ -1987,15 +2211,8 @@ do_install_manual() {
   # 手动部署同样先完成配置，避免安装环境或源码构建结束后才发现数据库参数不可用。
   ensure_conf_file
   confirm_initial_configuration manual
-  command -v systemctl >/dev/null 2>&1 || die "未检测到 systemd"
-  command -v java >/dev/null 2>&1 || die "未检测到 java，请安装 JDK 17+"
-  local javaMajor nodeMajor
-  javaMajor="$(java -version 2>&1 | head -n 1 | sed -E 's/.*version "([0-9]+).*/\1/')"
-  [[ "${javaMajor}" -ge 17 ]] || die "JDK 版本过低（当前 ${javaMajor}，需要 17+）"
-  command -v node >/dev/null 2>&1 || die "未检测到 node，请安装 Node.js 18+"
-  nodeMajor="$(node -v | sed -E 's/v([0-9]+).*/\1/')"
-  [[ "${nodeMajor}" -ge 18 ]] || die "Node.js 版本过低（当前 ${nodeMajor}，需要 18+）"
-  command -v mysql >/dev/null 2>&1 || die "未检测到 mysql 客户端（数据库初始化需要）"
+  export AID_DEPENDENCY_INSTALL_MODE="$(dependency_install_mode manual)"
+  ensure_manual_host_dependencies
   prepare_install_package "${1:-}"
   package="${RESOLVED_PACKAGE_PATH}"
   bootstrap_installer_if_needed "${package}" install-manual
@@ -2058,8 +2275,13 @@ do_update() {
   local mode package supplied current target comparison go backupDir dist old f targetChannel
   mode="$(detect_mode)"
   [[ "${mode}" != "none" ]] || die "尚未部署，请先执行首次部署"
+  export AID_DEPENDENCY_INSTALL_MODE="$(dependency_install_mode "${mode}")"
   # Docker 升级同样先校验容器运行时，避免后续缺 Git 时给出误导性报错。
-  [[ "${mode}" != "docker" ]] || require_docker_runtime
+  if [[ "${mode}" == "docker" ]]; then
+    require_docker_runtime
+  else
+    ensure_manual_host_dependencies
+  fi
   supplied="${1:-}"
   current="$(current_version)"
 
@@ -2104,6 +2326,7 @@ do_update() {
     ensure_source_package
     package="${RESOLVED_PACKAGE_PATH}"
   fi
+  [[ "${mode}" != "docker" ]] || prepare_docker_runtime_images
 
   # docker 模式先确保数据库容器可用（备份与增量 SQL 都依赖它）
   ensure_mysql_ready || die "数据库未就绪，升级已中止（未做任何变更）"
@@ -2263,6 +2486,9 @@ do_restart() {
   case "${mode}" in
     docker)
       ensure_env_file
+      export AID_DEPENDENCY_INSTALL_MODE="$(dependency_install_mode docker)"
+      require_docker_runtime
+      prepare_docker_runtime_images
       disable_internal_mysql_for_external \
         || die "外部 MySQL 未准备完成，配置未生效"
       disable_unused_docker_services
@@ -2287,6 +2513,8 @@ do_restart() {
       ;;
     manual)
       ensure_conf_file
+      export AID_DEPENDENCY_INSTALL_MODE="$(dependency_install_mode manual)"
+      ensure_manual_host_dependencies
       if [[ "${AID_SKIP_UPDATER_RESTART:-0}" != "1" && -f "${DATA_ROOT}/app/updater/aid-updater" ]]; then
         write_updater_config manual
       fi

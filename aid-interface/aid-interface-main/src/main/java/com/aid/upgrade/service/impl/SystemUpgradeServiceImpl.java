@@ -384,9 +384,11 @@ public class SystemUpgradeServiceImpl implements ISystemUpgradeService {
         putDeploymentValue(values, "REDIS_DATABASE", dto.getRedisDatabase(), false);
         putDeploymentValue(values, "TOKEN_SECRET", dto.getTokenSecret(), true);
         putDeploymentValue(values, "JAVA_OPTS", dto.getJavaOpts(), false);
+        putDeploymentValue(values, "DEPENDENCY_INSTALL_MODE", dto.getDependencyInstallMode(), false);
         putDeploymentValue(values, "COMPOSE_PROFILES", dto.getComposeProfiles(), false);
         putDeploymentValue(values, "ROCKETMQ_ENABLED", dto.getRocketmqEnabled(), false);
         putDeploymentValue(values, "ROCKETMQ_NAMESERVER", dto.getRocketmqNameserver(), false);
+        putDeploymentValue(values, "ROCKETMQ_FLUSH_DISK_TYPE", dto.getRocketmqFlushDiskType(), false);
         if (Boolean.TRUE.equals(dto.getClearRocketmqCredentials())) {
             values.put("ROCKETMQ_ACCESS_KEY", "");
             values.put("ROCKETMQ_SECRET_KEY", "");

@@ -20,6 +20,7 @@ GIT_IMAGE="${AID_GIT_IMAGE:-alpine/git:2.47.2}"
 MAVEN_IMAGE="${AID_MAVEN_IMAGE:-maven:3.9.9-eclipse-temurin-17}"
 NODE_IMAGE="${AID_NODE_IMAGE:-node:20-bookworm-slim}"
 GO_IMAGE="${AID_GO_IMAGE:-golang:1.22-bookworm}"
+DEPENDENCY_INSTALL_MODE="${AID_DEPENDENCY_INSTALL_MODE:-auto}"
 MANIFEST_PUBLIC_KEY="${AID_MANIFEST_PUBLIC_KEY:-9Ez/VMofgjCU0CNmE6Jq8LKLNyfDQqbbvNTTGV5BYrk=}"
 SCRIPT_NAME="$(basename "$0")"
 SCRIPT_HOME="$(dirname "$0")"
@@ -62,6 +63,7 @@ case "$VERSION" in
   *) die "版本号不符合 SemVer: $VERSION" ;;
 esac
 case "$FORGE" in auto|github|gitee) ;; *) die "源码平台仅支持 auto、github 或 gitee" ;; esac
+case "$DEPENDENCY_INSTALL_MODE" in auto|manual) ;; *) die 'AID_DEPENDENCY_INSTALL_MODE 仅支持 auto 或 manual' ;; esac
 [ -n "$OUTPUT" ] || die '--output 不能为空'
 case "$OUTPUT" in /*) ;; *) OUTPUT="$(pwd)/$OUTPUT" ;; esac
 
@@ -80,6 +82,26 @@ if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
 fi
 if ! command -v git >/dev/null 2>&1 && [ "$USE_DOCKER" != yes ]; then
   die '未检测到 Git，且 Docker 不可用；请先安装 Git'
+fi
+
+ensure_docker_image() {
+  image="$1"; label="$2"
+  if docker image inspect "$image" >/dev/null 2>&1; then
+    log "$label 镜像已存在，跳过下载: $image"
+    return 0
+  fi
+  if [ "$DEPENDENCY_INSTALL_MODE" = manual ]; then
+    die "缺少 $label 镜像 $image；请执行 docker pull $image，或把部署配置 DEPENDENCY_INSTALL_MODE 改为 auto"
+  fi
+  log "下载 $label 镜像: $image"
+  docker pull "$image" || die "$label 镜像下载失败: $image"
+}
+
+if [ "$USE_DOCKER" = yes ]; then
+  command -v git >/dev/null 2>&1 || ensure_docker_image "$GIT_IMAGE" 'Git源码拉取'
+  ensure_docker_image "$MAVEN_IMAGE" 'JDK17/Maven构建'
+  ensure_docker_image "$NODE_IMAGE" 'Node.js构建'
+  ensure_docker_image "$GO_IMAGE" 'Go构建'
 fi
 
 # 删除范围必须严格位于 source-build 或升级器 work 目录下，避免配置错误导致误删。

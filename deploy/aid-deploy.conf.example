@@ -8,9 +8,10 @@
 #   修改后执行 sudo bash aid.sh 菜单「重启服务」生效。
 #
 # 说明：
-#   - MySQL/Redis/RocketMQ/JDK/Node 等环境由部署方自行安装维护，这里只填连接信息
-#   - 源码构建优先使用可用的 Docker 隔离构建；没有 Docker 时宿主机还需 Git/Maven/npm/Go
-#   - 手动部署不会修改系统软件源，也不会自动安装 JDK、Nginx、Redis 等系统组件
+#   - DEPENDENCY_INSTALL_MODE=auto 时，脚本使用系统包管理器安装缺失的安全依赖
+#   - 源码构建优先使用可用的 Docker 隔离构建；没有 Docker 时检查/安装 Git/Maven/npm/Go
+#   - 外部 MySQL/Redis/RocketMQ 永远只连接，不会在本机安装或覆盖
+#   - MySQL 5.7 服务端与 Docker Engine 不自动安装；本机 Redis 仅在无认证默认配置时可自动安装
 #   - TOKEN_SECRET 留空 = 部署脚本自动生成强随机值写回本文件
 #   - 密码不能包含 空格、#、引号、$、反斜杠（会破坏配置解析）
 #   - 数据目录默认 /data/aid，如需更换：执行脚本前 export AID_DATA_ROOT=/你的路径
@@ -18,6 +19,12 @@
 
 # ---------------- HTTP 端口（无需域名） ----------------
 DATA_ROOT=/data/aid
+
+# ---------------- 依赖处理 ----------------
+# auto（默认）：缺失的Git/JDK17/Maven/Node/Go/Nginx/MySQL客户端等使用系统包管理器安装；
+# manual：只检查并打印缺失项，不安装软件。已有且版本合格的依赖两种模式都会跳过。
+# Docker Engine、MySQL5.7服务端、外部Redis/RocketMQ永远不会被本脚本自动安装或覆盖。
+DEPENDENCY_INSTALL_MODE=auto
 # 用户端（C端）对外端口，由 Nginx 监听
 HTTP_PORT=80
 # 后台管理端对外端口（独立端口、根路径托管）
@@ -66,6 +73,8 @@ JAVA_OPTS=-Xms1g -Xmx2g
 ROCKETMQ_ENABLED=false
 # NameServer 地址（本机自装或另一台机器均可）
 ROCKETMQ_NAMESERVER=127.0.0.1:9876
+# 外部/自建 Broker 的刷盘模式由其服务端配置决定；本字段用于统一记录和后台展示。
+ROCKETMQ_FLUSH_DISK_TYPE=ASYNC_FLUSH
 # RocketMQ ACL AccessKey/SecretKey；未启用 ACL 时同时留空
 ROCKETMQ_ACCESS_KEY=
 ROCKETMQ_SECRET_KEY=

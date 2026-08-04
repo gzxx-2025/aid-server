@@ -6,8 +6,19 @@ RUNTIME_CONFIG=/tmp/aid-broker.conf
 ACL_CONFIG="${ROCKETMQ_HOME}/conf/plain_acl.yml"
 ACCESS_KEY="${ROCKETMQ_ACCESS_KEY:-}"
 SECRET_KEY="${ROCKETMQ_SECRET_KEY:-}"
+FLUSH_DISK_TYPE="${ROCKETMQ_FLUSH_DISK_TYPE:-ASYNC_FLUSH}"
 
 cp "${BASE_CONFIG}" "${RUNTIME_CONFIG}"
+
+case "${FLUSH_DISK_TYPE}" in
+    ASYNC_FLUSH|SYNC_FLUSH) ;;
+    *)
+        echo "ROCKETMQ_FLUSH_DISK_TYPE 只支持 ASYNC_FLUSH 或 SYNC_FLUSH" >&2
+        exit 1
+        ;;
+esac
+sed -i "s/^flushDiskType[[:space:]]*=.*/flushDiskType = ${FLUSH_DISK_TYPE}/" "${RUNTIME_CONFIG}"
+echo "RocketMQ Broker 刷盘模式: ${FLUSH_DISK_TYPE}"
 
 if [ -n "${ACCESS_KEY}" ] || [ -n "${SECRET_KEY}" ]; then
     if [ -z "${ACCESS_KEY}" ] || [ -z "${SECRET_KEY}" ]; then

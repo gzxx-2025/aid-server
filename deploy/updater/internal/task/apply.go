@@ -267,7 +267,17 @@ func (r *Runner) buildSourcePackage(t *Task, archivePath, sourceWorkDir string) 
 		"--version", t.TargetVersion,
 		"--output", archivePath,
 		"--work-dir", sourceWorkDir)
-	cmd.Env = append(os.Environ(), "AID_DATA_ROOT="+filepath.Dir(filepath.Dir(r.cfg.Install.BackendJar)))
+	deploymentState, err := r.cfg.ReadDeploymentState()
+	if err != nil {
+		return fmt.Errorf("读取依赖安装模式失败: %w", err)
+	}
+	dependencyMode := strings.TrimSpace(deploymentState.Values["DEPENDENCY_INSTALL_MODE"])
+	if dependencyMode == "" {
+		dependencyMode = "auto"
+	}
+	cmd.Env = append(os.Environ(),
+		"AID_DATA_ROOT="+filepath.Dir(filepath.Dir(r.cfg.Install.BackendJar)),
+		"AID_DEPENDENCY_INSTALL_MODE="+dependencyMode)
 	cmd.Stdout = log.Writer()
 	cmd.Stderr = log.Writer()
 	log.Printf("开始远程源码构建 AID %s", t.TargetVersion)
