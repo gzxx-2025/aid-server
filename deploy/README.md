@@ -1,6 +1,6 @@
 # AID 部署指南
 
-本目录包含 AID 全部部署设施。**普通用户无需预先下载 `aid.sh`，复制一条官方命令即可安装或更新**：命令先把最新脚本保存到本机，再由 Bash 执行；脚本会读取签名版本清单，优先检查 GitHub 的三端版本标签，无法访问时整组切换到 Gitee，然后在服务器临时目录构建服务端、后台管理端、Web 用户端和升级器。构建全部成功并通过包结构校验后才进入安装或升级。两种部署方式均可使用脚本或后台「一键在线升级」。
+本目录包含 AID 全部部署设施。**普通用户无需预先下载 `aid.sh`，复制一条官方命令即可安装或更新**：命令先从 Gitee 获取最新脚本，失败时可使用 GitHub 备用地址，再由 Bash 执行；脚本会读取签名版本清单，优先检查 Gitee 的三端版本标签，无法访问时整组切换到 GitHub，然后在服务器临时目录构建服务端、后台管理端、Web 用户端和升级器。构建全部成功并通过包结构校验后才进入安装或升级。两种部署方式均可使用脚本或后台「一键在线升级」。
 
 | 方式 | 适用场景 | 说明 |
 |------|---------|------|
@@ -42,7 +42,7 @@ Gitee 原始文件访问失败时，可改用 GitHub 备用地址：
 if command -v curl >/dev/null 2>&1; then curl -fL --retry 3 -o aid-install.sh https://raw.githubusercontent.com/gzxx-2025/aid-server/master/deploy/aid.sh; elif command -v wget >/dev/null 2>&1; then wget -O aid-install.sh https://raw.githubusercontent.com/gzxx-2025/aid-server/master/deploy/aid.sh; else echo '请先安装 curl 或 wget'; false; fi && sudo env AID_REMOTE_BOOTSTRAP=1 bash aid-install.sh install
 ```
 
-首次执行会自动完成：读取官方签名版本清单 → 正式版/Beta 渠道判断 → 检测 GitHub 三仓标签 → 失败时整组回退 Gitee → 在独立临时目录构建三端与升级器 → 本地 SHA256 与包结构校验 → 提取受管安装器到 `/data/aid/installer` → 自动生成安全配置和强随机密钥 → 硬件检查 → 部署三端与中间件 → 初始化空数据库 → 安装在线升级器 → 健康检查。源码拉取或构建失败不会替换现有服务。
+首次执行会自动完成：读取官方签名版本清单 → 正式版/Beta 渠道判断 → 检测 Gitee 三仓标签 → 失败时整组回退 GitHub → 在独立临时目录构建三端与升级器 → 本地 SHA256 与包结构校验 → 提取受管安装器到 `/data/aid/installer` → 自动生成安全配置和强随机密钥 → 硬件检查 → 部署三端与中间件 → 初始化空数据库 → 安装在线升级器 → 健康检查。源码拉取或构建失败不会替换现有服务。
 
 配置是首次部署的强制前置步骤：脚本先生成正式配置文件，要求管理员检查、校验并明确确认；在确认完成前不会检查或安装环境、拉取三端源码、构建程序、初始化数据库或启动服务。无人值守部署必须同时设置 `AID_ASSUME_YES=1` 与 `AID_CONFIG_CONFIRMED=1`，避免流水线误用默认配置直接上线。
 
@@ -151,7 +151,7 @@ MySQL 首次启动自动创建 `aid_test` 库并导入 `sql/` 初始化脚本（
 
 ## 一、版本标签源码构建
 
-正常部署和更新都由 `aid.sh` 自动处理，不需要用户访问发布页。版本清单优先从 Gitee 获取、GitHub 兜底；源码平台则先实际检测 GitHub 的 `aid-server`、`aid-admin`、`aid-web` 三个仓库是否都存在目标标签，任一失败就整组切换到 Gitee。构建固定使用 `v<版本>` 标签，绝不拉取会继续变化的 `master`。
+正常部署和更新都由 `aid.sh` 自动处理，不需要用户访问发布页。版本清单、源码标签和小型升级器均以 Gitee 为主源、GitHub 为备用源；源码平台会先实际检测 Gitee 的 `aid-server`、`aid-admin`、`aid-web` 三个仓库是否都存在目标标签，任一失败就整组切换到 GitHub。构建固定使用 `v<版本>` 标签，绝不拉取会继续变化的 `master`，也不会在同一次构建中混用两个平台。
 
 Docker 构建固定使用 Node.js 22.22.0；Java 构建与运行固定使用 Eclipse Temurin OpenJDK 17.0.20+8。JDK 按宿主机架构自动选择 x64 或 AArch64 压缩包，下载后核对 Adoptium 官方 SHA-256，不修改宿主机默认 Java。构建镜像与依赖缓存在 `/data/aid/build-cache`，后续升级会直接复用。
 

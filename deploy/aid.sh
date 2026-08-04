@@ -1284,7 +1284,7 @@ bootstrap_source_builder() {
       && warn "目标版本尚未内置源码构建器，改从公开 master 获取构建工具；业务源码仍固定使用 v${RESOLVED_VERSION} 标签"
     remoteRef="refs/tags/${sourceRef}"
     [[ "${sourceRef}" == "master" ]] && remoteRef="refs/heads/master"
-    for base in https://github.com/gzxx-2025 https://gitee.com/gzxx-2025; do
+    for base in https://gitee.com/gzxx-2025 https://github.com/gzxx-2025; do
       rm -rf "${tmpDir}/server"
       log "获取源码构建器 ${sourceRef}: ${base}"
       repoUrl="${base}/aid-server.git"
@@ -1325,7 +1325,7 @@ bootstrap_source_builder() {
     done
   done
   rm -rf "${tmpDir}"
-  die "版本 v${RESOLVED_VERSION} 缺少源码构建器，或 GitHub/Gitee 均不可访问"
+  die "版本 v${RESOLVED_VERSION} 缺少源码构建器，或 Gitee/GitHub 均不可访问"
 }
 
 ensure_source_package() {
@@ -1355,7 +1355,7 @@ ensure_source_package() {
   prepare_source_build_images
   builder="${SOURCE_BUILDER_PATH}"
   section "远程源码构建 AID v${RESOLVED_VERSION}"
-  warn "只拉取三个公开仓库的 v${RESOLVED_VERSION} 标签；GitHub 不通时整组回退到 Gitee"
+  warn "只拉取三个公开仓库的 v${RESOLVED_VERSION} 标签；优先 Gitee，失败时整组回退到 GitHub"
   warn "首次构建需要下载 Maven/npm/Go 依赖及构建镜像，请预留至少 15GB 磁盘与足够时间"
   AID_DATA_ROOT="${DATA_ROOT}" AID_MANIFEST_PUBLIC_KEY="${TRUSTED_MANIFEST_PUBLIC_KEY}" \
     AID_DEPENDENCY_REGION="$(dependency_region_setting)" \

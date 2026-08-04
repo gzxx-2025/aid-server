@@ -150,7 +150,7 @@ aid-server（Maven 多模块单体）
 if command -v curl >/dev/null 2>&1; then curl -fL --retry 3 -o aid-install.sh https://gitee.com/gzxx-2025/aid-server/raw/master/deploy/aid.sh; elif command -v wget >/dev/null 2>&1; then wget -O aid-install.sh https://gitee.com/gzxx-2025/aid-server/raw/master/deploy/aid.sh; else echo '请先安装 curl 或 wget'; false; fi && sudo env AID_REMOTE_BOOTSTRAP=1 bash aid-install.sh install
 ```
 
-脚本会自动发现当前渠道最新版本，优先检测 GitHub 三端的同一版本标签；GitHub 不通时整组切到 Gitee，在服务器临时目录完成服务端、后台管理端、Web 用户端和升级器构建，校验通过后再生成安全配置、部署中间件、初始化空数据库。同一条远程命令在已部署机器上会自动改为检查更新，不会重复初始化数据库；将末尾的 `install` 改为 `install-manual` 可进行手动 systemd 首次部署，改为 `update` 可明确执行 Docker/手动部署通用更新。每次更新都会先在原配置同目录生成时间戳备份，再保持已有内容和值完全不变，仅追加目标版本模板新增而本地缺失的参数。部署成功后也可直接使用 `sudo aid update`。完整流程、命令与风险说明见[部署指南](deploy/README.md)。
+脚本会自动发现当前渠道最新版本，优先检测 Gitee 三端的同一版本标签；Gitee 不通时整组切到 GitHub，在服务器临时目录完成服务端、后台管理端、Web 用户端和升级器构建，校验通过后再生成安全配置、部署中间件、初始化空数据库。同一条远程命令在已部署机器上会自动改为检查更新，不会重复初始化数据库；将末尾的 `install` 改为 `install-manual` 可进行手动 systemd 首次部署，改为 `update` 可明确执行 Docker/手动部署通用更新。每次更新都会先在原配置同目录生成时间戳备份，再保持已有内容和值完全不变，仅追加目标版本模板新增而本地缺失的参数。部署成功后也可直接使用 `sudo aid update`。完整流程、命令与风险说明见[部署指南](deploy/README.md)。
 
 Docker 与手动 systemd 部署均支持可选 HTTPS：配置用户端与管理端两个域名、443 端口及 `DATA_ROOT/config/ssl` 下的证书即可启用 TLS；未启用时不会占用 443。Docker 可在内置 MySQL 5.7 与外部 MySQL 5.7 之间明确切换，外部模式不会启动内置数据库；Redis 支持可选 ACL 用户名、密码和数据库索引；内置及外部 RocketMQ 均支持可选 AccessKey/SecretKey，内置 Broker 还可选择同步/异步刷盘，所有密钥均由升级器脱敏管理。依赖默认按需处理：Docker 自动拉取缺失镜像，手动部署通过系统包管理器安装安全依赖，已有且版本合格的内容自动跳过；Docker Engine、MySQL 5.7 服务端和外部中间件不会被脚本擅自安装或覆盖。不要把 `HTTP_PORT` 直接设置为 443，这不会产生 HTTPS。完整配置、Nginx 路径与切换保护见[部署指南](deploy/README.md#内置或外部-mysqlredisrocketmq)。
 

@@ -1,6 +1,6 @@
 #!/bin/sh
 # AID 远程源码构建器：从同一版本标签拉取三端公开源码，在临时目录完成构建并组装本地安装包。
-# GitHub 三仓均可访问时优先使用 GitHub；任一不可用则整组回退到 Gitee，禁止混用来源。
+# Gitee 三仓均可访问时优先使用 Gitee；任一不可用则整组回退到 GitHub，禁止混用来源。
 
 set -eu
 
@@ -286,15 +286,15 @@ select_forge() {
       probe_forge "$GITEE_BASE" || die "Gitee 三端源码标签 $TAG 不完整或网络不可达"
       SOURCE_BASE="$GITEE_BASE"; SOURCE_FORGE=gitee ;;
     auto)
-      log "检测 GitHub 三端源码标签 $TAG"
-      if probe_forge "$GITHUB_BASE"; then
-        SOURCE_BASE="$GITHUB_BASE"; SOURCE_FORGE=github
-        log 'GitHub 可用，使用 GitHub 源码'
-      else
-        warn 'GitHub 不可用或标签不完整，整组切换到 Gitee'
-        probe_forge "$GITEE_BASE" || die "GitHub 与 Gitee 均无法提供完整的三端标签 $TAG"
+      log "检测 Gitee 三端源码标签 $TAG"
+      if probe_forge "$GITEE_BASE"; then
         SOURCE_BASE="$GITEE_BASE"; SOURCE_FORGE=gitee
-        log 'Gitee 可用，使用 Gitee 源码'
+        log 'Gitee 可用，使用 Gitee 主源'
+      else
+        warn 'Gitee 不可用或标签不完整，整组切换到 GitHub 备用源'
+        probe_forge "$GITHUB_BASE" || die "Gitee 与 GitHub 均无法提供完整的三端标签 $TAG"
+        SOURCE_BASE="$GITHUB_BASE"; SOURCE_FORGE=github
+        log 'GitHub 可用，使用 GitHub 备用源'
       fi ;;
   esac
 }
@@ -719,13 +719,20 @@ STAGING_DIR="$WORK_DIR/staging"
 
 log "按版本标签拉取三端源码: $TAG"
 if ! clone_release_set; then
-  if [ "$SOURCE_FORGE" = github ]; then
-    warn 'GitHub 探测成功但拉取中断，清理未完成源码后整组重试 Gitee'
-    probe_forge "$GITEE_BASE" || die "Gitee 三端源码标签 $TAG 不完整或网络不可达"
+  if [ "$FORGE" = auto ] && [ "$SOURCE_FORGE" = gitee ]; then
+    warn 'Gitee 探测成功但拉取中断，清理未完成源码后整组重试 GitHub 备用源'
+    probe_forge "$GITHUB_BASE" || die "GitHub 三端源码标签 $TAG 不完整或网络不可达"
+    SOURCE_BASE="$GITHUB_BASE"
+    SOURCE_FORGE=github
+    prepare_dependency_mirrors
+    clone_release_set || die "从 GitHub 备用源拉取三端源码失败"
+  elif [ "$FORGE" = auto ] && [ "$SOURCE_FORGE" = github ]; then
+    warn 'GitHub 备用源探测成功但拉取中断，重新检查 Gitee 主源'
+    probe_forge "$GITEE_BASE" || die "Gitee 与 GitHub 均无法稳定提供三端源码标签 $TAG"
     SOURCE_BASE="$GITEE_BASE"
     SOURCE_FORGE=gitee
     prepare_dependency_mirrors
-    clone_release_set || die "从 Gitee 拉取三端源码失败"
+    clone_release_set || die "从 Gitee 主源拉取三端源码失败"
   else
     die "从 $SOURCE_FORGE 拉取三端源码失败"
   fi
