@@ -1331,7 +1331,8 @@ bootstrap_source_builder() {
 ensure_source_package() {
   mkdir -p "${DATA_ROOT}/packages"
   RESOLVED_PACKAGE_PATH="${DATA_ROOT}/packages/aid-v${RESOLVED_VERSION}.tar.gz"
-  local builder actual checksumFile ownerMode owner modeBits
+  local builder actual checksumFile ownerMode owner modeBits buildLog buildStamp
+  local -a buildStatuses
   checksumFile="${RESOLVED_PACKAGE_PATH}.sha256"
   if [[ -f "${RESOLVED_PACKAGE_PATH}" && -f "${checksumFile}" && "${AID_FORCE_SOURCE_REBUILD:-0}" != "1" ]]; then
     actual="$(sha256_file "${RESOLVED_PACKAGE_PATH}" || true)"
@@ -1357,19 +1358,31 @@ ensure_source_package() {
   section "远程源码构建 AID v${RESOLVED_VERSION}"
   warn "只拉取三个公开仓库的 v${RESOLVED_VERSION} 标签；优先 Gitee，失败时整组回退到 GitHub"
   warn "首次构建需要下载 Maven/npm/Go 依赖及构建镜像，请预留至少 15GB 磁盘与足够时间"
+  mkdir -p "${DATA_ROOT}/logs" || die "无法创建构建日志目录: ${DATA_ROOT}/logs"
+  buildStamp="$(date '+%Y%m%d-%H%M%S')"
+  buildLog="${DATA_ROOT}/logs/source-build-v${RESOLVED_VERSION}-${buildStamp}.log"
+  : > "${buildLog}" || die "无法创建三端构建日志: ${buildLog}"
+  chmod 600 "${buildLog}" 2>/dev/null || true
+  log "三端编译实时日志将同时保存到: ${buildLog}"
   AID_DATA_ROOT="${DATA_ROOT}" AID_MANIFEST_PUBLIC_KEY="${TRUSTED_MANIFEST_PUBLIC_KEY}" \
     AID_DEPENDENCY_REGION="$(dependency_region_setting)" \
     AID_MANAGER_SCRIPT="${SCRIPT_DIR}/$(basename "${BASH_SOURCE[0]}")" \
     sh "${builder}" --version "${RESOLVED_VERSION}" --output "${RESOLVED_PACKAGE_PATH}" \
-      --work-dir "${DATA_ROOT}/source-build/v${RESOLVED_VERSION}" \
-    || die "三端源码构建失败；现有部署未被修改，请根据上方具体构建日志处理后重试"
+      --work-dir "${DATA_ROOT}/source-build/v${RESOLVED_VERSION}" 2>&1 | tee -a "${buildLog}"
+  buildStatuses=( "${PIPESTATUS[@]}" )
+  if (( buildStatuses[0] != 0 )); then
+    die "三端源码构建失败；现有部署未被修改，请查看日志 ${buildLog}"
+  fi
+  if (( buildStatuses[1] != 0 )); then
+    die "三端源码构建日志写入失败；现有部署未被修改，请检查磁盘空间: ${buildLog}"
+  fi
   validate_release_package "${RESOLVED_PACKAGE_PATH}" no
   actual="$(sha256_file "${RESOLVED_PACKAGE_PATH}" || true)"
   [[ -n "${actual}" ]] || die "无法计算源码构建包 SHA256"
   printf '%s  %s\n' "${actual}" "$(basename "${RESOLVED_PACKAGE_PATH}")" > "${checksumFile}"
   chmod 600 "${RESOLVED_PACKAGE_PATH}" "${checksumFile}" 2>/dev/null || true
   RESOLVED_PACKAGE_SHA256="${actual}"
-  ok "三端源码构建、包结构与本地 SHA256 校验通过"
+  ok "三端源码构建、包结构与本地 SHA256 校验通过；完整日志: ${buildLog}"
 }
 
 deployment_runtime_ready() {

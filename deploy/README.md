@@ -155,7 +155,9 @@ MySQL 首次启动自动创建 `aid_test` 库并导入 `sql/` 初始化脚本（
 
 Docker 构建固定使用 Node.js 22.22.0；Java 构建与运行固定使用 Eclipse Temurin OpenJDK 17.0.20+8。JDK 按宿主机架构自动选择 x64 或 AArch64 压缩包，下载后核对 Adoptium 官方 SHA-256，不修改宿主机默认 Java。构建镜像与依赖缓存在 `/data/aid/build-cache`，后续升级会直接复用。
 
-`DEPENDENCY_REGION=auto` 会在目标服务器运行时按公网出口地区自动选择下载线路，地区服务不可用时再按网络可达性判断：国内优先 DaoCloud Docker Hub 镜像、清华 Adoptium 镜像、npmmirror、阿里云 Maven 和 goproxy.cn；国际优先 Docker Hub、Adoptium、npm、Maven Central 和 proxy.golang.org。首选线路失败会自动回退另一条线路，也可明确设置为 `cn` 或 `global`。Docker 国内镜像按标签下载后必须匹配发布脚本内固定的官方 RepoDigest，否则会拒绝使用并尝试官方地址。
+`DEPENDENCY_REGION=auto` 会在目标服务器运行时按公网出口地区自动选择下载线路，地区服务不可用时再按网络可达性判断：国内优先 DaoCloud Docker Hub 镜像、清华 Adoptium 镜像、npmmirror 和 goproxy.cn；国际优先 Docker Hub、Adoptium、npm 和 proxy.golang.org。Maven 在两种线路下均固定优先使用阿里云公共仓库，失败时自动用原始 Maven Central 重新构建；可通过 `AID_MAVEN_MIRROR_URL` 与 `AID_MAVEN_FALLBACK_URL` 分别覆盖。其他首选线路失败也会自动回退，且可明确设置为 `cn` 或 `global`。Docker 国内镜像按标签下载后必须匹配发布脚本内固定的官方 RepoDigest，否则会拒绝使用并尝试官方地址。
+
+三端构建不再隐藏 Maven 输出，并会分别打印服务端、后台管理端、Web 用户端的依赖安装、编译和完成状态。通过 `aid.sh` 部署或更新时，终端实时显示同一份日志，并以 `source-build-v<版本>-<时间>.log` 保存到 `/data/aid/logs/`；后台一键升级时，相同输出会进入升级器的 `updater.log`。
 
 只有离线部署或开发调试时才需要自行准备本地包，可通过 `sudo bash aid.sh install-docker /path/to/aid-vX.Y.Z.tar.gz` 使用。因为外部本地包不在在线签名链路中，脚本会以红色风险信息提示，只做结构校验。
 

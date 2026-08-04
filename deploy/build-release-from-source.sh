@@ -46,6 +46,7 @@ usage() {
   AID_DATA_ROOT               数据目录，默认 /data/aid
   AID_NPM_REGISTRY            覆盖首选 npm 镜像
   AID_MAVEN_MIRROR_URL        覆盖首选 Maven 镜像
+  AID_MAVEN_FALLBACK_URL      覆盖备用 Maven 仓库
   AID_GO_PROXY                覆盖 Go 模块代理链
   AID_DEPENDENCY_REGION       依赖线路：auto、cn 或 global；auto 按服务器公网出口地区选择
   AID_DOCKER_CN_MIRROR        Docker Hub 国内镜像域名，默认 docker.m.daocloud.io
@@ -343,18 +344,21 @@ prepare_dependency_mirrors() {
   if [ "$RESOLVED_DEPENDENCY_REGION" = cn ]; then
     NPM_REGISTRY="${AID_NPM_REGISTRY:-https://registry.npmmirror.com}"
     NPM_REGISTRY_FALLBACK="https://registry.npmjs.org"
-    MAVEN_MIRROR_URL="${AID_MAVEN_MIRROR_URL:-https://maven.aliyun.com/repository/public}"
-    MAVEN_MIRROR_FALLBACK_URL="https://repo.maven.apache.org/maven2"
     GO_PROXY="${AID_GO_PROXY:-https://goproxy.cn|https://proxy.golang.org|direct}"
     warn '已自动选择国内依赖线路；Docker、JDK、Maven、npm、Go 均优先使用国内镜像并保留官方回退'
   else
     NPM_REGISTRY="${AID_NPM_REGISTRY:-https://registry.npmjs.org}"
     NPM_REGISTRY_FALLBACK="https://registry.npmmirror.com"
-    MAVEN_MIRROR_URL="${AID_MAVEN_MIRROR_URL:-https://repo.maven.apache.org/maven2}"
-    MAVEN_MIRROR_FALLBACK_URL="https://maven.aliyun.com/repository/public"
     GO_PROXY="${AID_GO_PROXY:-https://proxy.golang.org|https://goproxy.cn|direct}"
-    log '已自动选择国际依赖线路；Docker、JDK、Maven、npm、Go 均保留国内备用线路'
+    log '已自动选择国际依赖线路；Docker、JDK、npm、Go 均保留国内备用线路'
   fi
+  # 线上源码构建固定优先使用国内 Maven 镜像；国内镜像不可用时，重新执行
+  # Maven 构建并回退到原始 Maven Central，避免单一镜像故障阻断部署。
+  MAVEN_MIRROR_URL="${AID_MAVEN_MIRROR_URL:-https://maven.aliyun.com/repository/public}"
+  MAVEN_MIRROR_FALLBACK_URL="${AID_MAVEN_FALLBACK_URL:-https://repo.maven.apache.org/maven2}"
+  case "$MAVEN_MIRROR_URL" in https://*) ;; *) die "Maven 首选仓库必须使用 HTTPS: $MAVEN_MIRROR_URL" ;; esac
+  case "$MAVEN_MIRROR_FALLBACK_URL" in https://*) ;; *) die "Maven 备用仓库必须使用 HTTPS: $MAVEN_MIRROR_FALLBACK_URL" ;; esac
+  log "Maven 仓库：国内主源 $MAVEN_MIRROR_URL；官方备用 $MAVEN_MIRROR_FALLBACK_URL"
   write_maven_settings "$WORK_DIR/maven-settings.xml" "$MAVEN_MIRROR_URL" aid-build-primary
   write_maven_settings "$WORK_DIR/maven-settings-fallback.xml" "$MAVEN_MIRROR_FALLBACK_URL" aid-build-fallback
 }
@@ -518,11 +522,12 @@ docker_maven_build() {
     'export JAVA_HOME=/opt/aid-jdk; export PATH="$JAVA_HOME/bin:$PATH"; \
      java -version 2>&1 | head -n 1 | grep -F "17.0.20" >/dev/null \
        || { echo "[失败] Maven未使用OpenJDK 17.0.20" >&2; exit 1; }; \
-     exec mvn -s /tmp/settings.xml -Dmaven.repo.local=/cache/m2 clean package -DskipTests -q'
+     exec mvn -s /tmp/settings.xml -Dmaven.repo.local=/cache/m2 clean package -DskipTests'
 }
 
 docker_npm_build() {
   source_dir="$1"; cache_dir="$2"; label="$3"; selected_registry="$NPM_REGISTRY"
+  log "[构建][$label][依赖] npm ci，首选源: $NPM_REGISTRY"
   if ! docker run --rm --user "$uid_gid" -e NUXT_TELEMETRY_DISABLED=1 \
       -e "npm_config_registry=$NPM_REGISTRY" -e npm_config_cache=/cache/npm \
       -v "$source_dir:/workspace" -v "$cache_dir:/cache/npm" \
@@ -536,21 +541,26 @@ docker_npm_build() {
       -w /workspace "$NODE_IMAGE" sh -lc \
       '[ "$(node -v)" = v22.22.0 ] || exit 1; npm ci'
   fi
+  log "[构建][$label][编译] npm run build，使用源: $selected_registry"
   docker run --rm --user "$uid_gid" -e NUXT_TELEMETRY_DISABLED=1 \
     -e "npm_config_registry=$selected_registry" -e npm_config_cache=/cache/npm \
     -v "$source_dir:/workspace" -v "$cache_dir:/cache/npm" \
     -w /workspace "$NODE_IMAGE" npm run build
+  log "[构建][$label][完成] 生产构建成功"
 }
 
 host_npm_build() {
   source_dir="$1"; cache_dir="$2"; label="$3"; selected_registry="$NPM_REGISTRY"
+  log "[构建][$label][依赖] npm ci，首选源: $NPM_REGISTRY"
   if ! (cd "$source_dir" && npm_config_registry="$NPM_REGISTRY" npm_config_cache="$cache_dir" npm ci); then
     warn "$label npm 依赖从首选源安装失败，切换备用源: $NPM_REGISTRY_FALLBACK"
     selected_registry="$NPM_REGISTRY_FALLBACK"
     (cd "$source_dir" && npm_config_registry="$selected_registry" npm_config_cache="$cache_dir" npm ci)
   fi
+  log "[构建][$label][编译] npm run build，使用源: $selected_registry"
   (cd "$source_dir" && NUXT_TELEMETRY_DISABLED=1 npm_config_registry="$selected_registry" \
     npm_config_cache="$cache_dir" npm run build)
+  log "[构建][$label][完成] 生产构建成功"
 }
 
 require_local_build_tools() {
@@ -567,16 +577,17 @@ require_local_build_tools() {
 
 build_with_docker() {
   uid_gid="$(id -u):$(id -g)"
-  log "编译服务端（Temurin OpenJDK $JDK_VERSION + Maven）"
+  log "[构建][服务端][开始] Temurin OpenJDK $JDK_VERSION + Maven，国内主源: $MAVEN_MIRROR_URL"
   if ! docker_maven_build "$WORK_DIR/maven-settings.xml"; then
     warn "Maven 从首选仓库构建失败，切换备用仓库: $MAVEN_MIRROR_FALLBACK_URL"
     docker_maven_build "$WORK_DIR/maven-settings-fallback.xml"
   fi
+  log '[构建][服务端][完成] aid-admin.jar 构建成功'
 
-  log '编译后台管理端（Node.js 22.22.0）'
+  log '[构建][后台管理端][开始] Node.js 22.22.0'
   docker_npm_build "$ADMIN_DIR" "$CACHE_DIR/npm-admin" '后台管理端'
 
-  log '编译 Web 用户端（Node.js 22.22.0）'
+  log '[构建][Web用户端][开始] Node.js 22.22.0'
   docker_npm_build "$WEB_DIR" "$CACHE_DIR/npm-web" 'Web用户端'
 
   for arch in amd64 arm64; do
@@ -593,16 +604,17 @@ build_with_docker() {
 
 build_with_host() {
   require_local_build_tools
-  log "使用隔离的 Temurin OpenJDK $JDK_VERSION 编译服务端，不修改系统默认 Java"
+  log "[构建][服务端][开始] 隔离 Temurin OpenJDK $JDK_VERSION + Maven，国内主源: $MAVEN_MIRROR_URL"
   if ! (cd "$SERVER_DIR" && JAVA_HOME="$JDK_HOME" PATH="$JDK_HOME/bin:$PATH" \
-      mvn -s "$WORK_DIR/maven-settings.xml" -Dmaven.repo.local="$CACHE_DIR/m2" clean package -DskipTests -q); then
+      mvn -s "$WORK_DIR/maven-settings.xml" -Dmaven.repo.local="$CACHE_DIR/m2" clean package -DskipTests); then
     warn "Maven 从首选仓库构建失败，切换备用仓库: $MAVEN_MIRROR_FALLBACK_URL"
     (cd "$SERVER_DIR" && JAVA_HOME="$JDK_HOME" PATH="$JDK_HOME/bin:$PATH" \
-      mvn -s "$WORK_DIR/maven-settings-fallback.xml" -Dmaven.repo.local="$CACHE_DIR/m2" clean package -DskipTests -q)
+      mvn -s "$WORK_DIR/maven-settings-fallback.xml" -Dmaven.repo.local="$CACHE_DIR/m2" clean package -DskipTests)
   fi
-  log '使用服务器本机工具链编译后台管理端'
+  log '[构建][服务端][完成] aid-admin.jar 构建成功'
+  log '[构建][后台管理端][开始] 使用服务器本机 Node.js 工具链'
   host_npm_build "$ADMIN_DIR" "$CACHE_DIR/npm-admin" '后台管理端'
-  log '使用服务器本机工具链编译 Web 用户端'
+  log '[构建][Web用户端][开始] 使用服务器本机 Node.js 工具链'
   host_npm_build "$WEB_DIR" "$CACHE_DIR/npm-web" 'Web用户端'
   for arch in amd64 arm64; do
     log "编译升级器 linux/$arch"
