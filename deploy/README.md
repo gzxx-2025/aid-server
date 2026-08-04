@@ -1,6 +1,6 @@
 # AID 部署指南
 
-本目录包含 AID 全部部署设施。**普通用户只需下载一个 `aid.sh` 文件**：脚本会读取签名版本清单，优先检查 GitHub 的三端版本标签，无法访问时整组切换到 Gitee，然后在服务器临时目录构建服务端、后台管理端、Web 用户端和升级器。构建全部成功并通过包结构校验后才进入安装或升级；以后再次运行同一个文件会自动切换到已安装的最新版管理脚本。两种部署方式均可使用后台「一键在线升级」。
+本目录包含 AID 全部部署设施。**普通用户无需预先下载 `aid.sh`，复制一条官方命令即可安装或更新**：命令先把最新脚本保存到本机，再由 Bash 执行；脚本会读取签名版本清单，优先检查 GitHub 的三端版本标签，无法访问时整组切换到 Gitee，然后在服务器临时目录构建服务端、后台管理端、Web 用户端和升级器。构建全部成功并通过包结构校验后才进入安装或升级。两种部署方式均可使用脚本或后台「一键在线升级」。
 
 | 方式 | 适用场景 | 说明 |
 |------|---------|------|
@@ -30,23 +30,16 @@ deploy/
 ## 一键部署（推荐）
 
 ```bash
-# 只下载这一个文件；脚本会自动拉取版本标签，不需要去 Release 页面下载程序包
-curl -fL https://gitee.com/gzxx-2025/aid-server/raw/master/deploy/aid.sh -o aid.sh
-
-# 直接执行 Docker 一键部署
-sudo bash aid.sh install
-
-# 也可以打开管理菜单后选择 1
-# sudo bash aid.sh
+# Docker 首次部署；curl 不可用时自动改用 wget
+if command -v curl >/dev/null 2>&1; then curl -fL --retry 3 -o aid-install.sh https://gitee.com/gzxx-2025/aid-server/raw/master/deploy/aid.sh; elif command -v wget >/dev/null 2>&1; then wget -O aid-install.sh https://gitee.com/gzxx-2025/aid-server/raw/master/deploy/aid.sh; else echo '请先安装 curl 或 wget'; false; fi && sudo env AID_REMOTE_BOOTSTRAP=1 bash aid-install.sh install
 ```
 
-`install` 是自动入口：未部署时执行推荐的 Docker 首次安装；检测到已经部署时自动改为检查并升级，不会重复初始化数据库。部署成功后还会安全创建 `sudo aid` 管理命令（如果系统已有同名命令则不覆盖），以后可直接执行 `sudo aid` 或 `sudo aid update`。
+这条命令不会把网络响应直接送入 Shell：只有 `curl/wget` 成功保存 `aid-install.sh` 后才执行。`AID_REMOTE_BOOTSTRAP=1` 表示本次必须使用刚下载的最新控制逻辑；在已部署服务器上不会被旧的受管脚本接管。`install` 是自动入口：未部署时执行推荐的 Docker 首次安装；检测到已经部署时自动改为检查并升级，不会重复初始化数据库。部署成功后还会安全创建 `sudo aid` 管理命令（如果系统已有同名命令则不覆盖）。
 
 Gitee 原始文件访问失败时，可改用 GitHub 备用地址：
 
 ```bash
-curl -fL https://raw.githubusercontent.com/gzxx-2025/aid-server/master/deploy/aid.sh -o aid.sh
-sudo bash aid.sh install
+if command -v curl >/dev/null 2>&1; then curl -fL --retry 3 -o aid-install.sh https://raw.githubusercontent.com/gzxx-2025/aid-server/master/deploy/aid.sh; elif command -v wget >/dev/null 2>&1; then wget -O aid-install.sh https://raw.githubusercontent.com/gzxx-2025/aid-server/master/deploy/aid.sh; else echo '请先安装 curl 或 wget'; false; fi && sudo env AID_REMOTE_BOOTSTRAP=1 bash aid-install.sh install
 ```
 
 首次执行会自动完成：读取官方签名版本清单 → 正式版/Beta 渠道判断 → 检测 GitHub 三仓标签 → 失败时整组回退 Gitee → 在独立临时目录构建三端与升级器 → 本地 SHA256 与包结构校验 → 提取受管安装器到 `/data/aid/installer` → 自动生成安全配置和强随机密钥 → 硬件检查 → 部署三端与中间件 → 初始化空数据库 → 安装在线升级器 → 健康检查。源码拉取或构建失败不会替换现有服务。
@@ -55,7 +48,31 @@ sudo bash aid.sh install
 
 生成配置文件不等于已经部署。即使管理员在最终确认处选择 `no`，再次执行 `sudo bash aid.sh install` 仍会继续走首次部署，不会误进入升级流程；只有服务健康检查成功后才记录已部署状态。
 
-> 默认渠道为 `auto`：有正式版时安装正式版；尚无正式版时才选择最新 Beta，并用黄色/红色信息明确提醒。明确需要测试版时可执行 `sudo env AID_RELEASE_CHANNEL=beta bash aid.sh install`。生产服务器不要长期使用 Beta 渠道。
+> 默认渠道为 `auto`：有正式版时安装正式版；尚无正式版时才选择最新 Beta，并用黄色/红色信息明确提醒。明确需要测试版时，在一行命令的 `sudo env` 后增加 `AID_RELEASE_CHANNEL=beta`。生产服务器不要长期使用 Beta 渠道。
+
+### 使用最新远程脚本更新
+
+Docker 与手动 systemd 使用同一条更新命令，脚本会从部署描述文件自动识别当前方式：
+
+```bash
+if command -v curl >/dev/null 2>&1; then curl -fL --retry 3 -o aid-install.sh https://gitee.com/gzxx-2025/aid-server/raw/master/deploy/aid.sh; elif command -v wget >/dev/null 2>&1; then wget -O aid-install.sh https://gitee.com/gzxx-2025/aid-server/raw/master/deploy/aid.sh; else echo '请先安装 curl 或 wget'; false; fi && sudo env AID_REMOTE_BOOTSTRAP=1 bash aid-install.sh update
+```
+
+测试渠道更新时，将命令最后一段改为：
+
+```bash
+sudo env AID_REMOTE_BOOTSTRAP=1 AID_RELEASE_CHANNEL=beta bash aid-install.sh update
+```
+
+更新时配置采用“本地为主、官方只补缺项”规则：
+
+- Docker 读取实际配置路径，单文件部署默认是 `/data/aid/config/docker.env`；手动部署默认是 `/data/aid/aid-deploy.conf`。
+- 先读取当前最新 `aid.sh` 内置模板，再读取目标版本发布包中的正式模板；只追加本地完全不存在的参数名。
+- 原配置中的值、注释、顺序、自定义参数和空值都不会被改写或删除。已经存在的参数即使与官方默认值不同，也始终保留本地值。
+- 只有确实需要追加参数时才创建备份，备份与原文件同目录，例如 `docker.env.bak.20260804-120000` 或 `aid-deploy.conf.bak.20260804-120000`，权限保持为仅管理员可读写。
+- 即使当前已是最新业务版本，远程脚本仍会先检查并补齐当前模板缺失项；没有缺项时不会改文件，也不会产生无意义备份。
+
+直接执行 `sudo aid update` 仍然可用，它使用已经安装的受管脚本；需要优先取得官方最新安装/配置兼容逻辑时，推荐使用上面的远程更新命令。更新仍会在替换程序和执行增量 SQL 前完成数据库与三端产物备份，失败不会静默覆盖原配置。
 
 ### 自动化的安全边界
 
@@ -184,8 +201,7 @@ sudo systemctl daemon-reload && sudo systemctl restart docker
 ### 部署步骤（自动拉取源码构建、自动创建安全配置）
 
 ```bash
-curl -fL https://gitee.com/gzxx-2025/aid-server/raw/master/deploy/aid.sh -o aid.sh
-sudo bash aid.sh install
+if command -v curl >/dev/null 2>&1; then curl -fL --retry 3 -o aid-install.sh https://gitee.com/gzxx-2025/aid-server/raw/master/deploy/aid.sh; elif command -v wget >/dev/null 2>&1; then wget -O aid-install.sh https://gitee.com/gzxx-2025/aid-server/raw/master/deploy/aid.sh; else echo '请先安装 curl 或 wget'; false; fi && sudo env AID_REMOTE_BOOTSTRAP=1 bash aid-install.sh install
 ```
 
 脚本会先从版本标签源码构建本地包，再从本地包提取部署套件，并由 `.env.example` 自动生成正式配置；数据库密码、JWT 密钥等空值会生成强随机值写回。单文件首次部署的配置真源是 `/data/aid/config/docker.env`，完成后脚本也会明确打印实际路径。默认采用内置 MySQL + Redis、关闭 RocketMQ 与 HTTPS 的保守组合。需要改端口、HTTPS、外部 MySQL/Redis 或 RocketMQ 时，编辑实际配置文件后执行 `sudo aid restart` 生效。
@@ -356,8 +372,7 @@ MySQL 5.7 服务端、Docker Engine、外部中间件不会自动安装。本机
 环境就绪后：
 
 ```bash
-curl -fL https://gitee.com/gzxx-2025/aid-server/raw/master/deploy/aid.sh -o aid.sh
-sudo bash aid.sh install-manual
+if command -v curl >/dev/null 2>&1; then curl -fL --retry 3 -o aid-install.sh https://gitee.com/gzxx-2025/aid-server/raw/master/deploy/aid.sh; elif command -v wget >/dev/null 2>&1; then wget -O aid-install.sh https://gitee.com/gzxx-2025/aid-server/raw/master/deploy/aid.sh; else echo '请先安装 curl 或 wget'; false; fi && sudo env AID_REMOTE_BOOTSTRAP=1 bash aid-install.sh install-manual
 ```
 
 脚本会自动生成 `/data/aid/aid-deploy.conf`。手动部署连接的是现有 MySQL/Redis，无法安全猜测外部数据库凭证，因此首次运行会要求输入数据库密码（输入不回显），并当场校验连通性；`TOKEN_SECRET` 留空时自动生成强随机值。主机、端口或外部中间件拓扑不是默认值时，先按脚本提示编辑该配置再重试。

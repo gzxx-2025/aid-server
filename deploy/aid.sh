@@ -65,6 +65,18 @@ MANIFEST_FALLBACK_URL="https://raw.githubusercontent.com/gzxx-2025/aid-server/ma
 TRUSTED_MANIFEST_PUBLIC_KEY="9Ez/VMofgjCU0CNmE6Jq8LKLNyfDQqbbvNTTGV5BYrk="
 INSTALLER_ROOT="${DATA_ROOT}/installer"
 MANAGED_SCRIPT="${INSTALLER_ROOT}/deploy/aid.sh"
+# 官网一行命令每次都会下载 master 上的最新引导脚本。已有部署时继续使用这份
+# 新脚本的控制逻辑，但把 Compose/SQL 等运行资源指向已安装目录，避免被旧 aid.sh 接管。
+if [[ "${AID_REMOTE_BOOTSTRAP:-0}" == "1" \
+    && -f "${INSTALLER_ROOT}/deploy/docker/docker-compose.yml" \
+    && -f "${INSTALLER_ROOT}/sql/aid-init.sql" ]]; then
+  REPO_DIR="${INSTALLER_ROOT}"
+  COMPOSE_DIR="${INSTALLER_ROOT}/deploy/docker"
+  DEFAULT_DOCKER_CONFIG="${COMPOSE_DIR}/.env"
+  if [[ "${descriptorMode}" != "docker" && -f "${DEFAULT_DOCKER_CONFIG}" ]]; then
+    ENV_FILE="${DEFAULT_DOCKER_CONFIG}"
+  fi
+fi
 DOWNLOAD_TIMEOUT_SECONDS="${AID_DOWNLOAD_TIMEOUT_SECONDS:-1800}"
 SOURCE_BUILDER_NAME="build-release-from-source.sh"
 SOURCE_GIT_IMAGE="${AID_GIT_IMAGE:-alpine/git:2.47.2}"
@@ -931,6 +943,10 @@ deployment_runtime_ready() {
 
 handoff_to_managed_installer() { # handoff_to_managed_installer <原始参数...>
   local managedDir
+  if [[ "${AID_REMOTE_BOOTSTRAP:-0}" == "1" ]]; then
+    ok "已启用远程最新引导脚本，不切换到旧版受管 aid.sh"
+    return 0
+  fi
   managedDir="$(dirname "${MANAGED_SCRIPT}")"
   if [[ -f "${MANAGED_SCRIPT}" && "${SCRIPT_DIR}" != "${managedDir}" \
       && -f "${INSTALLER_ROOT}/deploy/docker/docker-compose.yml" \
@@ -1084,6 +1100,186 @@ confirm_first_install() { # confirm_first_install <docker|manual>
 # ----------------------------------------------------------------------------
 # 配置收集（首次部署 / 修改配置共用；默认值 = 已保存值 > 出厂默认）
 # ----------------------------------------------------------------------------
+write_embedded_config_defaults() { # write_embedded_config_defaults <docker|manual> <目标文件>
+  local mode="$1" target="$2"
+  if [[ "${mode}" == "docker" ]]; then
+    cat > "${target}" <<EOF
+DATA_ROOT=${DATA_ROOT}
+DEPENDENCY_INSTALL_MODE=auto
+HTTP_PORT=80
+ADMIN_PORT=8090
+HTTPS_PORT=443
+HTTPS_PUBLIC_DOMAIN=www.example.com
+HTTPS_ADMIN_DOMAIN=admin.example.com
+HTTPS_CERT_PATH=${DATA_ROOT}/config/ssl/fullchain.pem
+HTTPS_KEY_PATH=${DATA_ROOT}/config/ssl/privkey.pem
+MYSQL_ROOT_PASSWORD=
+DB_HOST=mysql
+DB_PORT=3306
+DB_NAME=aid
+DB_USERNAME=aid
+DB_PASSWORD=
+MYSQL_PORT=3306
+REDIS_HOST=redis
+REDIS_PORT=6379
+REDIS_USERNAME=
+REDIS_PASSWORD=
+REDIS_DATABASE=0
+TOKEN_SECRET=
+BACKEND_PORT=8080
+#JAVA_OPTS=-Xms2g -Xmx4g -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/home/aid/logs
+#MYSQL_BUFFER_POOL=2G
+#MYSQL_MAX_CONNECTIONS=500
+#REDIS_MAXMEMORY=1gb
+#REDIS_MAXMEMORY_POLICY=noeviction
+#WEB_NODE_OPTIONS=--max-old-space-size=1024
+COMPOSE_PROFILES=mysql,redis
+ROCKETMQ_ENABLED=false
+ROCKETMQ_NAMESERVER=rocketmq-nameserver:9876
+ROCKETMQ_FLUSH_DISK_TYPE=ASYNC_FLUSH
+ROCKETMQ_ACCESS_KEY=
+ROCKETMQ_SECRET_KEY=
+#MQ_NAMESRV_JAVA_OPTS=-Xms256m -Xmx256m -Xmn128m
+#MQ_BROKER_JAVA_OPTS=-Xms2g -Xmx2g -Xmn1g
+EOF
+  else
+    cat > "${target}" <<EOF
+DATA_ROOT=${DATA_ROOT}
+DEPENDENCY_INSTALL_MODE=auto
+HTTP_PORT=80
+ADMIN_PORT=8090
+BACKEND_PORT=8080
+HTTPS_ENABLED=false
+HTTPS_PORT=443
+HTTPS_PUBLIC_DOMAIN=www.example.com
+HTTPS_ADMIN_DOMAIN=admin.example.com
+HTTPS_CERT_PATH=${DATA_ROOT}/config/ssl/fullchain.pem
+HTTPS_KEY_PATH=${DATA_ROOT}/config/ssl/privkey.pem
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_NAME=aid
+DB_USERNAME=root
+DB_PASSWORD=
+REDIS_HOST=127.0.0.1
+REDIS_PORT=6379
+REDIS_USERNAME=
+REDIS_PASSWORD=
+REDIS_DATABASE=0
+TOKEN_SECRET=
+JAVA_OPTS=-Xms1g -Xmx2g
+ROCKETMQ_ENABLED=false
+ROCKETMQ_NAMESERVER=127.0.0.1:9876
+ROCKETMQ_FLUSH_DISK_TYPE=ASYNC_FLUSH
+ROCKETMQ_ACCESS_KEY=
+ROCKETMQ_SECRET_KEY=
+EOF
+  fi
+}
+
+merge_missing_config_keys() { # merge_missing_config_keys <本地配置> <官方模板> <来源说明>
+  local configFile="$1" templateFile="$2" sourceLabel="$3" line key backup merged stamp suffix=0
+  local -a missingLines=() missingKeys=()
+  local -A existingActiveKeys=() existingKnownKeys=() scheduledKeys=()
+  [[ -f "${configFile}" && -f "${templateFile}" ]] || return 0
+  [[ ! -L "${configFile}" && ! -L "${templateFile}" ]] \
+    || die "配置文件或模板禁止使用软链接"
+
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    line="${line%$'\r'}"
+    if [[ "${line}" =~ ^([A-Z][A-Z0-9_]*)= ]]; then
+      existingActiveKeys["${BASH_REMATCH[1]}"]=1
+      existingKnownKeys["${BASH_REMATCH[1]}"]=1
+    elif [[ "${line}" =~ ^#([A-Z][A-Z0-9_]*)= ]]; then
+      existingKnownKeys["${BASH_REMATCH[1]}"]=1
+    fi
+  done < "${configFile}"
+
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    line="${line%$'\r'}"
+    if [[ "${line}" =~ ^([A-Z][A-Z0-9_]*)= ]]; then
+      key="${BASH_REMATCH[1]}"
+      [[ -z "${existingActiveKeys[${key}]:-}" ]] || continue
+    elif [[ "${line}" =~ ^#([A-Z][A-Z0-9_]*)= ]]; then
+      key="${BASH_REMATCH[1]}"
+      [[ -z "${existingKnownKeys[${key}]:-}" ]] || continue
+    else
+      continue
+    fi
+    [[ -z "${scheduledKeys[${key}]:-}" ]] || continue
+    missingLines+=("${line}")
+    missingKeys+=("${key}")
+    scheduledKeys["${key}"]=1
+  done < "${templateFile}"
+
+  (( ${#missingLines[@]} > 0 )) || return 0
+  stamp="$(date '+%Y%m%d-%H%M%S')"
+  backup="${configFile}.bak.${stamp}"
+  while [[ -e "${backup}" ]]; do
+    suffix=$((suffix + 1)); backup="${configFile}.bak.${stamp}.${suffix}"
+  done
+  cp -p -- "${configFile}" "${backup}" || die "备份原配置失败: ${backup}"
+  chmod 600 "${backup}" 2>/dev/null || true
+  merged="$(mktemp "${configFile}.merge.XXXXXX")" \
+    || die "无法在配置目录创建临时文件"
+  cp -p -- "${configFile}" "${merged}" \
+    || { rm -f -- "${merged}"; die "准备配置合并失败，原配置未修改"; }
+  {
+    printf '\n# ---------------- AID 自动补齐配置（%s） ----------------\n' "${stamp}"
+    printf '# 来源：%s；原有配置和值均未修改，原文件备份见：%s\n' "${sourceLabel}" "$(basename "${backup}")"
+    printf '%s\n' "${missingLines[@]}"
+  } >> "${merged}" \
+    || { rm -f -- "${merged}"; die "补齐配置失败，原配置未修改；备份: ${backup}"; }
+  chmod 600 "${merged}" 2>/dev/null || true
+  mv -f -- "${merged}" "${configFile}" \
+    || { rm -f -- "${merged}"; die "替换配置失败，原配置未修改；备份: ${backup}"; }
+  chmod 600 "${configFile}" 2>/dev/null || true
+  ok "配置已按官方模板补齐 ${#missingLines[@]} 项，原有值未修改"
+  echo "  新增参数 : ${missingKeys[*]}"
+  echo "  原配置备份: ${backup}"
+}
+
+merge_runtime_configuration() { # merge_runtime_configuration <docker|manual>
+  local mode="$1" configFile templateFile="" combined embedded
+  if [[ "${mode}" == "docker" ]]; then
+    configFile="${ENV_FILE}"
+    [[ -f "${COMPOSE_DIR}/.env.example" ]] && templateFile="${COMPOSE_DIR}/.env.example"
+  else
+    configFile="${CONF}"
+    if [[ -f "${SCRIPT_DIR}/aid-deploy.conf.example" ]]; then
+      templateFile="${SCRIPT_DIR}/aid-deploy.conf.example"
+    elif [[ -f "${INSTALLER_ROOT}/deploy/aid-deploy.conf.example" ]]; then
+      templateFile="${INSTALLER_ROOT}/deploy/aid-deploy.conf.example"
+    fi
+  fi
+  [[ -f "${configFile}" ]] || return 0
+  combined="$(mktemp)"; embedded="$(mktemp)"
+  if [[ -n "${templateFile}" ]]; then cat "${templateFile}" > "${combined}"; fi
+  write_embedded_config_defaults "${mode}" "${embedded}"
+  cat "${embedded}" >> "${combined}"
+  merge_missing_config_keys "${configFile}" "${combined}" "当前受管模板与最新 aid.sh 内置模板"
+  rm -f -- "${combined}" "${embedded}"
+}
+
+merge_release_configuration() { # merge_release_configuration <发布包> <docker|manual>
+  local package="$1" mode="$2" pattern member template
+  if [[ "${mode}" == "docker" ]]; then
+    pattern='(^|/)installer/deploy/docker/\.env\.example$'
+  else
+    pattern='(^|/)installer/deploy/aid-deploy\.conf\.example$'
+  fi
+  member="$(tar -tzf "${package}" 2>/dev/null | grep -E "${pattern}" | head -n 1 || true)"
+  [[ -n "${member}" ]] || { warn "目标版本包未提供配置模板，跳过参数补齐"; return 0; }
+  template="$(mktemp)"
+  tar -xOf "${package}" "${member}" > "${template}" \
+    || { rm -f -- "${template}"; die "读取目标版本配置模板失败"; }
+  if [[ "${mode}" == "docker" ]]; then
+    merge_missing_config_keys "${ENV_FILE}" "${template}" "目标版本发布包 ${RESOLVED_VERSION:-未知}"
+  else
+    merge_missing_config_keys "${CONF}" "${template}" "目标版本发布包 ${RESOLVED_VERSION:-未知}"
+  fi
+  rm -f -- "${template}"
+}
+
 # ----------------------------------------------------------------------------
 # 手动部署配置校验：aid-deploy.conf 首次由模板自动创建（唯一配置真源），
 # 仅提示输入必要的外部数据库密码；TOKEN_SECRET 留空时自动生成强随机值写回
@@ -1163,6 +1359,8 @@ EOF
     chmod 600 "${CONF}"
     ok "已自动生成手动部署配置: ${CONF}"
     warn "手动部署使用本机或外部 MySQL/Redis/Node/Nginx，默认连接参数不一定适合你的环境"
+  else
+    merge_runtime_configuration manual
   fi
   chmod 600 "${CONF}" 2>/dev/null || true
   local configuredDataRoot
@@ -1241,6 +1439,11 @@ EOF
 # 后续不覆盖用户配置；仅在关键密钥留空时自动生成强随机值写回
 # ----------------------------------------------------------------------------
 ensure_env_file() {
+  local existedBefore=0 legacyMissingDbHost=0
+  [[ -f "${ENV_FILE}" ]] && existedBefore=1
+  if [[ "${existedBefore}" == "1" ]] && ! grep -qE '^DB_HOST=' "${ENV_FILE}" 2>/dev/null; then
+    legacyMissingDbHost=1
+  fi
   if [[ ! -f "${ENV_FILE}" ]]; then
     mkdir -p "$(dirname "${ENV_FILE}")"
     if [[ -f "${COMPOSE_DIR}/.env.example" ]]; then
@@ -1320,12 +1523,12 @@ EOF
     chmod 600 "${ENV_FILE}"
     ok "已自动生成 Docker 配置: ${ENV_FILE}"
     warn "首次安装采用安全默认方案：内置 MySQL + Redis、暂不启用 RocketMQ、密码与 JWT 密钥自动生成"
+  else
+    merge_runtime_configuration docker
   fi
   # 兼容旧版配置：此前 MySQL 固定内置，配置中没有 DB_HOST/DB_PORT，且 Profile
   # 只写 redis。升级后显式补成 mysql Profile，防止旧用户被误判为外部数据库。
-  if ! grep -qE '^DB_HOST=' "${ENV_FILE}" 2>/dev/null; then
-    env_set DB_HOST mysql
-    env_set DB_PORT 3306
+  if [[ "${legacyMissingDbHost}" == "1" ]]; then
     add_docker_profile mysql
     warn "检测到旧版 Docker 配置，已保持为内置 MySQL 模式"
   elif ! grep -qE '^DB_PORT=' "${ENV_FILE}" 2>/dev/null; then
@@ -2275,6 +2478,8 @@ do_update() {
   local mode package supplied current target comparison go backupDir dist old f targetChannel
   mode="$(detect_mode)"
   [[ "${mode}" != "none" ]] || die "尚未部署，请先执行首次部署"
+  # 先用当前远程引导脚本/受管模板补齐旧配置；仅追加缺失键，原值不变且同目录留备份。
+  if [[ "${mode}" == "docker" ]]; then ensure_env_file; else ensure_conf_file; fi
   export AID_DEPENDENCY_INSTALL_MODE="$(dependency_install_mode "${mode}")"
   # Docker 升级同样先校验容器运行时，避免后续缺 Git 时给出误导性报错。
   if [[ "${mode}" == "docker" ]]; then
@@ -2326,6 +2531,10 @@ do_update() {
     ensure_source_package
     package="${RESOLVED_PACKAGE_PATH}"
   fi
+  # 再与目标版本包中的官方模板比较，确保跨多个版本更新时不会漏掉中间新增参数。
+  merge_release_configuration "${package}" "${mode}"
+  if [[ "${mode}" == "docker" ]]; then ensure_env_file; else ensure_conf_file; fi
+  export AID_DEPENDENCY_INSTALL_MODE="$(dependency_install_mode "${mode}")"
   [[ "${mode}" != "docker" ]] || prepare_docker_runtime_images
 
   # docker 模式先确保数据库容器可用（备份与增量 SQL 都依赖它）
