@@ -526,7 +526,7 @@ public class StoryboardGenerationController extends BaseController {
     }
 
     /**
-     * 生成分镜图。
+     * 生成分镜图。单个生成不覆盖已有主图；尚无主图时自动设置首张成功产物。批量生成仍自动设置主图。
      *
      * @param request 入参（storyboardIds 必填，其余可选）
      * @return data: {@link StoryboardImageGenerateVO}
@@ -627,7 +627,7 @@ public class StoryboardGenerationController extends BaseController {
     }
 
     /**
-     * 分镜图生视频。
+     * 分镜图生视频。单个生成不覆盖已有主视频；尚无主视频时自动设置首条成功产物。批量生成仍自动设置主视频。
      *
      * @param request 入参（storyboardIds 必填，其余可选；单/多镜头共用，count 规则见 DTO）
      * @return data: {@link com.aid.storyboard.dto.StoryboardVideoGenerateVO}
@@ -657,6 +657,7 @@ public class StoryboardGenerationController extends BaseController {
      * 提示词来源：入参 {@code videoPrompt} 优先 → 库回落 {@code aid_storyboard.video_prompt_image}（非 video_prompt）
      * → 双空报错「请先生成提示词」；前端传了提示词则建任务前先落库该列。计费 / 排队 / 退款 / OSS / 任务体系与多参方向出片
      * 完全一致（taskType=storyboard_video_generate，SSE / 取消接口复用）。
+     * 单个生成保留已有主视频；批量生成仍自动设置主视频。
      */
     @PostMapping("/generate/video/image")
     public AjaxResult generateStoryboardVideoFromImage(
@@ -682,6 +683,7 @@ public class StoryboardGenerationController extends BaseController {
      * {@code main_storyboard_video_grid}。仅 auto_grid 创作模式可用，其余模式拒绝「仅宫格模式可用」。
      * 单/多镜头共用本接口（count 规则见 DTO）；计费 / 排队 / 退款 / OSS / 任务体系与其它出片方向一致
      * （taskType=storyboard_video_generate，续生走 /api/user/task/resume）。
+     * 单个生成保留已有主视频；批量生成仍自动设置主视频。
      */
     @PostMapping("/generate/video/grid")
     public AjaxResult generateStoryboardVideoFromGrid(
@@ -708,6 +710,7 @@ public class StoryboardGenerationController extends BaseController {
      * 「请选择首尾帧」。提示词单镜头入参优先 → 库回落 {@code aid_storyboard.video_prompt}。结果落
      * {@code aid_gen_record(gen_type=edge)}；计费 / 排队 / 退款 / OSS / 任务体系与其它出片方向一致
      * （taskType=storyboard_video_generate，续生走 /api/user/task/resume）。
+     * 单个生成保留已有主视频；批量生成仍自动设置主视频。
      */
     @PostMapping("/generate/video/edge")
     public AjaxResult generateStoryboardVideoFromEdge(

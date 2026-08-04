@@ -171,4 +171,97 @@ SET `base_url` = 'https://ark.cn-beijing.volces.com',
 WHERE `provider_code` = 'volcengine'
   AND TRIM(TRAILING '/' FROM TRIM(`base_url`)) = 'https://ark.cn-beijing.volces.com/api/v3';
 
+-- 视频模型错误提示优化：区分内容审核、参考图审核、模型额度与队列繁忙。
+UPDATE `aid_provider_error_rule`
+SET `user_message` = '提示词或参考图未通过审核，请修改后重试',
+    `update_by` = 'system',
+    `update_time` = NOW()
+WHERE `provider_code` = 'jimeng'
+  AND `rule_name` = '即梦 50411/50412/50413/50518 输入审核未通过';
+
+UPDATE `aid_provider_error_rule`
+SET `user_message` = '生成内容未通过审核，请调整提示词或参考图',
+    `update_by` = 'system',
+    `update_time` = NOW()
+WHERE `provider_code` = 'jimeng'
+  AND `rule_name` = '即梦 50511/50512/50519 输出审核未通过';
+
+UPDATE `aid_provider_error_rule`
+SET `match_pattern` = 'timeout,timed out,超时,deadline_exceeded,context deadline exceeded,requesttimeout,connect timed out,conn timeout,recv timeout,client disconnect',
+    `update_by` = 'system',
+    `update_time` = NOW()
+WHERE `rule_name` = '超时(通用)';
+
+UPDATE `aid_provider_error_rule`
+SET `match_pattern` = 'image queue is full,video queue is full,queue is full,service busy,no available server,system memory overloaded,server overloaded',
+    `user_message` = '当前生成任务较多，稍后重试',
+    `update_by` = 'system',
+    `update_time` = NOW()
+WHERE `rule_name` = '模型服务繁忙或队列已满';
+
+UPDATE `aid_provider_error_rule`
+SET `user_message` = '提示词或参考图未通过审核，请修改后重试',
+    `update_by` = 'system',
+    `update_time` = NOW()
+WHERE `rule_name` = '内容策略拒绝生成';
+
+UPDATE `aid_provider_error_rule`
+SET `user_message` = '模型额度不足，请联系管理员',
+    `update_by` = 'system',
+    `update_time` = NOW()
+WHERE `rule_name` = '模型供应商额度不足';
+
+INSERT INTO `aid_provider_error_rule`
+    (`provider_code`, `model_code`, `rule_name`, `match_type`, `match_pattern`, `match_field`,
+     `case_sensitive`, `error_code`, `user_message`, `priority`, `enabled`, `is_builtin`, `remark`,
+     `create_by`, `create_time`, `update_by`, `update_time`)
+SELECT 'vidu', NULL, 'Vidu 提交内容审核未通过', 'KEYWORD',
+       'AuditSubmitIllegal,audit submit illegal', NULL, 0, 'UPSTREAM_CONTENT_FILTERED',
+       '提示词或参考图未通过审核，请修改后重试', 4, 1, 1,
+       'Vidu 提交阶段审核拒绝，无法仅凭错误码区分提示词或参考图',
+       'system', NOW(), 'system', NOW()
+WHERE NOT EXISTS (
+    SELECT 1 FROM `aid_provider_error_rule`
+    WHERE `provider_code` = 'vidu' AND `rule_name` = 'Vidu 提交内容审核未通过'
+);
+
+INSERT INTO `aid_provider_error_rule`
+    (`provider_code`, `model_code`, `rule_name`, `match_type`, `match_pattern`, `match_field`,
+     `case_sensitive`, `error_code`, `user_message`, `priority`, `enabled`, `is_builtin`, `remark`,
+     `create_by`, `create_time`, `update_by`, `update_time`)
+SELECT NULL, NULL, '参考图内容审核未通过', 'REGEX',
+       '(input image|input images|reference image|source image).{0,120}(sensitive|risk not pass|policy violation|content filter|moderation|audit illegal)',
+       NULL, 0, 'UPSTREAM_CONTENT_FILTERED', '参考图未通过内容审核，请更换后重试', 4, 1, 1,
+       '输入图或参考图被上游内容审核拒绝', 'system', NOW(), 'system', NOW()
+WHERE NOT EXISTS (
+    SELECT 1 FROM `aid_provider_error_rule`
+    WHERE `provider_code` IS NULL AND `model_code` IS NULL AND `rule_name` = '参考图内容审核未通过'
+);
+
+INSERT INTO `aid_provider_error_rule`
+    (`provider_code`, `model_code`, `rule_name`, `match_type`, `match_pattern`, `match_field`,
+     `case_sensitive`, `error_code`, `user_message`, `priority`, `enabled`, `is_builtin`, `remark`,
+     `create_by`, `create_time`, `update_by`, `update_time`)
+SELECT NULL, NULL, '提示词内容审核未通过', 'REGEX',
+       '(prompt|input text|text input).{0,120}(sensitive|risk not pass|policy violation|content filter|moderation|audit illegal)',
+       NULL, 0, 'UPSTREAM_CONTENT_FILTERED', '提示词未通过内容审核，请修改后重试', 4, 1, 1,
+       '提示词或文本输入被上游内容审核拒绝', 'system', NOW(), 'system', NOW()
+WHERE NOT EXISTS (
+    SELECT 1 FROM `aid_provider_error_rule`
+    WHERE `provider_code` IS NULL AND `model_code` IS NULL AND `rule_name` = '提示词内容审核未通过'
+);
+
+INSERT INTO `aid_provider_error_rule`
+    (`provider_code`, `model_code`, `rule_name`, `match_type`, `match_pattern`, `match_field`,
+     `case_sensitive`, `error_code`, `user_message`, `priority`, `enabled`, `is_builtin`, `remark`,
+     `create_by`, `create_time`, `update_by`, `update_time`)
+SELECT NULL, NULL, '生成内容审核未通过', 'REGEX',
+       '(output|generated image|generated video|result).{0,120}(sensitive|risk not pass|policy violation|content filter|moderation|audit illegal)',
+       NULL, 0, 'UPSTREAM_CONTENT_FILTERED', '生成内容未通过审核，请调整提示词或参考图', 4, 1, 1,
+       '模型输出被上游内容审核拒绝', 'system', NOW(), 'system', NOW()
+WHERE NOT EXISTS (
+    SELECT 1 FROM `aid_provider_error_rule`
+    WHERE `provider_code` IS NULL AND `model_code` IS NULL AND `rule_name` = '生成内容审核未通过'
+);
+
 COMMIT;

@@ -24,6 +24,9 @@ public interface IStoryboardVideoGenerationService
      */
     StoryboardVideoGenerateVO generateVideo(StoryboardVideoGenerateRequest request, Long userId);
 
+    /** 内部批量编排入口；拆批后仅剩一个分镜时仍保持批量自动设置主视频。 */
+    StoryboardVideoGenerateVO generateVideo(StoryboardVideoGenerateRequest request, Long userId, boolean batchMode);
+
     /**
      * 发起分镜图生视频（图生方向，异步父任务）。
      *
@@ -32,6 +35,10 @@ public interface IStoryboardVideoGenerationService
      * @return taskId + PENDING 的父任务视图
      */
     StoryboardVideoGenerateVO generateVideoFromImage(StoryboardVideoFromImageGenerateRequest request, Long userId);
+
+    /** 内部批量编排入口；拆批后仅剩一个分镜时仍保持批量自动设置主视频。 */
+    StoryboardVideoGenerateVO generateVideoFromImage(StoryboardVideoFromImageGenerateRequest request, Long userId,
+            boolean batchMode);
 
     /**
      * 发起分镜宫格生视频（宫格方向，仅 auto_grid 创作模式可用，异步父任务）。
@@ -42,6 +49,10 @@ public interface IStoryboardVideoGenerationService
      */
     StoryboardVideoGenerateVO generateVideoFromGrid(StoryboardVideoGridGenerateRequest request, Long userId);
 
+    /** 内部批量编排入口；拆批后仅剩一个分镜时仍保持批量自动设置主视频。 */
+    StoryboardVideoGenerateVO generateVideoFromGrid(StoryboardVideoGridGenerateRequest request, Long userId,
+            boolean batchMode);
+
     /**
      * 发起分镜首尾帧生视频（首尾帧方向，异步父任务）。
      *
@@ -50,6 +61,10 @@ public interface IStoryboardVideoGenerationService
      * @return taskId + PENDING 的父任务视图
      */
     StoryboardVideoGenerateVO generateVideoFromEdge(StoryboardVideoEdgeGenerateRequest request, Long userId);
+
+    /** 内部批量编排入口；拆批后仅剩一个分镜时仍保持批量自动设置主视频。 */
+    StoryboardVideoGenerateVO generateVideoFromEdge(StoryboardVideoEdgeGenerateRequest request, Long userId,
+            boolean batchMode);
 
     /**
      * 续生分镜视频出片（断点续生，只补跑未成功镜头，已成功子任务不重复出片与扣费）。

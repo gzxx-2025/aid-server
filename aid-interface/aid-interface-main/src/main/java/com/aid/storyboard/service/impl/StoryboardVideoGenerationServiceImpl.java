@@ -152,6 +152,10 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
     /** 删除标志：正常 */
     private static final String DEL_FLAG_NORMAL = "0";
 
+    /** 生成记录选中状态 */
+    private static final int SELECTED_NO = 0;
+    private static final int SELECTED_YES = 1;
+
     /** gen_type 常量：图生视频 */
     private static final String GEN_TYPE_I2V = "i2v";
 
@@ -345,6 +349,13 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
     @Override
     public StoryboardVideoGenerateVO generateVideo(StoryboardVideoGenerateRequest request, Long userId)
     {
+        return generateVideo(request, userId, false);
+    }
+
+    @Override
+    public StoryboardVideoGenerateVO generateVideo(StoryboardVideoGenerateRequest request, Long userId,
+            boolean batchMode)
+    {
         validateUserId(userId);
         List<Long> ids = validateBatchRequestMulti(request);
         boolean single = ids.size() == 1;
@@ -372,7 +383,8 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
 
         final boolean singleFinal = single;
         final int perShotCountFinal = perShotCount;
-        return submitBatch(userId, ids, single, perShotCount, modelCode, modelConfig, modelId,
+        return submitBatch(userId, ids, single, perShotCount, batchMode || !single,
+                modelCode, modelConfig, modelId,
                 resolvedAspectRatio, resolvedResolution, requestedDuration, request.getGenerateAudio(), request.getUserInputText(),
                 funcCode, DIRECTION_MULTI,
                 sb -> prepareMultiShot(sb, singleFinal, request, modelConfig, userId, perShotCountFinal, null));
@@ -472,6 +484,13 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
     @Override
     public StoryboardVideoGenerateVO generateVideoFromImage(StoryboardVideoFromImageGenerateRequest request, Long userId)
     {
+        return generateVideoFromImage(request, userId, false);
+    }
+
+    @Override
+    public StoryboardVideoGenerateVO generateVideoFromImage(StoryboardVideoFromImageGenerateRequest request,
+            Long userId, boolean batchMode)
+    {
         validateUserId(userId);
         List<Long> ids = validateBatchRequestImage(request);
         boolean single = ids.size() == 1;
@@ -502,13 +521,21 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
 
         final boolean singleFinal = single;
         final int perShotCountFinal = perShotCount;
-        return submitBatch(userId, ids, single, perShotCount, modelCode, modelConfig, modelId,
+        return submitBatch(userId, ids, single, perShotCount, batchMode || !single,
+                modelCode, modelConfig, modelId,
                 resolvedAspectRatio, resolvedResolution, requestedDuration, request.getGenerateAudio(), request.getUserInputText(),
                 FUNC_CODE_STORYBOARD_VIDEO_IMAGE, DIRECTION_IMAGE,
                 sb -> prepareImageShot(sb, singleFinal, request, modelConfig, userId, perShotCountFinal, null));
     }
     @Override
     public StoryboardVideoGenerateVO generateVideoFromGrid(StoryboardVideoGridGenerateRequest request, Long userId)
+    {
+        return generateVideoFromGrid(request, userId, false);
+    }
+
+    @Override
+    public StoryboardVideoGenerateVO generateVideoFromGrid(StoryboardVideoGridGenerateRequest request,
+            Long userId, boolean batchMode)
     {
         validateUserId(userId);
         List<Long> ids = validateBatchRequestGrid(request);
@@ -551,13 +578,21 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         imageReq.setReferenceAudioRecordIds(single ? request.getReferenceAudioRecordIds() : null);
         imageReq.setReferenceAudioIds(single ? request.getReferenceAudioIds() : null);
         imageReq.setUserInputText(request.getUserInputText());
-        return submitBatch(userId, ids, single, perShotCount, modelCode, modelConfig, modelId,
+        return submitBatch(userId, ids, single, perShotCount, batchMode || !single,
+                modelCode, modelConfig, modelId,
                 resolvedAspectRatio, resolvedResolution, requestedDuration, request.getGenerateAudio(), request.getUserInputText(),
                 FUNC_CODE_STORYBOARD_VIDEO_GRID, DIRECTION_GRID,
                 sb -> prepareImageShot(sb, singleFinal, imageReq, modelConfig, userId, perShotCountFinal, null));
     }
     @Override
     public StoryboardVideoGenerateVO generateVideoFromEdge(StoryboardVideoEdgeGenerateRequest request, Long userId)
+    {
+        return generateVideoFromEdge(request, userId, false);
+    }
+
+    @Override
+    public StoryboardVideoGenerateVO generateVideoFromEdge(StoryboardVideoEdgeGenerateRequest request,
+            Long userId, boolean batchMode)
     {
         validateUserId(userId);
         List<Long> ids = validateBatchRequestEdge(request);
@@ -588,7 +623,8 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         Map<Long, EdgeResolved> edgeMap = buildEdgeResolvedMap(request);
         final boolean singleFinal = single;
         final int perShotCountFinal = perShotCount;
-        return submitBatch(userId, ids, single, perShotCount, modelCode, modelConfig, modelId,
+        return submitBatch(userId, ids, single, perShotCount, batchMode || !single,
+                modelCode, modelConfig, modelId,
                 resolvedAspectRatio, resolvedResolution, requestedDuration, request.getGenerateAudio(), request.getUserInputText(),
                 FUNC_CODE_STORYBOARD_VIDEO_EDGE, DIRECTION_EDGE,
                 sb -> prepareEdgeShot(sb, singleFinal, request, edgeMap, modelConfig, userId, perShotCountFinal));
@@ -2001,6 +2037,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
      * 单镜头（single=true）任一步失败直接抛错；多镜头时单镜头失败仅跳过并记 ShotResult，不阻断其余。
      */
     private StoryboardVideoGenerateVO submitBatch(Long userId, List<Long> ids, boolean single, int perShotCount,
+            boolean overwriteExistingFinal,
             String modelCode, AiModelConfigVo modelConfig, Long modelId, String aspectRatio, String resolution,
             Integer requestedDurationSeconds, Boolean generateAudio, String userInputText, String funcCode,
             String direction, ShotPreparer preparer)
@@ -2075,7 +2112,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
             }
             return createBatchTaskAndEnqueue(userId, modelCode, modelId, modelConfig, aspectRatio, resolution,
                     fallbackDurationSeconds, generateAudio, userInputText, perShotCount, funcCode, direction, prepared,
-                    heldLocks, rejected);
+                    heldLocks, rejected, overwriteExistingFinal);
         }
         catch (RuntimeException e)
         {
@@ -2092,7 +2129,8 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
     private StoryboardVideoGenerateVO createBatchTaskAndEnqueue(Long userId, String modelCode, Long modelId,
             AiModelConfigVo modelConfig, String aspectRatio, String resolution, Integer durationSeconds,
             Boolean generateAudio, String userInputText, int perShotCount, String funcCode, String direction,
-            List<PreparedShot> prepared, List<ShotLock> heldLocks, List<StoryboardVideoGenerateVO.ShotResult> rejected)
+            List<PreparedShot> prepared, List<ShotLock> heldLocks,
+            List<StoryboardVideoGenerateVO.ShotResult> rejected, boolean overwriteExistingFinal)
     {
         AidStoryboard firstSb = prepared.get(0).storyboard;
         Long projectId = firstSb.getProjectId();
@@ -2143,6 +2181,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         inputMap.put("countPerShot", perShotCount);
         inputMap.put("generateAudio", generateAudio);
         inputMap.put("userInputText", userInputText);
+        inputMap.put("overwriteExistingFinal", overwriteExistingFinal);
         inputMap.put("shots", shotsSnapshot);
         // 稳定全集：续生时据此兜底全部镜头（含未开始/无成功快照的），不依赖增量 resultData.shots
         inputMap.put("allShots", allShotsSnapshot);
@@ -2188,7 +2227,8 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
                     aspectRatio, resolution, generateAudio, userInputText, perShotCount, direction,
                     prepared, heldLocks,
                     newSubtasks, prepared.size(), 0, new ArrayList<>(), new ArrayList<>(), new ArrayList<>(),
-                    java.util.Collections.emptyMap(), 0, false, shotOrdinalById, takeSlotsByShot);
+                    java.util.Collections.emptyMap(), 0, false, overwriteExistingFinal,
+                    shotOrdinalById, takeSlotsByShot);
         }
         catch (RuntimeException ex)
         {
@@ -2289,6 +2329,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
             List<ShotLock> heldLocks, int newSubtasks, int totalShots, int seedSuccessCount, List<Long> seedRecordIds,
             List<Map<String, Object>> seedItems, List<Map<String, Object>> seedShotResults,
             Map<Long, Map<String, Object>> seedShotPrior, int runNo, boolean forcePartial,
+            boolean overwriteExistingFinal,
             Map<Long, Integer> shotOrdinalById, Map<Long, List<Integer>> takeSlotsByShot)
     {
         // 入队前清理扇入计数/收尾标记：每轮（首跑/续生）从干净状态开始，兜底上一轮被僵尸回收未 cleanup 的残留
@@ -2331,7 +2372,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
                     aspectRatio, resolution, jobDurationSeconds, generateAudio, userInputText, ps.userVideoPromptInput,
                     bizSeqBase, takeSlots, lock.key, lock.token,
                     genType, ps.lastFrameImageUrl, ps.firstImageRecordId, ps.lastImageRecordId,
-                    ps.referenceAudios, ps.providerExtraOptions));
+                    ps.referenceAudios, ps.providerExtraOptions, overwriteExistingFinal));
         }
         VideoBatchJob batchJob = new VideoBatchJob(taskId, userId, modelCode, perShotCount, totalShots,
                 seedSuccessCount + newSubtasks, seedSuccessCount, runNo, shotJobs, new ArrayList<>(heldLocks),
@@ -2690,6 +2731,9 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         Boolean generateAudio = input.hasNonNull("generateAudio") ? input.get("generateAudio").asBoolean() : null;
         String userInputText = input.hasNonNull("userInputText") ? input.get("userInputText").asText() : null;
         int perShotCount = input.path("countPerShot").asInt(1);
+        // 老任务快照缺少该字段时保持原有自动覆盖行为，避免续生改变历史任务语义。
+        boolean overwriteExistingFinal = !input.has("overwriteExistingFinal")
+                || input.path("overwriteExistingFinal").asBoolean(true);
         // 运行批次号（单调，用于 bizTaskId 唯一）：超过编码上限直接拒绝，不 clamp（clamp 会让第 1000 次续生复用 runNo=999 的 bizTaskId）
         int priorRunNo = input.path("runNo").asInt(0);
         if (priorRunNo >= MAX_RUN_NO)
@@ -2977,6 +3021,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
             newSnap.put("countPerShot", perShotCount);
             newSnap.put("generateAudio", generateAudio);
             newSnap.put("userInputText", userInputText);
+            newSnap.put("overwriteExistingFinal", overwriteExistingFinal);
             newSnap.put("shots", resumeShots);
             // 原批次全集原样保留（续生不改变全集），供后续轮次继续兜底未开始/无快照镜头
             List<Map<String, Object>> allShotsOut = new ArrayList<>();
@@ -3064,7 +3109,8 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
                         modelConfig, aspectRatio, resolution, genAudioF, userInputF, perShotCount,
                         direction, prepared, heldLocks,
                         newSubtasks, originalTotalShots, seedSuccessCount, seedRecordIds, seedItems, seedShotResults,
-                        seedShotPrior, newRunNo, forcePartial, shotOrdinalById, missingSlotsByShot);
+                        seedShotPrior, newRunNo, forcePartial, overwriteExistingFinal,
+                        shotOrdinalById, missingSlotsByShot);
             }
             catch (RuntimeException ex)
             {
@@ -3232,6 +3278,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         ctx.put("lastImageRecordId", job.lastImageRecordId);
         ctx.put("genParams", genParamsJson);
         ctx.put("bizSeq", bizSeq);
+        ctx.put("overwriteExistingFinal", job.overwriteExistingFinal);
         options.put(OPT_KEY_CTX, ctx);
         videoRequest.setOptions(options);
 
@@ -3277,6 +3324,8 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         final List<ReferenceAudioInput> referenceAudios;
         /** 厂商专属扩展参数（装配策略产出，如 Vidu 主体调用 subjects），提交时并入 options */
         final Map<String, Object> providerExtraOptions;
+        /** true=批量生成保持自动覆盖；false=单个生成仅在尚无主视频时自动设置。 */
+        final boolean overwriteExistingFinal;
 
         VideoGenJob(Long taskId, Long userId, AidStoryboard storyboard,
                     String modelCode, Long modelId, AiModelConfigVo modelConfig,
@@ -3286,7 +3335,8 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
                     String userInputText, String userVideoPromptInput,
                     long bizSeqBase, List<Integer> takeSlots, String lockKey, String lockToken,
                     String genType, String lastFrameImageUrl, Long firstImageRecordId, Long lastImageRecordId,
-                    List<ReferenceAudioInput> referenceAudios, Map<String, Object> providerExtraOptions)
+                    List<ReferenceAudioInput> referenceAudios, Map<String, Object> providerExtraOptions,
+                    boolean overwriteExistingFinal)
         {
             this.taskId = taskId;
             this.userId = userId;
@@ -3323,6 +3373,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
             this.providerExtraOptions = (providerExtraOptions == null)
                     ? java.util.Collections.emptyMap()
                     : java.util.Collections.unmodifiableMap(new LinkedHashMap<>(providerExtraOptions));
+            this.overwriteExistingFinal = overwriteExistingFinal;
         }
     }
 
@@ -3398,7 +3449,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         record.setGenParams(genParamsJson);
         record.setBizSeq(bizSeq); // 幂等唯一键：由唯一索引 uk_gen_record_biz_seq 兜底防重复落库
         record.setStatus(1); // 1=成功
-        record.setIsSelected(1);
+        record.setIsSelected(job.overwriteExistingFinal ? SELECTED_YES : SELECTED_NO);
         record.setDelFlag(DEL_FLAG_NORMAL);
         record.setCreateTime(DateUtils.getNowDate());
         record.setCreateBy(String.valueOf(job.userId));
@@ -3411,10 +3462,10 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
             // DIRECT 内联与事件扇入并发竞态：唯一键冲突说明同一 take 已落库，幂等忽略
             log.info("分镜出片 gen_record 已存在(biz_seq 唯一键冲突,幂等忽略): bizSeq={}, storyboardId={}",
                     bizSeq, storyboard.getId());
-            markExistingVideoRecordAsFinal(bizSeq, job.userId);
+            markExistingVideoRecordAsFinal(bizSeq, job.userId, job.overwriteExistingFinal);
             return null;
         }
-        markStoryboardFinalVideo(storyboard.getId(), record.getId(), job.userId);
+        markStoryboardFinalVideo(storyboard.getId(), record.getId(), job.userId, job.overwriteExistingFinal);
         return record.getId();
     }
     /** 注入 aid_media_task.request_json.options 的单一命名空间上下文键。 */
@@ -3431,7 +3482,8 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         if (Objects.nonNull(existing))
         {
             Long recordUserId = Objects.nonNull(existing.getUserId()) ? existing.getUserId() : shot.userId;
-            markStoryboardFinalVideo(existing.getStoryboardId(), existing.getId(), recordUserId);
+            markStoryboardFinalVideo(existing.getStoryboardId(), existing.getId(), recordUserId,
+                    shot.overwriteExistingFinal);
             return;
         }
         persistGenRecord(shot, bizSeq, videoUrl, genParamsJson);
@@ -3456,7 +3508,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         }
     }
 
-    private void markExistingVideoRecordAsFinal(long bizSeq, Long fallbackUserId)
+    private void markExistingVideoRecordAsFinal(long bizSeq, Long fallbackUserId, boolean overwriteExistingFinal)
     {
         AidGenRecord existing = loadGenRecordByBizSeq(bizSeq);
         if (Objects.isNull(existing))
@@ -3464,7 +3516,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
             return;
         }
         Long userId = Objects.nonNull(existing.getUserId()) ? existing.getUserId() : fallbackUserId;
-        markStoryboardFinalVideo(existing.getStoryboardId(), existing.getId(), userId);
+        markStoryboardFinalVideo(existing.getStoryboardId(), existing.getId(), userId, overwriteExistingFinal);
     }
 
     /** 媒体子任务终态回调（由 StoryboardVideoGenEventListener 调用）：成功幂等落库、失败计数，随后尝试收尾。 */
@@ -3504,13 +3556,18 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
     private boolean persistGenRecordFromCtx(AidMediaTask mt, long bizSeq, String ossUrl)
     {
         AidGenRecord existing = loadGenRecordByBizSeq(bizSeq);
+        Map<String, Object> ctx = extractCtxFromMediaTask(mt);
         if (Objects.nonNull(existing))
         {
-            Long recordUserId = Objects.nonNull(existing.getUserId()) ? existing.getUserId() : mt.getUserId();
-            markStoryboardFinalVideo(existing.getStoryboardId(), existing.getId(), recordUserId);
+            // 上下文已压缩说明该成功事件此前已消费，不再重复改动用户后续选择。
+            if (CollectionUtil.isNotEmpty(ctx))
+            {
+                Long recordUserId = Objects.nonNull(existing.getUserId()) ? existing.getUserId() : mt.getUserId();
+                markStoryboardFinalVideo(existing.getStoryboardId(), existing.getId(), recordUserId,
+                        resolveOverwriteExistingFinal(ctx));
+            }
             return true; // 幂等：已落库时不再依赖 request_json 上下文，兼容上下文压缩后的重复事件
         }
-        Map<String, Object> ctx = extractCtxFromMediaTask(mt);
         if (CollectionUtil.isEmpty(ctx))
         {
             log.error("分镜出片事件落库缺少上下文(跳过,计失败防卡死): mediaTaskId={}, bizSeq={}", mt.getId(), bizSeq);
@@ -3544,7 +3601,8 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         record.setGenParams((String) ctx.get("genParams"));
         record.setBizSeq(bizSeq); // 幂等唯一键：由唯一索引 uk_gen_record_biz_seq 兜底防重复落库
         record.setStatus(1);
-        record.setIsSelected(1);
+        boolean overwriteExistingFinal = resolveOverwriteExistingFinal(ctx);
+        record.setIsSelected(overwriteExistingFinal ? SELECTED_YES : SELECTED_NO);
         record.setDelFlag(DEL_FLAG_NORMAL);
         record.setCreateTime(DateUtils.getNowDate());
         record.setCreateBy(String.valueOf(mt.getUserId()));
@@ -3557,19 +3615,19 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
             // DIRECT 内联与事件扇入并发竞态：唯一键冲突说明同一 take 已落库，幂等忽略
             log.info("分镜出片事件落库 gen_record 已存在(biz_seq 唯一键冲突,幂等忽略): bizSeq={}, storyboardId={}",
                     bizSeq, storyboardId);
-            markExistingVideoRecordAsFinal(bizSeq, mt.getUserId());
+            markExistingVideoRecordAsFinal(bizSeq, mt.getUserId(), overwriteExistingFinal);
             return true;
         }
-        markStoryboardFinalVideo(storyboardId, record.getId(), mt.getUserId());
+        markStoryboardFinalVideo(storyboardId, record.getId(), mt.getUserId(), overwriteExistingFinal);
         return true;
     }
 
     /**
-     * 自动生成成功后同步分镜主视频：video 类内单选互斥，本记录置选中并回写 final_video_id；
-     * 同时失效基于旧原视频生成的 compose 主记录。
-     * 失败只记录日志，不影响已成功产物落库与扇入收尾。
+     * 自动生成成功后同步分镜主视频：批量生成允许覆盖，单个生成仅在尚无主视频时设置。
+     * 真正切换主视频时维持 video 类内单选互斥，并失效基于旧原视频生成的 compose 主记录。
      */
-    private void markStoryboardFinalVideo(Long storyboardId, Long recordId, Long userId)
+    private void markStoryboardFinalVideo(Long storyboardId, Long recordId, Long userId,
+            boolean overwriteExistingFinal)
     {
         if (Objects.isNull(storyboardId) || Objects.isNull(recordId) || Objects.isNull(userId))
         {
@@ -3585,16 +3643,48 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
                             .eq(AidStoryboard::getUserId, userId)
                             .eq(AidStoryboard::getDelFlag, DEL_FLAG_NORMAL)
                             .last("LIMIT 1"));
-            boolean originalSourceChanged = Objects.isNull(currentStoryboard)
-                    || !Objects.equals(currentStoryboard.getFinalVideoId(), recordId);
+            if (Objects.isNull(currentStoryboard))
+            {
+                log.warn("分镜视频自动设为主视频失败(分镜不存在或无权): storyboardId={}, recordId={}, userId={}",
+                        storyboardId, recordId, userId);
+                return;
+            }
+            if (!overwriteExistingFinal
+                    && Objects.nonNull(currentStoryboard.getFinalVideoId())
+                    && !Objects.equals(currentStoryboard.getFinalVideoId(), recordId))
+            {
+                log.info("单个分镜视频生成保留已有主视频: storyboardId={}, finalVideoId={}, recordId={}",
+                        storyboardId, currentStoryboard.getFinalVideoId(), recordId);
+                return;
+            }
+
+            // 单个生成仅允许抢占空指针；条件更新避免任务执行期间用户手动选片被异步结果覆盖。
+            if (!overwriteExistingFinal && Objects.isNull(currentStoryboard.getFinalVideoId()))
+            {
+                LambdaUpdateWrapper<AidStoryboard> reserveFinal = Wrappers.lambdaUpdate();
+                reserveFinal.eq(AidStoryboard::getId, storyboardId);
+                reserveFinal.eq(AidStoryboard::getUserId, userId);
+                reserveFinal.eq(AidStoryboard::getDelFlag, DEL_FLAG_NORMAL);
+                reserveFinal.isNull(AidStoryboard::getFinalVideoId);
+                reserveFinal.set(AidStoryboard::getFinalVideoId, recordId);
+                reserveFinal.set(AidStoryboard::getUpdateTime, DateUtils.getNowDate());
+                reserveFinal.set(AidStoryboard::getUpdateBy, String.valueOf(userId));
+                if (!aidStoryboardService.update(reserveFinal))
+                {
+                    log.info("单个分镜视频生成保留并发选定的主视频: storyboardId={}, recordId={}, userId={}",
+                            storyboardId, recordId, userId);
+                    return;
+                }
+            }
+            boolean originalSourceChanged = !Objects.equals(currentStoryboard.getFinalVideoId(), recordId);
             // video 类内单选：重置同分镜其余分镜视频记录的选中。
             LambdaUpdateWrapper<AidGenRecord> resetWrapper = Wrappers.lambdaUpdate();
             resetWrapper.eq(AidGenRecord::getStoryboardId, storyboardId);
             resetWrapper.eq(AidGenRecord::getDelFlag, DEL_FLAG_NORMAL);
             resetWrapper.in(AidGenRecord::getGenType, VIDEO_MUTEX_GEN_TYPES);
             resetWrapper.ne(AidGenRecord::getId, recordId);
-            resetWrapper.eq(AidGenRecord::getIsSelected, 1);
-            resetWrapper.set(AidGenRecord::getIsSelected, 0);
+            resetWrapper.eq(AidGenRecord::getIsSelected, SELECTED_YES);
+            resetWrapper.set(AidGenRecord::getIsSelected, SELECTED_NO);
             resetWrapper.set(AidGenRecord::getUpdateBy, String.valueOf(userId));
             resetWrapper.set(AidGenRecord::getUpdateTime, DateUtils.getNowDate());
             aidGenRecordService.update(resetWrapper);
@@ -3604,38 +3694,48 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
                 invalidateComposeWrapper.eq(AidGenRecord::getStoryboardId, storyboardId);
                 invalidateComposeWrapper.eq(AidGenRecord::getDelFlag, DEL_FLAG_NORMAL);
                 invalidateComposeWrapper.eq(AidGenRecord::getGenType, GenTypeEnum.COMPOSE.getValue());
-                invalidateComposeWrapper.eq(AidGenRecord::getIsSelected, 1);
-                invalidateComposeWrapper.set(AidGenRecord::getIsSelected, 0);
+                invalidateComposeWrapper.eq(AidGenRecord::getIsSelected, SELECTED_YES);
+                invalidateComposeWrapper.set(AidGenRecord::getIsSelected, SELECTED_NO);
                 invalidateComposeWrapper.set(AidGenRecord::getUpdateBy, String.valueOf(userId));
                 invalidateComposeWrapper.set(AidGenRecord::getUpdateTime, DateUtils.getNowDate());
                 aidGenRecordService.update(invalidateComposeWrapper);
             }
-            // 本记录置选中（幂等：insert 已带 1；幂等重放路径 existing 可能已被并发重置）
+            // 本记录置选中（批量 insert 已带 1；单个空主视频或幂等重放路径在此补齐）。
             LambdaUpdateWrapper<AidGenRecord> selectWrapper = Wrappers.lambdaUpdate();
             selectWrapper.eq(AidGenRecord::getId, recordId);
-            selectWrapper.set(AidGenRecord::getIsSelected, 1);
+            selectWrapper.set(AidGenRecord::getIsSelected, SELECTED_YES);
             selectWrapper.set(AidGenRecord::getUpdateBy, String.valueOf(userId));
             selectWrapper.set(AidGenRecord::getUpdateTime, DateUtils.getNowDate());
             aidGenRecordService.update(selectWrapper);
 
-            LambdaUpdateWrapper<AidStoryboard> update = Wrappers.lambdaUpdate();
-            update.eq(AidStoryboard::getId, storyboardId);
-            update.eq(AidStoryboard::getUserId, userId);
-            update.eq(AidStoryboard::getDelFlag, DEL_FLAG_NORMAL);
-            update.set(AidStoryboard::getFinalVideoId, recordId);
-            update.set(AidStoryboard::getUpdateTime, DateUtils.getNowDate());
-            update.set(AidStoryboard::getUpdateBy, String.valueOf(userId));
-            boolean updated = aidStoryboardService.update(update);
-            if (!updated)
+            if (overwriteExistingFinal)
             {
-                log.warn("分镜视频自动设为主视频失败(分镜不存在或无权): storyboardId={}, recordId={}, userId={}",
-                        storyboardId, recordId, userId);
+                LambdaUpdateWrapper<AidStoryboard> update = Wrappers.lambdaUpdate();
+                update.eq(AidStoryboard::getId, storyboardId);
+                update.eq(AidStoryboard::getUserId, userId);
+                update.eq(AidStoryboard::getDelFlag, DEL_FLAG_NORMAL);
+                update.set(AidStoryboard::getFinalVideoId, recordId);
+                update.set(AidStoryboard::getUpdateTime, DateUtils.getNowDate());
+                update.set(AidStoryboard::getUpdateBy, String.valueOf(userId));
+                boolean updated = aidStoryboardService.update(update);
+                if (!updated)
+                {
+                    log.warn("分镜视频自动设为主视频失败(分镜不存在或无权): storyboardId={}, recordId={}, userId={}",
+                            storyboardId, recordId, userId);
+                }
             }
         }
         catch (Exception e)
         {
             log.warn("分镜视频自动设为主视频异常(不阻断): storyboardId={}, recordId={}", storyboardId, recordId, e);
         }
+    }
+
+    /** 新任务显式写入；老任务上下文缺字段时保持历史自动覆盖语义。 */
+    private boolean resolveOverwriteExistingFinal(Map<String, Object> ctx)
+    {
+        Object value = ctx.get("overwriteExistingFinal");
+        return !(value instanceof Boolean flag) || flag;
     }
 
     /** 解析 request_json → options.sbzVideoGenCtx（Map）。 */

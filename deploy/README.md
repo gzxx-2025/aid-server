@@ -46,7 +46,7 @@ if command -v curl >/dev/null 2>&1; then curl -fL --retry 3 -o aid-install.sh ht
 
 配置是首次部署的强制前置步骤：脚本先生成正式配置文件，要求管理员检查、校验并明确确认；在确认完成前不会检查或安装环境、拉取三端源码、构建程序、初始化数据库或启动服务。无人值守部署必须同时设置 `AID_ASSUME_YES=1` 与 `AID_CONFIG_CONFIRMED=1`，避免流水线误用默认配置直接上线。
 
-生成配置文件不等于已经部署。即使管理员在最终确认处选择 `no`，再次执行 `sudo bash aid.sh install` 仍会继续走首次部署，不会误进入升级流程；只有服务健康检查成功后才记录已部署状态。
+生成配置文件不等于已经部署。即使管理员在最终确认处选择 `n`，再次执行 `sudo bash aid.sh install` 仍会继续走首次部署，不会误进入升级流程；只有服务健康检查成功后才记录已部署状态。
 
 > 默认渠道为 `auto`：有正式版时安装正式版；尚无正式版时才选择最新 Beta，并用黄色/红色信息明确提醒。明确需要测试版时，在一行命令的 `sudo env` 后增加 `AID_RELEASE_CHANNEL=beta`。生产服务器不要长期使用 Beta 渠道。
 
@@ -127,14 +127,14 @@ docker compose -f docker-compose.middleware.yml --profile mq up -d  # 需要联�
 
 MySQL 首次启动自动创建 `aid_test` 库并导入 `sql/` 初始化脚本（root/123456）；RocketMQ 的 Broker 已配置 `brokerIP1=127.0.0.1`，宿主机 IDE 里的后端可直接连接。该编排仅供开发，禁止用于生产。
 
-## 配置要求（aid.sh 安装前自动校验，低于最低配置拒绝安装）
+## 配置要求（aid.sh 安装前自动检查，低配时使用 y/n 确认）
 
 | 部署内容 | 最低配置 | 推荐配置 |
 |---------|---------|---------|
-| Docker 全栈（不启用 RocketMQ） | 2核 4G / 40G 磁盘 | 4核 8G / 100G+ 磁盘 |
-| Docker 全栈 + RocketMQ | 4核 6G / 40G 磁盘 | 6核 12G / 100G+ 磁盘 |
-| 手动部署（中间件同机） | 2核 4G / 40G 磁盘 | 4核 8G / 100G+ 磁盘 |
-| 手动部署 + RocketMQ | 4核 6G / 40G 磁盘 | 6核 12G / 100G+ 磁盘 |
+| 本机 Docker 全栈（不启用 RocketMQ） | 2核 4G / 40G 磁盘 | 4核 8G / 100G+ 磁盘 |
+| 本机 Docker 全栈（启用 RocketMQ） | 4核 4G / 40G 磁盘 | 6核 12G / 100G+ 磁盘 |
+| 本机手动部署（中间件同机） | 2核 4G / 40G 磁盘 | 4核 8G / 100G+ 磁盘 |
+| 本机手动部署（启用 RocketMQ） | 4核 4G / 40G 磁盘 | 6核 12G / 100G+ 磁盘 |
 
 **推算依据**（各组件常驻内存估算，含 JVM 堆外与操作系统开销）：
 
@@ -147,13 +147,15 @@ MySQL 首次启动自动创建 `aid_test` 库并导入 `sql/` 初始化脚本（
 | Nginx + 系统预留 | ~1G | 内核/页缓存/守护进程 |
 | RocketMQ（启用时） | +2G | NameServer 256m + Broker 堆 1G + 堆外与页缓存 ~0.8G |
 
-合计：无 MQ ≈ 6G 常驻（8G 推荐留出生成任务峰值余量）；最低 4G 需依赖默认参数收紧与交换分区兜底，仅适合功能验证。磁盘 40G 为程序+数据库+日志的底线，媒体文件强烈建议配置 OSS/COS 对象存储（本地盘会很快写满）。安装时 `aid.sh` 按「部署方式 + 是否启用 MQ」动态套用上表校验：低于最低配置**直接拒绝安装**，介于最低与推荐之间给出警告并需确认继续。
+本机启用 RocketMQ 时，4核4G 只是收紧 JVM/MQ 参数后的功能验证下限；消息量较大、需要 MQ 派发时建议 6核12G 或更高配置。磁盘 40G 为程序+数据库+日志的底线，媒体文件强烈建议配置 OSS/COS 对象存储（本地盘会很快写满）。安装时 `aid.sh` 会显示当前本机配置、最低配置和推荐配置；低于任一标准只警告风险，不强制限制脚本，输入 `y` 继续安装，输入 `n` 取消。
 
 ## 一、版本标签源码构建
 
 正常部署和更新都由 `aid.sh` 自动处理，不需要用户访问发布页。版本清单优先从 Gitee 获取、GitHub 兜底；源码平台则先实际检测 GitHub 的 `aid-server`、`aid-admin`、`aid-web` 三个仓库是否都存在目标标签，任一失败就整组切换到 Gitee。构建固定使用 `v<版本>` 标签，绝不拉取会继续变化的 `master`。
 
-Docker 部署使用隔离的 JDK/Maven、Node.js 和 Go 构建容器，宿主机无需重复安装这些编译工具；构建镜像与依赖会缓存在 `/data/aid/build-cache`，后续升级明显更快。手动部署没有 Docker 时，`DEPENDENCY_INSTALL_MODE=auto` 会使用当前 Linux 发行版的包管理器安装缺失工具，已经安装且版本合格的依赖直接跳过；`manual` 只检查并提示。国内线路切到 Gitee 后会同时启用国内 Maven/npm/Go 依赖镜像；Docker 镜像仍使用部署方配置的容器镜像加速。
+Docker 构建固定使用 Node.js 22.22.0；Java 构建与运行固定使用 Eclipse Temurin OpenJDK 17.0.20+8。JDK 按宿主机架构自动选择 x64 或 AArch64 压缩包，下载后核对 Adoptium 官方 SHA-256，不修改宿主机默认 Java。构建镜像与依赖缓存在 `/data/aid/build-cache`，后续升级会直接复用。
+
+`DEPENDENCY_REGION=auto` 会在目标服务器运行时按公网出口地区自动选择下载线路，地区服务不可用时再按网络可达性判断：国内优先 DaoCloud Docker Hub 镜像、清华 Adoptium 镜像、npmmirror、阿里云 Maven 和 goproxy.cn；国际优先 Docker Hub、Adoptium、npm、Maven Central 和 proxy.golang.org。首选线路失败会自动回退另一条线路，也可明确设置为 `cn` 或 `global`。Docker 国内镜像按标签下载后必须匹配发布脚本内固定的官方 RepoDigest，否则会拒绝使用并尝试官方地址。
 
 只有离线部署或开发调试时才需要自行准备本地包，可通过 `sudo bash aid.sh install-docker /path/to/aid-vX.Y.Z.tar.gz` 使用。因为外部本地包不在在线签名链路中，脚本会以红色风险信息提示，只做结构校验。
 
@@ -206,13 +208,13 @@ if command -v curl >/dev/null 2>&1; then curl -fL --retry 3 -o aid-install.sh ht
 
 脚本会先从版本标签源码构建本地包，再从本地包提取部署套件，并由 `.env.example` 自动生成正式配置；数据库密码、JWT 密钥等空值会生成强随机值写回。单文件首次部署的配置真源是 `/data/aid/config/docker.env`，完成后脚本也会明确打印实际路径。默认采用内置 MySQL + Redis、关闭 RocketMQ 与 HTTPS 的保守组合。需要改端口、HTTPS、外部 MySQL/Redis 或 RocketMQ 时，编辑实际配置文件后执行 `sudo aid restart` 生效。
 
-Docker 模式不会要求宿主机另装 Git、JDK、Node、Go、Nginx 或 Redis：Git/JDK/Node/Go 使用一次性隔离构建容器；HTTP Nginx 为运行容器；MySQL、Redis、RocketMQ 与 HTTPS 由 `COMPOSE_PROFILES` 决定是否启动对应容器。宿主机只需管理员预先安装并启动 Docker Engine 24+ 与 Compose v2，脚本按安全约定不会自动安装 Docker 或修改系统软件源。
+Docker 模式不会要求宿主机另装 Git、JDK、Node、Go、Nginx 或 Redis：Node.js 22.22.0 与 Maven/Go 使用一次性隔离构建容器；OpenJDK 17.0.20 从校验后的压缩包生成本地固定运行镜像；HTTP Nginx 为运行容器；MySQL、Redis、RocketMQ 与 HTTPS 由 `COMPOSE_PROFILES` 决定是否启动对应容器。宿主机只需管理员预先安装并启动 Docker Engine 24+ 与 Compose v2，脚本不会自动安装 Docker 或修改系统软件源。
 
 依赖处理由正式配置中的 `DEPENDENCY_INSTALL_MODE` 控制：
 
 | 值 | Docker 部署行为 | 手动 systemd 部署行为 |
 |----|-----------------|------------------------|
-| `auto`（默认） | 缺失镜像自动 `docker pull`，本地已有镜像跳过 | 缺失的 Git/JDK 17/Maven/Node/npm/Go/Nginx/MySQL 客户端等用 `apt-get`、`dnf` 或 `yum` 安装，版本合格则跳过 |
+| `auto`（默认） | 缺失镜像按 `DEPENDENCY_REGION` 自动下载，并校验固定的官方镜像摘要 | JDK 17.0.20、Node 22.22.0、Maven 3.9.9、Go 1.22.12 下载到隔离缓存并校验；Git/Nginx/MySQL客户端等系统工具按需安装 |
 | `manual` | 缺镜像立即停止并打印准确的 `docker pull` 命令 | 只检查并列出缺失或版本不合格项，不修改系统 |
 
 Docker Engine 与 Compose 无论哪种模式都必须由管理员安装；脚本不会执行远程安装脚本或修改 Docker 软件源。外部 MySQL、Redis、RocketMQ 只做配置和连通性校验，绝不会在宿主机安装同名服务或覆盖外部配置。MySQL 服务端固定要求 5.7，为避免发行版默认安装成 MySQL 8/MariaDB，手动模式不代装服务端：请选择已有 MySQL 5.7、外部 MySQL 5.7，或改用推荐的 Docker 内置 MySQL 5.7。
@@ -226,7 +228,7 @@ Docker Nginx 不是写进宿主机 `/etc/nginx`：受管 HTTP 配置位于 `/dat
 访问地址：
 
 - 用户端：`http://服务器IP/`（`HTTP_PORT` 可配，默认 80）
-- 管理端：`http://服务器IP:8090/`（独立端口、根路径托管，`ADMIN_PORT` 可配），默认账号 `admin / admin123`，**登录后立即修改密码**
+- 管理端：`http://服务器IP:8089/<随机访问码>`（首次部署生成12位随机访问码并打印完整地址），默认账号 `admin / admin123`，**登录后立即修改密码**
 
 没有域名不影响 HTTP 部署：必须保留 `HTTP_PORT` 和 `ADMIN_PORT`，直接用服务器 IP 访问即可。Docker 保持 `COMPOSE_PROFILES=mysql,redis`（不要加入 `https`）；手动部署保持 `HTTPS_ENABLED=false`。此时 `HTTPS_PUBLIC_DOMAIN`、`HTTPS_ADMIN_DOMAIN`、证书和私钥路径只是占位值，不会读取或校验。不要把 `HTTP_PORT` 改成 443，443 端口本身不代表已启用 TLS。
 
@@ -252,7 +254,7 @@ HTTPS_CERT_PATH=/data/aid/config/ssl/fullchain.pem
 HTTPS_KEY_PATH=/data/aid/config/ssl/privkey.pem
 ```
 
-证书文件必须位于 `DATA_ROOT/config/ssl` 且不能是软链接。用户端访问 `https://www.example.com/`，管理端访问 `https://admin.example.com/<访问码>`。证书续期后复制覆盖这两个文件并执行 `sudo aid restart`。未加入 `https` Profile 时不会启动 HTTPS 容器，也不会占用 443。
+证书文件必须位于 `DATA_ROOT/config/ssl` 且不能是软链接。用户端访问 `https://www.example.com/`，管理端地址为 `https://admin.example.com/<随机访问码>`。证书续期后复制覆盖这两个文件并执行 `sudo aid restart`。未加入 `https` Profile 时不会启动 HTTPS 容器，也不会占用 443。部署完成后脚本会读取数据库中的实际访问码并输出完整登录地址。
 
 ### 内置或外部 MySQL、Redis、RocketMQ
 
@@ -351,19 +353,19 @@ sudo aid restart
 
 | 组件 | 版本 | 说明 |
 |------|------|------|
-| JDK | 17+ | 后端运行 |
+| JDK | Temurin OpenJDK 17.0.20+8 | 脚本按架构下载到数据目录，不切换系统默认 Java |
 | Git | 2.x | 拉取三个公开仓库的固定版本标签 |
-| Maven | 3.8+ | 服务端源码构建 |
+| Maven | 3.9.9 | 无 Docker 时下载到隔离缓存，用于服务端源码构建 |
 | MySQL | 5.7 | 业务数据库（本机或远程均可） |
 | Redis | 6.x+ | 缓存与分布式锁 |
-| Node.js | 18+ | 用户端 SSR 运行 |
+| Node.js | 22.22.0 | 后台/Web 构建与用户端 SSR 运行 |
 | npm | 随 Node.js | 后台管理端与 Web 用户端源码构建 |
-| Go | 1.22+ | 在线升级器源码构建 |
+| Go | 1.22.12 | 无 Docker 时下载到隔离缓存，用于在线升级器源码构建 |
 | Nginx | 1.20+ | 静态托管与反向代理 |
 | mysql 客户端 + curl | - | 数据库初始化与健康检查 |
 | RocketMQ | 5.x | 可选（不装则走本地任务模式，功能完整） |
 
-默认 `DEPENDENCY_INSTALL_MODE=auto`：脚本先检测命令与版本，有且合格就跳过；缺失时使用 `apt-get`、`dnf` 或 `yum` 安装 Git、JDK 17、Maven、Node.js/npm、Go、Nginx、MySQL 客户端、curl/tar 等。若发行版软件源无法提供最低版本，脚本会停止并要求管理员按该发行版标准安装，不会通过未经校验的 `curl | bash` 修改第三方软件源。设置为 `manual` 后只检查和提示。
+默认 `DEPENDENCY_INSTALL_MODE=auto`：OpenJDK 17.0.20 下载到 `/data/aid/build-cache/toolchains` 并校验 SHA-256，systemd 直接使用该隔离路径；不会替换系统 Java 或修改 `alternatives`。其余缺失工具使用 `apt-get`、`dnf` 或 `yum` 安装。若发行版软件源无法提供最低版本，脚本会停止并要求管理员按发行版标准安装。设置为 `manual` 后只检查和提示。
 
 MySQL 5.7 服务端、Docker Engine、外部中间件不会自动安装。本机 Redis 仅在地址为 `127.0.0.1/localhost`、端口不可用且没有配置 ACL/密码时允许自动安装并启动；配置外部 Redis 时自动跳过本机安装。手动部署启用 RocketMQ 时使用已准备的本机或外部 NameServer，脚本不会下载并接管 Broker。这样可以避免自动安装错误数据库大版本、覆盖现有认证配置或把外部服务误装到当前服务器。
 
@@ -377,7 +379,7 @@ if command -v curl >/dev/null 2>&1; then curl -fL --retry 3 -o aid-install.sh ht
 
 脚本会自动生成 `/data/aid/aid-deploy.conf`。手动部署连接的是现有 MySQL/Redis，无法安全猜测外部数据库凭证，因此首次运行会要求输入数据库密码（输入不回显），并当场校验连通性；`TOKEN_SECRET` 留空时自动生成强随机值。主机、端口或外部中间件拓扑不是默认值时，先按脚本提示编辑该配置再重试。
 
-手动部署按配置连接现有 MySQL 和可选 RocketMQ，不会安装或覆盖这两类服务。若服务器上有可用 Docker，源码编译优先使用隔离构建容器；没有 Docker 时才在宿主机检查或安装 Git、Maven、npm 与 Go。JDK、Node.js、Nginx 是运行依赖，手动部署始终检查，并按依赖模式处理。本机无认证 Redis 可自动安装，外部或带认证 Redis 只连接不改配置。
+手动部署按配置连接现有 MySQL 和可选 RocketMQ，不会安装或覆盖这两类服务。若服务器上有可用 Docker，源码编译优先使用隔离构建容器；没有 Docker 时，JDK、Node.js、Maven、Go 会下载到数据目录的隔离工具链缓存并校验官方摘要，Git、Nginx、MySQL 客户端等系统工具才通过发行版包管理器按需安装。Java 服务固定使用 Temurin OpenJDK 17.0.20，Web 服务固定使用 Node.js 22.22.0。本机无认证 Redis 可自动安装，外部或带认证 Redis 只连接不改配置。
 
 脚本自动完成：依赖检测与按需安装 → 三仓同标签源码构建 → 配置文件校验 → 硬件校验 → 数据库连通性校验 → 空库自动导入基线（已有表跳过）→ 本地构建包摆位到 `/data/aid/app` → 注册 `aid` + `aid-web` 双 systemd 服务（环境变量含 `LOG_PATH=/data/aid/logs`，日志统一落数据目录）→ 生成 Nginx 站点 → 自动安装升级器 → 健康等待。
 

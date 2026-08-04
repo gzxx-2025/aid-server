@@ -17,6 +17,8 @@ import com.aid.aid.domain.AidStoryboard;
 import com.aid.aid.service.IAidExtractTaskService;
 import com.aid.aid.service.IAidStoryboardService;
 import com.aid.common.core.redis.RedisCache;
+import com.aid.common.error.TaskErrorPresentation;
+import com.aid.common.exception.ServiceException;
 import com.aid.rps.queue.BatchPromptTerminalEvent;
 import com.aid.storyboard.dto.ChainTriggerResult;
 import com.aid.storyboard.dto.StoryboardImageGenerateRequest;
@@ -180,13 +182,14 @@ public class StoryboardStepChainService
         {
             log.error("分镜合并链路触发部分失败: taskId={}, type={}, childTaskIds={}",
                     taskId, type, e.getChildTaskIds(), e);
-            return ChainTriggerResult.failed(e.getChildTaskType(), e.getChildTaskIds(), chainFailureMessage(type));
+            return ChainTriggerResult.failed(e.getChildTaskType(), e.getChildTaskIds(),
+                    resolveChainFailureMessage(type, e));
         }
         catch (Exception e)
         {
             // 下一步触发失败不回滚已生成的提示词；记录便于排查（用户可手动发起出图/出片）
             log.error("分镜合并链路触发下一步失败(提示词已生成,不影响): taskId={}, type={}", taskId, type, e);
-            return ChainTriggerResult.failed(chainChildType(type), chainFailureMessage(type));
+            return ChainTriggerResult.failed(chainChildType(type), resolveChainFailureMessage(type, e));
         }
         log.warn("分镜合并链路类型不支持: taskId={}, type={}", taskId, type);
         return ChainTriggerResult.failed(chainChildType(type), chainFailureMessage(type));
@@ -210,6 +213,26 @@ public class StoryboardStepChainService
     private String chainFailureMessageByTaskType(String taskType)
     {
         return TASK_TYPE_IMAGE_PROMPT.equals(taskType) ? CHAIN_IMAGE_FAILED_MESSAGE : CHAIN_VIDEO_FAILED_MESSAGE;
+    }
+
+    /** 优先返回异常链中的用户可见业务原因，系统异常继续使用安全兜底文案。 */
+    String resolveChainFailureMessage(String type, Throwable throwable)
+    {
+        Throwable current = throwable;
+        int depth = 0;
+        while (Objects.nonNull(current) && depth < 10)
+        {
+            if (current instanceof ServiceException serviceException
+                    && StrUtil.isNotBlank(serviceException.getMessage()))
+            {
+                return StrUtil.sub(serviceException.getMessage(), 0, 12);
+            }
+            current = current.getCause();
+            depth++;
+        }
+        String fallback = chainFailureMessage(type);
+        String rawMessage = Objects.isNull(throwable) ? null : throwable.getMessage();
+        return StrUtil.sub(TaskErrorPresentation.toUserMessage(rawMessage, fallback), 0, 12);
     }
 
     /**
@@ -241,7 +264,7 @@ public class StoryboardStepChainService
                 req.setSize(strVal(chainNext.get("size")));
                 req.setNegativePrompt(strVal(chainNext.get("negativePrompt")));
                 // 多镜头强制每镜 1 张，不传 count
-                StoryboardImageGenerateVO vo = storyboardImageGenerationService.generateImage(req, userId);
+                StoryboardImageGenerateVO vo = storyboardImageGenerationService.generateImage(req, userId, true);
                 Long childTaskId = Objects.isNull(vo) ? null : vo.getTaskId();
                 ensureChildTaskCreated(promptTaskId, batchIds, childTaskId);
                 childTaskIds.add(childTaskId);
@@ -287,7 +310,7 @@ public class StoryboardStepChainService
                 req.setResolution(strVal(chainNext.get("resolution")));
                 if (chainNext.get("durationSeconds") instanceof Number n) { req.setDurationSeconds(n.intValue()); }
                 if (chainNext.get("generateAudio") instanceof Boolean b) { req.setGenerateAudio(b); }
-                StoryboardVideoGenerateVO vo = storyboardVideoGenerationService.generateVideo(req, userId);
+                StoryboardVideoGenerateVO vo = storyboardVideoGenerationService.generateVideo(req, userId, true);
                 Long childTaskId = Objects.isNull(vo) ? null : vo.getTaskId();
                 ensureChildTaskCreated(promptTaskId, batchIds, childTaskId);
                 childTaskIds.add(childTaskId);
@@ -334,7 +357,8 @@ public class StoryboardStepChainService
                 if (chainNext.get("durationSeconds") instanceof Number n) { req.setDurationSeconds(n.intValue()); }
                 if (chainNext.get("generateAudio") instanceof Boolean b) { req.setGenerateAudio(b); }
                 // 不传 images：多镜头各自回落分镜主图 final_image_id 作参考；多镜头每镜 1 条，不传 count
-                StoryboardVideoGenerateVO vo = storyboardVideoGenerationService.generateVideoFromImage(req, userId);
+                StoryboardVideoGenerateVO vo =
+                        storyboardVideoGenerationService.generateVideoFromImage(req, userId, true);
                 Long childTaskId = Objects.isNull(vo) ? null : vo.getTaskId();
                 ensureChildTaskCreated(promptTaskId, batchIds, childTaskId);
                 childTaskIds.add(childTaskId);
@@ -381,7 +405,8 @@ public class StoryboardStepChainService
                 if (chainNext.get("durationSeconds") instanceof Number n) { req.setDurationSeconds(n.intValue()); }
                 if (chainNext.get("generateAudio") instanceof Boolean b) { req.setGenerateAudio(b); }
                 // 多镜头每镜 1 条，不传 count
-                StoryboardVideoGenerateVO vo = storyboardVideoGenerationService.generateVideoFromGrid(req, userId);
+                StoryboardVideoGenerateVO vo =
+                        storyboardVideoGenerationService.generateVideoFromGrid(req, userId, true);
                 Long childTaskId = Objects.isNull(vo) ? null : vo.getTaskId();
                 ensureChildTaskCreated(promptTaskId, batchIds, childTaskId);
                 childTaskIds.add(childTaskId);

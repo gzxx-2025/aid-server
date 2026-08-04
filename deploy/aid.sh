@@ -81,8 +81,21 @@ DOWNLOAD_TIMEOUT_SECONDS="${AID_DOWNLOAD_TIMEOUT_SECONDS:-1800}"
 SOURCE_BUILDER_NAME="build-release-from-source.sh"
 SOURCE_GIT_IMAGE="${AID_GIT_IMAGE:-alpine/git:2.47.2}"
 SOURCE_MAVEN_IMAGE="${AID_MAVEN_IMAGE:-maven:3.9.9-eclipse-temurin-17}"
-SOURCE_NODE_IMAGE="${AID_NODE_IMAGE:-node:20-bookworm-slim}"
-SOURCE_GO_IMAGE="${AID_GO_IMAGE:-golang:1.22-bookworm}"
+SOURCE_NODE_IMAGE="${AID_NODE_IMAGE:-node:22.22.0-bookworm-slim}"
+SOURCE_GO_IMAGE="${AID_GO_IMAGE:-golang:1.22.12-bookworm}"
+DOCKER_CN_MIRROR="${AID_DOCKER_CN_MIRROR:-docker.m.daocloud.io}"
+IMAGE_PULL_TIMEOUT_SECONDS="${AID_IMAGE_PULL_TIMEOUT_SECONDS:-900}"
+JDK_VERSION="17.0.20"
+JDK_BUILD="8"
+JDK_HOME=""
+NODE_VERSION="22.22.0"
+NODE_HOME=""
+MAVEN_VERSION="3.9.9"
+MAVEN_HOME=""
+GO_VERSION="1.22.12"
+GO_HOME=""
+JAVA_RUNTIME_IMAGE="aid/openjdk:17.0.20"
+DEFAULT_ADMIN_ENTRY_CODE=""
 OS_PACKAGE_INDEX_READY=0
 
 risk() {
@@ -139,6 +152,20 @@ ask() { # ask <提示> <默认值>
   local answer
   read -r -p "$1 [$2]: " answer </dev/tty
   echo "${answer:-$2}"
+}
+ask_yes_no() { # ask_yes_no <提示> <默认值:y|n>
+  local prompt="$1" defaultAnswer="$2" answer
+  [[ "${defaultAnswer}" == "y" || "${defaultAnswer}" == "n" ]] \
+    || die "y/n默认值只支持y或n"
+  while :; do
+    read -r -p "${prompt} (y/n) [${defaultAnswer}]: " answer </dev/tty
+    answer="${answer:-${defaultAnswer}}"
+    case "${answer,,}" in
+      y) echo "y"; return 0 ;;
+      n) echo "n"; return 0 ;;
+      *) echo "请输入 y 或 n" >/dev/tty ;;
+    esac
+  done
 }
 ask_secret() { # ask_secret <提示>
   local answer
@@ -288,7 +315,7 @@ validate_docker_extended_config() {
     [[ "${adminDomain}" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]] || die "HTTPS_ADMIN_DOMAIN 格式错误"
     [[ "${domain}" != "${adminDomain}" ]] || die "用户端与管理端 HTTPS 域名不能相同"
     [[ "$(env_get HTTPS_PORT 443)" != "$(env_get HTTP_PORT 80)" \
-       && "$(env_get HTTPS_PORT 443)" != "$(env_get ADMIN_PORT 8090)" ]] \
+       && "$(env_get HTTPS_PORT 443)" != "$(env_get ADMIN_PORT 8089)" ]] \
       || die "HTTPS_PORT 不能与 HTTP_PORT 或 ADMIN_PORT 重复"
     mkdir -p "${DATA_ROOT}/config/ssl"; chmod 700 "${DATA_ROOT}/config/ssl"
     certPath="$(env_get HTTPS_CERT_PATH "${DATA_ROOT}/config/ssl/fullchain.pem")"
@@ -299,7 +326,8 @@ validate_docker_extended_config() {
 }
 
 # ----------------------------------------------------------------------------
-# 硬件配置校验：按部署内容动态计算最低/推荐配置，低于最低配置拒绝安装。
+# 硬件配置检查：按本机部署内容动态计算最低/推荐配置。
+# 低于标准时显示当前配置和风险，由管理员使用 y/n 决定是否继续，不强制中止脚本。
 # 依据（各组件常驻内存占用估算，含 JVM 堆外与系统开销）见 deploy/README.md「配置要求」。
 # ----------------------------------------------------------------------------
 check_hardware() { # check_hardware <docker|manual> <mq:yes|no>
@@ -323,8 +351,8 @@ check_hardware() { # check_hardware <docker|manual> <mq:yes|no>
     minCpu=2; minMem=$((4 * 1024 - 512)); recCpu=4; recMem=$((8 * 1024 - 512)); minDisk=40
   fi
   if [[ "${withMq}" == "yes" ]]; then
-    # RocketMQ NameServer(0.3G) + Broker(1G堆 + 堆外/页缓存 ~1G)
-    minMem=$((minMem + 2 * 1024)); recMem=$((recMem + 4 * 1024)); recCpu=$((recCpu + 2))
+    # 本机启用 RocketMQ：最低 4核4G，推荐 6核12G；外部 MQ 不应加算本机资源。
+    minCpu=4; minMem=$((4 * 1024 - 512)); recCpu=6; recMem=$((12 * 1024 - 512))
   fi
 
   echo ""
@@ -333,18 +361,24 @@ check_hardware() { # check_hardware <docker|manual> <mq:yes|no>
   echo "  最低: $((minCpu)) 核 / $(( (minMem + 512) / 1024 ))G 内存 / ${minDisk}G 磁盘"
   echo "  推荐: $((recCpu)) 核 / $(( (recMem + 512) / 1024 ))G 内存 / 100G+ 磁盘"
 
-  local blocked=0
-  [[ "${cpuCores}" -lt "${minCpu}" ]] && err "CPU 核数低于最低要求（${cpuCores} < ${minCpu}）" && blocked=1
-  [[ "${memTotalMb}" -lt "${minMem}" ]] && err "内存低于最低要求（$((memTotalMb / 1024))G < $(( (minMem + 512) / 1024 ))G）" && blocked=1
-  [[ "${diskFreeGb}" -lt "${minDisk}" ]] && err "数据盘剩余空间低于最低要求（${diskFreeGb}G < ${minDisk}G）" && blocked=1
-  if [[ "${blocked}" -eq 1 ]]; then
-    die "硬件不满足最低配置，安装已中止（媒体生成类业务低配运行极易 OOM/写满磁盘，请升级服务器配置）"
+  local belowMinimum=0 needsConfirmation=0 go
+  [[ "${cpuCores}" -lt "${minCpu}" ]] && warn "当前 CPU 低于最低配置（${cpuCores} 核 < ${minCpu} 核）" && belowMinimum=1
+  [[ "${memTotalMb}" -lt "${minMem}" ]] && warn "当前内存低于最低配置（$((memTotalMb / 1024))G < $(( (minMem + 512) / 1024 ))G）" && belowMinimum=1
+  [[ "${diskFreeGb}" -lt "${minDisk}" ]] && warn "当前数据盘剩余空间低于最低配置（${diskFreeGb}G < ${minDisk}G）" && belowMinimum=1
+  if [[ "${belowMinimum}" -eq 1 ]]; then
+    risk "当前本机配置小于最低运行配置，继续安装可能出现 OOM、进程被杀或磁盘写满"
+    needsConfirmation=1
+  elif [[ "${cpuCores}" -lt "${recCpu}" || "${memTotalMb}" -lt "${recMem}" ]]; then
+    warn "当前本机达到最低配置，但低于推荐配置；高并发生成任务时可能吃紧"
+    needsConfirmation=1
   fi
-  if [[ "${cpuCores}" -lt "${recCpu}" || "${memTotalMb}" -lt "${recMem}" ]]; then
-    warn "达到最低配置但低于推荐配置：可以运行，高并发生成任务时可能吃紧"
-    local go
-    go="$(ask '是否继续安装？(yes/no)' 'yes')"
-    [[ "${go}" == "yes" ]] || die "已取消安装"
+  if [[ "${needsConfirmation}" -eq 1 ]]; then
+    if [[ "${AID_ASSUME_YES:-0}" == "1" ]]; then
+      warn "AID_ASSUME_YES=1：已按 y 继续安装"
+    else
+      go="$(ask_yes_no '是否继续安装？' 'y')"
+      [[ "${go}" == "y" ]] || die "已取消安装"
+    fi
   else
     ok "硬件满足推荐配置"
   fi
@@ -398,30 +432,182 @@ dependency_install_mode() { # dependency_install_mode <docker|manual>
   esac
 }
 
+dependency_region_setting() {
+  if [[ -n "${AID_DEPENDENCY_REGION:-}" ]]; then
+    echo "${AID_DEPENDENCY_REGION}"
+  else
+    case "${descriptorMode}" in
+      docker) env_get DEPENDENCY_REGION auto ;;
+      manual|systemd) conf_get DEPENDENCY_REGION auto ;;
+      *)
+        if [[ -f "${ENV_FILE}" ]]; then
+          env_get DEPENDENCY_REGION auto
+        elif [[ -f "${CONF}" ]]; then
+          conf_get DEPENDENCY_REGION auto
+        else
+          echo auto
+        fi ;;
+    esac
+  fi
+}
+
+resolve_dependency_region() {
+  [[ -z "${RESOLVED_DEPENDENCY_REGION:-}" ]] || return 0
+  local configured country="" url
+  configured="$(dependency_region_setting)"
+  case "${configured}" in
+    cn|global) RESOLVED_DEPENDENCY_REGION="${configured}" ;;
+    auto)
+      if command -v curl >/dev/null 2>&1; then
+        for url in https://ipinfo.io/country https://ifconfig.co/country-iso; do
+          country="$(curl --fail --silent --location --connect-timeout 3 --max-time 6 "${url}" 2>/dev/null \
+            | tr -d '[:space:]' | tr '[:lower:]' '[:upper:]' | head -c 2 || true)"
+          [[ "${country}" =~ ^[A-Z]{2}$ ]] && break
+          country=""
+        done
+      fi
+      if [[ "${country}" == "CN" ]]; then
+        RESOLVED_DEPENDENCY_REGION=cn
+      elif [[ "${country}" =~ ^[A-Z]{2}$ ]]; then
+        RESOLVED_DEPENDENCY_REGION=global
+      elif command -v curl >/dev/null 2>&1 \
+          && curl --fail --silent --show-error --head --connect-timeout 5 --max-time 8 https://github.com >/dev/null 2>&1; then
+        RESOLVED_DEPENDENCY_REGION=global
+      else
+        RESOLVED_DEPENDENCY_REGION=cn
+      fi ;;
+    *) die "DEPENDENCY_REGION 只支持 auto、cn 或 global" ;;
+  esac
+  if [[ "${RESOLVED_DEPENDENCY_REGION}" == "cn" ]]; then
+    warn "依赖下载已选择国内线路${country:+（出口地区 ${country}）}；国内镜像失败时自动回退官方地址"
+  else
+    log "依赖下载已选择国际线路${country:+（出口地区 ${country}）}；官方地址失败时自动回退国内镜像"
+  fi
+}
+
+dockerhub_mirror_image() { # dockerhub_mirror_image <标准镜像>
+  local image="$1" first="${1%%/*}"
+  if [[ "${image}" == */* ]]; then
+    [[ "${first}" != *.* && "${first}" != *:* && "${first}" != "localhost" ]] || return 1
+    echo "${DOCKER_CN_MIRROR}/${image}"
+  else
+    echo "${DOCKER_CN_MIRROR}/library/${image}"
+  fi
+}
+
+# 默认 Docker Hub 镜像固定到发布时核验过的清单摘要。国内镜像按同一摘要拉取，
+# 既保留网络回退能力，也避免第三方镜像站返回同名但内容不同的镜像。
+docker_image_digest() { # docker_image_digest <标准镜像>
+  case "$1" in
+    alpine/git:2.47.2) echo 'sha256:062a01ad7a0eb17cff382bc5e26086b4d710e56dfdfdf001109a49b6d9bd378c' ;;
+    maven:3.9.9-eclipse-temurin-17) echo 'sha256:f58d59b6273e785ac0a4477f6e9b5ba1d7731c75b906c0f7b34076f1851318cc' ;;
+    node:22.22.0-bookworm-slim) echo 'sha256:dd9d21971ec4395903fa6143c2b9267d048ae01ca6d3ea96f16cb30df6187d94' ;;
+    golang:1.22.12-bookworm) echo 'sha256:3d699e4d15d0f8f13c9195c0632a16702b8cbdece2955af1c23b37ae5d55a253' ;;
+    debian:bookworm-slim) echo 'sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818' ;;
+    node:22.22.0-alpine) echo 'sha256:e4bf2a82ad0a4037d28035ae71529873c069b13eb0455466ae0bc13363826e34' ;;
+    nginx:1.25-alpine) echo 'sha256:516475cc129da42866742567714ddc681e5eed7b9ee0b9e9c015e464b4221a00' ;;
+    docker:27-cli) echo 'sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c' ;;
+    mysql:5.7) echo 'sha256:4bc6bc963e6d8443453676cae56536f4b8156d78bae03c0145cbe47c2aad73bb' ;;
+    redis:7-alpine) echo 'sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2' ;;
+    apache/rocketmq:5.3.1) echo 'sha256:d2b231c1b9204129e4f4dd65ec1521c81b8d6826e5f1fe8daa521dab0db5bf16' ;;
+    *) return 1 ;;
+  esac
+}
+
+image_with_digest() { # image_with_digest <镜像名:标签> <摘要>
+  local image="$1" digest="$2"
+  echo "${image%:*}@${digest}"
+}
+
+local_image_matches_digest() { # local_image_matches_digest <镜像> <摘要>
+  local image="$1" digest="$2"
+  docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "${image}" 2>/dev/null \
+    | grep -Fq "@${digest}"
+}
+
+pull_docker_image() {
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "${IMAGE_PULL_TIMEOUT_SECONDS}" docker pull "$1"
+  else
+    docker pull "$1"
+  fi
+}
+
 ensure_docker_image() { # ensure_docker_image <镜像> <用途>
-  local image="$1" label="$2" installMode="${AID_DEPENDENCY_INSTALL_MODE:-auto}"
+  local image="$1" label="$2" installMode="${AID_DEPENDENCY_INSTALL_MODE:-auto}" mirrorImage=""
+  local digest="" officialRef="" mirrorRef=""
+  digest="$(docker_image_digest "${image}" 2>/dev/null || true)"
   if docker image inspect "${image}" >/dev/null 2>&1; then
-    ok "${label}镜像已存在，跳过下载: ${image}"
+    if [[ -z "${digest}" ]] || local_image_matches_digest "${image}" "${digest}"; then
+      ok "${label}镜像已存在，跳过下载: ${image}"
+      return 0
+    fi
+    warn "${label}本地镜像摘要不符合当前发布清单，将重新拉取已固定版本: ${image}"
+  fi
+  resolve_dependency_region
+  mirrorImage="$(dockerhub_mirror_image "${image}" 2>/dev/null || true)"
+  if [[ -n "${digest}" ]]; then
+    officialRef="$(image_with_digest "${image}" "${digest}")"
+    # 部分国内代理可按标签返回正确官方摘要，但不支持直接使用清单摘要作为 URL。
+    # 因此镜像站按标签拉取，完成后必须核对 RepoDigest，匹配才允许映射为标准名称。
+    mirrorRef="${mirrorImage}"
+  else
+    officialRef="${image}"
+    mirrorRef="${mirrorImage}"
+    warn "${label}使用了自定义或未固定镜像，无法与官方发布摘要核对: ${image}"
+  fi
+  if [[ -n "${mirrorImage}" ]] && docker image inspect "${mirrorImage}" >/dev/null 2>&1 \
+      && { [[ -z "${digest}" ]] || local_image_matches_digest "${mirrorImage}" "${digest}"; }; then
+    docker tag "${mirrorImage}" "${image}" || die "${label}镜像名称映射失败: ${image}"
+    ok "${label}国内镜像已存在，已映射为标准名称: ${image}"
     return 0
   fi
   if [[ "${installMode}" == "manual" ]]; then
-    die "缺少${label}镜像 ${image}；请先执行 docker pull ${image}，或把 DEPENDENCY_INSTALL_MODE 改为 auto"
+    die "缺少${label}镜像 ${image}；请手动拉取后重试，或把 DEPENDENCY_INSTALL_MODE 改为 auto"
   fi
-  log "下载${label}镜像: ${image}"
-  docker pull "${image}" || die "${label}镜像下载失败: ${image}"
+  if [[ -n "${mirrorRef}" && "${RESOLVED_DEPENDENCY_REGION}" == "cn" ]]; then
+    log "通过国内镜像下载${label}: ${mirrorRef}"
+    if pull_docker_image "${mirrorRef}"; then
+      if [[ -z "${digest}" ]] || local_image_matches_digest "${mirrorRef}" "${digest}"; then
+        docker tag "${mirrorRef}" "${image}" || die "${label}镜像名称映射失败: ${image}"
+        return 0
+      fi
+      warn "${label}国内镜像摘要与官方发布清单不一致，已拒绝使用"
+      docker image rm "${mirrorRef}" >/dev/null 2>&1 || true
+    fi
+    warn "国内镜像下载失败，自动回退官方地址: ${officialRef}"
+  fi
+  log "通过官方地址下载${label}: ${officialRef}"
+  if pull_docker_image "${officialRef}"; then
+    [[ "${officialRef}" == "${image}" ]] || docker tag "${officialRef}" "${image}" \
+      || die "${label}镜像名称映射失败: ${image}"
+    return 0
+  fi
+  if [[ -n "${mirrorRef}" && "${RESOLVED_DEPENDENCY_REGION}" != "cn" ]]; then
+    warn "官方地址下载失败，自动回退国内镜像: ${mirrorRef}"
+    if pull_docker_image "${mirrorRef}"; then
+      if [[ -z "${digest}" ]] || local_image_matches_digest "${mirrorRef}" "${digest}"; then
+        docker tag "${mirrorRef}" "${image}" || die "${label}镜像名称映射失败: ${image}"
+        return 0
+      fi
+      warn "${label}国内镜像摘要与官方发布清单不一致，已拒绝使用"
+      docker image rm "${mirrorRef}" >/dev/null 2>&1 || true
+    fi
+  fi
+  die "${label}镜像下载失败；官方地址和备用镜像均不可用: ${image}"
 }
 
 prepare_source_build_images() {
   command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 || return 0
   [[ -n "$(command -v git 2>/dev/null || true)" ]] || ensure_docker_image "${SOURCE_GIT_IMAGE}" "Git源码拉取"
-  ensure_docker_image "${SOURCE_MAVEN_IMAGE}" "JDK17/Maven构建"
-  ensure_docker_image "${SOURCE_NODE_IMAGE}" "Node.js构建"
+  ensure_docker_image "${SOURCE_MAVEN_IMAGE}" "Maven构建基础"
+  ensure_docker_image "${SOURCE_NODE_IMAGE}" "Node.js 22.22.0构建"
   ensure_docker_image "${SOURCE_GO_IMAGE}" "Go构建"
 }
 
 prepare_docker_runtime_images() {
-  ensure_docker_image "eclipse-temurin:17-jre" "JDK17运行时"
-  ensure_docker_image "node:20-alpine" "Web运行时"
+  prepare_jdk_runtime_image
+  ensure_docker_image "node:22.22.0-alpine" "Web运行时"
   ensure_docker_image "nginx:1.25-alpine" "Nginx网关"
   ensure_docker_image "docker:27-cli" "升级器Docker客户端"
   # 内置 MySQL 使用该镜像；外部 MySQL 也需要它作为一次性5.7兼容客户端。
@@ -482,31 +668,13 @@ tcp_reachable() { # tcp_reachable <host> <port>
 }
 
 ensure_manual_host_dependencies() {
-  local installMode javaMajor nodeMajor mavenVersion goVersion redisHost redisPort redisUser redisPwd redisVersion redisMajor
+  local installMode redisHost redisPort redisUser redisPwd redisVersion redisMajor
   installMode="$(dependency_install_mode manual)"
   export AID_DEPENDENCY_INSTALL_MODE="${installMode}"
   command -v systemctl >/dev/null 2>&1 || die "手动部署要求使用 systemd"
 
-  ensure_host_command java "JDK 17" "openjdk-17-jdk-headless" "java-17-openjdk-devel" "${installMode}"
-  javaMajor="$(java -version 2>&1 | head -n 1 | sed -E 's/.*version "([0-9]+).*/\1/')"
-  if [[ ! "${javaMajor}" =~ ^[0-9]+$ || "${javaMajor}" -lt 17 ]]; then
-    [[ "${installMode}" == "auto" ]] || die "JDK版本过低（当前${javaMajor:-未知}，需要17+）"
-    install_os_packages "JDK 17" "openjdk-17-jdk-headless" "java-17-openjdk-devel"
-    javaMajor="$(java -version 2>&1 | head -n 1 | sed -E 's/.*version "([0-9]+).*/\1/')"
-  fi
-  [[ "${javaMajor}" =~ ^[0-9]+$ && "${javaMajor}" -ge 17 ]] \
-    || die "JDK 版本过低（当前 ${javaMajor:-未知}，需要17+）；自动安装未能切换系统默认 Java，请人工配置 alternatives"
-
-  ensure_host_command node "Node.js 18+" "nodejs npm" "nodejs npm" "${installMode}"
-  ensure_host_command npm "npm" "npm" "npm" "${installMode}"
-  nodeMajor="$(node -v 2>/dev/null | sed -E 's/v([0-9]+).*/\1/')"
-  if [[ ! "${nodeMajor}" =~ ^[0-9]+$ || "${nodeMajor}" -lt 18 ]]; then
-    [[ "${installMode}" == "auto" ]] || die "Node.js版本过低（当前${nodeMajor:-未知}，需要18+）"
-    install_os_packages "Node.js 18+" "nodejs npm" "nodejs npm"
-    nodeMajor="$(node -v 2>/dev/null | sed -E 's/v([0-9]+).*/\1/')"
-  fi
-  [[ "${nodeMajor}" =~ ^[0-9]+$ && "${nodeMajor}" -ge 18 ]] \
-    || die "Node.js 版本过低（当前 ${nodeMajor:-未知}，需要18+）；请安装发行版支持的Node.js LTS"
+  prepare_exact_jdk
+  prepare_exact_node
 
   ensure_host_command mysql "MySQL客户端" "default-mysql-client" "mariadb" "${installMode}"
   ensure_host_command nginx "Nginx" "nginx" "nginx" "${installMode}"
@@ -521,22 +689,8 @@ ensure_manual_host_dependencies() {
     prepare_source_build_images
   else
     ensure_host_command git "Git" "git" "git" "${installMode}"
-    ensure_host_command mvn "Maven 3.8+" "maven" "maven" "${installMode}"
-    mavenVersion="$(mvn -v 2>/dev/null | head -n 1 | awk '{print $3}')"
-    if ! version_at_least "${mavenVersion:-0}" "3.8"; then
-      [[ "${installMode}" == "auto" ]] || die "Maven版本过低（当前${mavenVersion:-未知}，需要3.8+）"
-      install_os_packages "Maven 3.8+" "maven" "maven"
-      mavenVersion="$(mvn -v 2>/dev/null | head -n 1 | awk '{print $3}')"
-    fi
-    version_at_least "${mavenVersion:-0}" "3.8" || die "Maven版本过低（当前${mavenVersion:-未知}，需要3.8+）"
-    ensure_host_command go "Go 1.22+" "golang-go" "golang" "${installMode}"
-    goVersion="$(go version 2>/dev/null | sed -E 's/.*go([0-9]+\.[0-9]+(\.[0-9]+)?).*/\1/')"
-    if ! version_at_least "${goVersion:-0}" "1.22"; then
-      [[ "${installMode}" == "auto" ]] || die "Go版本过低（当前${goVersion:-未知}，需要1.22+）"
-      install_os_packages "Go 1.22+" "golang-go" "golang"
-      goVersion="$(go version 2>/dev/null | sed -E 's/.*go([0-9]+\.[0-9]+(\.[0-9]+)?).*/\1/')"
-    fi
-    version_at_least "${goVersion:-0}" "1.22" || die "Go版本过低（当前${goVersion:-未知}，需要1.22+）"
+    prepare_exact_maven
+    prepare_exact_go
   fi
 
   # 手动部署只有配置为本机 Redis 时才负责检查/可选安装；外部 Redis 永不改本机。
@@ -598,6 +752,18 @@ sha256_file() { # sha256_file <文件>
   fi
 }
 
+sha512_file() { # sha512_file <文件>
+  if command -v sha512sum >/dev/null 2>&1; then
+    sha512sum "$1" | awk '{print tolower($1)}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 512 "$1" | awk '{print tolower($1)}'
+  elif command -v openssl >/dev/null 2>&1; then
+    openssl dgst -sha512 "$1" | awk '{print tolower($NF)}'
+  else
+    return 1
+  fi
+}
+
 require_download_tools() {
   local installMode="${AID_DEPENDENCY_INSTALL_MODE:-auto}"
   ensure_host_command curl "curl" "curl ca-certificates" "curl ca-certificates" "${installMode}"
@@ -630,6 +796,275 @@ try_download() { # try_download <URL> <目标文件> <名称>
   [[ -s "${part}" ]] || { rm -f "${part}"; return 1; }
   mv -f "${part}" "${target}"
   return 0
+}
+
+prepare_exact_jdk() {
+  local arch checksum name cacheDir archive actual officialUrl cnUrl downloaded="no" url tmp installMode
+  case "$(uname -m)" in
+    x86_64|amd64)
+      arch=x64
+      checksum=be7668bc030d578b83d6d5ef9221d6d6729bbbca8cf94a7d52e16ac68b5a5a35 ;;
+    aarch64|arm64)
+      arch=aarch64
+      checksum=d143936f473a4cb24e3b0e247d6d0775769d55ec9775c339540e753059a8d77a ;;
+    *) die "OpenJDK ${JDK_VERSION} 暂不支持当前架构: $(uname -m)" ;;
+  esac
+  name="OpenJDK17U-jdk_${arch}_linux_hotspot_${JDK_VERSION}_${JDK_BUILD}.tar.gz"
+  cacheDir="${DATA_ROOT}/build-cache/toolchains"
+  archive="${cacheDir}/${name}"
+  JDK_HOME="${cacheDir}/temurin-${JDK_VERSION}-${arch}"
+  if [[ -x "${JDK_HOME}/bin/java" ]] \
+      && "${JDK_HOME}/bin/java" -version 2>&1 | head -n 1 | grep -Fq '17.0.20'; then
+    ok "Temurin OpenJDK ${JDK_VERSION} 已存在，跳过下载: ${JDK_HOME}"
+    return 0
+  fi
+  require_download_tools
+  mkdir -p "${cacheDir}"
+  if [[ -f "${archive}" ]]; then
+    actual="$(sha256_file "${archive}" || true)"
+    if [[ "${actual}" != "${checksum}" ]]; then
+      warn "OpenJDK 缓存校验失败，将重新下载: ${archive}"
+      rm -f -- "${archive}"
+    fi
+  fi
+  if [[ ! -f "${archive}" ]]; then
+    installMode="${AID_DEPENDENCY_INSTALL_MODE:-auto}"
+    [[ "${installMode}" == "auto" ]] \
+      || die "缺少 Temurin OpenJDK ${JDK_VERSION}；请放入 ${archive}，或把 DEPENDENCY_INSTALL_MODE 改为 auto"
+    resolve_dependency_region
+    officialUrl="https://github.com/adoptium/temurin17-binaries/releases/download/jdk-${JDK_VERSION}%2B${JDK_BUILD}/${name}"
+    cnUrl="https://mirrors.tuna.tsinghua.edu.cn/Adoptium/17/jdk/${arch}/linux/${name}"
+    local -a urls=()
+    [[ -z "${AID_JDK_DOWNLOAD_URL:-}" ]] || urls+=("${AID_JDK_DOWNLOAD_URL}")
+    if [[ "${RESOLVED_DEPENDENCY_REGION}" == "cn" ]]; then
+      urls+=("${cnUrl}" "${officialUrl}")
+    else
+      urls+=("${officialUrl}" "${cnUrl}")
+    fi
+    for url in "${urls[@]}"; do
+      if try_download "${url}" "${archive}" "Temurin OpenJDK ${JDK_VERSION}（${arch}）"; then
+        actual="$(sha256_file "${archive}" || true)"
+        if [[ "${actual}" == "${checksum}" ]]; then
+          downloaded=yes
+          break
+        fi
+        warn "OpenJDK 下载文件 SHA256 不匹配，拒绝使用并尝试备用地址"
+        rm -f -- "${archive}"
+      else
+        warn "OpenJDK 当前下载地址不可用，尝试备用地址"
+      fi
+    done
+    [[ "${downloaded}" == "yes" ]] \
+      || die "Temurin OpenJDK ${JDK_VERSION} 下载失败；国内镜像和官方地址均不可用"
+  fi
+  tmp="${JDK_HOME}.tmp.$$"
+  rm -rf -- "${tmp}"
+  mkdir -p "${tmp}"
+  if ! tar -xzf "${archive}" -C "${tmp}" --strip-components=1; then
+    rm -rf -- "${tmp}"
+    die "OpenJDK 压缩包解压失败"
+  fi
+  if [[ ! -x "${tmp}/bin/java" ]] \
+      || ! "${tmp}/bin/java" -version 2>&1 | head -n 1 | grep -Fq '17.0.20'; then
+    rm -rf -- "${tmp}"
+    die "OpenJDK 实际版本不是17.0.20"
+  fi
+  rm -rf -- "${JDK_HOME}"
+  mv "${tmp}" "${JDK_HOME}" || die "OpenJDK 安装目录就位失败"
+  ok "Temurin OpenJDK ${JDK_VERSION} 已通过官方 SHA256 校验: ${JDK_HOME}"
+}
+
+prepare_exact_node() {
+  local arch checksum name cacheDir archive actual officialUrl cnUrl downloaded="no" url tmp installMode
+  case "$(uname -m)" in
+    x86_64|amd64)
+      arch=x64
+      checksum=c33c39ed9c80deddde77c960d00119918b9e352426fd604ba41638d6526a4744 ;;
+    aarch64|arm64)
+      arch=arm64
+      checksum=25ba95dfb96871fa2ef977f11f95ea90818c8fa15c0f2110771db08d4ba423be ;;
+    *) die "Node.js ${NODE_VERSION} 暂不支持当前架构: $(uname -m)" ;;
+  esac
+  name="node-v${NODE_VERSION}-linux-${arch}.tar.gz"
+  cacheDir="${DATA_ROOT}/build-cache/toolchains"
+  archive="${cacheDir}/${name}"
+  NODE_HOME="${cacheDir}/node-${NODE_VERSION}-${arch}"
+  if [[ -x "${NODE_HOME}/bin/node" && "$("${NODE_HOME}/bin/node" -v 2>/dev/null)" == "v${NODE_VERSION}" ]]; then
+    export PATH="${NODE_HOME}/bin:${PATH}"
+    ok "Node.js ${NODE_VERSION} 已存在，跳过下载: ${NODE_HOME}"
+    return 0
+  fi
+  require_download_tools
+  mkdir -p "${cacheDir}"
+  if [[ -f "${archive}" && "$(sha256_file "${archive}" || true)" != "${checksum}" ]]; then
+    warn "Node.js 缓存校验失败，将重新下载"
+    rm -f -- "${archive}"
+  fi
+  if [[ ! -f "${archive}" ]]; then
+    installMode="${AID_DEPENDENCY_INSTALL_MODE:-auto}"
+    [[ "${installMode}" == "auto" ]] \
+      || die "缺少 Node.js ${NODE_VERSION}；请放入 ${archive}，或把 DEPENDENCY_INSTALL_MODE 改为 auto"
+    resolve_dependency_region
+    officialUrl="https://nodejs.org/dist/v${NODE_VERSION}/${name}"
+    cnUrl="https://npmmirror.com/mirrors/node/v${NODE_VERSION}/${name}"
+    local -a urls=()
+    [[ -z "${AID_NODE_DOWNLOAD_URL:-}" ]] || urls+=("${AID_NODE_DOWNLOAD_URL}")
+    if [[ "${RESOLVED_DEPENDENCY_REGION}" == "cn" ]]; then urls+=("${cnUrl}" "${officialUrl}"); else urls+=("${officialUrl}" "${cnUrl}"); fi
+    for url in "${urls[@]}"; do
+      if try_download "${url}" "${archive}" "Node.js ${NODE_VERSION}（${arch}）" \
+          && [[ "$(sha256_file "${archive}" || true)" == "${checksum}" ]]; then
+        downloaded=yes; break
+      fi
+      warn "Node.js 当前下载地址不可用或校验失败，尝试备用地址"
+      rm -f -- "${archive}"
+    done
+    [[ "${downloaded}" == "yes" ]] || die "Node.js ${NODE_VERSION} 下载失败或校验不通过"
+  fi
+  tmp="${NODE_HOME}.tmp.$$"
+  rm -rf -- "${tmp}"; mkdir -p "${tmp}"
+  tar -xzf "${archive}" -C "${tmp}" --strip-components=1 || { rm -rf -- "${tmp}"; die "Node.js 压缩包解压失败"; }
+  [[ "$("${tmp}/bin/node" -v 2>/dev/null)" == "v${NODE_VERSION}" ]] \
+    || { rm -rf -- "${tmp}"; die "Node.js 实际版本不是 ${NODE_VERSION}"; }
+  rm -rf -- "${NODE_HOME}"; mv "${tmp}" "${NODE_HOME}" || die "Node.js 安装目录就位失败"
+  export PATH="${NODE_HOME}/bin:${PATH}"
+  ok "Node.js ${NODE_VERSION} 已通过官方 SHA256 校验: ${NODE_HOME}"
+}
+
+prepare_exact_maven() {
+  local name cacheDir archive checksum actual officialUrl cnUrl downloaded="no" url tmp installMode
+  name="apache-maven-${MAVEN_VERSION}-bin.tar.gz"
+  checksum=a555254d6b53d267965a3404ecb14e53c3827c09c3b94b5678835887ab404556bfaf78dcfe03ba76fa2508649dca8531c74bca4d5846513522404d48e8c4ac8b
+  cacheDir="${DATA_ROOT}/build-cache/toolchains"
+  archive="${cacheDir}/${name}"
+  MAVEN_HOME="${cacheDir}/maven-${MAVEN_VERSION}"
+  if [[ -x "${MAVEN_HOME}/bin/mvn" ]] \
+      && JAVA_HOME="${JDK_HOME}" "${MAVEN_HOME}/bin/mvn" -v 2>/dev/null | head -n 1 | grep -Fq "${MAVEN_VERSION}"; then
+    export PATH="${MAVEN_HOME}/bin:${PATH}"
+    ok "Maven ${MAVEN_VERSION} 已存在，跳过下载: ${MAVEN_HOME}"
+    return 0
+  fi
+  require_download_tools
+  if ! sha512_file "${BASH_SOURCE[0]}" >/dev/null 2>&1; then
+    [[ "${AID_DEPENDENCY_INSTALL_MODE:-auto}" == "auto" ]] \
+      || die "缺少 SHA512 校验工具，请安装 coreutils 或 openssl"
+    install_os_packages "SHA512校验工具" "coreutils" "coreutils"
+  fi
+  mkdir -p "${cacheDir}"
+  if [[ -f "${archive}" && "$(sha512_file "${archive}" || true)" != "${checksum}" ]]; then
+    warn "Maven 缓存校验失败，将重新下载"
+    rm -f -- "${archive}"
+  fi
+  if [[ ! -f "${archive}" ]]; then
+    installMode="${AID_DEPENDENCY_INSTALL_MODE:-auto}"
+    [[ "${installMode}" == "auto" ]] \
+      || die "缺少 Maven ${MAVEN_VERSION}；请放入 ${archive}，或把 DEPENDENCY_INSTALL_MODE 改为 auto"
+    resolve_dependency_region
+    officialUrl="https://archive.apache.org/dist/maven/maven-3/${MAVEN_VERSION}/binaries/${name}"
+    cnUrl="https://repo.huaweicloud.com/apache/maven/maven-3/${MAVEN_VERSION}/binaries/${name}"
+    local -a urls=()
+    [[ -z "${AID_MAVEN_DOWNLOAD_URL:-}" ]] || urls+=("${AID_MAVEN_DOWNLOAD_URL}")
+    if [[ "${RESOLVED_DEPENDENCY_REGION}" == "cn" ]]; then urls+=("${cnUrl}" "${officialUrl}"); else urls+=("${officialUrl}" "${cnUrl}"); fi
+    for url in "${urls[@]}"; do
+      if try_download "${url}" "${archive}" "Maven ${MAVEN_VERSION}" \
+          && [[ "$(sha512_file "${archive}" || true)" == "${checksum}" ]]; then
+        downloaded=yes; break
+      fi
+      warn "Maven 当前下载地址不可用或校验失败，尝试备用地址"
+      rm -f -- "${archive}"
+    done
+    [[ "${downloaded}" == "yes" ]] || die "Maven ${MAVEN_VERSION} 下载失败或校验不通过"
+  fi
+  tmp="${MAVEN_HOME}.tmp.$$"
+  rm -rf -- "${tmp}"; mkdir -p "${tmp}"
+  tar -xzf "${archive}" -C "${tmp}" --strip-components=1 || { rm -rf -- "${tmp}"; die "Maven 压缩包解压失败"; }
+  [[ -x "${tmp}/bin/mvn" ]] || { rm -rf -- "${tmp}"; die "Maven 压缩包内容不完整"; }
+  rm -rf -- "${MAVEN_HOME}"; mv "${tmp}" "${MAVEN_HOME}" || die "Maven 安装目录就位失败"
+  export PATH="${MAVEN_HOME}/bin:${PATH}"
+  ok "Maven ${MAVEN_VERSION} 已通过 Apache SHA512 校验: ${MAVEN_HOME}"
+}
+
+prepare_exact_go() {
+  local arch checksum name cacheDir archive officialUrl cnUrl downloaded="no" url tmp installMode
+  case "$(uname -m)" in
+    x86_64|amd64)
+      arch=amd64
+      checksum=4fa4f869b0f7fc6bb1eb2660e74657fbf04cdd290b5aef905585c86051b34d43 ;;
+    aarch64|arm64)
+      arch=arm64
+      checksum=fd017e647ec28525e86ae8203236e0653242722a7436929b1f775744e26278e7 ;;
+    *) die "Go ${GO_VERSION} 暂不支持当前架构: $(uname -m)" ;;
+  esac
+  name="go${GO_VERSION}.linux-${arch}.tar.gz"
+  cacheDir="${DATA_ROOT}/build-cache/toolchains"
+  archive="${cacheDir}/${name}"
+  GO_HOME="${cacheDir}/go-${GO_VERSION}-${arch}"
+  if [[ -x "${GO_HOME}/bin/go" ]] && "${GO_HOME}/bin/go" version 2>/dev/null | grep -Fq "go${GO_VERSION}"; then
+    export PATH="${GO_HOME}/bin:${PATH}"
+    ok "Go ${GO_VERSION} 已存在，跳过下载: ${GO_HOME}"
+    return 0
+  fi
+  require_download_tools
+  mkdir -p "${cacheDir}"
+  if [[ -f "${archive}" && "$(sha256_file "${archive}" || true)" != "${checksum}" ]]; then
+    warn "Go 缓存校验失败，将重新下载"
+    rm -f -- "${archive}"
+  fi
+  if [[ ! -f "${archive}" ]]; then
+    installMode="${AID_DEPENDENCY_INSTALL_MODE:-auto}"
+    [[ "${installMode}" == "auto" ]] \
+      || die "缺少 Go ${GO_VERSION}；请放入 ${archive}，或把 DEPENDENCY_INSTALL_MODE 改为 auto"
+    resolve_dependency_region
+    officialUrl="https://go.dev/dl/${name}"
+    cnUrl="https://mirrors.aliyun.com/golang/${name}"
+    local -a urls=()
+    [[ -z "${AID_GO_DOWNLOAD_URL:-}" ]] || urls+=("${AID_GO_DOWNLOAD_URL}")
+    if [[ "${RESOLVED_DEPENDENCY_REGION}" == "cn" ]]; then urls+=("${cnUrl}" "${officialUrl}"); else urls+=("${officialUrl}" "${cnUrl}"); fi
+    for url in "${urls[@]}"; do
+      if try_download "${url}" "${archive}" "Go ${GO_VERSION}（${arch}）" \
+          && [[ "$(sha256_file "${archive}" || true)" == "${checksum}" ]]; then
+        downloaded=yes; break
+      fi
+      warn "Go 当前下载地址不可用或校验失败，尝试备用地址"
+      rm -f -- "${archive}"
+    done
+    [[ "${downloaded}" == "yes" ]] || die "Go ${GO_VERSION} 下载失败或校验不通过"
+  fi
+  tmp="${GO_HOME}.tmp.$$"
+  rm -rf -- "${tmp}"; mkdir -p "${tmp}"
+  tar -xzf "${archive}" -C "${tmp}" --strip-components=1 || { rm -rf -- "${tmp}"; die "Go 压缩包解压失败"; }
+  [[ -x "${tmp}/bin/go" ]] && "${tmp}/bin/go" version 2>/dev/null | grep -Fq "go${GO_VERSION}" \
+    || { rm -rf -- "${tmp}"; die "Go 实际版本不是 ${GO_VERSION}"; }
+  rm -rf -- "${GO_HOME}"; mv "${tmp}" "${GO_HOME}" || die "Go 安装目录就位失败"
+  export PATH="${GO_HOME}/bin:${PATH}"
+  ok "Go ${GO_VERSION} 已通过官方 SHA256 校验: ${GO_HOME}"
+}
+
+prepare_jdk_runtime_image() {
+  local baseImage="debian:bookworm-slim" dockerfile actual
+  prepare_exact_jdk
+  if docker image inspect "${JAVA_RUNTIME_IMAGE}" >/dev/null 2>&1; then
+    actual="$(docker run --rm "${JAVA_RUNTIME_IMAGE}" java -version 2>&1 | head -n 1 || true)"
+    if [[ "${actual}" == *'17.0.20'* ]]; then
+      ok "OpenJDK ${JDK_VERSION} 运行镜像已存在，跳过构建: ${JAVA_RUNTIME_IMAGE}"
+      return 0
+    fi
+    warn "现有 Java 运行镜像版本不正确，将用已校验的 OpenJDK ${JDK_VERSION} 重建"
+  fi
+  ensure_docker_image "${baseImage}" "OpenJDK运行基础"
+  dockerfile="${DATA_ROOT}/build-cache/toolchains/Dockerfile.openjdk-${JDK_VERSION}"
+  cat > "${dockerfile}" <<EOF
+FROM ${baseImage}
+ENV JAVA_HOME=/opt/java/openjdk
+ENV PATH=/opt/java/openjdk/bin:\${PATH}
+COPY . /opt/java/openjdk/
+RUN java -version
+EOF
+  log "构建固定版本 Java 运行镜像: ${JAVA_RUNTIME_IMAGE}"
+  docker build --pull=false --tag "${JAVA_RUNTIME_IMAGE}" --file "${dockerfile}" "${JDK_HOME}" \
+    || die "OpenJDK ${JDK_VERSION} 运行镜像构建失败"
+  actual="$(docker run --rm "${JAVA_RUNTIME_IMAGE}" java -version 2>&1 | head -n 1 || true)"
+  [[ "${actual}" == *'17.0.20'* ]] || die "OpenJDK运行镜像版本校验失败"
+  ok "OpenJDK ${JDK_VERSION} 运行镜像已就绪"
 }
 
 # 读取发布工具生成的格式化 JSON 直属字符串字段。顶层缩进 2 格，beta 直属字段缩进 4 格。
@@ -794,6 +1229,10 @@ validate_release_package() { # validate_release_package <包> <是否要求安�
   grep -Eq '(^|/)backend/aid-admin\.jar$' "${listFile}" || { rm -f "${listFile}"; die "发布包缺少后端程序"; }
   grep -Eq '(^|/)web-dist/server/index\.mjs$' "${listFile}" || { rm -f "${listFile}"; die "发布包缺少 Web SSR 产物"; }
   grep -Eq '(^|/)build-info\.json$' "${listFile}" || { rm -f "${listFile}"; die "发布包缺少 build-info.json"; }
+  if grep -Eq '(^|/)installer/deploy/docker/\.env$' "${listFile}"; then
+    rm -f "${listFile}"
+    die "发布包不得携带用户运行配置 .env，已拒绝使用"
+  fi
   case "$(uname -m)" in
     x86_64) archEntry='updater/aid-updater_linux_amd64' ;;
     aarch64) archEntry='updater/aid-updater_linux_arm64' ;;
@@ -919,6 +1358,7 @@ ensure_source_package() {
   warn "只拉取三个公开仓库的 v${RESOLVED_VERSION} 标签；GitHub 不通时整组回退到 Gitee"
   warn "首次构建需要下载 Maven/npm/Go 依赖及构建镜像，请预留至少 15GB 磁盘与足够时间"
   AID_DATA_ROOT="${DATA_ROOT}" AID_MANIFEST_PUBLIC_KEY="${TRUSTED_MANIFEST_PUBLIC_KEY}" \
+    AID_DEPENDENCY_REGION="$(dependency_region_setting)" \
     AID_MANAGER_SCRIPT="${SCRIPT_DIR}/$(basename "${BASH_SOURCE[0]}")" \
     sh "${builder}" --version "${RESOLVED_VERSION}" --output "${RESOLVED_PACKAGE_PATH}" \
       --work-dir "${DATA_ROOT}/source-build/v${RESOLVED_VERSION}" \
@@ -1069,14 +1509,14 @@ prepare_install_package() { # prepare_install_package [本地包]
 }
 
 confirm_first_install() { # confirm_first_install <docker|manual>
-  local mode="$1" answer defaultAnswer="yes"
+  local mode="$1" answer defaultAnswer="y"
   section "首次部署确认"
   echo -e "  部署方式 : ${C_GREEN}${mode}${C_RESET}"
   echo -e "  目标版本 : ${C_GREEN}${RESOLVED_VERSION}${C_RESET} (${RESOLVED_CHANNEL})"
   echo "  数据目录 : ${DATA_ROOT}"
   if [[ "${mode}" == "docker" ]]; then
     echo "  用户端口 : $(env_get HTTP_PORT 80)"
-    echo "  管理端口 : $(env_get ADMIN_PORT 8090)"
+    echo "  管理端口 : $(env_get ADMIN_PORT 8089)"
     echo "  后端端口 : $(env_get BACKEND_PORT 8080)"
   fi
   warn "安装会拉取 Docker 镜像、创建服务并占用以上端口；不会自动开放防火墙或修改域名解析"
@@ -1085,14 +1525,14 @@ confirm_first_install() { # confirm_first_install <docker|manual>
   if [[ -d "${DATA_ROOT}" ]] && find "${DATA_ROOT}" -mindepth 1 -maxdepth 1 \
       ! -name packages ! -name installer ! -name config ! -name aid-deploy.conf -print -quit 2>/dev/null | grep -q .; then
     risk "${DATA_ROOT} 已存在非安装缓存内容；继续前请确认这里不是其他业务的数据目录"
-    defaultAnswer="no"
+    defaultAnswer="n"
   fi
   if [[ "${AID_ASSUME_YES:-0}" == "1" ]]; then
     risk "AID_ASSUME_YES=1：已跳过人工确认，请确保这是你明确授权的全新服务器"
     return 0
   fi
-  answer="$(ask '确认开始部署？(yes/no)' "${defaultAnswer}")"
-  [[ "${answer}" == "yes" ]] || die "已取消部署，未启动任何 AID 服务"
+  answer="$(ask_yes_no '确认开始部署？' "${defaultAnswer}")"
+  [[ "${answer}" == "y" ]] || die "已取消部署，未启动任何 AID 服务"
 }
 
 # ----------------------------------------------------------------------------
@@ -1104,8 +1544,9 @@ write_embedded_config_defaults() { # write_embedded_config_defaults <docker|manu
     cat > "${target}" <<EOF
 DATA_ROOT=${DATA_ROOT}
 DEPENDENCY_INSTALL_MODE=auto
+DEPENDENCY_REGION=auto
 HTTP_PORT=80
-ADMIN_PORT=8090
+ADMIN_PORT=8089
 HTTPS_PORT=443
 HTTPS_PUBLIC_DOMAIN=www.example.com
 HTTPS_ADMIN_DOMAIN=admin.example.com
@@ -1144,8 +1585,9 @@ EOF
     cat > "${target}" <<EOF
 DATA_ROOT=${DATA_ROOT}
 DEPENDENCY_INSTALL_MODE=auto
+DEPENDENCY_REGION=auto
 HTTP_PORT=80
-ADMIN_PORT=8090
+ADMIN_PORT=8089
 BACKEND_PORT=8080
 HTTPS_ENABLED=false
 HTTPS_PORT=443
@@ -1300,14 +1742,16 @@ ensure_conf_file() {
 DATA_ROOT=${DATA_ROOT}
 
 # ---------------- 依赖处理 ----------------
-# auto=缺失依赖自动安装；manual=只提示，不修改系统。
+# auto=固定工具链下载到隔离缓存、系统服务按需安装；manual=只提示，不修改系统。
 DEPENDENCY_INSTALL_MODE=auto
+# auto=按网络自动选择；cn=国内镜像优先；global=官方地址优先。
+DEPENDENCY_REGION=auto
 
 # ---------------- HTTP 访问（无需域名） ----------------
 # 用户端：http://服务器IP；非 80 端口需在地址后追加端口。
 HTTP_PORT=80
-# 管理端：http://服务器IP:8090；访问码按系统配置继续拼接。
-ADMIN_PORT=8090
+# 管理端访问码在首次完成数据库初始化后随机生成，部署完成时打印完整地址。
+ADMIN_PORT=8089
 # Java 后端仅供本机 Nginx 反向代理。
 BACKEND_PORT=8080
 
@@ -1415,7 +1859,7 @@ EOF
     [[ "${httpsAdminDomain}" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]] || die "HTTPS_ADMIN_DOMAIN 格式错误"
     [[ "${httpsDomain}" != "${httpsAdminDomain}" ]] || die "用户端与管理端 HTTPS 域名不能相同"
     [[ "$(conf_get HTTPS_PORT 443)" != "$(conf_get HTTP_PORT 80)" \
-       && "$(conf_get HTTPS_PORT 443)" != "$(conf_get ADMIN_PORT 8090)" ]] \
+       && "$(conf_get HTTPS_PORT 443)" != "$(conf_get ADMIN_PORT 8089)" ]] \
       || die "HTTPS_PORT 不能与 HTTP_PORT 或 ADMIN_PORT 重复"
     mkdir -p "${DATA_ROOT}/config/ssl"; chmod 700 "${DATA_ROOT}/config/ssl"
     httpsCertPath="$(conf_get HTTPS_CERT_PATH "${DATA_ROOT}/config/ssl/fullchain.pem")"
@@ -1461,12 +1905,14 @@ DATA_ROOT=${DATA_ROOT}
 # ---------------- 依赖处理 ----------------
 # auto=自动下载缺失镜像；manual=缺镜像时停止并打印 docker pull 命令。
 DEPENDENCY_INSTALL_MODE=auto
+# auto=按网络自动选择；cn=国内镜像优先；global=官方地址优先。
+DEPENDENCY_REGION=auto
 
 # ---------------- HTTP 访问（无需域名） ----------------
 # 用户端：http://服务器IP；非 80 端口需在地址后追加端口。
 HTTP_PORT=80
-# 管理端：http://服务器IP:8090；访问码按系统配置继续拼接。
-ADMIN_PORT=8090
+# 管理端访问码在首次完成数据库初始化后随机生成，部署完成时打印完整地址。
+ADMIN_PORT=8089
 
 # ---------------- HTTPS（可选，需要域名和证书） ----------------
 # 只有 COMPOSE_PROFILES 包含 https 时才会启用。
@@ -1587,8 +2033,8 @@ confirm_initial_configuration() { # confirm_initial_configuration <docker|manual
     [[ "${AID_CONFIG_CONFIRMED:-0}" == "1" ]] \
       || die "非交互部署必须同时设置 AID_CONFIG_CONFIRMED=1，明确确认已检查配置文件"
   else
-    editNow="$(ask '现在打开配置文件检查和修改？(yes/no)' 'yes')"
-    if [[ "${editNow}" == "yes" ]]; then
+    editNow="$(ask_yes_no '现在打开配置文件检查和修改？' 'y')"
+    if [[ "${editNow}" == "y" ]]; then
       "${EDITOR:-vi}" "${configFile}" </dev/tty >/dev/tty \
         || die "配置编辑未正常完成，请检查 ${configFile} 后重新运行"
     fi
@@ -1598,7 +2044,7 @@ confirm_initial_configuration() { # confirm_initial_configuration <docker|manual
   if [[ "${mode}" == "docker" ]]; then ensure_env_file; else ensure_conf_file; fi
   if [[ "${mode}" == "docker" ]]; then
     validate_port HTTP_PORT "$(env_get HTTP_PORT 80)"
-    validate_port ADMIN_PORT "$(env_get ADMIN_PORT 8090)"
+    validate_port ADMIN_PORT "$(env_get ADMIN_PORT 8089)"
     validate_port BACKEND_PORT "$(env_get BACKEND_PORT 8080)"
     validate_port DB_PORT "$(env_get DB_PORT 3306)"
     docker_profile_enabled mysql && validate_port MYSQL_PORT "$(env_get MYSQL_PORT 3306)"
@@ -1606,14 +2052,14 @@ confirm_initial_configuration() { # confirm_initial_configuration <docker|manual
     docker_profile_enabled https && validate_port HTTPS_PORT "$(env_get HTTPS_PORT 443)"
   else
     validate_port HTTP_PORT "$(conf_get HTTP_PORT 80)"
-    validate_port ADMIN_PORT "$(conf_get ADMIN_PORT 8090)"
+    validate_port ADMIN_PORT "$(conf_get ADMIN_PORT 8089)"
     validate_port BACKEND_PORT "$(conf_get BACKEND_PORT 8080)"
     validate_port DB_PORT "$(conf_get DB_PORT 3306)"
     validate_port REDIS_PORT "$(conf_get REDIS_PORT 6379)"
   fi
   if [[ "${mode}" == "docker" ]]; then
     echo "  用户端口 : $(env_get HTTP_PORT 80)"
-    echo "  管理端口 : $(env_get ADMIN_PORT 8090)"
+    echo "  管理端口 : $(env_get ADMIN_PORT 8089)"
     echo "  后端端口 : $(env_get BACKEND_PORT 8080)"
     if docker_profile_enabled mysql; then
       echo "  数据库   : 内置 MySQL 5.7:$(env_get MYSQL_PORT 3306)/$(env_get DB_NAME aid)"
@@ -1641,7 +2087,7 @@ confirm_initial_configuration() { # confirm_initial_configuration <docker|manual
     fi
   else
     echo "  用户端口 : $(conf_get HTTP_PORT 80)"
-    echo "  管理端口 : $(conf_get ADMIN_PORT 8090)"
+    echo "  管理端口 : $(conf_get ADMIN_PORT 8089)"
     echo "  后端端口 : $(conf_get BACKEND_PORT 8080)"
     echo "  数据库   : $(conf_get DB_HOST 127.0.0.1):$(conf_get DB_PORT 3306)/$(conf_get DB_NAME aid)"
     echo "  Redis    : $(conf_get REDIS_HOST 127.0.0.1):$(conf_get REDIS_PORT 6379)"
@@ -1658,8 +2104,8 @@ confirm_initial_configuration() { # confirm_initial_configuration <docker|manual
     fi
   fi
   if [[ "${AID_ASSUME_YES:-0}" != "1" ]]; then
-    confirmed="$(ask '确认以上配置作为本次部署唯一配置真源？(yes/no)' 'no')"
-    [[ "${confirmed}" == "yes" ]] || die "配置尚未确认，部署已停止"
+    confirmed="$(ask_yes_no '确认以上配置作为本次部署唯一配置真源？' 'n')"
+    [[ "${confirmed}" == "y" ]] || die "配置尚未确认，部署已停止"
   fi
   currentHash="$(config_sha256 "${configFile}")"
   [[ -n "${currentHash}" ]] || die "无法计算配置文件摘要"
@@ -1922,9 +2368,67 @@ docker_mysql_tool() { # docker_mysql_tool <mysql|mysqldump> [参数...]
   fi
 }
 
+# 读取已部署数据库中的后台入口配置，用于部署完成后输出真实登录地址。
+# 新库由安装器生成随机访问码；旧库始终保留管理员已经设置的值。
+read_admin_entry_settings() {
+  local mode dbName rows query
+  ADMIN_ENTRY_ENABLED_VALUE="true"
+  ADMIN_ENTRY_CODE_VALUE="${DEFAULT_ADMIN_ENTRY_CODE}"
+  mode="$(detect_mode)"
+  dbName="$(setting_get DB_NAME aid)"
+  query="SELECT config_name, config_value FROM aid_config WHERE category='admin_entry' AND config_name IN ('enabled','access_code')"
+  if [[ "${mode}" == "docker" ]]; then
+    rows="$(docker_mysql_tool mysql --batch --skip-column-names "${dbName}" --execute "${query}" 2>/dev/null)" || return 0
+  else
+    rows="$(MYSQL_PWD="$(conf_get DB_PASSWORD '')" mysql \
+      --host "$(conf_get DB_HOST 127.0.0.1)" --port "$(conf_get DB_PORT 3306)" \
+      --user "$(conf_get DB_USERNAME root)" --database "${dbName}" \
+      --batch --skip-column-names --execute "${query}" 2>/dev/null)" || return 0
+  fi
+  local dbEnabled dbCode
+  dbEnabled="$(printf '%s\n' "${rows}" | awk -F '\t' '$1 == "enabled" {print $2; exit}')"
+  dbCode="$(printf '%s\n' "${rows}" | awk -F '\t' '$1 == "access_code" {print $2; exit}')"
+  [[ -n "${dbEnabled}" ]] && ADMIN_ENTRY_ENABLED_VALUE="${dbEnabled}"
+  if [[ "${dbCode}" =~ ^[A-Za-z0-9]+$ ]]; then
+    ADMIN_ENTRY_CODE_VALUE="${dbCode}"
+  elif [[ -n "${rows}" ]]; then
+    ADMIN_ENTRY_CODE_VALUE=""
+  fi
+}
+
+ensure_admin_entry_code() { # ensure_admin_entry_code <docker|manual>
+  local mode="$1" dbName currentCode newCode query
+  dbName="$(if [[ "${mode}" == "docker" ]]; then env_get DB_NAME aid; else conf_get DB_NAME aid; fi)"
+  query="SELECT config_value FROM aid_config WHERE category='admin_entry' AND config_name='access_code' LIMIT 1"
+  if [[ "${mode}" == "docker" ]]; then
+    currentCode="$(docker_mysql_tool mysql --batch --skip-column-names "${dbName}" --execute "${query}" 2>/dev/null | tail -n 1)" \
+      || die "读取后台登录入口失败"
+  else
+    currentCode="$(MYSQL_PWD="$(conf_get DB_PASSWORD '')" mysql \
+      --host "$(conf_get DB_HOST 127.0.0.1)" --port "$(conf_get DB_PORT 3306)" \
+      --user "$(conf_get DB_USERNAME root)" --database "${dbName}" \
+      --batch --skip-column-names --execute "${query}" 2>/dev/null | tail -n 1)" \
+      || die "读取后台登录入口失败"
+  fi
+  [[ -z "${currentCode}" ]] || { ok "后台登录访问码已配置，保持原值"; return 0; }
+  newCode="$(gen_secret | head -c 12)"
+  [[ "${newCode}" =~ ^[A-Za-z0-9]{12}$ ]] || die "生成后台随机访问码失败"
+  query="UPDATE aid_config SET config_value='${newCode}', update_by='installer', update_time=NOW() WHERE category='admin_entry' AND config_name='access_code'"
+  if [[ "${mode}" == "docker" ]]; then
+    docker_mysql_tool mysql "${dbName}" --execute "${query}" >/dev/null \
+      || die "写入后台随机访问码失败"
+  else
+    MYSQL_PWD="$(conf_get DB_PASSWORD '')" mysql \
+      --host "$(conf_get DB_HOST 127.0.0.1)" --port "$(conf_get DB_PORT 3306)" \
+      --user "$(conf_get DB_USERNAME root)" --database "${dbName}" --execute "${query}" >/dev/null \
+      || die "写入后台随机访问码失败"
+  fi
+  ok "已为新部署生成12位随机后台访问码"
+}
+
 # 确保 MySQL 就绪。外部模式只做连接及 5.7 版本校验，绝不拉起 aid-mysql。
 ensure_mysql_ready() {
-  local mode AID_DEPENDENCY_INSTALL_MODE; mode="$(detect_mode)"
+  local mode AID_DEPENDENCY_INSTALL_MODE; mode="${1:-$(detect_mode)}"
   if [[ "${mode}" != "docker" ]]; then return 0; fi
   AID_DEPENDENCY_INSTALL_MODE="$(dependency_install_mode docker)"
   ensure_docker_image "mysql:5.7" "MySQL5.7"
@@ -2097,30 +2601,40 @@ wait_backend_healthy() {
 }
 
 print_access_info() {
-  local mode configFile
+  local mode configFile adminPort adminPath
   mode="$(detect_mode)"
   if [[ "${mode}" == "docker" ]]; then configFile="${ENV_FILE}"; else configFile="${CONF}"; fi
+  adminPort="$(setting_get ADMIN_PORT 8089)"
+  read_admin_entry_settings
+  if [[ "${ADMIN_ENTRY_ENABLED_VALUE}" =~ ^(true|TRUE|Y|1)$ && -n "${ADMIN_ENTRY_CODE_VALUE}" ]]; then
+    adminPath="/${ADMIN_ENTRY_CODE_VALUE}"
+  else
+    adminPath="/login"
+  fi
   echo ""
   echo -e "${C_GREEN}=================== 操作完成 ===================${C_RESET}"
   echo "访问地址:"
-  echo "  管理端: http://服务器IP:$(setting_get ADMIN_PORT 8090)/   （默认账号 admin / admin123，登录后立即改密）"
+  echo "  管理端登录入口: http://服务器IP:${adminPort}${adminPath}"
+  echo "  管理端本机示例: http://localhost:${adminPort}${adminPath}"
+  echo "  管理端默认账号: admin / admin123（首次登录后立即修改密码）"
   echo "  用户端: http://服务器IP:$(setting_get HTTP_PORT 80)/"
   if [[ "${mode}" == "docker" ]] && docker_profile_enabled https; then
     local httpsPort httpsPortSuffix=""
     httpsPort="$(env_get HTTPS_PORT 443)"
     [[ "${httpsPort}" == "443" ]] || httpsPortSuffix=":${httpsPort}"
     echo "  HTTPS用户端: https://$(env_get HTTPS_PUBLIC_DOMAIN)${httpsPortSuffix}/"
-    echo "  HTTPS管理端: https://$(env_get HTTPS_ADMIN_DOMAIN)${httpsPortSuffix}/<访问码>"
+    echo "  HTTPS管理端: https://$(env_get HTTPS_ADMIN_DOMAIN)${httpsPortSuffix}${adminPath}"
   elif [[ "${mode}" == "manual" && "$(conf_get HTTPS_ENABLED false)" == "true" ]]; then
     local httpsPort httpsPortSuffix=""
     httpsPort="$(conf_get HTTPS_PORT 443)"
     [[ "${httpsPort}" == "443" ]] || httpsPortSuffix=":${httpsPort}"
     echo "  HTTPS用户端: https://$(conf_get HTTPS_PUBLIC_DOMAIN)${httpsPortSuffix}/"
-    echo "  HTTPS管理端: https://$(conf_get HTTPS_ADMIN_DOMAIN)${httpsPortSuffix}/<访问码>"
+    echo "  HTTPS管理端: https://$(conf_get HTTPS_ADMIN_DOMAIN)${httpsPortSuffix}${adminPath}"
   fi
   echo "数据目录: ${DATA_ROOT}（程序/上传/日志/数据/备份全部在此）"
   echo "配置文件: ${configFile}（菜单「修改配置」可调整）"
   [[ -f "${MANAGED_SCRIPT}" ]] && echo "管理命令: sudo aid 或 sudo bash ${MANAGED_SCRIPT}"
+  return 0
 }
 
 # 首次部署前的已有部署检查：重复执行等于"用新包重装程序层"（数据不受影响），
@@ -2138,8 +2652,8 @@ confirm_reinstall() { # confirm_reinstall <目标模式 docker|manual>
     warn "两种部署方式并存会产生端口冲突（80/8080/3306），请先停掉原部署（菜单 6）再切换方式"
   fi
   local goOn
-  goOn="$(ask '确认继续？(yes/no)' 'no')"
-  [[ "${goOn}" == "yes" ]] || { log "已取消"; return 1; }
+  goOn="$(ask_yes_no '确认继续？' 'n')"
+  [[ "${goOn}" == "y" ]] || { log "已取消"; return 1; }
   return 0
 }
 
@@ -2169,6 +2683,8 @@ do_install_docker() {
   # 才停用可能存在的内置容器，且始终保留 mysql-data 目录。
   disable_internal_mysql_for_external \
     || die "外部 MySQL 未准备完成，部署已中止且不会启动内置 MySQL"
+  ensure_mysql_ready docker || die "数据库未就绪，部署已中止"
+  ensure_admin_entry_code docker
   disable_unused_docker_services
 
   # 硬件校验基线按 .env 实际配置评估：profiles 含 mq 才计入内置 MQ 内存
@@ -2218,7 +2734,8 @@ do_install_docker() {
 # ----------------------------------------------------------------------------
 write_systemd_units() {
   local javaBin nodeBin
-  javaBin="$(command -v java)"
+  [[ -x "${JDK_HOME}/bin/java" ]] || prepare_exact_jdk
+  javaBin="${JDK_HOME}/bin/java"
   nodeBin="$(command -v node)"
   cat > /etc/systemd/system/aid.service <<EOF
 [Unit]
@@ -2265,7 +2782,7 @@ EOF
 write_nginx_site() {
   local httpPort adminPort backendPort content httpsPort httpsDomain httpsAdminDomain certPath keyPath
   httpPort="$(conf_get HTTP_PORT 80)"
-  adminPort="$(conf_get ADMIN_PORT 8090)"
+  adminPort="$(conf_get ADMIN_PORT 8089)"
   backendPort="$(conf_get BACKEND_PORT 8080)"
   content="# AID 站点：${httpPort}=C端用户端，${adminPort}=后台管理端（根路径托管）
 # 仅在请求确实携带 Upgrade 头时才发送 Connection: upgrade，普通请求保持 keep-alive
@@ -2452,6 +2969,7 @@ do_install_manual() {
       --default-character-set=utf8mb4 "${dbName}" < "${initSql}" || die "基线导入失败"
     ok "数据库初始化完成"
   fi
+  ensure_admin_entry_code manual
 
   place_artifacts "${package}"
   write_systemd_units
@@ -2527,11 +3045,11 @@ do_update() {
   warn "后台「项目升级配置」仍是首选入口，具备签名版本校验、源码构建、SQL 历史记录和失败自动回滚"
   if [[ "${AID_ASSUME_YES:-0}" == "1" ]]; then
     risk "AID_ASSUME_YES=1：已跳过升级人工确认"
-    go="yes"
+    go="y"
   else
-    go="$(ask "确认从 ${current} 更新到 ${target}？(yes/no)" 'no')"
+    go="$(ask_yes_no "确认从 ${current} 更新到 ${target}？" 'n')"
   fi
-  [[ "${go}" == "yes" ]] || { log "已取消"; return; }
+  [[ "${go}" == "y" ]] || { log "已取消"; return; }
 
   if [[ -z "${supplied}" ]]; then
     ensure_source_package
@@ -2545,6 +3063,8 @@ do_update() {
 
   # docker 模式先确保数据库容器可用（备份与增量 SQL 都依赖它）
   ensure_mysql_ready || die "数据库未就绪，升级已中止（未做任何变更）"
+  # 兼容早期初始化脚本留下的空访问码；已有非空访问码绝不修改。
+  ensure_admin_entry_code "${mode}"
 
   # 升级前自动完整备份（产物 + 数据库 + 版本标记），供菜单「回滚」还原
   backupDir="${DATA_ROOT}/backups/upgrade-$(date +%Y%m%d%H%M%S)-v${current}"
@@ -2580,6 +3100,9 @@ do_update() {
     fi
   fi
 
+  # 包中不包含用户维护的 .env；先刷新受版本控制的 Compose/Nginx/部署脚本，
+  # 本次重启即可使用新版模板，同时保留已有配置与密钥。
+  refresh_managed_installer "${package}" || die "新版部署模板刷新失败，服务尚未重启"
   do_restart
   wait_backend_healthy || die "新版本未就绪，可执行菜单「回滚到升级前备份」还原: ${backupDir}"
   # 包内携带新版升级器二进制时重启升级器使其生效（未安装过则跳过）
@@ -2596,7 +3119,6 @@ do_update() {
   targetChannel="${REQUESTED_RELEASE_CHANNEL:-$(state_get RELEASE_CHANNEL auto)}"
   state_set CURRENT_VERSION "${target}"
   state_set RELEASE_CHANNEL "${targetChannel}"
-  refresh_managed_installer "${package}" || true
   install_management_command
   ok "已更新到 ${target}"
   print_access_info
@@ -2635,8 +3157,8 @@ do_rollback() {
   warn "即将回滚：当前 v$(current_version) → v${targetVer}（备份 $(basename "${target}")）"
   warn "程序产物将被还原；数据库默认【不】还原（避免丢失升级后产生的业务数据）"
   local go
-  go="$(ask '确认回滚程序产物？(yes/no)' 'no')"
-  [[ "${go}" == "yes" ]] || { log "已取消"; return; }
+  go="$(ask_yes_no '确认回滚程序产物？' 'n')"
+  [[ "${go}" == "y" ]] || { log "已取消"; return; }
 
   # 回滚前对当前状态再做一份保护备份（防止误回滚无法恢复）
   local safeguard="${DATA_ROOT}/backups/pre-rollback-$(date +%Y%m%d%H%M%S)-v$(current_version)"
@@ -2673,8 +3195,8 @@ do_rollback() {
   # 可选：还原数据库（高危，显式确认）
   if [[ -f "${target}/db.sql.gz" ]]; then
     local restoreDb
-    restoreDb="$(ask '是否同时还原数据库？会丢失升级后产生的全部数据！(yes/no)' 'no')"
-    if [[ "${restoreDb}" == "yes" ]]; then
+    restoreDb="$(ask_yes_no '是否同时还原数据库？会丢失升级后产生的全部数据！' 'n')"
+    if [[ "${restoreDb}" == "y" ]]; then
       log "还原数据库（升级前快照）..."
       # docker 模式数据库容器需在运行态且健康后才能导入
       ensure_mysql_ready || die "数据库容器未就绪，还原已中止"
@@ -2823,12 +3345,12 @@ do_config() {
   echo "  2) 保存后执行本菜单「重启服务」生效"
   echo "  3) 改动了数据库凭证时，执行菜单「安装/修复在线升级器」同步升级器配置"
   local editNow
-  editNow="$(ask "现在用 vi 打开编辑？(yes/no)" 'no')"
-  if [[ "${editNow}" == "yes" ]]; then
+  editNow="$(ask_yes_no "现在用 vi 打开编辑？" 'n')"
+  if [[ "${editNow}" == "y" ]]; then
     "${EDITOR:-vi}" "${configFile}" </dev/tty >/dev/tty || true
     local apply
-    apply="$(ask '立即重启使配置生效？(yes/no)' 'yes')"
-    if [[ "${apply}" == "yes" ]]; then
+    apply="$(ask_yes_no '立即重启使配置生效？' 'y')"
+    if [[ "${apply}" == "y" ]]; then
       # 凭证可能变更，先同步升级器配置再重启
       if [[ -f "${UPDATER_CONFIG_FILE}" && -f "${DATA_ROOT}/app/updater/aid-updater" ]]; then
         write_updater_config "${mode}"

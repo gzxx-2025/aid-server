@@ -175,11 +175,26 @@ public class ErrorNormalizer {
                 "may contain real person", "参考图可能包含真人")) {
             return TaskErrorResult.of(TaskErrorCode.REAL_PERSON_RESTRICTED, rawMessage);
         }
+        if (containsAny(lower, "input image", "input images", "reference image", "source image")
+                && containsAny(lower, "sensitive", "risk not pass", "policy violation",
+                "content filter", "moderation", "audit illegal")) {
+            return withUserMessage(TaskErrorCode.UPSTREAM_CONTENT_FILTERED, rawMessage,
+                    "参考图未通过内容审核，请更换后重试");
+        }
+        if (containsAny(lower, "prompt", "input text", "text input")
+                && containsAny(lower, "sensitive", "risk not pass", "policy violation",
+                "content filter", "moderation", "audit illegal")) {
+            return withUserMessage(TaskErrorCode.UPSTREAM_CONTENT_FILTERED, rawMessage,
+                    "提示词未通过内容审核，请修改后重试");
+        }
+        if (containsAny(lower, "auditsubmitillegal", "audit submit illegal")) {
+            return TaskErrorResult.of(TaskErrorCode.UPSTREAM_CONTENT_FILTERED, rawMessage);
+        }
         if (containsAny(lower, "no available compatible accounts", "no compatible account",
                 "当前模型暂时不可用")) {
             return TaskErrorResult.of(TaskErrorCode.MODEL_ACCOUNT_UNAVAILABLE, rawMessage);
         }
-        if (containsAny(lower, "image queue is full", "service busy", "no available server",
+        if (containsAny(lower, "image queue is full", "video queue is full", "service busy", "no available server",
                 "system memory overloaded", "server overloaded", "模型任务较多")) {
             return TaskErrorResult.of(TaskErrorCode.PROVIDER_BUSY, rawMessage);
         }
@@ -188,10 +203,18 @@ public class ErrorNormalizer {
                 "验证码图片")) {
             return TaskErrorResult.of(TaskErrorCode.UPSTREAM_CONTENT_FILTERED, rawMessage);
         }
-        if (containsAny(lower, "insufficient credits", "free quota exhausted",
-                "quota exhausted", "quota exceeded", "insufficient balance",
+        if (containsAny(lower, "accountoverdueerror", "overdue balance", "serviceoverdue",
+                "account is overdue")) {
+            return TaskErrorResult.of(TaskErrorCode.MERCHANT_QUOTA_EXHAUSTED, rawMessage);
+        }
+        if (containsAny(lower, "free quota exhausted", "free quota has been exhausted",
+                "free tier of the model has been exhausted",
+                "freetieronly", "free allocated quota")) {
+            return TaskErrorResult.of(TaskErrorCode.PROVIDER_FREE_TIER_EXHAUSTED, rawMessage);
+        }
+        if (containsAny(lower, "insufficient credits", "quota exhausted", "quota exceeded", "insufficient balance",
                 "balance insufficient", "account balance is insufficient",
-                "free tier of the model has been exhausted", "credit balance is insufficient",
+                "credit balance is insufficient", "reached the set inference limit", "safe experience mode",
                 "模型服务额度不足", "模型余额不足", "上游账户余额不足", "供应商余额不足")
                 || Objects.equals(lower.trim(), "余额不足")) {
             return TaskErrorResult.of(TaskErrorCode.PROVIDER_QUOTA_EXHAUSTED, rawMessage);
@@ -284,6 +307,13 @@ public class ErrorNormalizer {
             }
         }
         return false;
+    }
+
+    /** 为可明确区分输入来源的错误覆盖更具体的用户提示，原始错误仍仅用于服务端排查。 */
+    private static TaskErrorResult withUserMessage(TaskErrorCode code, String rawMessage, String userMessage) {
+        TaskErrorResult result = TaskErrorResult.of(code, rawMessage);
+        result.setUserMessage(userMessage);
+        return result;
     }
 
     /**

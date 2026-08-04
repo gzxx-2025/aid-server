@@ -8,8 +8,8 @@
 #   修改后执行 sudo bash aid.sh 菜单「重启服务」生效。
 #
 # 说明：
-#   - DEPENDENCY_INSTALL_MODE=auto 时，脚本使用系统包管理器安装缺失的安全依赖
-#   - 源码构建优先使用可用的 Docker 隔离构建；没有 Docker 时检查/安装 Git/Maven/npm/Go
+#   - DEPENDENCY_INSTALL_MODE=auto 时，固定工具链下载到隔离缓存，系统服务按需使用包管理器
+#   - 源码构建优先使用可用的 Docker；没有 Docker 时使用校验后的 JDK/Node/Maven/Go
 #   - 外部 MySQL/Redis/RocketMQ 永远只连接，不会在本机安装或覆盖
 #   - MySQL 5.7 服务端与 Docker Engine 不自动安装；本机 Redis 仅在无认证默认配置时可自动安装
 #   - TOKEN_SECRET 留空 = 部署脚本自动生成强随机值写回本文件
@@ -21,14 +21,16 @@
 DATA_ROOT=/data/aid
 
 # ---------------- 依赖处理 ----------------
-# auto（默认）：缺失的Git/JDK17/Maven/Node/Go/Nginx/MySQL客户端等使用系统包管理器安装；
+# auto（默认）：JDK、Node、Maven、Go 固定版本下载到隔离缓存，其余系统工具按需安装；
 # manual：只检查并打印缺失项，不安装软件。已有且版本合格的依赖两种模式都会跳过。
 # Docker Engine、MySQL5.7服务端、外部Redis/RocketMQ永远不会被本脚本自动安装或覆盖。
 DEPENDENCY_INSTALL_MODE=auto
+# auto=按服务器公网出口地区自动选择；cn=国内镜像优先；global=官方地址优先。
+DEPENDENCY_REGION=auto
 # 用户端（C端）对外端口，由 Nginx 监听
 HTTP_PORT=80
-# 后台管理端对外端口（独立端口、根路径托管）
-ADMIN_PORT=8090
+# 后台管理端对外端口；访问码由首次部署脚本随机生成并在完成后打印。
+ADMIN_PORT=8089
 # 后端 Java 服务本机端口
 BACKEND_PORT=8080
 

@@ -101,15 +101,15 @@ public final class TaskErrorPresentation
             case "USER_INPUT_EMPTY" -> "请补充生成内容";
             case "USER_INPUT_TOO_LONG" -> "内容过长，请精简";
             case "MERCHANT_QUOTA_EXHAUSTED", "PROVIDER_FREE_TIER_EXHAUSTED",
-                    "PROVIDER_QUOTA_EXHAUSTED", "UPSTREAM_AUTH_INVALID",
-                    "UPSTREAM_SERVICE_NOT_OPEN", "MODEL_ACCOUNT_UNAVAILABLE"
-                    -> "当前生成服务暂不可用";
+                    "PROVIDER_QUOTA_EXHAUSTED" -> "模型额度不足";
+            case "UPSTREAM_AUTH_INVALID", "UPSTREAM_SERVICE_NOT_OPEN",
+                    "MODEL_ACCOUNT_UNAVAILABLE" -> "当前生成服务暂不可用";
             case "PROVIDER_BUSY", "UPSTREAM_RATE_LIMITED" -> "任务较多，稍后重试";
             case "UPSTREAM_TIMEOUT" -> "生成超时，重新生成";
             case "UPSTREAM_NETWORK_ERROR", "UPSTREAM_SERVER_ERROR" -> "生成未完成，稍后重试";
             case "UPSTREAM_BAD_REQUEST" -> "本次生成未完成";
             case "MODEL_PARAMETER_INCOMPATIBLE" -> "设置不支持，调整后重试";
-            case "UPSTREAM_CONTENT_FILTERED" -> "内容需调整后重试";
+            case "UPSTREAM_CONTENT_FILTERED" -> "内容审核未通过";
             case "REAL_PERSON_RESTRICTED" -> "更换参考图后重试";
             case "USER_FILE_DOWNLOAD_FAILED" -> "重新上传文件后重试";
             case "RESULT_INVALID", "RESULT_FORMAT_INVALID" -> "结果不可用，重新生成";

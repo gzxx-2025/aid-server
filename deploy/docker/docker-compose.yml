@@ -92,7 +92,9 @@ services:
       retries: 10
 
   aid-server:
-    image: eclipse-temurin:17-jre
+    # 由 aid.sh 使用已校验的 Temurin OpenJDK 17.0.20 压缩包在本机生成，禁止浮动版本。
+    image: aid/openjdk:17.0.20
+    pull_policy: never
     container_name: aid-server
     restart: unless-stopped
     logging: *default-logging
@@ -143,7 +145,7 @@ services:
       # 与升级器的文件通信目录（写任务/读健康与日志），容器内外同路径，后台默认配置零修改
       - /var/lib/aid-updater:/var/lib/aid-updater
     healthcheck:
-      # temurin 镜像无 curl，用 bash 内建 /dev/tcp 探测端口
+      # 固定 OpenJDK 运行镜像无 curl，用 bash 内建 /dev/tcp 探测端口
       test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/8080' 2>/dev/null || exit 1"]
       interval: 15s
       timeout: 5s
@@ -162,7 +164,7 @@ services:
 
   # 用户端（Nuxt SSR，Node 运行 web-dist 下的 server/index.mjs）
   aid-web:
-    image: node:20-alpine
+    image: node:22.22.0-alpine
     container_name: aid-web
     restart: unless-stopped
     logging: *default-logging
@@ -222,9 +224,9 @@ services:
     restart: unless-stopped
     logging: *default-logging
     ports:
-      # 80 = C端用户端；8090 = 后台管理端（根路径托管）
+      # 80 = C端用户端；宿主机默认 8089 映射到容器内 8090 后台管理端
       - "${HTTP_PORT:-80}:80"
-      - "${ADMIN_PORT:-8090}:8090"
+      - "${ADMIN_PORT:-8089}:8090"
     volumes:
       # 宿主机：/data/aid/installer/deploy/docker/nginx/aid.conf
       # 容器内：/etc/nginx/conf.d/default.conf（只读）

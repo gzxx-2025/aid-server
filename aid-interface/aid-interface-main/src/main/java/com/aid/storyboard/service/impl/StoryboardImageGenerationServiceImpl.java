@@ -104,6 +104,10 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
     /** 删除标志：正常 */
     private static final String DEL_FLAG_NORMAL = "0";
 
+    /** 生成记录选中状态 */
+    private static final int SELECTED_NO = 0;
+    private static final int SELECTED_YES = 1;
+
     /** gen_type 常量：单图 */
     private static final String GEN_TYPE_IMAGE = "image";
 
@@ -234,6 +238,13 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
     @Override
     public StoryboardImageGenerateVO generateImage(StoryboardImageGenerateRequest request, Long userId)
     {
+        return generateImage(request, userId, false);
+    }
+
+    @Override
+    public StoryboardImageGenerateVO generateImage(StoryboardImageGenerateRequest request, Long userId,
+            boolean batchMode)
+    {
         validateUserId(userId);
         List<Long> ids = validateBatchRequest(request);
         boolean single = ids.size() == 1;
@@ -258,7 +269,8 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
 
         final boolean singleFinal = single;
         final int perShotCountFinal = perShotCount;
-        return submitBatch(userId, ids, single, perShotCount, effectiveAgentCode, modelCode, modelId, modelConfig,
+        return submitBatch(userId, ids, single, perShotCount, batchMode || !single,
+                effectiveAgentCode, modelCode, modelId, modelConfig,
                 resolvedAspectRatio, resolvedSize,
                 request.getNegativePrompt(), request.getUserInputText(),
                 sb -> prepareShot(sb, singleFinal, request.getImagePrompt(), request.getUserInputText(),
@@ -902,6 +914,7 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
      * 逐镜头抢锁 + 解析 → 创建单一父任务并异步入队。
      */
     private StoryboardImageGenerateVO submitBatch(Long userId, List<Long> ids, boolean single, int perShotCount,
+            boolean overwriteExistingFinal,
             String agentCode, String modelCode, Long modelId, AiModelConfigVo modelConfig, String aspectRatio,
             String size, String negativePrompt, String userInputText, ShotPreparer preparer)
     {
@@ -947,7 +960,8 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
                 throw TaskErrorPresentation.toServiceException(reason, "没有可生成分镜");
             }
             return createBatchTaskAndEnqueue(userId, agentCode, modelCode, modelId, modelConfig, aspectRatio, size,
-                    negativePrompt, userInputText, perShotCount, prepared, heldLocks, rejected);
+                    negativePrompt, userInputText, perShotCount, overwriteExistingFinal,
+                    prepared, heldLocks, rejected);
         }
         catch (RuntimeException e)
         {
@@ -959,7 +973,8 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
     /** 创建单一父任务（写 input_snapshot/totalCount）+ 构建每镜头 Job + 入队异步执行。 */
     private StoryboardImageGenerateVO createBatchTaskAndEnqueue(Long userId, String agentCode, String modelCode,
             Long modelId, AiModelConfigVo modelConfig, String aspectRatio, String size,
-            String negativePrompt, String userInputText, int perShotCount, List<PreparedShot> prepared,
+            String negativePrompt, String userInputText, int perShotCount, boolean overwriteExistingFinal,
+            List<PreparedShot> prepared,
             List<ShotLock> heldLocks, List<StoryboardImageGenerateVO.ShotResult> rejected)
     {
         AidStoryboard firstSb = prepared.get(0).storyboard;
@@ -1001,6 +1016,7 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
         inputMap.put("negativePrompt", negativePrompt);
         inputMap.put("userInputText", userInputText);
         inputMap.put("countPerShot", perShotCount);
+        inputMap.put("overwriteExistingFinal", overwriteExistingFinal);
         inputMap.put("shots", shotsSnapshot);
         inputMap.put("allShots", allShotsSnapshot);
         inputMap.put("runNo", 0);
@@ -1038,7 +1054,8 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
             enqueued = buildJobsAndEnqueue(taskId, projectId, episodeId, userId, modelCode, modelId, modelConfig,
                     agentCode, aspectRatio, size, negativePrompt, userInputText, perShotCount, prepared, heldLocks,
                     newSubtasks, prepared.size(), 0, new ArrayList<>(), new ArrayList<>(), new ArrayList<>(),
-                    java.util.Collections.emptyMap(), 0, false, shotOrdinalById, takeSlotsByShot);
+                    java.util.Collections.emptyMap(), 0, false, overwriteExistingFinal,
+                    shotOrdinalById, takeSlotsByShot);
         }
         catch (RuntimeException ex)
         {
@@ -1079,6 +1096,7 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
             List<ShotLock> heldLocks, int newSubtasks, int totalShots, int seedSuccessCount, List<Long> seedRecordIds,
             List<Map<String, Object>> seedItems, List<Map<String, Object>> seedShotResults,
             Map<Long, Map<String, Object>> seedShotPrior, int runNo, boolean forcePartial,
+            boolean overwriteExistingFinal,
             Map<Long, Integer> shotOrdinalById, Map<Long, List<Integer>> takeSlotsByShot)
     {
         // 入队前清理本任务的扇入计数/收尾标记，保证每轮从干净状态开始扇入
@@ -1111,7 +1129,7 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
             shotJobs.add(new ImageGenJob(taskId, userId, ps.storyboard, modelCode, modelId, modelConfig,
                     ps.finalPrompt, ps.rawImagePrompt, ps.referenceImages, ps.referenceManifestJson, ps.takeCount,
                     aspectRatio, size, negativePrompt, userInputText, ps.userImagePromptInput,
-                    agentCode, bizSeqBase, takeSlots, lock.key, lock.token));
+                    agentCode, bizSeqBase, takeSlots, lock.key, lock.token, overwriteExistingFinal));
         }
         ImageBatchJob batchJob = new ImageBatchJob(taskId, userId, modelCode, perShotCount, totalShots,
                 seedSuccessCount + newSubtasks, seedSuccessCount, runNo, shotJobs, new ArrayList<>(heldLocks),
@@ -1458,6 +1476,9 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
         String negativePrompt = input.hasNonNull("negativePrompt") ? input.get("negativePrompt").asText() : null;
         String userInputText = input.hasNonNull("userInputText") ? input.get("userInputText").asText() : null;
         int perShotCount = input.path("countPerShot").asInt(1);
+        // 老任务快照缺少该字段时保持原有自动覆盖行为，避免续生改变历史任务语义。
+        boolean overwriteExistingFinal = !input.has("overwriteExistingFinal")
+                || input.path("overwriteExistingFinal").asBoolean(true);
         int priorRunNo = input.path("runNo").asInt(0);
         if (priorRunNo >= MAX_RUN_NO)
         {
@@ -1651,6 +1672,7 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
             newSnap.put("negativePrompt", negativePrompt);
             newSnap.put("userInputText", userInputText);
             newSnap.put("countPerShot", perShotCount);
+            newSnap.put("overwriteExistingFinal", overwriteExistingFinal);
             newSnap.put("shots", resumeShots);
             List<Map<String, Object>> allShotsOut = new ArrayList<>();
             for (Map.Entry<Long, Integer> e : origTakeByShot.entrySet())
@@ -1709,7 +1731,8 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
                 enqueued = buildJobsAndEnqueue(taskId, projectId, episodeId, userId, resolvedModelCode, modelId,
                         modelConfig, agentCode, aspectRatio, size, negativePrompt, userInputF, perShotCount, prepared,
                         heldLocks, newSubtasks, originalTotalShots, seedSuccessCount, seedRecordIds, seedItems,
-                        seedShotResults, seedShotPrior, newRunNo, forcePartial, shotOrdinalById, missingSlotsByShot);
+                        seedShotResults, seedShotPrior, newRunNo, forcePartial, overwriteExistingFinal,
+                        shotOrdinalById, missingSlotsByShot);
             }
             catch (RuntimeException ex)
             {
@@ -1853,6 +1876,7 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
         ctx.put("userInputText", StrUtil.blankToDefault(job.userImagePromptInput, job.rawImagePrompt));
         ctx.put("genParams", genParamsJson);
         ctx.put("bizSeq", bizSeq);
+        ctx.put("overwriteExistingFinal", job.overwriteExistingFinal);
         options.put(OPT_KEY_CTX, ctx);
         imageRequest.setOptions(options);
 
@@ -1901,12 +1925,15 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
         final List<Integer> takeSlots;
         final String lockKey;
         final String lockToken;
+        /** true=批量生成保持自动覆盖；false=单个生成仅在尚无主图时自动设置。 */
+        final boolean overwriteExistingFinal;
 
         ImageGenJob(Long taskId, Long userId, AidStoryboard storyboard, String modelCode, Long modelId,
                     AiModelConfigVo modelConfig, String finalPrompt, String rawImagePrompt, List<String> referenceImages,
                     String referenceManifestJson, int imageCount, String aspectRatio, String size,
                     String negativePrompt, String userInputText, String userImagePromptInput, String agentCode,
-                    long bizSeqBase, List<Integer> takeSlots, String lockKey, String lockToken)
+                    long bizSeqBase, List<Integer> takeSlots, String lockKey, String lockToken,
+                    boolean overwriteExistingFinal)
         {
             this.taskId = taskId;
             this.userId = userId;
@@ -1933,6 +1960,7 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
                     : java.util.Collections.unmodifiableList(new ArrayList<>(takeSlots));
             this.lockKey = lockKey;
             this.lockToken = lockToken;
+            this.overwriteExistingFinal = overwriteExistingFinal;
         }
     }
 
@@ -1996,7 +2024,7 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
         record.setGenParams(genParamsJson);
         record.setBizSeq(bizSeq); // 幂等唯一键：由唯一索引 uk_gen_record_biz_seq 兜底防重复落库
         record.setStatus(1); // 1=成功
-        record.setIsSelected(1);
+        record.setIsSelected(job.overwriteExistingFinal ? SELECTED_YES : SELECTED_NO);
         record.setDelFlag(DEL_FLAG_NORMAL);
         record.setCreateTime(DateUtils.getNowDate());
         record.setCreateBy(String.valueOf(job.userId));
@@ -2009,10 +2037,10 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
             // DIRECT 内联与事件扇入并发竞态：唯一键冲突说明同一 take 已落库，幂等忽略
             log.info("分镜图 gen_record 已存在(biz_seq 唯一键冲突,幂等忽略): bizSeq={}, storyboardId={}",
                     bizSeq, storyboard.getId());
-            markExistingImageRecordAsFinal(bizSeq, job.userId);
+            markExistingImageRecordAsFinal(bizSeq, job.userId, job.overwriteExistingFinal);
             return null;
         }
-        markStoryboardFinalImage(storyboard.getId(), record.getId(), job.userId);
+        markStoryboardFinalImage(storyboard.getId(), record.getId(), job.userId, job.overwriteExistingFinal);
         return record.getId();
     }
     /** 注入 aid_media_task.request_json.options 的单一命名空间上下文键（厂商 Provider 只取已知键，不会下发上游）。 */
@@ -2029,7 +2057,8 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
         if (Objects.nonNull(existing))
         {
             Long recordUserId = Objects.nonNull(existing.getUserId()) ? existing.getUserId() : shot.userId;
-            markStoryboardFinalImage(existing.getStoryboardId(), existing.getId(), recordUserId);
+            markStoryboardFinalImage(existing.getStoryboardId(), existing.getId(), recordUserId,
+                    shot.overwriteExistingFinal);
             return;
         }
         persistGenRecord(shot, bizSeq, imageUrl, genParamsJson);
@@ -2054,7 +2083,7 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
         }
     }
 
-    private void markExistingImageRecordAsFinal(long bizSeq, Long fallbackUserId)
+    private void markExistingImageRecordAsFinal(long bizSeq, Long fallbackUserId, boolean overwriteExistingFinal)
     {
         AidGenRecord existing = loadGenRecordByBizSeq(bizSeq);
         if (Objects.isNull(existing))
@@ -2062,7 +2091,7 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
             return;
         }
         Long userId = Objects.nonNull(existing.getUserId()) ? existing.getUserId() : fallbackUserId;
-        markStoryboardFinalImage(existing.getStoryboardId(), existing.getId(), userId);
+        markStoryboardFinalImage(existing.getStoryboardId(), existing.getId(), userId, overwriteExistingFinal);
     }
 
     /**
@@ -2109,13 +2138,18 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
     private boolean persistGenRecordFromCtx(AidMediaTask mt, long bizSeq, String ossUrl)
     {
         AidGenRecord existing = loadGenRecordByBizSeq(bizSeq);
+        Map<String, Object> ctx = extractCtxFromMediaTask(mt);
         if (Objects.nonNull(existing))
         {
-            Long recordUserId = Objects.nonNull(existing.getUserId()) ? existing.getUserId() : mt.getUserId();
-            markStoryboardFinalImage(existing.getStoryboardId(), existing.getId(), recordUserId);
+            // 上下文已压缩说明该成功事件此前已消费，不再重复改动用户后续选择。
+            if (CollectionUtil.isNotEmpty(ctx))
+            {
+                Long recordUserId = Objects.nonNull(existing.getUserId()) ? existing.getUserId() : mt.getUserId();
+                markStoryboardFinalImage(existing.getStoryboardId(), existing.getId(), recordUserId,
+                        resolveOverwriteExistingFinal(ctx));
+            }
             return true; // 幂等：已落库时不再依赖 request_json 上下文，兼容上下文压缩后的重复事件
         }
-        Map<String, Object> ctx = extractCtxFromMediaTask(mt);
         if (CollectionUtil.isEmpty(ctx))
         {
             log.error("分镜图事件落库缺少上下文(跳过,计失败防卡死): mediaTaskId={}, bizSeq={}", mt.getId(), bizSeq);
@@ -2146,7 +2180,8 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
         record.setGenParams((String) ctx.get("genParams"));
         record.setBizSeq(bizSeq); // 幂等唯一键：由唯一索引 uk_gen_record_biz_seq 兜底防重复落库
         record.setStatus(1);
-        record.setIsSelected(1);
+        boolean overwriteExistingFinal = resolveOverwriteExistingFinal(ctx);
+        record.setIsSelected(overwriteExistingFinal ? SELECTED_YES : SELECTED_NO);
         record.setDelFlag(DEL_FLAG_NORMAL);
         record.setCreateTime(DateUtils.getNowDate());
         record.setCreateBy(String.valueOf(mt.getUserId()));
@@ -2159,15 +2194,19 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
             // DIRECT 内联与事件扇入并发竞态：唯一键冲突说明同一 take 已落库，幂等忽略
             log.info("分镜图事件落库 gen_record 已存在(biz_seq 唯一键冲突,幂等忽略): bizSeq={}, storyboardId={}",
                     bizSeq, storyboardId);
-            markExistingImageRecordAsFinal(bizSeq, mt.getUserId());
+            markExistingImageRecordAsFinal(bizSeq, mt.getUserId(), overwriteExistingFinal);
             return true;
         }
-        markStoryboardFinalImage(storyboardId, record.getId(), mt.getUserId());
+        markStoryboardFinalImage(storyboardId, record.getId(), mt.getUserId(), overwriteExistingFinal);
         return true;
     }
 
-    /** 自动生成成功后同步分镜主图字段；失败只记录日志，不影响已成功产物落库与扇入收尾。 */
-    private void markStoryboardFinalImage(Long storyboardId, Long recordId, Long userId)
+    /**
+     * 自动生成成功后同步分镜主图字段。
+     * 批量生成允许覆盖；单个生成仅在当前尚无主图时设置，避免覆盖用户已经选定的图片。
+     */
+    private void markStoryboardFinalImage(Long storyboardId, Long recordId, Long userId,
+            boolean overwriteExistingFinal)
     {
         if (Objects.isNull(storyboardId) || Objects.isNull(recordId) || Objects.isNull(userId))
         {
@@ -2179,20 +2218,51 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
             update.eq(AidStoryboard::getId, storyboardId);
             update.eq(AidStoryboard::getUserId, userId);
             update.eq(AidStoryboard::getDelFlag, DEL_FLAG_NORMAL);
+            if (!overwriteExistingFinal)
+            {
+                update.isNull(AidStoryboard::getFinalImageId);
+            }
             update.set(AidStoryboard::getFinalImageId, recordId);
             update.set(AidStoryboard::getUpdateTime, DateUtils.getNowDate());
             update.set(AidStoryboard::getUpdateBy, String.valueOf(userId));
             boolean updated = aidStoryboardService.update(update);
             if (!updated)
             {
-                log.warn("分镜图自动设为主图失败(分镜不存在或无权): storyboardId={}, recordId={}, userId={}",
-                        storyboardId, recordId, userId);
+                if (!overwriteExistingFinal)
+                {
+                    log.info("单个分镜图生成保留已有主图: storyboardId={}, recordId={}, userId={}",
+                            storyboardId, recordId, userId);
+                }
+                else
+                {
+                    log.warn("分镜图自动设为主图失败(分镜不存在或无权): storyboardId={}, recordId={}, userId={}",
+                            storyboardId, recordId, userId);
+                }
+                return;
+            }
+            if (!overwriteExistingFinal)
+            {
+                LambdaUpdateWrapper<AidGenRecord> selectRecord = Wrappers.lambdaUpdate();
+                selectRecord.eq(AidGenRecord::getId, recordId);
+                selectRecord.eq(AidGenRecord::getUserId, userId);
+                selectRecord.eq(AidGenRecord::getDelFlag, DEL_FLAG_NORMAL);
+                selectRecord.set(AidGenRecord::getIsSelected, SELECTED_YES);
+                selectRecord.set(AidGenRecord::getUpdateTime, DateUtils.getNowDate());
+                selectRecord.set(AidGenRecord::getUpdateBy, String.valueOf(userId));
+                aidGenRecordService.update(selectRecord);
             }
         }
         catch (Exception e)
         {
             log.warn("分镜图自动设为主图异常(不阻断): storyboardId={}, recordId={}", storyboardId, recordId, e);
         }
+    }
+
+    /** 新任务显式写入；老任务上下文缺字段时保持历史自动覆盖语义。 */
+    private boolean resolveOverwriteExistingFinal(Map<String, Object> ctx)
+    {
+        Object value = ctx.get("overwriteExistingFinal");
+        return !(value instanceof Boolean flag) || flag;
     }
 
     /** 解析 request_json → options.sbzImageGenCtx（Map）。 */

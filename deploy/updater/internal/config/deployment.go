@@ -33,7 +33,7 @@ var commonDeploymentKeys = map[string]bool{
 	"DB_HOST": true, "DB_PORT": true, "DB_NAME": true, "DB_USERNAME": true, "DB_PASSWORD": true,
 	"REDIS_HOST": true, "REDIS_PORT": true, "REDIS_USERNAME": true,
 	"REDIS_PASSWORD": true, "REDIS_DATABASE": true,
-	"TOKEN_SECRET": true, "JAVA_OPTS": true, "DEPENDENCY_INSTALL_MODE": true,
+	"TOKEN_SECRET": true, "JAVA_OPTS": true, "DEPENDENCY_INSTALL_MODE": true, "DEPENDENCY_REGION": true,
 	"ROCKETMQ_ENABLED": true, "ROCKETMQ_NAMESERVER": true,
 	"ROCKETMQ_ACCESS_KEY": true, "ROCKETMQ_SECRET_KEY": true,
 	"ROCKETMQ_FLUSH_DISK_TYPE": true,
@@ -361,6 +361,10 @@ func validateDeploymentValues(mode string, values map[string]string) error {
 	dependencyMode := valueOr(values, "DEPENDENCY_INSTALL_MODE", "auto")
 	if dependencyMode != "auto" && dependencyMode != "manual" {
 		return fmt.Errorf("DEPENDENCY_INSTALL_MODE 只支持 auto 或 manual")
+	}
+	dependencyRegion := valueOr(values, "DEPENDENCY_REGION", "auto")
+	if dependencyRegion != "auto" && dependencyRegion != "cn" && dependencyRegion != "global" {
+		return fmt.Errorf("DEPENDENCY_REGION 只支持 auto、cn 或 global")
 	}
 	flushDiskType := valueOr(values, "ROCKETMQ_FLUSH_DISK_TYPE", "ASYNC_FLUSH")
 	if flushDiskType != "ASYNC_FLUSH" && flushDiskType != "SYNC_FLUSH" {

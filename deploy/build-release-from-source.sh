@@ -18,9 +18,16 @@ ADMIN_REPO="aid-admin"
 WEB_REPO="aid-web"
 GIT_IMAGE="${AID_GIT_IMAGE:-alpine/git:2.47.2}"
 MAVEN_IMAGE="${AID_MAVEN_IMAGE:-maven:3.9.9-eclipse-temurin-17}"
-NODE_IMAGE="${AID_NODE_IMAGE:-node:20-bookworm-slim}"
-GO_IMAGE="${AID_GO_IMAGE:-golang:1.22-bookworm}"
+NODE_IMAGE="${AID_NODE_IMAGE:-node:22.22.0-bookworm-slim}"
+GO_IMAGE="${AID_GO_IMAGE:-golang:1.22.12-bookworm}"
 DEPENDENCY_INSTALL_MODE="${AID_DEPENDENCY_INSTALL_MODE:-auto}"
+DEPENDENCY_REGION="${AID_DEPENDENCY_REGION:-auto}"
+DOCKER_CN_MIRROR="${AID_DOCKER_CN_MIRROR:-docker.m.daocloud.io}"
+IMAGE_PULL_TIMEOUT_SECONDS="${AID_IMAGE_PULL_TIMEOUT_SECONDS:-900}"
+JDK_VERSION="17.0.20"
+JDK_BUILD="8"
+JDK_HOME=""
+JAVA_RUNTIME_IMAGE="aid/openjdk:17.0.20"
 MANIFEST_PUBLIC_KEY="${AID_MANIFEST_PUBLIC_KEY:-9Ez/VMofgjCU0CNmE6Jq8LKLNyfDQqbbvNTTGV5BYrk=}"
 SCRIPT_NAME="$(basename "$0")"
 SCRIPT_HOME="$(dirname "$0")"
@@ -37,9 +44,12 @@ usage() {
 
 环境变量:
   AID_DATA_ROOT               数据目录，默认 /data/aid
-  AID_NPM_REGISTRY            npm 镜像；Gitee 回退时默认使用 npmmirror
-  AID_MAVEN_MIRROR_URL        Maven 镜像；Gitee 回退时默认使用阿里云公共仓库
-  AID_GO_PROXY                Go 模块代理；Gitee 回退时默认使用 goproxy.cn
+  AID_NPM_REGISTRY            覆盖首选 npm 镜像
+  AID_MAVEN_MIRROR_URL        覆盖首选 Maven 镜像
+  AID_GO_PROXY                覆盖 Go 模块代理链
+  AID_DEPENDENCY_REGION       依赖线路：auto、cn 或 global；auto 按服务器公网出口地区选择
+  AID_DOCKER_CN_MIRROR        Docker Hub 国内镜像域名，默认 docker.m.daocloud.io
+  AID_JDK_DOWNLOAD_URL        覆盖 Temurin OpenJDK 17.0.20 下载地址
   AID_*_IMAGE                 覆盖 Docker 构建镜像
 EOF
 }
@@ -64,6 +74,7 @@ case "$VERSION" in
 esac
 case "$FORGE" in auto|github|gitee) ;; *) die "源码平台仅支持 auto、github 或 gitee" ;; esac
 case "$DEPENDENCY_INSTALL_MODE" in auto|manual) ;; *) die 'AID_DEPENDENCY_INSTALL_MODE 仅支持 auto 或 manual' ;; esac
+case "$DEPENDENCY_REGION" in auto|cn|global) ;; *) die 'AID_DEPENDENCY_REGION 仅支持 auto、cn 或 global' ;; esac
 [ -n "$OUTPUT" ] || die '--output 不能为空'
 case "$OUTPUT" in /*) ;; *) OUTPUT="$(pwd)/$OUTPUT" ;; esac
 
@@ -84,24 +95,147 @@ if ! command -v git >/dev/null 2>&1 && [ "$USE_DOCKER" != yes ]; then
   die '未检测到 Git，且 Docker 不可用；请先安装 Git'
 fi
 
+detect_dependency_region() {
+  case "$DEPENDENCY_REGION" in
+    cn|global) RESOLVED_DEPENDENCY_REGION="$DEPENDENCY_REGION" ;;
+    auto)
+      detected_country=''
+      if command -v curl >/dev/null 2>&1; then
+        for country_url in https://ipinfo.io/country https://ifconfig.co/country-iso; do
+          detected_country="$(curl -fsSL --connect-timeout 3 --max-time 6 "$country_url" 2>/dev/null \
+            | tr -d '[:space:]' | tr '[:lower:]' '[:upper:]' | head -c 2 || true)"
+          case "$detected_country" in [A-Z][A-Z]) break ;; *) detected_country='' ;; esac
+        done
+      elif command -v wget >/dev/null 2>&1; then
+        detected_country="$(wget -qO- --timeout=6 https://ipinfo.io/country 2>/dev/null \
+          | tr -d '[:space:]' | tr '[:lower:]' '[:upper:]' | head -c 2 || true)"
+        case "$detected_country" in [A-Z][A-Z]) ;; *) detected_country='' ;; esac
+      fi
+      if [ "$detected_country" = CN ]; then
+        RESOLVED_DEPENDENCY_REGION=cn
+      elif [ -n "$detected_country" ]; then
+        RESOLVED_DEPENDENCY_REGION=global
+      elif [ "${SOURCE_FORGE:-}" = gitee ]; then
+        RESOLVED_DEPENDENCY_REGION=cn
+      elif [ "${SOURCE_FORGE:-}" = github ]; then
+        RESOLVED_DEPENDENCY_REGION=global
+      elif command -v curl >/dev/null 2>&1 && curl -fsSI --connect-timeout 5 --max-time 8 https://github.com >/dev/null 2>&1; then
+        RESOLVED_DEPENDENCY_REGION=global
+      elif command -v wget >/dev/null 2>&1 && wget -q --spider --timeout=8 https://github.com >/dev/null 2>&1; then
+        RESOLVED_DEPENDENCY_REGION=global
+      else
+        RESOLVED_DEPENDENCY_REGION=cn
+      fi ;;
+  esac
+}
+
+dockerhub_mirror_image() {
+  image="$1"
+  first="${image%%/*}"
+  case "$image" in
+    */*)
+      case "$first" in *.*|*:*|localhost) return 1 ;; esac
+      printf '%s/%s\n' "$DOCKER_CN_MIRROR" "$image" ;;
+    *) printf '%s/library/%s\n' "$DOCKER_CN_MIRROR" "$image" ;;
+  esac
+}
+
+docker_image_digest() {
+  case "$1" in
+    alpine/git:2.47.2) echo 'sha256:062a01ad7a0eb17cff382bc5e26086b4d710e56dfdfdf001109a49b6d9bd378c' ;;
+    maven:3.9.9-eclipse-temurin-17) echo 'sha256:f58d59b6273e785ac0a4477f6e9b5ba1d7731c75b906c0f7b34076f1851318cc' ;;
+    node:22.22.0-bookworm-slim) echo 'sha256:dd9d21971ec4395903fa6143c2b9267d048ae01ca6d3ea96f16cb30df6187d94' ;;
+    golang:1.22.12-bookworm) echo 'sha256:3d699e4d15d0f8f13c9195c0632a16702b8cbdece2955af1c23b37ae5d55a253' ;;
+    debian:bookworm-slim) echo 'sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818' ;;
+    node:22.22.0-alpine) echo 'sha256:e4bf2a82ad0a4037d28035ae71529873c069b13eb0455466ae0bc13363826e34' ;;
+    nginx:1.25-alpine) echo 'sha256:516475cc129da42866742567714ddc681e5eed7b9ee0b9e9c015e464b4221a00' ;;
+    docker:27-cli) echo 'sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c' ;;
+    *) return 1 ;;
+  esac
+}
+
+image_with_digest() {
+  image="$1"; digest="$2"
+  printf '%s@%s\n' "${image%:*}" "$digest"
+}
+
+local_image_matches_digest() {
+  docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$1" 2>/dev/null \
+    | grep -Fq "@$2"
+}
+
+pull_docker_image() {
+  image="$1"
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$IMAGE_PULL_TIMEOUT_SECONDS" docker pull "$image"
+  else
+    docker pull "$image"
+  fi
+}
+
 ensure_docker_image() {
-  image="$1"; label="$2"
+  image="$1"; label="$2"; digest=''; official_ref=''; mirror_ref=''
+  digest="$(docker_image_digest "$image" 2>/dev/null || true)"
   if docker image inspect "$image" >/dev/null 2>&1; then
-    log "$label 镜像已存在，跳过下载: $image"
+    if [ -z "$digest" ] || local_image_matches_digest "$image" "$digest"; then
+      log "$label 镜像已存在，跳过下载: $image"
+      return 0
+    fi
+    warn "$label 本地镜像摘要不符合当前发布清单，将重新拉取: $image"
+  fi
+  mirror_image="$(dockerhub_mirror_image "$image" 2>/dev/null || true)"
+  if [ -n "$digest" ]; then
+    official_ref="$(image_with_digest "$image" "$digest")"
+    # 国内代理按标签拉取后核对 RepoDigest；只有与官方发布摘要一致才允许使用。
+    mirror_ref="$mirror_image"
+  else
+    official_ref="$image"
+    mirror_ref="$mirror_image"
+    warn "$label 使用了自定义或未固定镜像，无法与官方发布摘要核对: $image"
+  fi
+  if [ -n "$mirror_image" ] && docker image inspect "$mirror_image" >/dev/null 2>&1 \
+      && { [ -z "$digest" ] || local_image_matches_digest "$mirror_image" "$digest"; }; then
+    docker tag "$mirror_image" "$image"
+    log "$label 国内镜像已存在，已映射为标准名称: $image"
     return 0
   fi
   if [ "$DEPENDENCY_INSTALL_MODE" = manual ]; then
-    die "缺少 $label 镜像 $image；请执行 docker pull $image，或把部署配置 DEPENDENCY_INSTALL_MODE 改为 auto"
+    die "缺少 $label 镜像 $image；请手动拉取后重试，或把 DEPENDENCY_INSTALL_MODE 改为 auto"
   fi
-  log "下载 $label 镜像: $image"
-  docker pull "$image" || die "$label 镜像下载失败: $image"
+  if [ -n "$mirror_ref" ] && [ "$RESOLVED_DEPENDENCY_REGION" = cn ]; then
+    log "通过国内镜像下载 $label: $mirror_ref"
+    if pull_docker_image "$mirror_ref"; then
+      if [ -z "$digest" ] || local_image_matches_digest "$mirror_ref" "$digest"; then
+        docker tag "$mirror_ref" "$image"
+        return 0
+      fi
+      warn "$label 国内镜像摘要与官方发布清单不一致，已拒绝使用"
+      docker image rm "$mirror_ref" >/dev/null 2>&1 || true
+    fi
+    warn "国内镜像下载失败，自动回退官方地址: $official_ref"
+  fi
+  log "通过官方地址下载 $label: $official_ref"
+  if pull_docker_image "$official_ref"; then
+    [ "$official_ref" = "$image" ] || docker tag "$official_ref" "$image"
+    return 0
+  fi
+  if [ -n "$mirror_ref" ] && [ "$RESOLVED_DEPENDENCY_REGION" != cn ]; then
+    warn "官方地址下载失败，自动回退国内镜像: $mirror_ref"
+    if pull_docker_image "$mirror_ref"; then
+      if [ -z "$digest" ] || local_image_matches_digest "$mirror_ref" "$digest"; then
+        docker tag "$mirror_ref" "$image"
+        return 0
+      fi
+      warn "$label 国内镜像摘要与官方发布清单不一致，已拒绝使用"
+      docker image rm "$mirror_ref" >/dev/null 2>&1 || true
+    fi
+  fi
+  die "$label 镜像下载失败；官方地址和备用镜像均不可用: $image"
 }
 
 if [ "$USE_DOCKER" = yes ]; then
+  detect_dependency_region
   command -v git >/dev/null 2>&1 || ensure_docker_image "$GIT_IMAGE" 'Git源码拉取'
-  ensure_docker_image "$MAVEN_IMAGE" 'JDK17/Maven构建'
-  ensure_docker_image "$NODE_IMAGE" 'Node.js构建'
-  ensure_docker_image "$GO_IMAGE" 'Go构建'
 fi
 
 # 删除范围必须严格位于 source-build 或升级器 work 目录下，避免配置错误导致误删。
@@ -205,56 +339,245 @@ repo_commit() {
 }
 
 prepare_dependency_mirrors() {
-  if [ "$SOURCE_FORGE" = gitee ]; then
+  detect_dependency_region
+  if [ "$RESOLVED_DEPENDENCY_REGION" = cn ]; then
     NPM_REGISTRY="${AID_NPM_REGISTRY:-https://registry.npmmirror.com}"
+    NPM_REGISTRY_FALLBACK="https://registry.npmjs.org"
     MAVEN_MIRROR_URL="${AID_MAVEN_MIRROR_URL:-https://maven.aliyun.com/repository/public}"
-    GO_PROXY="${AID_GO_PROXY:-https://goproxy.cn,direct}"
-    warn '已启用国内依赖镜像；镜像只用于依赖下载，三端源码仍来自同一 Gitee 版本标签'
+    MAVEN_MIRROR_FALLBACK_URL="https://repo.maven.apache.org/maven2"
+    GO_PROXY="${AID_GO_PROXY:-https://goproxy.cn|https://proxy.golang.org|direct}"
+    warn '已自动选择国内依赖线路；Docker、JDK、Maven、npm、Go 均优先使用国内镜像并保留官方回退'
   else
     NPM_REGISTRY="${AID_NPM_REGISTRY:-https://registry.npmjs.org}"
+    NPM_REGISTRY_FALLBACK="https://registry.npmmirror.com"
     MAVEN_MIRROR_URL="${AID_MAVEN_MIRROR_URL:-https://repo.maven.apache.org/maven2}"
-    GO_PROXY="${AID_GO_PROXY:-https://proxy.golang.org,direct}"
+    MAVEN_MIRROR_FALLBACK_URL="https://maven.aliyun.com/repository/public"
+    GO_PROXY="${AID_GO_PROXY:-https://proxy.golang.org|https://goproxy.cn|direct}"
+    log '已自动选择国际依赖线路；Docker、JDK、Maven、npm、Go 均保留国内备用线路'
   fi
-  cat > "$WORK_DIR/maven-settings.xml" <<EOF
+  write_maven_settings "$WORK_DIR/maven-settings.xml" "$MAVEN_MIRROR_URL" aid-build-primary
+  write_maven_settings "$WORK_DIR/maven-settings-fallback.xml" "$MAVEN_MIRROR_FALLBACK_URL" aid-build-fallback
+}
+
+write_maven_settings() {
+  settings_file="$1"; mirror_url="$2"; mirror_id="$3"
+  cat > "$settings_file" <<EOF
 <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0">
   <mirrors>
     <mirror>
-      <id>aid-build-mirror</id>
+      <id>$mirror_id</id>
       <mirrorOf>*</mirrorOf>
-      <url>$MAVEN_MIRROR_URL</url>
+      <url>$mirror_url</url>
     </mirror>
   </mirrors>
 </settings>
 EOF
 }
 
+download_file() {
+  url="$1"; target="$2"; part="$2.part"
+  case "$url" in https://*) ;; *) warn "拒绝非 HTTPS 下载地址: $url"; return 1 ;; esac
+  rm -f "$part"
+  if command -v curl >/dev/null 2>&1; then
+    curl --fail --location --retry 3 --retry-delay 2 --connect-timeout 15 \
+      --max-time 1800 --proto '=https' --tlsv1.2 --progress-bar --output "$part" "$url" || {
+        rm -f "$part"; return 1;
+      }
+  elif command -v wget >/dev/null 2>&1; then
+    wget --https-only --timeout=30 --tries=3 --output-document="$part" "$url" || {
+      rm -f "$part"; return 1;
+    }
+  else
+    die '下载 OpenJDK 需要 curl 或 wget'
+  fi
+  [ -s "$part" ] || { rm -f "$part"; return 1; }
+  mv -f "$part" "$target"
+}
+
+prepare_exact_jdk() {
+  case "$(uname -m)" in
+    x86_64|amd64)
+      jdk_arch=x64
+      jdk_checksum=be7668bc030d578b83d6d5ef9221d6d6729bbbca8cf94a7d52e16ac68b5a5a35 ;;
+    aarch64|arm64)
+      jdk_arch=aarch64
+      jdk_checksum=d143936f473a4cb24e3b0e247d6d0775769d55ec9775c339540e753059a8d77a ;;
+    *) die "OpenJDK $JDK_VERSION 暂不支持当前架构: $(uname -m)" ;;
+  esac
+  jdk_name="OpenJDK17U-jdk_${jdk_arch}_linux_hotspot_${JDK_VERSION}_${JDK_BUILD}.tar.gz"
+  jdk_cache_dir="$CACHE_DIR/toolchains"
+  jdk_archive="$jdk_cache_dir/$jdk_name"
+  JDK_HOME="$jdk_cache_dir/temurin-${JDK_VERSION}-${jdk_arch}"
+  if [ -x "$JDK_HOME/bin/java" ] && "$JDK_HOME/bin/java" -version 2>&1 | head -n 1 | grep -Fq '17.0.20'; then
+    log "Temurin OpenJDK $JDK_VERSION 已存在，跳过下载: $JDK_HOME"
+    return 0
+  fi
+  mkdir -p "$jdk_cache_dir"
+  if [ -f "$jdk_archive" ]; then
+    actual_checksum="$(sha256sum "$jdk_archive" | awk '{print $1}')"
+    if [ "$actual_checksum" != "$jdk_checksum" ]; then
+      warn "OpenJDK 缓存校验失败，将重新下载: $jdk_archive"
+      rm -f "$jdk_archive"
+    fi
+  fi
+  if [ ! -f "$jdk_archive" ]; then
+    official_url="https://github.com/adoptium/temurin17-binaries/releases/download/jdk-${JDK_VERSION}%2B${JDK_BUILD}/$jdk_name"
+    cn_url="https://mirrors.tuna.tsinghua.edu.cn/Adoptium/17/jdk/${jdk_arch}/linux/$jdk_name"
+    if [ -n "${AID_JDK_DOWNLOAD_URL:-}" ]; then
+      jdk_urls="${AID_JDK_DOWNLOAD_URL}
+$cn_url
+$official_url"
+    elif [ "$RESOLVED_DEPENDENCY_REGION" = cn ]; then
+      jdk_urls="$cn_url
+$official_url"
+    else
+      jdk_urls="$official_url
+$cn_url"
+    fi
+    downloaded=no
+    old_ifs="$IFS"; IFS='
+'
+    for jdk_url in $jdk_urls; do
+      [ -n "$jdk_url" ] || continue
+      log "下载 Temurin OpenJDK $JDK_VERSION（$jdk_arch）: $jdk_url"
+      if download_file "$jdk_url" "$jdk_archive"; then
+        actual_checksum="$(sha256sum "$jdk_archive" | awk '{print $1}')"
+        if [ "$actual_checksum" = "$jdk_checksum" ]; then
+          downloaded=yes
+          break
+        fi
+        warn "OpenJDK 下载文件 SHA256 不匹配，拒绝使用并尝试备用地址"
+        rm -f "$jdk_archive"
+      else
+        warn 'OpenJDK 当前下载地址不可用，尝试备用地址'
+      fi
+    done
+    IFS="$old_ifs"
+    [ "$downloaded" = yes ] || die "Temurin OpenJDK $JDK_VERSION 下载失败；国内镜像和官方地址均不可用"
+  fi
+  jdk_tmp="$JDK_HOME.tmp.$$"
+  rm -rf -- "$jdk_tmp"
+  mkdir -p "$jdk_tmp"
+  if ! tar -xzf "$jdk_archive" -C "$jdk_tmp" --strip-components=1; then
+    rm -rf -- "$jdk_tmp"
+    die 'OpenJDK 压缩包解压失败'
+  fi
+  if [ ! -x "$jdk_tmp/bin/java" ] || ! "$jdk_tmp/bin/java" -version 2>&1 | head -n 1 | grep -Fq '17.0.20'; then
+    rm -rf -- "$jdk_tmp"
+    die 'OpenJDK 实际版本不是17.0.20'
+  fi
+  rm -rf -- "$JDK_HOME"
+  mv "$jdk_tmp" "$JDK_HOME"
+  log "Temurin OpenJDK $JDK_VERSION 已校验并就绪: $JDK_HOME"
+}
+
+prepare_jdk_runtime_image() {
+  [ "$USE_DOCKER" = yes ] || return 0
+  base_image='debian:bookworm-slim'
+  if docker image inspect "$JAVA_RUNTIME_IMAGE" >/dev/null 2>&1 \
+      && docker run --rm "$JAVA_RUNTIME_IMAGE" java -version 2>&1 | head -n 1 | grep -Fq '17.0.20'; then
+    log "OpenJDK $JDK_VERSION 运行镜像已存在: $JAVA_RUNTIME_IMAGE"
+    return 0
+  fi
+  ensure_docker_image "$base_image" 'OpenJDK运行基础'
+  runtime_dockerfile="$CACHE_DIR/toolchains/Dockerfile.openjdk-$JDK_VERSION"
+  cat > "$runtime_dockerfile" <<EOF
+FROM $base_image
+ENV JAVA_HOME=/opt/java/openjdk
+ENV PATH=/opt/java/openjdk/bin:\${PATH}
+COPY . /opt/java/openjdk/
+RUN java -version
+EOF
+  log "使用已校验JDK构建固定Java运行镜像: $JAVA_RUNTIME_IMAGE"
+  docker build --pull=false --tag "$JAVA_RUNTIME_IMAGE" --file "$runtime_dockerfile" "$JDK_HOME"
+  docker run --rm "$JAVA_RUNTIME_IMAGE" java -version 2>&1 | head -n 1 | grep -Fq '17.0.20' \
+    || die 'OpenJDK运行镜像版本校验失败'
+}
+
+prepare_runtime_images() {
+  [ "$USE_DOCKER" = yes ] || return 0
+  prepare_jdk_runtime_image
+  ensure_docker_image 'node:22.22.0-alpine' 'Web运行时'
+  ensure_docker_image 'nginx:1.25-alpine' 'Nginx网关'
+  ensure_docker_image 'docker:27-cli' '升级器Docker客户端'
+}
+
+prepare_build_images() {
+  [ "$USE_DOCKER" = yes ] || return 0
+  ensure_docker_image "$MAVEN_IMAGE" 'Maven构建基础'
+  ensure_docker_image "$NODE_IMAGE" 'Node.js 22.22.0构建'
+  ensure_docker_image "$GO_IMAGE" 'Go构建'
+}
+
+docker_maven_build() {
+  settings_file="$1"
+  docker run --rm --user "$uid_gid" \
+    -v "$SERVER_DIR:/workspace" -v "$CACHE_DIR/m2:/cache/m2" \
+    -v "$settings_file:/tmp/settings.xml:ro" \
+    -v "$JDK_HOME:/opt/aid-jdk:ro" -w /workspace "$MAVEN_IMAGE" sh -lc \
+    'export JAVA_HOME=/opt/aid-jdk; export PATH="$JAVA_HOME/bin:$PATH"; \
+     java -version 2>&1 | head -n 1 | grep -F "17.0.20" >/dev/null \
+       || { echo "[失败] Maven未使用OpenJDK 17.0.20" >&2; exit 1; }; \
+     exec mvn -s /tmp/settings.xml -Dmaven.repo.local=/cache/m2 clean package -DskipTests -q'
+}
+
+docker_npm_build() {
+  source_dir="$1"; cache_dir="$2"; label="$3"; selected_registry="$NPM_REGISTRY"
+  if ! docker run --rm --user "$uid_gid" -e NUXT_TELEMETRY_DISABLED=1 \
+      -e "npm_config_registry=$NPM_REGISTRY" -e npm_config_cache=/cache/npm \
+      -v "$source_dir:/workspace" -v "$cache_dir:/cache/npm" \
+      -w /workspace "$NODE_IMAGE" sh -lc \
+      '[ "$(node -v)" = v22.22.0 ] || { echo "[失败] Node.js实际版本不是22.22.0" >&2; exit 1; }; npm ci'; then
+    warn "$label npm 依赖从首选源安装失败，切换备用源: $NPM_REGISTRY_FALLBACK"
+    selected_registry="$NPM_REGISTRY_FALLBACK"
+    docker run --rm --user "$uid_gid" -e NUXT_TELEMETRY_DISABLED=1 \
+      -e "npm_config_registry=$selected_registry" -e npm_config_cache=/cache/npm \
+      -v "$source_dir:/workspace" -v "$cache_dir:/cache/npm" \
+      -w /workspace "$NODE_IMAGE" sh -lc \
+      '[ "$(node -v)" = v22.22.0 ] || exit 1; npm ci'
+  fi
+  docker run --rm --user "$uid_gid" -e NUXT_TELEMETRY_DISABLED=1 \
+    -e "npm_config_registry=$selected_registry" -e npm_config_cache=/cache/npm \
+    -v "$source_dir:/workspace" -v "$cache_dir:/cache/npm" \
+    -w /workspace "$NODE_IMAGE" npm run build
+}
+
+host_npm_build() {
+  source_dir="$1"; cache_dir="$2"; label="$3"; selected_registry="$NPM_REGISTRY"
+  if ! (cd "$source_dir" && npm_config_registry="$NPM_REGISTRY" npm_config_cache="$cache_dir" npm ci); then
+    warn "$label npm 依赖从首选源安装失败，切换备用源: $NPM_REGISTRY_FALLBACK"
+    selected_registry="$NPM_REGISTRY_FALLBACK"
+    (cd "$source_dir" && npm_config_registry="$selected_registry" npm_config_cache="$cache_dir" npm ci)
+  fi
+  (cd "$source_dir" && NUXT_TELEMETRY_DISABLED=1 npm_config_registry="$selected_registry" \
+    npm_config_cache="$cache_dir" npm run build)
+}
+
 require_local_build_tools() {
-  command -v java >/dev/null 2>&1 || die '源码构建需要 JDK 17+'
   command -v mvn >/dev/null 2>&1 || die '源码构建需要 Maven 3.8+'
-  command -v node >/dev/null 2>&1 || die '源码构建需要 Node.js 18+'
+  command -v node >/dev/null 2>&1 || die '源码构建需要 Node.js 22+'
   command -v npm >/dev/null 2>&1 || die '源码构建需要 npm'
   command -v go >/dev/null 2>&1 || die '源码构建升级器需要 Go 1.22+'
+  node_major="$(node -v 2>/dev/null | sed -E 's/v([0-9]+).*/\1/')"
+  case "$node_major" in
+    ''|*[!0-9]*) die '无法识别 Node.js 版本，请安装 Node.js 22+' ;;
+  esac
+  [ "$node_major" -ge 22 ] || die "Node.js版本过低（当前${node_major}，需要22+）"
 }
 
 build_with_docker() {
   uid_gid="$(id -u):$(id -g)"
-  log "拉取/复用构建镜像并编译服务端（JDK 17 + Maven）"
-  docker run --rm --user "$uid_gid" \
-    -v "$SERVER_DIR:/workspace" -v "$CACHE_DIR/m2:/cache/m2" \
-    -v "$WORK_DIR/maven-settings.xml:/tmp/settings.xml:ro" -w /workspace "$MAVEN_IMAGE" \
-    mvn -s /tmp/settings.xml -Dmaven.repo.local=/cache/m2 clean package -DskipTests -q
+  log "编译服务端（Temurin OpenJDK $JDK_VERSION + Maven）"
+  if ! docker_maven_build "$WORK_DIR/maven-settings.xml"; then
+    warn "Maven 从首选仓库构建失败，切换备用仓库: $MAVEN_MIRROR_FALLBACK_URL"
+    docker_maven_build "$WORK_DIR/maven-settings-fallback.xml"
+  fi
 
-  log '编译后台管理端（Node.js 20）'
-  docker run --rm --user "$uid_gid" -e NUXT_TELEMETRY_DISABLED=1 \
-    -e "npm_config_registry=$NPM_REGISTRY" -e npm_config_cache=/cache/npm \
-    -v "$ADMIN_DIR:/workspace" -v "$CACHE_DIR/npm-admin:/cache/npm" \
-    -w /workspace "$NODE_IMAGE" sh -lc 'npm ci && npm run build'
+  log '编译后台管理端（Node.js 22.22.0）'
+  docker_npm_build "$ADMIN_DIR" "$CACHE_DIR/npm-admin" '后台管理端'
 
-  log '编译 Web 用户端（Node.js 20）'
-  docker run --rm --user "$uid_gid" -e NUXT_TELEMETRY_DISABLED=1 \
-    -e "npm_config_registry=$NPM_REGISTRY" -e npm_config_cache=/cache/npm \
-    -v "$WEB_DIR:/workspace" -v "$CACHE_DIR/npm-web:/cache/npm" \
-    -w /workspace "$NODE_IMAGE" sh -lc 'npm ci && npm run build'
+  log '编译 Web 用户端（Node.js 22.22.0）'
+  docker_npm_build "$WEB_DIR" "$CACHE_DIR/npm-web" 'Web用户端'
 
   for arch in amd64 arm64; do
     log "编译升级器 linux/$arch"
@@ -270,12 +593,17 @@ build_with_docker() {
 
 build_with_host() {
   require_local_build_tools
-  log '使用服务器本机工具链编译服务端'
-  (cd "$SERVER_DIR" && mvn -s "$WORK_DIR/maven-settings.xml" -Dmaven.repo.local="$CACHE_DIR/m2" clean package -DskipTests -q)
+  log "使用隔离的 Temurin OpenJDK $JDK_VERSION 编译服务端，不修改系统默认 Java"
+  if ! (cd "$SERVER_DIR" && JAVA_HOME="$JDK_HOME" PATH="$JDK_HOME/bin:$PATH" \
+      mvn -s "$WORK_DIR/maven-settings.xml" -Dmaven.repo.local="$CACHE_DIR/m2" clean package -DskipTests -q); then
+    warn "Maven 从首选仓库构建失败，切换备用仓库: $MAVEN_MIRROR_FALLBACK_URL"
+    (cd "$SERVER_DIR" && JAVA_HOME="$JDK_HOME" PATH="$JDK_HOME/bin:$PATH" \
+      mvn -s "$WORK_DIR/maven-settings-fallback.xml" -Dmaven.repo.local="$CACHE_DIR/m2" clean package -DskipTests -q)
+  fi
   log '使用服务器本机工具链编译后台管理端'
-  (cd "$ADMIN_DIR" && npm_config_registry="$NPM_REGISTRY" npm_config_cache="$CACHE_DIR/npm-admin" npm ci && npm run build)
+  host_npm_build "$ADMIN_DIR" "$CACHE_DIR/npm-admin" '后台管理端'
   log '使用服务器本机工具链编译 Web 用户端'
-  (cd "$WEB_DIR" && NUXT_TELEMETRY_DISABLED=1 npm_config_registry="$NPM_REGISTRY" npm_config_cache="$CACHE_DIR/npm-web" npm ci && npm run build)
+  host_npm_build "$WEB_DIR" "$CACHE_DIR/npm-web" 'Web用户端'
   for arch in amd64 arm64; do
     log "编译升级器 linux/$arch"
     (cd "$SERVER_DIR/deploy/updater" && GOOS=linux GOARCH="$arch" CGO_ENABLED=0 GOPROXY="$GO_PROXY" \
@@ -357,7 +685,10 @@ assemble_package() {
   "builtBy": "remote-source-build",
   "buildHost": "$(hostname 2>/dev/null || printf unknown)",
   "sourceForge": "$SOURCE_FORGE",
+  "dependencyRegion": "$RESOLVED_DEPENDENCY_REGION",
   "sourceRef": "$TAG",
+  "jdkVersion": "$JDK_VERSION",
+  "nodeVersion": "22.22.0",
   "serverCommit": "$server_commit",
   "adminCommit": "$admin_commit",
   "webCommit": "$web_commit",
@@ -402,7 +733,12 @@ fi
 
 mkdir -p "$STAGING_DIR/updater" "$CACHE_DIR/m2" "$CACHE_DIR/npm-admin" \
   "$CACHE_DIR/npm-web" "$CACHE_DIR/go-build" "$CACHE_DIR/go-mod"
+detect_dependency_region
+prepare_dependency_mirrors
+prepare_exact_jdk
 if [ "$USE_DOCKER" = yes ]; then
+  prepare_build_images
+  prepare_runtime_images
   build_with_docker
 else
   build_with_host

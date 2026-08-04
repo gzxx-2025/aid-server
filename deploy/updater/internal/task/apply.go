@@ -3,6 +3,7 @@ package task
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"log"
 	"os"
 	"os/exec"
@@ -201,10 +202,21 @@ func (r *Runner) runApply(t *Task, isRollback bool) error {
 		}
 		return r.restoreAndReport(snapshot, fmt.Errorf("提交升级完成状态失败: %w", err), recoveryPath, databaseDirty)
 	}
-	if err := r.refreshSourceBuildScripts(packageRoot); err != nil {
-		log.Printf("核心升级已完成，但部署管理脚本刷新失败: %v", err)
+	deploymentAssetsRefreshed, refreshErr := r.refreshDeploymentAssets(packageRoot)
+	var auxErr error
+	if refreshErr != nil {
+		log.Printf("核心升级已完成，但部署管理脚本刷新失败: %v", refreshErr)
+		restartErr := restartAuxServices(r.cfg)
+		if restartErr != nil {
+			auxErr = fmt.Errorf("核心升级完成，但部署模板刷新失败(%v)，附属服务重启也失败(%v)", refreshErr, restartErr)
+		} else {
+			auxErr = fmt.Errorf("核心升级完成，但部署模板刷新失败: %w", refreshErr)
+		}
+	} else if deploymentAssetsRefreshed && r.cfg.Install.ServiceManager == sysctl.ManagerDocker {
+		auxErr = r.reconcileDockerApplicationServices()
+	} else {
+		auxErr = restartAuxServices(r.cfg)
 	}
-	auxErr := restartAuxServices(r.cfg)
 	if err := os.Remove(recoveryPath); err != nil && !os.IsNotExist(err) {
 		log.Printf("清理已完成任务的恢复记录失败: %v", err)
 	}
@@ -214,33 +226,98 @@ func (r *Runner) runApply(t *Task, isRollback bool) error {
 	return nil
 }
 
-// refreshSourceBuildScripts 只刷新脚本文件，不替换 installer/docker 整个目录，避免覆盖用户维护的 .env。
-func (r *Runner) refreshSourceBuildScripts(packageRoot string) error {
+// refreshDeploymentAssets 刷新版本控制的部署脚本与 Docker 静态模板。
+// 用户维护的 .env 永远跳过，数据库、上传文件和中间件数据目录也不在本函数范围内。
+func (r *Runner) refreshDeploymentAssets(packageRoot string) (bool, error) {
 	sourceDir := filepath.Join(packageRoot, "installer", "deploy")
 	targetBuilder := strings.TrimSpace(r.cfg.SourceBuildScript)
 	if targetBuilder == "" || !fileExists(filepath.Join(sourceDir, "build-release-from-source.sh")) {
-		return nil
+		return false, nil
 	}
 	targetDir := filepath.Dir(targetBuilder)
 	if err := os.MkdirAll(targetDir, 0o700); err != nil {
-		return err
+		return false, err
 	}
-	files := map[string]string{
-		"build-release-from-source.sh": targetBuilder,
-		"aid.sh":                       filepath.Join(targetDir, "aid.sh"),
+	rootFiles := []string{
+		"build-release-from-source.sh", "aid.sh", "README.md", "aid-deploy.conf.example",
+		"aid-updater.config.example.json", "aid-updater.service", "install-updater.sh",
 	}
-	for name, target := range files {
+	for _, name := range rootFiles {
 		source := filepath.Join(sourceDir, name)
 		if !fileExists(source) {
 			continue
 		}
+		target := filepath.Join(targetDir, name)
 		if err := backup.CopyFile(source, target); err != nil {
-			return fmt.Errorf("刷新 %s 失败: %w", name, err)
+			return false, fmt.Errorf("刷新 %s 失败: %w", name, err)
 		}
-		if err := os.Chmod(target, 0o700); err != nil {
-			return fmt.Errorf("设置 %s 权限失败: %w", name, err)
+		if name == "aid.sh" || name == "build-release-from-source.sh" || name == "install-updater.sh" {
+			if err := os.Chmod(target, 0o700); err != nil {
+				return false, fmt.Errorf("设置 %s 权限失败: %w", name, err)
+			}
 		}
 	}
+	sourceDocker := filepath.Join(sourceDir, "docker")
+	if !dirExists(sourceDocker) {
+		return true, nil
+	}
+	targetDocker := filepath.Join(targetDir, "docker")
+	err := filepath.WalkDir(sourceDocker, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		relative, err := filepath.Rel(sourceDocker, path)
+		if err != nil {
+			return err
+		}
+		if relative == "." {
+			return os.MkdirAll(targetDocker, 0o755)
+		}
+		// .env 是管理员维护的唯一配置真源；仅同步不含密钥的 .env.example。
+		if relative == ".env" {
+			return nil
+		}
+		target := filepath.Join(targetDocker, relative)
+		if entry.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		if !entry.Type().IsRegular() {
+			return fmt.Errorf("部署模板包含非普通文件: %s", relative)
+		}
+		if err := backup.CopyFile(path, target); err != nil {
+			return fmt.Errorf("刷新 Docker 部署模板 %s 失败: %w", relative, err)
+		}
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// reconcileDockerApplicationServices 使用新版 Compose 只重建三端业务容器。
+// 不包含 aid-updater 和任何中间件，避免升级任务自杀或改动用户数据服务。
+func (r *Runner) reconcileDockerApplicationServices() error {
+	state, err := r.cfg.ReadDeploymentState()
+	if err != nil {
+		return fmt.Errorf("读取Docker部署配置失败: %w", err)
+	}
+	services := []string{"aid-server", "aid-web", "nginx"}
+	if deploymentProfileEnabled(state.Values["COMPOSE_PROFILES"], "https") {
+		services = append(services, "nginx-https")
+	}
+	args := []string{"compose", "--env-file", state.ConfigPath, "-f", r.cfg.Deployment.ComposeFile,
+		"up", "-d", "--no-deps", "--force-recreate"}
+	args = append(args, services...)
+	cmd := exec.Command("docker", args...)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("新版Docker编排生效失败: %v, 输出: %s", err, strings.TrimSpace(string(output)))
+	}
+	if err := sysctl.WaitHealthy(r.cfg.Install.HealthCheckURL,
+		time.Duration(r.cfg.Install.HealthCheckTimeoutSeconds)*time.Second); err != nil {
+		return fmt.Errorf("Docker业务容器重建后健康检查失败: %w", err)
+	}
+	log.Printf("新版Docker编排已生效，未重建数据库、Redis、RocketMQ与升级器容器")
 	return nil
 }
 
@@ -275,9 +352,14 @@ func (r *Runner) buildSourcePackage(t *Task, archivePath, sourceWorkDir string) 
 	if dependencyMode == "" {
 		dependencyMode = "auto"
 	}
+	dependencyRegion := strings.TrimSpace(deploymentState.Values["DEPENDENCY_REGION"])
+	if dependencyRegion == "" {
+		dependencyRegion = "auto"
+	}
 	cmd.Env = append(os.Environ(),
 		"AID_DATA_ROOT="+filepath.Dir(filepath.Dir(r.cfg.Install.BackendJar)),
-		"AID_DEPENDENCY_INSTALL_MODE="+dependencyMode)
+		"AID_DEPENDENCY_INSTALL_MODE="+dependencyMode,
+		"AID_DEPENDENCY_REGION="+dependencyRegion)
 	cmd.Stdout = log.Writer()
 	cmd.Stderr = log.Writer()
 	log.Printf("开始远程源码构建 AID %s", t.TargetVersion)

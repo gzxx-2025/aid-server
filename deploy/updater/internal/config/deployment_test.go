@@ -13,7 +13,7 @@ func TestRefreshDeploymentUsesRuntimeConfigAndHidesSecrets(t *testing.T) {
 	raw := []byte("HTTP_PORT=80\nADMIN_PORT=8090\nBACKEND_PORT=9090\n" +
 		"DB_HOST=10.0.0.8\nDB_PORT=3307\nDB_NAME=aid\nDB_USERNAME=aid\nDB_PASSWORD=db-secret\n" +
 		"REDIS_HOST=127.0.0.1\nREDIS_PORT=6379\nREDIS_USERNAME=acl-user\nREDIS_PASSWORD=redis-secret\n" +
-		"TOKEN_SECRET=token-secret\nJAVA_OPTS=-Xmx2g\nDEPENDENCY_INSTALL_MODE=manual\n" +
+		"TOKEN_SECRET=token-secret\nJAVA_OPTS=-Xmx2g\nDEPENDENCY_INSTALL_MODE=manual\nDEPENDENCY_REGION=cn\n" +
 		"ROCKETMQ_ENABLED=true\nROCKETMQ_NAMESERVER=10.0.0.9:9876\nROCKETMQ_FLUSH_DISK_TYPE=SYNC_FLUSH\n" +
 		"ROCKETMQ_ACCESS_KEY=mqaccess\nROCKETMQ_SECRET_KEY=mqsecret\n")
 	if err := os.WriteFile(configPath, raw, 0o600); err != nil {
@@ -46,7 +46,7 @@ func TestRefreshDeploymentUsesRuntimeConfigAndHidesSecrets(t *testing.T) {
 	if _, leaked := state.SafeValues["ROCKETMQ_ACCESS_KEY"]; leaked {
 		t.Fatal("RocketMQ access key leaked into safe values")
 	}
-	if state.SafeValues["DEPENDENCY_INSTALL_MODE"] != "manual" || state.SafeValues["ROCKETMQ_FLUSH_DISK_TYPE"] != "SYNC_FLUSH" {
+	if state.SafeValues["DEPENDENCY_INSTALL_MODE"] != "manual" || state.SafeValues["DEPENDENCY_REGION"] != "cn" || state.SafeValues["ROCKETMQ_FLUSH_DISK_TYPE"] != "SYNC_FLUSH" {
 		t.Fatalf("dependency or RocketMQ flush mode was not retained: %#v", state.SafeValues)
 	}
 }
@@ -209,7 +209,7 @@ func TestValidateDependencyAndRocketMQFlushModes(t *testing.T) {
 		"DB_PASSWORD": "dbsecret", "MYSQL_ROOT_PASSWORD": "rootsecret", "MYSQL_PORT": "3306",
 		"REDIS_HOST": "redis", "REDIS_PORT": "6379", "TOKEN_SECRET": "tokensecret",
 		"COMPOSE_PROFILES": "mysql,redis", "ROCKETMQ_ENABLED": "false",
-		"DEPENDENCY_INSTALL_MODE": "manual", "ROCKETMQ_FLUSH_DISK_TYPE": "SYNC_FLUSH",
+		"DEPENDENCY_INSTALL_MODE": "manual", "DEPENDENCY_REGION": "cn", "ROCKETMQ_FLUSH_DISK_TYPE": "SYNC_FLUSH",
 	}
 	if err := validateDeploymentValues("docker", values); err != nil {
 		t.Fatalf("valid dependency and flush modes were rejected: %v", err)
@@ -219,6 +219,11 @@ func TestValidateDependencyAndRocketMQFlushModes(t *testing.T) {
 		t.Fatal("invalid dependency install mode should be rejected")
 	}
 	values["DEPENDENCY_INSTALL_MODE"] = "auto"
+	values["DEPENDENCY_REGION"] = "internal"
+	if err := validateDeploymentValues("docker", values); err == nil {
+		t.Fatal("invalid dependency region should be rejected")
+	}
+	values["DEPENDENCY_REGION"] = "global"
 	values["ROCKETMQ_FLUSH_DISK_TYPE"] = "MEMORY_ONLY"
 	if err := validateDeploymentValues("docker", values); err == nil {
 		t.Fatal("invalid RocketMQ flush mode should be rejected")

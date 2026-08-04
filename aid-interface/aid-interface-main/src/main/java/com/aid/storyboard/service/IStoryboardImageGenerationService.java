@@ -20,6 +20,16 @@ public interface IStoryboardImageGenerationService
     StoryboardImageGenerateVO generateImage(StoryboardImageGenerateRequest request, Long userId);
 
     /**
+     * 内部批量编排入口。即使拆批后仅剩一个分镜，也保持批量任务自动设置主图的语义。
+     *
+     * @param request   入参
+     * @param userId    当前登录用户 ID
+     * @param batchMode 是否来自批量编排
+     * @return taskId + PENDING 的父任务视图
+     */
+    StoryboardImageGenerateVO generateImage(StoryboardImageGenerateRequest request, Long userId, boolean batchMode);
+
+    /**
      * 续生分镜图出图（断点续生，只补跑未成功镜头，已成功子任务不重复出图与扣费）。
      *
      * @param taskId 父任务 ID（aid_extract_task.id）

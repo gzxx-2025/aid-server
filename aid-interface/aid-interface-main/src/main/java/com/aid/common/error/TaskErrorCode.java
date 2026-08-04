@@ -44,13 +44,13 @@ public enum TaskErrorCode {
     /** 输入内容长度超出模型上下文限制 */
     USER_INPUT_TOO_LONG("USER", "USER_INPUT", "生成内容过长，精简后重试", false, null, false),
     /** 商户/平台额度不足 */
-    MERCHANT_QUOTA_EXHAUSTED("MERCHANT", "QUOTA", "当前生成服务暂不可用", true, "MERCHANT", false),
+    MERCHANT_QUOTA_EXHAUSTED("MERCHANT", "QUOTA", "模型额度不足，请联系管理员", true, "MERCHANT", false),
 
     /** 上游供应商免费层耗尽（如 "The free tier of the model has been exhausted"） */
-    PROVIDER_FREE_TIER_EXHAUSTED("PROVIDER", "QUOTA", "当前生成服务暂不可用", true, "MERCHANT", false),
+    PROVIDER_FREE_TIER_EXHAUSTED("PROVIDER", "QUOTA", "模型额度不足，请联系管理员", true, "MERCHANT", false),
 
     /** 上游供应商付费额度不足 */
-    PROVIDER_QUOTA_EXHAUSTED("PROVIDER", "QUOTA", "当前生成服务暂不可用", true, "MERCHANT", false),
+    PROVIDER_QUOTA_EXHAUSTED("PROVIDER", "QUOTA", "模型额度不足，请联系管理员", true, "MERCHANT", false),
     /** 上游认证/授权失败（HTTP 401/403） */
     UPSTREAM_AUTH_INVALID("PROVIDER", "UPSTREAM_TECH", "当前生成服务暂不可用", false, null, false),
 
@@ -82,7 +82,7 @@ public enum TaskErrorCode {
     MODEL_PARAMETER_INCOMPATIBLE("PROVIDER", "UPSTREAM_TECH", "当前生成设置不受支持，调整后重试", false, null, false),
 
     /** 上游返回内容安全拦截 */
-    UPSTREAM_CONTENT_FILTERED("PROVIDER", "UPSTREAM_CONTENT", "内容可能不符合规范，调整后重试", false, null, false),
+    UPSTREAM_CONTENT_FILTERED("PROVIDER", "UPSTREAM_CONTENT", "提示词或参考图未通过审核，请修改后重试", false, null, false),
 
     /** 上游不支持包含真人的参考图 */
     REAL_PERSON_RESTRICTED("PROVIDER", "UPSTREAM_CONTENT", "参考图可能包含真人，更换后重试", false, null, false),

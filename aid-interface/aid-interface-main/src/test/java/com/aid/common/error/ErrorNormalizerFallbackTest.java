@@ -75,7 +75,7 @@ class ErrorNormalizerFallbackTest
                 new ServiceException("模型余额不足"));
 
         assertEquals(TaskErrorCode.PROVIDER_QUOTA_EXHAUSTED.name(), result.getErrorCode());
-        assertEquals("当前生成服务暂不可用", result.getUserMessage());
+        assertEquals("模型额度不足，请联系管理员", result.getUserMessage());
     }
 
     @Test
@@ -117,5 +117,61 @@ class ErrorNormalizerFallbackTest
                 TaskErrorCode.UPSTREAM_AUTH_INVALID));
         assertFalse(ErrorNormalizer.usesProtectedUserMessage(
                 TaskErrorCode.UPSTREAM_CONTENT_FILTERED));
+    }
+
+    @Test
+    void shouldClassifyViduAuditRejectionAsContentReviewFailure()
+    {
+        TaskErrorResult result = ErrorNormalizer.classifyFallback("AuditSubmitIllegal");
+
+        assertEquals(TaskErrorCode.UPSTREAM_CONTENT_FILTERED.name(), result.getErrorCode());
+        assertEquals("提示词或参考图未通过审核，请修改后重试", result.getUserMessage());
+        assertFalse(result.isRetryable());
+    }
+
+    @Test
+    void shouldExplainSensitiveInputImageAsReferenceImageIssue()
+    {
+        TaskErrorResult result = ErrorNormalizer.classifyFallback(
+                "The request failed because the input image 'content[2]' may contain sensitive information");
+
+        assertEquals(TaskErrorCode.UPSTREAM_CONTENT_FILTERED.name(), result.getErrorCode());
+        assertEquals("参考图未通过内容审核，请更换后重试", result.getUserMessage());
+    }
+
+    @Test
+    void shouldExplainSensitivePromptAsPromptIssue()
+    {
+        TaskErrorResult result = ErrorNormalizer.classifyFallback(
+                "The input prompt was blocked by moderation because it contains sensitive content");
+
+        assertEquals(TaskErrorCode.UPSTREAM_CONTENT_FILTERED.name(), result.getErrorCode());
+        assertEquals("提示词未通过内容审核，请修改后重试", result.getUserMessage());
+    }
+
+    @Test
+    void shouldClassifyVideoQueueFullAsRetryableBusyError()
+    {
+        TaskErrorResult result = ErrorNormalizer.classifyFallback(
+                "video queue is full, please retry later");
+
+        assertEquals(TaskErrorCode.PROVIDER_BUSY.name(), result.getErrorCode());
+        assertEquals("当前生成任务较多，稍后重试", result.getUserMessage());
+        assertTrue(result.isRetryable());
+    }
+
+    @Test
+    void shouldExplainProviderQuotaWithoutTreatingItAsUserBalance()
+    {
+        TaskErrorResult credits = ErrorNormalizer.classifyFallback("insufficient credits");
+        TaskErrorResult overdue = ErrorNormalizer.classifyFallback(
+                "The request failed because your account has an overdue balance");
+
+        assertEquals(TaskErrorCode.PROVIDER_QUOTA_EXHAUSTED.name(), credits.getErrorCode());
+        assertEquals(TaskErrorCode.MERCHANT_QUOTA_EXHAUSTED.name(), overdue.getErrorCode());
+        assertEquals("模型额度不足，请联系管理员", credits.getUserMessage());
+        assertEquals("模型额度不足，请联系管理员", overdue.getUserMessage());
+        assertEquals("MERCHANT", credits.getRechargeOwner());
+        assertEquals("MERCHANT", overdue.getRechargeOwner());
     }
 }

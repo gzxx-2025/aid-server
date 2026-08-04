@@ -57,16 +57,16 @@ class TaskErrorPresentationTest
     }
 
     @Test
-    void shouldHideProviderQuotaAndAuthenticationDetails()
+    void shouldReturnSafeProviderQuotaAndAuthenticationMessages()
     {
         ServiceException quotaException = TaskErrorPresentation.toServiceException(
                 "insufficient credits: account balance 0", "生成失败");
         ServiceException authException = TaskErrorPresentation.toServiceException(
                 "invalid api key: sk-provider-secret", "生成失败");
 
-        assertEquals("当前生成服务暂不可用", quotaException.getMessage());
+        assertEquals("模型额度不足", quotaException.getMessage());
         assertEquals("当前生成服务暂不可用", authException.getMessage());
-        assertFalse(quotaException.getMessage().contains("余额"));
+        assertFalse(quotaException.getMessage().contains("account"));
         assertFalse(authException.getMessage().contains("认证"));
     }
 
@@ -75,7 +75,7 @@ class TaskErrorPresentationTest
     {
         AjaxResult result = AjaxResult.error("模型余额不足，请联系管理员");
 
-        assertEquals("当前生成服务暂不可用", result.get(AjaxResult.MSG_TAG));
+        assertEquals("模型额度不足，请联系管理员", result.get(AjaxResult.MSG_TAG));
     }
 
     @Test

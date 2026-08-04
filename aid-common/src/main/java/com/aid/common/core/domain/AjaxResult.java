@@ -24,15 +24,23 @@ public class AjaxResult extends HashMap<String, Object>
     /** 数据对象 */
     public static final String DATA_TAG = "data";
 
-    /** 上游运营与技术错误标记：命中后不得作为 C 端 msg 原样返回。 */
-    private static final String[] PROVIDER_INTERNAL_MESSAGE_TOKENS = {
+    /** 上游额度错误标记：命中后返回统一可操作文案，不暴露账号、金额等明细。 */
+    private static final String[] PROVIDER_QUOTA_MESSAGE_TOKENS = {
             "模型余额", "模型额度", "模型免费额度", "服务额度不足",
             "供应商余额", "供应商额度", "服务商余额", "服务商额度",
-            "上游账户余额", "上游账号不可用", "上游账户不可用",
-            "模型认证失败", "模型鉴权失败", "上游认证失败", "上游鉴权失败",
-            "invalid api key", "incorrect api key", "api key not valid",
+            "上游账户余额",
             "insufficient credits", "insufficient balance", "quota exhausted", "quota exceeded"
     };
+
+    /** 上游认证和账号错误标记：命中后不得作为 C 端 msg 原样返回。 */
+    private static final String[] PROVIDER_INTERNAL_MESSAGE_TOKENS = {
+            "上游账号不可用", "上游账户不可用",
+            "模型认证失败", "模型鉴权失败", "上游认证失败", "上游鉴权失败",
+            "invalid api key", "incorrect api key", "api key not valid"
+    };
+
+    /** 上游额度不足的统一 C 端提示。 */
+    private static final String PROVIDER_QUOTA_MESSAGE = "模型额度不足，请联系管理员";
 
     /** C 端统一提示，不暴露平台采购的模型账户、额度和密钥状态。 */
     private static final String PROVIDER_UNAVAILABLE_MESSAGE = "当前生成服务暂不可用";
@@ -191,6 +199,13 @@ public class AjaxResult extends HashMap<String, Object>
             return null;
         }
         String lowerMessage = message.toLowerCase(Locale.ROOT);
+        for (String token : PROVIDER_QUOTA_MESSAGE_TOKENS)
+        {
+            if (lowerMessage.contains(token))
+            {
+                return PROVIDER_QUOTA_MESSAGE;
+            }
+        }
         for (String token : PROVIDER_INTERNAL_MESSAGE_TOKENS)
         {
             if (lowerMessage.contains(token))
