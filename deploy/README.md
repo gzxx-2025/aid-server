@@ -53,6 +53,8 @@ sudo bash aid.sh install
 
 配置是首次部署的强制前置步骤：脚本先生成正式配置文件，要求管理员检查、校验并明确确认；在确认完成前不会检查或安装环境、拉取三端源码、构建程序、初始化数据库或启动服务。无人值守部署必须同时设置 `AID_ASSUME_YES=1` 与 `AID_CONFIG_CONFIRMED=1`，避免流水线误用默认配置直接上线。
 
+生成配置文件不等于已经部署。即使管理员在最终确认处选择 `no`，再次执行 `sudo bash aid.sh install` 仍会继续走首次部署，不会误进入升级流程；只有服务健康检查成功后才记录已部署状态。
+
 > 默认渠道为 `auto`：有正式版时安装正式版；尚无正式版时才选择最新 Beta，并用黄色/红色信息明确提醒。明确需要测试版时可执行 `sudo env AID_RELEASE_CHANNEL=beta bash aid.sh install`。生产服务器不要长期使用 Beta 渠道。
 
 ### 自动化的安全边界
@@ -187,6 +189,8 @@ sudo bash aid.sh install
 ```
 
 脚本会先从版本标签源码构建本地包，再从本地包提取部署套件，并由 `.env.example` 自动生成正式配置；数据库密码、JWT 密钥等空值会生成强随机值写回。单文件首次部署的配置真源是 `/data/aid/config/docker.env`，完成后脚本也会明确打印实际路径。默认采用内置 MySQL + Redis、关闭 RocketMQ 与 HTTPS 的保守组合。需要改端口、HTTPS、外部 MySQL/Redis 或 RocketMQ 时，编辑实际配置文件后执行 `sudo aid restart` 生效。
+
+Docker 模式不会要求宿主机另装 Git、JDK、Node、Go、Nginx 或 Redis：Git/JDK/Node/Go 使用一次性隔离构建容器；HTTP Nginx 为运行容器；MySQL、Redis、RocketMQ 与 HTTPS 由 `COMPOSE_PROFILES` 决定是否启动对应容器。宿主机只需管理员预先安装并启动 Docker Engine 24+ 与 Compose v2，脚本按安全约定不会自动安装 Docker 或修改系统软件源。
 
 脚本自动完成：依赖预检 → 三仓同标签源码拉取与隔离构建 → `.env` 校验（缺失密钥自动生成）→ 硬件校验（按 `.env` 实际配置评估）→ 本地构建包摆位到 `/data/aid/app` → 自动安装升级器 → 启动编排 → 首次启动自动建库导入 `sql/` 全部脚本 → 健康等待（最长 5 分钟）→ 成功摘要 / 失败诊断。
 
@@ -342,6 +346,8 @@ sudo bash aid.sh install-manual
 ```
 
 脚本会自动生成 `/data/aid/aid-deploy.conf`。手动部署连接的是现有 MySQL/Redis，无法安全猜测外部数据库凭证，因此首次运行会要求输入数据库密码（输入不回显），并当场校验连通性；`TOKEN_SECRET` 留空时自动生成强随机值。主机、端口或外部中间件拓扑不是默认值时，先按脚本提示编辑该配置再重试。
+
+手动部署按配置连接现有 MySQL、Redis 和可选 RocketMQ，不会安装或覆盖这些服务。若服务器上有可用 Docker，源码编译仍使用隔离构建容器；没有 Docker 时才要求宿主机准备 Git、JDK 17+、Maven 3.8+、Node.js 18+、npm 与 Go 1.22+。Nginx 未安装时脚本只生成站点配置供管理员放置；启用手动 HTTPS 时 Nginx 必须已经安装并运行。
 
 脚本自动完成：依赖检查（Git/JDK17+/Maven3.8+/Node18+/npm/Go1.22+/mysql 客户端，版本不足明确报错）→ 三仓同标签源码构建 → 配置文件校验 → 硬件校验 → 数据库连通性校验 → 空库自动导入基线（已有表跳过）→ 本地构建包摆位到 `/data/aid/app` → 注册 `aid` + `aid-web` 双 systemd 服务（环境变量含 `LOG_PATH=/data/aid/logs`，日志统一落数据目录）→ 生成 Nginx 站点（已装 nginx 直接生效并备份旧配置）→ 自动安装升级器 → 健康等待。
 

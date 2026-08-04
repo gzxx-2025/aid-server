@@ -331,13 +331,20 @@ check_hardware() { # check_hardware <docker|manual> <mq:yes|no>
   fi
 }
 
-# 部署方式检测：conf 优先，其次按运行痕迹探测
+# 部署方式检测：只认健康部署写入的状态或真实运行痕迹；配置文件本身不代表已部署。
 detect_mode() {
-  local mode
+  local mode current
   mode="$(state_get DEPLOY_MODE '')"
-  [[ -z "${mode}" && -n "${descriptorMode}" ]] && mode="${descriptorMode}"
   [[ "${mode}" == "systemd" ]] && mode="manual"
-  if [[ -n "${mode}" ]]; then echo "${mode}"; return; fi
+  current="$(state_get CURRENT_VERSION '')"
+  # deployment.json 只声明配置文件位置，不代表部署成功。首次配置阶段即会生成它，
+  # 因此绝不能仅凭 descriptorMode 把再次执行 install 误导进升级流程。
+  if [[ "${mode}" == "docker" && "${current}" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+    echo "docker"; return
+  fi
+  if [[ "${mode}" == "manual" && "${current}" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+    echo "manual"; return
+  fi
   if command -v docker >/dev/null 2>&1 && docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q '^aid-server$'; then
     echo "docker"; return
   fi
@@ -345,6 +352,18 @@ detect_mode() {
     echo "manual"; return
   fi
   echo "none"
+}
+
+require_docker_runtime() {
+  if ! command -v docker >/dev/null 2>&1; then
+    risk "未检测到 Docker Engine；AID 不会自动安装 Docker，也不会修改服务器软件源"
+    die "请管理员安装 Docker Engine 24+ 与 Compose v2 插件，确认 docker version 正常后重新运行"
+  fi
+  docker info >/dev/null 2>&1 \
+    || die "Docker 已安装但守护进程未运行，请先启动 Docker 服务后重试"
+  docker compose version >/dev/null 2>&1 \
+    || die "未检测到 docker compose v2 插件，请安装 Compose 插件后重试（脚本不会自动安装）"
+  ok "Docker 运行环境可用；Git/JDK/Nginx/Redis 将按构建流程与 COMPOSE_PROFILES 使用容器"
 }
 
 # 当前部署版本优先读取升级器同步维护的 build-info.json，旧环境回退到配置记录。
@@ -609,7 +628,7 @@ bootstrap_source_builder() {
   fi
   if ! command -v git >/dev/null 2>&1; then
     command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 \
-      || die "首次源码构建需要 Git；脚本不会自动安装，请先安装 Git 后重试"
+      || die "源码构建需要 Git 或可用的 Docker Engine；Docker 部署请先启动 Docker，手动部署可安装 Git"
     warn "宿主机未安装 Git，将使用隔离的 ${SOURCE_GIT_IMAGE} 容器拉取源码，不会修改系统软件"
   fi
   tmpDir="$(mktemp -d)"
@@ -1185,16 +1204,39 @@ confirm_initial_configuration() { # confirm_initial_configuration <docker|manual
     else
       echo "  数据库   : 外部 MySQL $(env_get DB_HOST):$(env_get DB_PORT 3306)/$(env_get DB_NAME aid)（不会启动内置容器）"
     fi
+    if docker_profile_enabled redis; then
+      echo "  Redis    : 内置容器 $(env_get REDIS_HOST redis):$(env_get REDIS_PORT 6379)"
+    else
+      echo "  Redis    : 外部服务 $(env_get REDIS_HOST):$(env_get REDIS_PORT 6379)（不会启动内置容器）"
+    fi
+    echo "  HTTP网关 : 内置 Nginx 容器"
     if docker_profile_enabled https; then
       echo "  HTTPS    : $(env_get HTTPS_PUBLIC_DOMAIN) / $(env_get HTTPS_ADMIN_DOMAIN) :$(env_get HTTPS_PORT 443)"
+    else
+      echo "  HTTPS    : 未启用"
+    fi
+    if [[ "$(env_get ROCKETMQ_ENABLED false)" != "true" ]]; then
+      echo "  RocketMQ : 未启用（本地任务模式）"
+    elif docker_profile_enabled mq; then
+      echo "  RocketMQ : 内置容器"
+    else
+      echo "  RocketMQ : 外部服务 $(env_get ROCKETMQ_NAMESERVER)"
     fi
   else
     echo "  用户端口 : $(conf_get HTTP_PORT 80)"
     echo "  管理端口 : $(conf_get ADMIN_PORT 8090)"
     echo "  后端端口 : $(conf_get BACKEND_PORT 8080)"
     echo "  数据库   : $(conf_get DB_HOST 127.0.0.1):$(conf_get DB_PORT 3306)/$(conf_get DB_NAME aid)"
+    echo "  Redis    : $(conf_get REDIS_HOST 127.0.0.1):$(conf_get REDIS_PORT 6379)"
     if [[ "$(conf_get HTTPS_ENABLED false)" == "true" ]]; then
       echo "  HTTPS    : $(conf_get HTTPS_PUBLIC_DOMAIN) / $(conf_get HTTPS_ADMIN_DOMAIN) :$(conf_get HTTPS_PORT 443)"
+    else
+      echo "  HTTPS    : 未启用"
+    fi
+    if [[ "$(conf_get ROCKETMQ_ENABLED false)" == "true" ]]; then
+      echo "  RocketMQ : $(conf_get ROCKETMQ_NAMESERVER)"
+    else
+      echo "  RocketMQ : 未启用（本地任务模式）"
     fi
   fi
   if [[ "${AID_ASSUME_YES:-0}" != "1" ]]; then
@@ -1681,14 +1723,7 @@ do_install_docker() {
   # 配置是部署的第一道闸门：完成生成、编辑、校验和人工确认后才检查环境或拉取源码。
   ensure_env_file
   confirm_initial_configuration docker
-  if ! command -v docker >/dev/null 2>&1; then
-    risk "未检测到 Docker Engine；AID 不会自动安装 Docker，也不会修改服务器软件源"
-    die "请管理员安装 Docker Engine 24+ 与 Compose v2 插件，确认 docker version 正常后重新运行"
-  fi
-  docker info >/dev/null 2>&1 \
-    || die "Docker 已安装但守护进程未运行，请先启动 Docker 服务后重试"
-  docker compose version >/dev/null 2>&1 \
-    || die "未检测到 docker compose v2 插件，请安装 Compose 插件后重试（脚本不会自动安装）"
+  require_docker_runtime
   if [[ "$(uname -m)" == "aarch64" ]]; then
     die "Docker 一键部署固定使用 MySQL 5.7，官方镜像不支持 ARM64；请改用 x86_64 服务器"
   fi
@@ -1697,9 +1732,6 @@ do_install_docker() {
   bootstrap_installer_if_needed "${package}" install-docker
 
   [[ "${existingMode}" == "none" ]] && confirm_first_install docker
-  state_set DEPLOY_MODE "docker"
-  state_set DATA_ROOT "${DATA_ROOT}"
-
   # 外部 MySQL 必须在启动业务容器前完成连通性、版本和库结构校验；校验成功后
   # 才停用可能存在的内置容器，且始终保留 mysql-data 目录。
   disable_internal_mysql_for_external \
@@ -1734,6 +1766,9 @@ do_install_docker() {
   wait_https_healthy
   targetVersion="${RESOLVED_VERSION:-$(version_from_package "${package}")}"
   targetChannel="${REQUESTED_RELEASE_CHANNEL:-auto}"
+  # 只有健康检查成功后才写入“已部署”状态，避免失败的首次安装被当成升级。
+  state_set DEPLOY_MODE "docker"
+  state_set DATA_ROOT "${DATA_ROOT}"
   state_set CURRENT_VERSION "${targetVersion}"
   state_set RELEASE_CHANNEL "${targetChannel}"
   install_management_command
@@ -1966,9 +2001,6 @@ do_install_manual() {
   bootstrap_installer_if_needed "${package}" install-manual
 
   [[ "${existingMode}" == "none" ]] && confirm_first_install manual
-  state_set DEPLOY_MODE "manual"
-  state_set DATA_ROOT "${DATA_ROOT}"
-
   # 硬件校验基线按配置实际评估：启用 MQ（手动部署常与业务同机）按含 MQ 内存计
   local mqPlan="no"
   [[ "$(conf_get ROCKETMQ_ENABLED false)" == "true" ]] && mqPlan="yes"
@@ -2009,6 +2041,9 @@ do_install_manual() {
   wait_backend_healthy || die "部署未完成，按上方提示排查后重试"
   targetVersion="${RESOLVED_VERSION:-$(version_from_package "${package}")}"
   targetChannel="${REQUESTED_RELEASE_CHANNEL:-auto}"
+  # 只有后端健康检查成功后才写入“已部署”状态。
+  state_set DEPLOY_MODE "manual"
+  state_set DATA_ROOT "${DATA_ROOT}"
   state_set CURRENT_VERSION "${targetVersion}"
   state_set RELEASE_CHANNEL "${targetChannel}"
   install_management_command
@@ -2023,6 +2058,8 @@ do_update() {
   local mode package supplied current target comparison go backupDir dist old f targetChannel
   mode="$(detect_mode)"
   [[ "${mode}" != "none" ]] || die "尚未部署，请先执行首次部署"
+  # Docker 升级同样先校验容器运行时，避免后续缺 Git 时给出误导性报错。
+  [[ "${mode}" != "docker" ]] || require_docker_runtime
   supplied="${1:-}"
   current="$(current_version)"
 

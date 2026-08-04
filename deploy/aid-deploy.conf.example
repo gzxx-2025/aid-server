@@ -9,6 +9,8 @@
 #
 # 说明：
 #   - MySQL/Redis/RocketMQ/JDK/Node 等环境由部署方自行安装维护，这里只填连接信息
+#   - 源码构建优先使用可用的 Docker 隔离构建；没有 Docker 时宿主机还需 Git/Maven/npm/Go
+#   - 手动部署不会修改系统软件源，也不会自动安装 JDK、Nginx、Redis 等系统组件
 #   - TOKEN_SECRET 留空 = 部署脚本自动生成强随机值写回本文件
 #   - 密码不能包含 空格、#、引号、$、反斜杠（会破坏配置解析）
 #   - 数据目录默认 /data/aid，如需更换：执行脚本前 export AID_DATA_ROOT=/你的路径
