@@ -476,22 +476,58 @@ EOF
 }
 
 download_file() {
-  url="$1"; target="$2"; part="$2.part"
+  url="$1"; target="$2"; part="$2.part"; expected_checksum="${3:-}"
   case "$url" in https://*) ;; *) warn "拒绝非 HTTPS 下载地址: $url"; return 1 ;; esac
-  rm -f "$part"
+  if [ -n "$expected_checksum" ] && [ -s "$target" ] \
+      && [ "$(sha256sum "$target" 2>/dev/null | awk '{print $1}')" = "$expected_checksum" ]; then
+    log "完整缓存校验通过，跳过下载: $target"
+    return 0
+  fi
+  if [ -n "$expected_checksum" ] && [ -s "$part" ] \
+      && [ "$(sha256sum "$part" 2>/dev/null | awk '{print $1}')" = "$expected_checksum" ]; then
+    mv -f "$part" "$target"
+    log "未完成缓存实际已完整，经 SHA256 校验后直接复用: $target"
+    return 0
+  fi
+  [ ! -s "$part" ] || warn "发现未完成缓存，将从断点继续: $part"
   if command -v curl >/dev/null 2>&1; then
-    curl --fail --location --retry 3 --retry-delay 2 --connect-timeout 15 \
-      --max-time 1800 --proto '=https' --tlsv1.2 --progress-bar --output "$part" "$url" || {
-        rm -f "$part"; return 1;
-      }
+    if [ -s "$part" ]; then
+      download_rc=0
+      curl --fail --location --retry 3 --retry-delay 2 --connect-timeout 15 \
+        --max-time 1800 --speed-limit 32768 --speed-time 30 --proto '=https' --tlsv1.2 \
+        --progress-bar --continue-at - --output "$part" "$url" || download_rc=$?
+      if [ "$download_rc" -eq 33 ] || [ "$download_rc" -eq 36 ]; then
+        warn '当前地址不支持断点续传，将从该地址重新下载'
+        rm -f "$part"; download_rc=0
+        curl --fail --location --retry 3 --retry-delay 2 --connect-timeout 15 \
+          --max-time 1800 --speed-limit 32768 --speed-time 30 --proto '=https' --tlsv1.2 \
+          --progress-bar --output "$part" "$url" || download_rc=$?
+      fi
+      if [ "$download_rc" -ne 0 ]; then
+        warn "下载中断，断点文件已保留: $part"
+        return 1
+      fi
+    else
+      curl --fail --location --retry 3 --retry-delay 2 --connect-timeout 15 \
+        --max-time 1800 --speed-limit 32768 --speed-time 30 --proto '=https' --tlsv1.2 \
+        --progress-bar --output "$part" "$url" || {
+          [ ! -s "$part" ] || warn "下载中断，断点文件已保留: $part"; return 1;
+        }
+    fi
   elif command -v wget >/dev/null 2>&1; then
-    wget --https-only --timeout=30 --tries=3 --output-document="$part" "$url" || {
-      rm -f "$part"; return 1;
+    wget --continue --https-only --timeout=30 --tries=3 --output-document="$part" "$url" || {
+      [ ! -s "$part" ] || warn "下载中断，断点文件已保留: $part"; return 1;
     }
   else
     die '下载 OpenJDK 需要 curl 或 wget'
   fi
   [ -s "$part" ] || { rm -f "$part"; return 1; }
+  if [ -n "$expected_checksum" ] \
+      && [ "$(sha256sum "$part" 2>/dev/null | awk '{print $1}')" != "$expected_checksum" ]; then
+    warn "下载完成但 SHA256 不匹配，已删除不可信文件"
+    rm -f "$part"
+    return 1
+  fi
   mv -f "$part" "$target"
 }
 
@@ -541,7 +577,7 @@ $cn_url"
     for jdk_url in $jdk_urls; do
       [ -n "$jdk_url" ] || continue
       log "下载 Temurin OpenJDK $JDK_VERSION（$jdk_arch）: $jdk_url"
-      if download_file "$jdk_url" "$jdk_archive"; then
+      if download_file "$jdk_url" "$jdk_archive" "$jdk_checksum"; then
         actual_checksum="$(sha256sum "$jdk_archive" | awk '{print $1}')"
         if [ "$actual_checksum" = "$jdk_checksum" ]; then
           downloaded=yes

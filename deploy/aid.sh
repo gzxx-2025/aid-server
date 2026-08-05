@@ -78,6 +78,8 @@ if [[ "${AID_REMOTE_BOOTSTRAP:-0}" == "1" \
   fi
 fi
 DOWNLOAD_TIMEOUT_SECONDS="${AID_DOWNLOAD_TIMEOUT_SECONDS:-1800}"
+DOWNLOAD_MIN_SPEED_BYTES="${AID_DOWNLOAD_MIN_SPEED_BYTES:-32768}"
+DOWNLOAD_LOW_SPEED_SECONDS="${AID_DOWNLOAD_LOW_SPEED_SECONDS:-30}"
 SOURCE_BUILDER_NAME="build-release-from-source.sh"
 SOURCE_GIT_IMAGE="${AID_GIT_IMAGE:-alpine/git:2.47.2}"
 SOURCE_MAVEN_IMAGE="${AID_MAVEN_IMAGE:-maven:3.9.9-eclipse-temurin-17}"
@@ -110,6 +112,12 @@ MYSQL_MANAGED_SERVICE="aid-mysql.service"
 REDIS_VERSION="7.2.15"
 REDIS_HOME=""
 REDIS_MANAGED_SERVICE="aid-redis.service"
+# 宝塔公开安装器当前维护的 HTTPS 下载节点池。这里只复用节点测速与容灾思路，
+# 任何下载内容仍必须通过 AID 固定的官方摘要/签名校验后才可安装。
+BT_MIRROR_NODES_CN="https://dg2.bt.cn https://download-cdn1.bt.cn https://download.bt.cn https://ctcc1-node.bt.cn https://cmcc1-node.bt.cn https://ctcc2-node.bt.cn https://hk1-node.bt.cn https://na1-node.bt.cn https://jp1-node.bt.cn https://cf1-node.aapanel.com"
+BT_MIRROR_NODES_GLOBAL="https://cf1-node.aapanel.com https://jp1-node.bt.cn https://na1-node.bt.cn https://download.bt.cn https://dg2.bt.cn https://download-cdn1.bt.cn https://ctcc1-node.bt.cn https://ctcc2-node.bt.cn https://hk1-node.bt.cn https://cmcc1-node.bt.cn"
+BT_MIRROR_ORDER=""
+BT_MIRRORS_RESOLVED=0
 JAVA_RUNTIME_IMAGE="aid/openjdk:17.0.20"
 DEFAULT_ADMIN_ENTRY_CODE=""
 OS_PACKAGE_INDEX_READY=0
@@ -1173,8 +1181,9 @@ install_mysql_compat_libraries() {
   fi
 }
 
-verify_mysql_archive_signature() { # verify_mysql_archive_signature <归档> <文件名> <缓存目录>
-  local archive="$1" name="$2" cacheDir="$3" keyFile signatureFile fingerprint gpgHome
+verify_mysql_archive_signature() { # verify_mysql_archive_signature <归档> <文件名> <缓存目录> [摘要说明]
+  local archive="$1" name="$2" cacheDir="$3" digestLabel="${4:-Oracle 官方 MD5}"
+  local keyFile signatureFile fingerprint gpgHome
   local expected="859BE8D7C586F538430B19C2467B942D3A79BD29"
   keyFile="${cacheDir}/RPM-GPG-KEY-mysql-2022"
   signatureFile="${archive}.asc"
@@ -1198,7 +1207,101 @@ verify_mysql_archive_signature() { # verify_mysql_archive_signature <归档> <�
     die "MySQL ${MYSQL_VERSION} GPG 签名校验失败，已拒绝安装"
   fi
   rm -rf -- "${gpgHome}"
-  ok "MySQL ${MYSQL_VERSION} 已通过 Oracle 官方 MD5 与 GPG 双重校验"
+  ok "MySQL ${MYSQL_VERSION} 已通过 ${digestLabel} 与 Oracle GPG 双重校验"
+}
+
+ensure_mysql_source_build_dependencies() {
+  local installMode="$1"
+  ensure_host_command gcc "C编译器" "build-essential" "gcc" "${installMode}"
+  ensure_host_command g++ "C++编译器" "build-essential" "gcc-c++" "${installMode}"
+  ensure_host_command make "Make构建工具" "build-essential" "make" "${installMode}"
+  ensure_host_command cmake "CMake构建工具" "cmake" "cmake" "${installMode}"
+  ensure_host_command bison "Bison构建工具" "bison" "bison" "${installMode}"
+  ensure_host_command perl "Perl运行时" "perl" "perl" "${installMode}"
+  if [[ ! -f /usr/include/ncurses.h && ! -f /usr/include/ncurses/ncurses.h \
+      && ! -f /usr/include/ncursesw/ncurses.h ]]; then
+    [[ "${installMode}" == "auto" ]] || die "编译 MySQL 5.7 需要 ncurses 开发库"
+    install_os_packages "MySQL ncurses开发库" "libncurses-dev" "ncurses-devel"
+  else
+    ok "MySQL ncurses 开发库已存在，跳过安装"
+  fi
+  if [[ ! -f /usr/include/openssl/ssl.h ]]; then
+    [[ "${installMode}" == "auto" ]] || die "编译 MySQL 5.7 需要 OpenSSL 开发库"
+    install_os_packages "MySQL OpenSSL开发库" "libssl-dev" "openssl-devel"
+  else
+    ok "MySQL OpenSSL 开发库已存在，跳过安装"
+  fi
+}
+
+prepare_managed_mysql_from_bt_source() { # Oracle 二进制入口不可用时的最终兜底
+  local installMode="$1" cacheDir="$2" sourceName sourceArchive checksum downloaded=no url
+  local sourceRoot buildDir installDir buildLog jobs memoryKb memoryJobs freeKb
+  local -a urls=()
+  sourceName="mysql-boost-${MYSQL_VERSION}.tar.gz"
+  sourceArchive="${cacheDir}/${sourceName}"
+  checksum="b8fe262c4679cb7bbc379a3f1addc723844db168628ce2acf78d33906849e491"
+  buildLog="${DATA_ROOT}/logs/mysql/source-build-${MYSQL_VERSION}.log"
+  if [[ -f "${sourceArchive}" ]] && ! file_digest_matches "${sourceArchive}" sha256 "${checksum}"; then
+    warn "MySQL 源码缓存 SHA256 不匹配，将重新下载"
+    rm -f -- "${sourceArchive}"
+  fi
+  if [[ ! -f "${sourceArchive}" ]]; then
+    mapfile -t urls < <(bt_artifact_urls "src/${sourceName}")
+    urls+=("https://downloads.mysql.com/archives/get/p/23/file/${sourceName}")
+    for url in "${urls[@]}"; do
+      if try_download "${url}" "${sourceArchive}" "MySQL ${MYSQL_VERSION} 官方源包" sha256 "${checksum}"; then
+        downloaded=yes
+        break
+      fi
+      warn "MySQL 源包当前节点不可用或校验失败，切换下一个宝塔/Oracle 节点"
+    done
+    [[ "${downloaded}" == "yes" ]] || die "MySQL ${MYSQL_VERSION} 二进制与宝塔源包入口均不可用"
+  fi
+  verify_mysql_archive_signature "${sourceArchive}" "${sourceName}" "${cacheDir}" "Oracle 固定 SHA256"
+  install_mysql_runtime_libraries "${installMode}"
+  ensure_mysql_source_build_dependencies "${installMode}"
+  freeKb="$(df -Pk "${cacheDir}" 2>/dev/null | awk 'NR==2 {print $4}')"
+  [[ "${freeKb}" =~ ^[0-9]+$ && "${freeKb}" -ge 6291456 ]] \
+    || die "MySQL 源码兜底编译至少需要 6 GiB 可用空间"
+  sourceRoot="${cacheDir}/mysql-source-${MYSQL_VERSION}.tmp.$$"
+  buildDir="${sourceRoot}/build"; installDir="${MYSQL_HOME}.tmp.$$"
+  rm -rf -- "${sourceRoot}" "${installDir}"
+  mkdir -p "${sourceRoot}" "${buildDir}" "${installDir}" "$(dirname "${buildLog}")"
+  tar -xzf "${sourceArchive}" -C "${sourceRoot}" --strip-components=1 \
+    || { rm -rf -- "${sourceRoot}" "${installDir}"; die "MySQL 官方源包解压失败"; }
+  jobs="$(nproc 2>/dev/null || echo 1)"; [[ "${jobs}" =~ ^[0-9]+$ ]] || jobs=1
+  (( jobs > 4 )) && jobs=4
+  memoryKb="$(awk '/MemTotal:/ {print $2; exit}' /proc/meminfo 2>/dev/null || echo 0)"
+  if [[ "${memoryKb}" =~ ^[0-9]+$ && "${memoryKb}" -gt 0 ]]; then
+    memoryJobs=$((memoryKb / 1258291)); (( memoryJobs < 1 )) && memoryJobs=1
+    (( jobs > memoryJobs )) && jobs="${memoryJobs}"
+  fi
+  warn "Oracle 二进制包入口均失败，启用已签名的宝塔 MySQL 源包兜底；编译会临时占用 CPU，完整日志: ${buildLog}"
+  if ! (cd "${buildDir}" && cmake .. \
+      -DCMAKE_INSTALL_PREFIX="${installDir}" \
+      -DSYSCONFDIR="${CONFIG_ROOT}" \
+      -DWITH_MYISAM_STORAGE_ENGINE=1 \
+      -DWITH_INNOBASE_STORAGE_ENGINE=1 \
+      -DWITH_PARTITION_STORAGE_ENGINE=1 \
+      -DWITH_FEDERATED_STORAGE_ENGINE=1 \
+      -DEXTRA_CHARSETS=all \
+      -DDEFAULT_CHARSET=utf8mb4 \
+      -DDEFAULT_COLLATION=utf8mb4_general_ci \
+      -DENABLED_LOCAL_INFILE=1 \
+      -DWITH_BOOST="${sourceRoot}/boost" \
+      -DWITH_SSL=system \
+      -DWITH_UNIT_TESTS=OFF >"${buildLog}" 2>&1 \
+      && make -j "${jobs}" >>"${buildLog}" 2>&1 \
+      && make install >>"${buildLog}" 2>&1); then
+    rm -rf -- "${sourceRoot}" "${installDir}"
+    die "MySQL 5.7 源码兜底编译失败，请查看 ${buildLog}"
+  fi
+  [[ -x "${installDir}/bin/mysqld" && -x "${installDir}/bin/mysql" ]] \
+    || { rm -rf -- "${sourceRoot}" "${installDir}"; die "MySQL 源码编译产物不完整"; }
+  rm -rf -- "${MYSQL_HOME}"
+  mv "${installDir}" "${MYSQL_HOME}" || die "MySQL 源码编译产物就位失败"
+  rm -rf -- "${sourceRoot}"
+  ok "MySQL ${MYSQL_VERSION} 已通过宝塔镜像节点下载并完成受控源码编译"
 }
 
 prepare_managed_mysql() {
@@ -1241,33 +1344,38 @@ prepare_managed_mysql() {
       )
       mapfile -t urls < <(rank_download_urls "MySQL ${MYSQL_VERSION}" "${urls[@]}")
       for url in "${urls[@]}"; do
-        if try_download "${url}" "${archive}" "MySQL ${MYSQL_VERSION}（${arch}）"; then
+        if try_download "${url}" "${archive}" "MySQL ${MYSQL_VERSION}（${arch}）" md5 "${checksum}"; then
           actual="$(md5_file "${archive}" 2>/dev/null || true)"
           if [[ "${actual}" == "${checksum}" ]]; then downloaded=yes; break; fi
           warn "MySQL 下载文件与 Oracle 官方归档摘要不一致，拒绝使用当前来源"
           rm -f -- "${archive}"
         fi
       done
-      [[ "${downloaded}" == "yes" ]] || die "MySQL ${MYSQL_VERSION} 官方归档与备用入口均下载失败"
+      if [[ "${downloaded}" != "yes" ]]; then
+        prepare_managed_mysql_from_bt_source "${installMode}" "${cacheDir}"
+        reuseBinary=yes
+      fi
     fi
-    verify_mysql_archive_signature "${archive}" "${name}" "${cacheDir}"
-    install_mysql_runtime_libraries "${installMode}"
-    tmp="${MYSQL_HOME}.tmp.$$"
-    rm -rf -- "${tmp}"; mkdir -p "${tmp}"
-    tar -xzf "${archive}" -C "${tmp}" --strip-components=1 \
-      || { rm -rf -- "${tmp}"; die "MySQL 压缩包解压失败"; }
-    [[ -x "${tmp}/bin/mysqld" && -x "${tmp}/bin/mysql" ]] \
-      || { rm -rf -- "${tmp}"; die "MySQL 压缩包内容不完整"; }
-    if ldd "${tmp}/bin/mysqld" 2>/dev/null | grep -q 'not found' \
-        || ldd "${tmp}/bin/mysql" 2>/dev/null | grep -q 'not found'; then
-      install_mysql_compat_libraries "${installMode}"
+    if [[ "${reuseBinary}" != "yes" ]]; then
+      verify_mysql_archive_signature "${archive}" "${name}" "${cacheDir}"
+      install_mysql_runtime_libraries "${installMode}"
+      tmp="${MYSQL_HOME}.tmp.$$"
+      rm -rf -- "${tmp}"; mkdir -p "${tmp}"
+      tar -xzf "${archive}" -C "${tmp}" --strip-components=1 \
+        || { rm -rf -- "${tmp}"; die "MySQL 压缩包解压失败"; }
+      [[ -x "${tmp}/bin/mysqld" && -x "${tmp}/bin/mysql" ]] \
+        || { rm -rf -- "${tmp}"; die "MySQL 压缩包内容不完整"; }
+      if ldd "${tmp}/bin/mysqld" 2>/dev/null | grep -q 'not found' \
+          || ldd "${tmp}/bin/mysql" 2>/dev/null | grep -q 'not found'; then
+        install_mysql_compat_libraries "${installMode}"
+      fi
+      if ldd "${tmp}/bin/mysqld" 2>/dev/null | grep -q 'not found' \
+          || ldd "${tmp}/bin/mysql" 2>/dev/null | grep -q 'not found'; then
+        rm -rf -- "${tmp}"
+        die "MySQL 5.7 运行库仍不完整，请执行 ldd 检查缺失项"
+      fi
+      rm -rf -- "${MYSQL_HOME}"; mv "${tmp}" "${MYSQL_HOME}" || die "MySQL 安装目录就位失败"
     fi
-    if ldd "${tmp}/bin/mysqld" 2>/dev/null | grep -q 'not found' \
-        || ldd "${tmp}/bin/mysql" 2>/dev/null | grep -q 'not found'; then
-      rm -rf -- "${tmp}"
-      die "MySQL 5.7 运行库仍不完整，请执行 ldd 检查缺失项"
-    fi
-    rm -rf -- "${MYSQL_HOME}"; mv "${tmp}" "${MYSQL_HOME}" || die "MySQL 安装目录就位失败"
   fi
 
   getent group aidmysql >/dev/null 2>&1 || groupadd --system aidmysql
@@ -1415,7 +1523,7 @@ prepare_managed_redis() {
       urls+=("https://download.redis.io/releases/${name}")
       mapfile -t urls < <(rank_download_urls "Redis ${REDIS_VERSION}" "${urls[@]}")
       for url in "${urls[@]}"; do
-        if try_download "${url}" "${archive}" "Redis ${REDIS_VERSION}" \
+        if try_download "${url}" "${archive}" "Redis ${REDIS_VERSION}" sha256 "${checksum}" \
             && [[ "$(sha256_file "${archive}" 2>/dev/null || true)" == "${checksum}" ]]; then
           downloaded=yes; break
         fi
@@ -1686,24 +1794,173 @@ require_download_tools() {
   fi
 }
 
-try_download() { # try_download <URL> <目标文件> <名称>
-  local url="$1" target="$2" label="$3" part="${2}.part"
+file_digest_matches() { # file_digest_matches <文件> <sha256|sha512|md5> <固定摘要>
+  local file="$1" algorithm="${2,,}" expected="${3,,}" actual=""
+  [[ -s "${file}" && -n "${expected}" ]] || return 1
+  case "${algorithm}" in
+    sha256) actual="$(sha256_file "${file}" 2>/dev/null || true)" ;;
+    sha512) actual="$(sha512_file "${file}" 2>/dev/null || true)" ;;
+    md5) actual="$(md5_file "${file}" 2>/dev/null || true)" ;;
+    *) return 1 ;;
+  esac
+  [[ "${actual,,}" == "${expected}" ]]
+}
+
+try_download() { # try_download <URL> <目标文件> <名称> [摘要算法] [固定摘要]
+  local url="$1" target="$2" label="$3" algorithm="${4:-}" expected="${5:-}"
+  local part="${2}.part" currentSize=0 curlCode=0 minSpeed="${DOWNLOAD_MIN_SPEED_BYTES}"
+  local lowSpeedSeconds="${DOWNLOAD_LOW_SPEED_SECONDS}"
+  local -a curlArgs=()
   case "${url}" in
     https://*) ;;
     *) err "拒绝非 HTTPS 下载地址: ${url}"; return 1 ;;
   esac
-  rm -f "${part}"
+  [[ "${minSpeed}" =~ ^[0-9]+$ ]] || minSpeed=32768
+  [[ "${lowSpeedSeconds}" =~ ^[0-9]+$ ]] || lowSpeedSeconds=30
+  if [[ -n "${algorithm}" && -n "${expected}" ]] && file_digest_matches "${target}" "${algorithm}" "${expected}"; then
+    ok "${label} 完整缓存校验通过，跳过下载: ${target}"
+    return 0
+  fi
+  if [[ -n "${algorithm}" && -n "${expected}" ]] && file_digest_matches "${part}" "${algorithm}" "${expected}"; then
+    mv -f -- "${part}" "${target}"
+    ok "${label} 未完成缓存实际已完整，经摘要校验后直接复用"
+    return 0
+  fi
+  curlArgs=(--fail --location --retry 3 --retry-delay 2 --connect-timeout 15
+    --max-time "${DOWNLOAD_TIMEOUT_SECONDS}" --speed-limit "${minSpeed}"
+    --speed-time "${lowSpeedSeconds}" --proto '=https' --tlsv1.2 --progress-bar)
   log "${C_BLUE}下载 ${label}${C_RESET}"
   echo "  ${url}"
-  if ! curl --fail --location --retry 3 --retry-delay 2 --connect-timeout 15 \
-      --max-time "${DOWNLOAD_TIMEOUT_SECONDS}" --proto '=https' --tlsv1.2 \
-      --progress-bar --output "${part}" "${url}"; then
-    rm -f "${part}"
+  if [[ -s "${part}" ]]; then
+    currentSize="$(wc -c < "${part}" | tr -d '[:space:]')"
+    warn "发现 ${label} 未完成缓存（${currentSize:-0} 字节），从断点继续；切换镜像不会从 0 开始"
+    curl "${curlArgs[@]}" --continue-at - --output "${part}" "${url}" || curlCode=$?
+    if (( curlCode == 33 || curlCode == 36 )); then
+      warn "当前地址不支持断点续传，清理未完成缓存后从该地址重新下载"
+      rm -f -- "${part}"
+      curlCode=0
+      curl "${curlArgs[@]}" --output "${part}" "${url}" || curlCode=$?
+    fi
+  else
+    curl "${curlArgs[@]}" --output "${part}" "${url}" || curlCode=$?
+  fi
+  if (( curlCode != 0 )); then
+    [[ ! -s "${part}" ]] || warn "下载中断，已保留断点文件: ${part}"
     return 1
   fi
-  [[ -s "${part}" ]] || { rm -f "${part}"; return 1; }
-  mv -f "${part}" "${target}"
+  [[ -s "${part}" ]] || { rm -f -- "${part}"; return 1; }
+  if [[ -n "${algorithm}" && -n "${expected}" ]] \
+      && ! file_digest_matches "${part}" "${algorithm}" "${expected}"; then
+    warn "${label} 下载完成但 ${algorithm^^} 不匹配，已删除不可信文件"
+    rm -f -- "${part}"
+    return 1
+  fi
+  mv -f -- "${part}" "${target}"
   return 0
+}
+
+bt_node_allowed() {
+  local node="$1"
+  [[ " ${BT_MIRROR_NODES_CN} " == *" ${node} "* ]]
+}
+
+probe_bt_node() { # probe_bt_node <节点>；输出“高速/普通 评分 延迟毫秒”
+  local node="$1" testPath="net_test" result meta body code elapsed score latency
+  [[ "${node}" != "https://cf1-node.aapanel.com" ]] || testPath="1net_test"
+  result="$(curl --silent --show-error --connect-timeout 3 --max-time 3 \
+    --proto '=https' --tlsv1.2 --write-out $'\n%{http_code} %{time_total}' \
+    "${node}/${testPath}" 2>/dev/null || true)"
+  meta="${result##*$'\n'}"; body="${result%$'\n'*}"
+  code="${meta%% *}"; elapsed="${meta#* }"
+  score="$(printf '%s' "${body}" | tr -cd '0-9' | head -c 12)"
+  [[ "${code}" == "200" && "${score}" =~ ^[0-9]+$ && "${elapsed}" =~ ^[0-9]+([.][0-9]+)?$ ]] || return 1
+  latency="$(awk -v t="${elapsed}" 'BEGIN { n=int(t*1000)-500; if(n<0)n=0; print n }')"
+  (( score >= 1500 )) || return 1
+  if (( latency < 300 )); then
+    printf 'fast %s %s\n' "${score}" "${latency}"
+  else
+    printf 'normal %s %s\n' "${score}" "${latency}"
+  fi
+}
+
+rank_bt_mirror_nodes() { # 按宝塔 net_test 规则输出完整节点顺序，而不是只取一个节点
+  local node metrics fast="" normal="" deferred="" seen=$'\n'
+  for node in "$@"; do
+    [[ -n "${node}" && "${seen}" != *$'\n'"${node}"$'\n'* ]] || continue
+    seen+="${node}"$'\n'
+    if metrics="$(probe_bt_node "${node}" 2>/dev/null)"; then
+      echo "[$(date '+%H:%M:%S')] 宝塔节点测速: ${metrics%% *} ${metrics#* }  ${node}" >&2
+      if [[ "${metrics%% *}" == "fast" ]]; then
+        metrics="${metrics#* }"; fast+="${metrics%% *} ${node}"$'\n'
+      else
+        metrics="${metrics#* }"; normal+="${metrics#* } ${node}"$'\n'
+      fi
+    else
+      echo "[$(date '+%H:%M:%S')] [提示] 宝塔节点测速不可达，保留为末位重试: ${node}" >&2
+      deferred+="${node}"$'\n'
+    fi
+  done
+  [[ -z "${fast}" ]] || printf '%s' "${fast}" | sort -k1,1nr | awk '{print $2}'
+  [[ -z "${normal}" ]] || printf '%s' "${normal}" | sort -k1,1n | awk '{print $2}'
+  [[ -z "${deferred}" ]] || printf '%s' "${deferred}"
+}
+
+resolve_bt_mirror_order() {
+  local cacheDir="${DATA_ROOT}/build-cache" cacheFile now modified age node order="" configured
+  local candidateSet="" seen=" " cacheCount=0
+  local -a candidates=() uniqueCandidates=()
+  (( BT_MIRRORS_RESOLVED == 0 )) || return 0
+  resolve_dependency_region
+  configured="${AID_BT_MIRROR_NODES:-}"
+  if [[ -n "${configured}" ]]; then
+    configured="${configured//,/ }"
+    read -r -a candidates <<< "${configured}"
+    for node in "${candidates[@]}"; do
+      bt_node_allowed "${node}" || die "AID_BT_MIRROR_NODES 只允许使用内置宝塔 HTTPS 节点: ${node}"
+    done
+  elif [[ "${RESOLVED_DEPENDENCY_REGION}" == "cn" ]]; then
+    read -r -a candidates <<< "${BT_MIRROR_NODES_CN}"
+  else
+    read -r -a candidates <<< "${BT_MIRROR_NODES_GLOBAL}"
+  fi
+  for node in "${candidates[@]}"; do
+    [[ "${seen}" != *" ${node} "* ]] || continue
+    seen+="${node} "; uniqueCandidates+=("${node}")
+  done
+  candidates=("${uniqueCandidates[@]}")
+  candidateSet=" ${candidates[*]} "
+  mkdir -p "${cacheDir}"
+  cacheFile="${cacheDir}/bt-mirror-order.conf"; now="$(date +%s)"
+  if [[ -f "${cacheFile}" ]]; then
+    modified="$(stat -c %Y "${cacheFile}" 2>/dev/null || echo 0)"; age=$((now - modified))
+    if (( age >= 0 && age < 86400 )); then
+      while IFS= read -r node; do
+        if bt_node_allowed "${node}" && [[ "${candidateSet}" == *" ${node} "* ]]; then
+          order+="${node}"$'\n'; cacheCount=$((cacheCount + 1))
+        fi
+      done < "${cacheFile}"
+      (( cacheCount == ${#candidates[@]} )) || order=""
+    fi
+  fi
+  if [[ -z "${order}" ]]; then
+    order="$(rank_bt_mirror_nodes "${candidates[@]}")"
+    [[ -n "${order}" ]] || order="https://download.bt.cn"
+    printf '%s\n' "${order}" > "${cacheFile}.tmp.$$"
+    chmod 600 "${cacheFile}.tmp.$$"
+    mv -f -- "${cacheFile}.tmp.$$" "${cacheFile}"
+  else
+    ok "复用 24 小时内的宝塔镜像测速结果: ${cacheFile}"
+  fi
+  BT_MIRROR_ORDER="${order}"
+  BT_MIRRORS_RESOLVED=1
+}
+
+bt_artifact_urls() { # bt_artifact_urls <宝塔节点内相对路径>
+  local path="${1#/}" node
+  resolve_bt_mirror_order
+  while IFS= read -r node; do
+    [[ -n "${node}" ]] && printf '%s/%s\n' "${node}" "${path}"
+  done <<< "${BT_MIRROR_ORDER}"
 }
 
 probe_download_url() { # probe_download_url <URL>；输出“字节每秒 首包毫秒”
@@ -1824,7 +2081,7 @@ prepare_exact_jdk() {
     fi
     mapfile -t urls < <(rank_download_urls "OpenJDK" "${urls[@]}")
     for url in "${urls[@]}"; do
-      if try_download "${url}" "${archive}" "Temurin OpenJDK ${JDK_VERSION}（${arch}）"; then
+      if try_download "${url}" "${archive}" "Temurin OpenJDK ${JDK_VERSION}（${arch}）" sha256 "${checksum}"; then
         actual="$(sha256_file "${archive}" || true)"
         if [[ "${actual}" == "${checksum}" ]]; then
           downloaded=yes
@@ -1922,7 +2179,7 @@ prepare_exact_node() {
     if [[ "${RESOLVED_DEPENDENCY_REGION}" == "cn" ]]; then urls+=("${cnUrl}" "${officialUrl}"); else urls+=("${officialUrl}" "${cnUrl}"); fi
     mapfile -t urls < <(rank_download_urls "Node.js" "${urls[@]}")
     for url in "${urls[@]}"; do
-      if try_download "${url}" "${archive}" "Node.js ${NODE_VERSION}（${buildLabel}）" \
+      if try_download "${url}" "${archive}" "Node.js ${NODE_VERSION}（${buildLabel}）" sha256 "${checksum}" \
           && [[ "$(sha256_file "${archive}" || true)" == "${checksum}" ]]; then
         downloaded=yes; break
       fi
@@ -1986,7 +2243,7 @@ prepare_exact_maven() {
     if [[ "${RESOLVED_DEPENDENCY_REGION}" == "cn" ]]; then urls+=("${cnUrl}" "${officialUrl}"); else urls+=("${officialUrl}" "${cnUrl}"); fi
     mapfile -t urls < <(rank_download_urls "Maven" "${urls[@]}")
     for url in "${urls[@]}"; do
-      if try_download "${url}" "${archive}" "Maven ${MAVEN_VERSION}" \
+      if try_download "${url}" "${archive}" "Maven ${MAVEN_VERSION}" sha512 "${checksum}" \
           && [[ "$(sha512_file "${archive}" || true)" == "${checksum}" ]]; then
         downloaded=yes; break
       fi
@@ -2042,7 +2299,7 @@ prepare_exact_go() {
     if [[ "${RESOLVED_DEPENDENCY_REGION}" == "cn" ]]; then urls+=("${cnUrl}" "${officialUrl}"); else urls+=("${officialUrl}" "${cnUrl}"); fi
     mapfile -t urls < <(rank_download_urls "Go" "${urls[@]}")
     for url in "${urls[@]}"; do
-      if try_download "${url}" "${archive}" "Go ${GO_VERSION}（${arch}）" \
+      if try_download "${url}" "${archive}" "Go ${GO_VERSION}（${arch}）" sha256 "${checksum}" \
           && [[ "$(sha256_file "${archive}" || true)" == "${checksum}" ]]; then
         downloaded=yes; break
       fi
