@@ -51,6 +51,29 @@ MOCK_MQ_ENABLED=no
 prepare_docker_runtime_dependencies
 assert_trace $'mysql\nschema\nredis\nmq-connectivity'
 
+# 重试部署前自动停止上次遗留的循环重启容器，但不停止健康服务。
+docker() {
+  local container format
+  case "$1" in
+    inspect)
+      format="$3"; container="${@: -1}"
+      case "${container}:${format}" in
+        aid-server:*State.Status*) echo running ;;
+        aid-server:*State.Health*) echo starting ;;
+        aid-server:*RestartCount*) echo 2 ;;
+        aid-web:*State.Status*) echo running ;;
+        aid-web:*State.Health*) echo healthy ;;
+        aid-web:*RestartCount*) echo 0 ;;
+        *) return 1 ;;
+      esac ;;
+    stop) trace "docker-stop:$2" ;;
+    *) return 0 ;;
+  esac
+}
+reset_trace
+stop_unhealthy_docker_application_containers
+assert_trace 'docker-stop:aid-server'
+
 # Docker 应按后端 -> Web -> Nginx -> 升级器的顺序启动。
 validate_https_runtime() { trace validate-https; }
 wait_backend_healthy() { trace backend-http; }
@@ -64,7 +87,7 @@ wait_docker_container_healthy() {
   [[ "$1" != "${MOCK_FAIL_CONTAINER}" ]]
 }
 start_docker_application_stack
-assert_trace $'validate-https\ncompose:up -d aid-server\nhealthy:aid-server\nbackend-http\ncompose:up -d aid-web\nhealthy:aid-web\ncompose:up -d nginx\nhealthy:aid-nginx\ncompose:up -d aid-updater\nhealthy:aid-updater'
+assert_trace $'validate-https\ncompose:up -d aid-server\ncompose:restart aid-server\nhealthy:aid-server\nbackend-http\ncompose:up -d aid-web\ncompose:restart aid-web\nhealthy:aid-web\ncompose:up -d nginx\ncompose:restart nginx\nhealthy:aid-nginx\ncompose:up -d aid-updater\ncompose:restart aid-updater\nhealthy:aid-updater'
 
 # 后端失败时必须停止循环重启，且不能继续启动 Web/Nginx。
 reset_trace
@@ -73,7 +96,7 @@ if start_docker_application_stack; then
   echo 'FAIL: backend health failure must abort the staged startup' >&2
   exit 1
 fi
-assert_trace $'validate-https\ncompose:up -d aid-server\nhealthy:aid-server\nstop:aid-server'
+assert_trace $'validate-https\ncompose:up -d aid-server\ncompose:restart aid-server\nhealthy:aid-server\nstop:aid-server'
 
 # 手动部署同样必须先让后端健康，再启动 Web/Nginx/升级器。
 write_systemd_units() { trace units; }

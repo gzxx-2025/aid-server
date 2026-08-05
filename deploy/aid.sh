@@ -3749,11 +3749,29 @@ stop_failed_docker_service() { # stop_failed_docker_service <容器名> <组件�
   risk "${label} 启动失败，已停止该容器的循环重启；MySQL/Redis 等前置服务保持运行，修复配置后重新执行安装或重启"
 }
 
+stop_unhealthy_docker_application_containers() {
+  local container status health restarts stopped=0
+  for container in aid-server aid-web aid-nginx aid-nginx-https aid-updater; do
+    status="$(docker inspect --format '{{.State.Status}}' "${container}" 2>/dev/null || true)"
+    [[ -n "${status}" ]] || continue
+    health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "${container}" 2>/dev/null || true)"
+    restarts="$(docker inspect --format '{{.RestartCount}}' "${container}" 2>/dev/null || echo 0)"
+    [[ "${restarts}" =~ ^[0-9]+$ ]] || restarts=0
+    if [[ "${status}" == "restarting" || "${health}" == "unhealthy" \
+        || "${health}" == "starting" && "${restarts}" -gt 0 ]]; then
+      docker stop "${container}" >/dev/null 2>&1 || true
+      warn "已停止上次部署遗留的异常容器: ${container}（status=${status}, health=${health:-无}, restarts=${restarts}）"
+      stopped=$((stopped + 1))
+    fi
+  done
+  (( stopped == 0 )) || ok "异常业务容器已止损；数据服务不受影响"
+}
+
 start_docker_application_stack() {
   validate_https_runtime
 
   section "启动 AID 后端并执行健康检查"
-  if ! compose_cmd up -d aid-server; then
+  if ! compose_cmd up -d aid-server || ! compose_cmd restart aid-server; then
     docker_container_diagnostics aid-server "AID 后端"
     stop_failed_docker_service aid-server "AID 后端"
     return 1
@@ -3765,7 +3783,7 @@ start_docker_application_stack() {
   fi
 
   section "启动 Web 用户端与 Nginx 网关"
-  if ! compose_cmd up -d aid-web; then
+  if ! compose_cmd up -d aid-web || ! compose_cmd restart aid-web; then
     docker_container_diagnostics aid-web "Web 用户端"
     stop_failed_docker_service aid-web "Web 用户端"
     return 1
@@ -3774,7 +3792,7 @@ start_docker_application_stack() {
     stop_failed_docker_service aid-web "Web 用户端"
     return 1
   fi
-  if ! compose_cmd up -d nginx; then
+  if ! compose_cmd up -d nginx || ! compose_cmd restart nginx; then
     docker_container_diagnostics aid-nginx "Nginx 网关"
     stop_failed_docker_service aid-nginx "Nginx 网关"
     return 1
@@ -3784,7 +3802,7 @@ start_docker_application_stack() {
     return 1
   fi
   if docker_profile_enabled https; then
-    if ! compose_cmd up -d nginx-https; then
+    if ! compose_cmd up -d nginx-https || ! compose_cmd restart nginx-https; then
       docker_container_diagnostics aid-nginx-https "HTTPS 入口"
       stop_failed_docker_service aid-nginx-https "HTTPS 入口"
       return 1
@@ -3798,7 +3816,7 @@ start_docker_application_stack() {
 
   if [[ "${AID_SKIP_UPDATER_RESTART:-0}" != "1" && -f "${DATA_ROOT}/app/updater/aid-updater" ]]; then
     section "启动在线升级器并执行健康检查"
-    if ! compose_cmd up -d aid-updater; then
+    if ! compose_cmd up -d aid-updater || ! compose_cmd restart aid-updater; then
       docker_container_diagnostics aid-updater "在线升级器"
       stop_failed_docker_service aid-updater "在线升级器"
       return 1
@@ -3901,6 +3919,7 @@ do_install_docker() {
   check_hardware docker "${mqPlan}"
 
   # 所有前置服务必须在主程序启动前独立达到健康状态。
+  stop_unhealthy_docker_application_containers
   if docker_profile_enabled mq; then
     mkdir -p "${DATA_ROOT}/rocketmq/broker-data" "${DATA_ROOT}/rocketmq/broker-logs" "${DATA_ROOT}/rocketmq/namesrv-logs"
     chown -R 3000:3000 "${DATA_ROOT}/rocketmq" 2>/dev/null || true
@@ -4490,6 +4509,7 @@ do_restart() {
       prepare_docker_runtime_images
       disable_internal_mysql_for_external \
         || die "外部 MySQL 未准备完成，配置未生效"
+      stop_unhealthy_docker_application_containers
       if docker_profile_enabled mq; then
         mkdir -p "${DATA_ROOT}/rocketmq/broker-data" "${DATA_ROOT}/rocketmq/broker-logs" "${DATA_ROOT}/rocketmq/namesrv-logs"
         chown -R 3000:3000 "${DATA_ROOT}/rocketmq" 2>/dev/null || true
