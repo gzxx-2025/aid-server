@@ -46,7 +46,7 @@ if command -v curl >/dev/null 2>&1; then curl -fL --retry 3 -o aid-install.sh ht
 
 配置是首次部署的强制前置步骤：脚本先生成正式配置文件，要求管理员检查、校验并明确确认；在确认完成前不会检查或安装环境、拉取三端源码、构建程序、初始化数据库或启动服务。无人值守部署必须同时设置 `AID_ASSUME_YES=1` 与 `AID_CONFIG_CONFIRMED=1`，避免流水线误用默认配置直接上线。
 
-生成配置文件不等于已经部署。即使管理员在最终确认处选择 `n`，再次执行 `sudo bash aid.sh install` 仍会继续走首次部署，不会误进入升级流程；只有服务健康检查成功后才记录已部署状态。
+生成配置文件不等于已经部署。即使管理员在最终确认处选择 `n`，再次执行 `sudo env AID_REMOTE_BOOTSTRAP=1 bash aid-install.sh install` 仍会继续走首次部署，不会误进入升级流程；受管安装器一旦落盘就会创建 `sudo aid` 恢复命令，只有服务健康检查成功后才记录已部署状态。
 
 > 默认渠道为 `auto`：有正式版时安装正式版；尚无正式版时才选择最新 Beta，并用黄色/红色信息明确提醒。明确需要测试版时，在一行命令的 `sudo env` 后增加 `AID_RELEASE_CHANNEL=beta`。生产服务器不要长期使用 Beta 渠道。
 
@@ -112,9 +112,9 @@ sudo env AID_REMOTE_BOOTSTRAP=1 AID_RELEASE_CHANNEL=beta bash aid-install.sh upd
 - **资源全部可调**：后端 JVM、MySQL 缓冲池、Redis 内存上限、RocketMQ Broker/NameServer 内存（镜像默认 8G 大堆已按 1G 覆盖）在部署时逐项询问，回车用默认值
 - **自动更新（菜单 3）**：按已保存渠道读取最新版本；相同版本直接提示已是最新，远端版本较低时拒绝自动降级；确认后才拉取标签并构建，且**升级前自动做完整备份**（程序产物 + 数据库全量 + 版本标记，保留最近 3 份）；构建包内增量 SQL 自动执行
 - **回滚（菜单 4）**：从最近 3 份升级前备份中选择还原——程序产物直接还原；数据库默认不还原（避免丢失升级后产生的业务数据），需要时显式确认还原；回滚前还会对当前状态再做一份保护备份，误操作可救
-- **在线升级器自动安装**：源码构建包内置当前版本升级器二进制，两种部署方式首次部署都会自动装好（Docker 为编排内 `aid-updater` 容器，手动为 systemd 服务），部署完成即可用后台页面一键升级；损坏时菜单 11（或 `sudo bash aid.sh setup-updater`）一键修复
+- **在线升级器自动安装**：源码构建包内置当前版本升级器二进制，两种部署方式首次部署都会自动装好（Docker 为编排内 `aid-updater` 容器，手动为 systemd 服务），部署完成即可用后台页面一键升级；损坏时菜单 11（或 `sudo aid setup-updater`）会从签名清单下载当前架构的小型升级器并完成健康检查
 - **密钥自动生成**：数据库密码、JWT 密钥留空自动生成强随机值
-- 也支持直通子命令：`sudo bash aid.sh install` / `update` / `backup` / `restart` / `status` / `default` / `logs` / `rollback` / `setup-updater` / `uninstall`
+- 受管安装器支持统一直通子命令：`sudo aid update` / `backup` / `restart` / `status` / `default` / `logs` / `rollback` / `setup-updater` / `uninstall`，不受当前工作目录影响
 - 明确授权的无人值守环境可设置 `AID_ASSUME_YES=1` 跳过部署或升级确认；该变量会绕过风险确认，**不要在交互式生产运维中长期配置**
 
 ### 卸载 AID
@@ -178,7 +178,7 @@ Docker Hub 代理由正式配置项 `DOCKER_MIRRORS` 管理，默认候选为 `d
 
 三端构建不再隐藏 Maven 输出，并会分别打印服务端、后台管理端、Web 用户端的依赖安装、编译和完成状态。通过 `aid.sh` 部署或更新时，终端实时显示同一份日志，并以 `source-build-v<版本>-<时间>.log` 保存到 `/data/aid/logs/`；后台一键升级时，相同输出会进入升级器的 `updater.log`。
 
-只有离线部署或开发调试时才需要自行准备本地包，可通过 `sudo bash aid.sh install-docker /path/to/aid-vX.Y.Z.tar.gz` 使用。因为外部本地包不在在线签名链路中，脚本会以红色风险信息提示，只做结构校验。
+只有离线部署或开发调试时才需要自行准备本地包，已安装环境可通过 `sudo aid install-docker /path/to/aid-vX.Y.Z.tar.gz` 使用；首次离线安装则执行实际下载到的脚本绝对路径。因为外部本地包不在在线签名链路中，脚本会以红色风险信息提示，只做结构校验。
 
 服务器构建出的本地包 `/data/aid/packages/aid-vX.Y.Z.tar.gz` 布局：
 
@@ -366,7 +366,7 @@ DB_PASSWORD=请填写真实强密码
 
 ### 备份与恢复
 
-菜单 10（或 `sudo bash aid.sh backup`）备份数据库全量 + 上传文件 + 部署配置到 `/data/aid/backups/<时间戳>/`，自动清理 7 天前的备份。每日自动备份：
+菜单 10（或 `sudo aid backup`）备份数据库全量 + 上传文件 + 部署配置到 `/data/aid/backups/<时间戳>/`，自动清理 7 天前的备份。每日自动备份：
 
 ```bash
 crontab -e   # 追加：
@@ -499,11 +499,13 @@ aid-updater 让后台「项目升级配置」页具备一键升级/回退能力�
 **升级器异常时的修复方式**（后台页面「安装升级器 / 修复引导」弹窗也会提示同样的命令，并展示升级器运行日志辅助排查）：
 
 ```bash
+sudo aid setup-updater
+
+# 如 sudo aid 曾因早期部署中断而未创建，使用固定受管路径恢复：
 sudo bash /data/aid/installer/deploy/aid.sh setup-updater
-# 或重新执行最初下载的 aid.sh，它会自动切换到受管脚本
 ```
 
-命令自动识别部署方式，重新放置二进制、重写配置并重启升级器，幂等可反复执行。
+命令自动识别 Docker/systemd 部署方式，先校验官方签名清单，再按 amd64/arm64 下载小型升级器制品并强制核对 SHA256，随后重写配置、重启服务并等待健康上报。任何一步失败都会明确报错，不会误报“已安装”。`sudo aid update` 也会在构建或替换主程序前先完成同样的升级器检查。
 
 > 老环境/离线场景仍可用 `install-updater.sh` 手工安装（把 Release 附件里的
 > `aid-updater_<版本>_linux_amd64.tar.gz` 解压到 deploy 目录后 `sudo bash install-updater.sh`），

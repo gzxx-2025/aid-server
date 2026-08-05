@@ -12,8 +12,11 @@ source "${ROOT_DIR}/deploy/aid.sh"
 
 TRACE_FILE="${TMP_ROOT}/trace.txt"
 ENV_FILE="${TMP_ROOT}/docker.env"
+UPDATER_DATA_DIR="${TMP_ROOT}/updater-data"
+mkdir -p "${UPDATER_DATA_DIR}"
 mkdir -p "${DATA_ROOT}/app/updater" "${DATA_ROOT}/app/web-dist/server"
 touch "${DATA_ROOT}/app/updater/aid-updater" "${DATA_ROOT}/app/web-dist/server/index.mjs"
+chmod 0755 "${DATA_ROOT}/app/updater/aid-updater"
 
 trace() { printf '%s\n' "$*" >> "${TRACE_FILE}"; }
 reset_trace() { : > "${TRACE_FILE}"; }

@@ -10,6 +10,9 @@ export AID_DATA_ROOT="${TMP_ROOT}/data"
 # shellcheck source=../aid.sh
 source "${ROOT_DIR}/deploy/aid.sh"
 
+# 本用例聚焦主应用与中间件的同版本恢复分支，升级器安装序列由 updater-recovery-test 覆盖。
+updater_runtime_ready() { return 0; }
+
 TRACE_FILE="${TMP_ROOT}/trace.txt"
 trace() { printf '%s\n' "$*" >> "${TRACE_FILE}"; }
 reset_trace() { : > "${TRACE_FILE}"; }
@@ -103,6 +106,8 @@ resolve_official_release() {
   RESOLVED_CHANNEL=beta
   REQUESTED_RELEASE_CHANNEL=beta
 }
+ensure_official_updater_binary() { trace updater-binary-first; }
+setup_updater() { trace "updater-start-first:$1"; }
 version_compare() { echo 0; }
 deployment_application_ready() { return 1; }
 deployment_artifacts_ready() { return 0; }
@@ -116,6 +121,6 @@ warn() { :; }
 
 reset_trace
 do_update
-assert_trace $'restart-with-preflight\nstate:DEPLOY_MODE=docker\nstate:DATA_ROOT='"${DATA_ROOT}"$'\nstate:CURRENT_VERSION=1.0.0-beta.2\nstate:RELEASE_CHANNEL=beta\nmanagement-command\naccess-info'
+assert_trace $'updater-binary-first\nupdater-start-first:docker\nmanagement-command\nrestart-with-preflight\nstate:DEPLOY_MODE=docker\nstate:DATA_ROOT='"${DATA_ROOT}"$'\nstate:CURRENT_VERSION=1.0.0-beta.2\nstate:RELEASE_CHANNEL=beta\nmanagement-command\naccess-info'
 
 echo 'same-version recovery tests passed'

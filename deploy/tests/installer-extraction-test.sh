@@ -9,6 +9,8 @@ export AID_DATA_ROOT="${TMP_ROOT}/data"
 export AID_SH_LIBRARY_MODE=1
 # shellcheck source=../aid.sh
 source "${ROOT_DIR}/deploy/aid.sh"
+# 单元测试不写宿主机 /usr/local/bin，只验证安装器落盘与交接逻辑。
+install_management_command() { :; }
 
 STAGING_DIR="${TMP_ROOT}/staging"
 mkdir -p "${STAGING_DIR}/backend" "${STAGING_DIR}/web-dist/server" \

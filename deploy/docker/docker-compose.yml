@@ -207,7 +207,7 @@ services:
     # 自升级完成后进程主动退出，由 docker 拉起新版本
     restart: always
     logging: *default-logging
-    command: sh -c "BIN=${DATA_ROOT:-/data/aid}/app/updater/aid-updater; if [ -x \"$$BIN\" ] && [ -f /etc/aid-updater/config.json ]; then exec \"$$BIN\" -config /etc/aid-updater/config.json; else echo '升级器未就绪（缺二进制 app/updater/aid-updater 或配置 /etc/aid-updater/config.json，执行 aid.sh setup-updater 修复），容器保活等待'; exec sleep infinity; fi"
+    command: sh -c "BIN=${DATA_ROOT:-/data/aid}/app/updater/aid-updater; if [ -x \"$$BIN\" ] && [ -f /etc/aid-updater/config.json ]; then exec \"$$BIN\" -config /etc/aid-updater/config.json; else echo '升级器未就绪（缺二进制 app/updater/aid-updater 或配置 /etc/aid-updater/config.json，执行 sudo aid setup-updater 修复），容器保活等待'; exec sleep infinity; fi"
     environment:
       TZ: Asia/Shanghai
     volumes:

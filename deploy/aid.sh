@@ -139,7 +139,7 @@ section() {
   echo -e "${C_CYAN}${C_BOLD}==================== $1 ====================${C_RESET}"
 }
 
-require_root() { [[ "$(id -u)" -eq 0 ]] || die "请使用 root 执行（sudo bash aid.sh）"; }
+require_root() { [[ "$(id -u)" -eq 0 ]] || die "请使用 root 执行（已部署环境使用 sudo aid <子命令>）"; }
 
 # 配置读写：key=value 存于 ${CONF}
 conf_get() { # conf_get <key> <默认值>
@@ -2004,6 +2004,30 @@ docker_container_running_healthy() { # docker_container_running_healthy <容器�
   [[ -z "${health}" || "${health}" == "healthy" ]]
 }
 
+updater_health_fresh() {
+  local modified now
+  [[ -s "${UPDATER_DATA_DIR:-/var/lib/aid-updater}/health.json" ]] || return 1
+  modified="$(stat -c '%Y' "${UPDATER_DATA_DIR:-/var/lib/aid-updater}/health.json" 2>/dev/null || echo 0)"
+  now="$(date +%s)"
+  [[ "${modified}" =~ ^[0-9]+$ ]] && (( now - modified < 60 ))
+}
+
+updater_runtime_ready() { # updater_runtime_ready <docker|manual>
+  local mode="$1"
+  [[ -x "${DATA_ROOT}/app/updater/aid-updater" && -s "${UPDATER_CONFIG_FILE:-/etc/aid-updater/config.json}" ]] \
+    || return 1
+  case "${mode}" in
+    docker) docker_container_running_healthy aid-updater && updater_health_fresh ;;
+    manual)
+      [[ -x /usr/local/bin/aid-updater ]] \
+        && systemctl list-unit-files 2>/dev/null | grep -q '^aid-updater\.service' \
+        && systemctl is-active --quiet aid-updater \
+        && updater_health_fresh
+      ;;
+    *) return 1 ;;
+  esac
+}
+
 deployment_application_ready() { # deployment_application_ready <docker|manual>
   local mode="$1" container
   case "${mode}" in
@@ -2024,9 +2048,7 @@ deployment_application_ready() { # deployment_application_ready <docker|manual>
       if docker_profile_enabled https; then
         docker_container_running_healthy aid-nginx-https || return 1
       fi
-      if [[ -f "${DATA_ROOT}/app/updater/aid-updater" ]]; then
-        docker_container_running_healthy aid-updater || return 1
-      fi
+      updater_runtime_ready docker || return 1
       ;;
     manual)
       systemctl is-active --quiet aid || return 1
@@ -2035,9 +2057,7 @@ deployment_application_ready() { # deployment_application_ready <docker|manual>
       fi
       select_existing_nginx_runtime >/dev/null 2>&1 || return 1
       nginx_runtime_active || return 1
-      if systemctl list-unit-files 2>/dev/null | grep -q '^aid-updater\.service'; then
-        systemctl is-active --quiet aid-updater || return 1
-      fi
+      updater_runtime_ready manual || return 1
       ;;
     *) return 1 ;;
   esac
@@ -2768,6 +2788,85 @@ json_signature_string() { # json_signature_string <文件> <字段>
     | sed -E 's/^[[:space:]]*"[^"]+"[[:space:]]*:[[:space:]]*"//; s/"[[:space:]]*,?[[:space:]]*$//'
 }
 
+# 从发布工具生成的格式化 latest.json 中读取指定渠道、平台的升级器制品字段。
+# 只解析已经 verify_manifest_signature 校验过的本地清单，不接受任意 JSON 输入。
+json_updater_package_string() { # json_updater_package_string <清单> <stable|beta> <linux_amd64|linux_arm64> <url|sha256|mirror>
+  local manifest="$1" channel="$2" platform="$3" field="$4"
+  awk -v channel="${channel}" -v platform="${platform}" -v field="${field}" '
+    BEGIN {
+      selected = (channel == "stable")
+      inBeta = 0
+      prefix = (channel == "beta") ? "    " : "  "
+    }
+    {
+      line = $0
+      if (channel == "beta") {
+        if (line ~ /^  "beta"[[:space:]]*:[[:space:]]*\{/) { selected = 1; next }
+        if (selected && line ~ /^  \},?[[:space:]]*$/) exit
+      } else {
+        if (line ~ /^  "beta"[[:space:]]*:[[:space:]]*\{/) { inBeta = 1; next }
+        if (inBeta) {
+          if (line ~ /^  \},?[[:space:]]*$/) inBeta = 0
+          next
+        }
+      }
+      if (!selected) next
+      if (line ~ ("^" prefix "\"updater\"[[:space:]]*:[[:space:]]*\\{")) { inUpdater = 1; next }
+      if (!inUpdater) next
+      if (line ~ ("^" prefix "  \"packages\"[[:space:]]*:[[:space:]]*\\{")) { inPackages = 1; next }
+      if (!inPackages) next
+      if (line ~ ("^" prefix "    \"" platform "\"[[:space:]]*:[[:space:]]*\\{")) { inPlatform = 1; next }
+      if (!inPlatform) next
+      if (field == "mirror" && line ~ ("^" prefix "      \"mirrors\"[[:space:]]*:")) { inMirrors = 1; next }
+      if (field == "mirror" && inMirrors && line ~ ("^" prefix "        \"https://")) {
+        value = line
+        sub(/^[[:space:]]*"/, "", value); sub(/"[[:space:]]*,?[[:space:]]*$/, "", value)
+        gsub(/\\\//, "/", value); print value; exit
+      }
+      if (field != "mirror" && line ~ ("^" prefix "      \"" field "\"[[:space:]]*:")) {
+        value = line
+        sub(/^[^:]+:[[:space:]]*"/, "", value); sub(/"[[:space:]]*,?[[:space:]]*$/, "", value)
+        gsub(/\\\//, "/", value); print value; exit
+      }
+    }
+  ' "${manifest}"
+}
+
+json_updater_version() { # json_updater_version <清单> <stable|beta>
+  local manifest="$1" channel="$2"
+  awk -v channel="${channel}" '
+    BEGIN { selected = (channel == "stable"); inBeta = 0; prefix = (channel == "beta") ? "    " : "  " }
+    {
+      line = $0
+      if (channel == "beta") {
+        if (line ~ /^  "beta"[[:space:]]*:[[:space:]]*\{/) { selected = 1; next }
+        if (selected && line ~ /^  \},?[[:space:]]*$/) exit
+      } else {
+        if (line ~ /^  "beta"[[:space:]]*:[[:space:]]*\{/) { inBeta = 1; next }
+        if (inBeta) { if (line ~ /^  \},?[[:space:]]*$/) inBeta = 0; next }
+      }
+      if (!selected) next
+      if (line ~ ("^" prefix "\"updater\"[[:space:]]*:[[:space:]]*\\{")) { inUpdater = 1; next }
+      if (inUpdater && line ~ ("^" prefix "  \"version\"[[:space:]]*:")) {
+        value = line
+        sub(/^[^:]+:[[:space:]]*"/, "", value); sub(/"[[:space:]]*,?[[:space:]]*$/, "", value)
+        print value; exit
+      }
+    }
+  ' "${manifest}"
+}
+
+manifest_payload_contains_updater() { # manifest_payload_contains_updater <清单> <版本> <URL> <SHA256>
+  local manifest="$1" version="$2" url="$3" sha256="$4" payloadB64 payload
+  command -v base64 >/dev/null 2>&1 || return 0
+  payloadB64="$(json_signature_string "${manifest}" payload)"
+  [[ -n "${payloadB64}" ]] || return 1
+  payload="$(printf '%s' "${payloadB64}" | base64 -d 2>/dev/null)" || return 1
+  grep -Fq "\"version\":\"${version}\"" <<< "${payload}" \
+    && grep -Fq "\"url\":\"${url}\"" <<< "${payload}" \
+    && grep -Fq "\"sha256\":\"${sha256}\"" <<< "${payload}"
+}
+
 verify_manifest_signature() { # verify_manifest_signature <清单> <版本>
   local manifest="$1" version="$2"
   local payloadB64 signatureB64 algorithm tmpDir payloadFile signatureFile publicKeyFile
@@ -3108,6 +3207,9 @@ handoff_to_managed_installer() { # handoff_to_managed_installer <原始参数...
     else
       ok "已启用远程最新引导脚本，不切换到旧版受管 aid.sh"
     fi
+    # 受管脚本一旦存在就立即恢复统一命令，即使上次部署在服务启动前中断，
+    # 用户也可以直接用 sudo aid setup-updater/status/restart 继续排障。
+    [[ -f "${MANAGED_SCRIPT}" ]] && install_management_command
     return 0
   fi
   if [[ -f "${MANAGED_SCRIPT}" && "${SCRIPT_DIR}" != "${managedDir}" \
@@ -3203,6 +3305,7 @@ bootstrap_installer_if_needed() { # bootstrap_installer_if_needed <发布包> <i
   chmod 700 "${MANAGED_SCRIPT}" 2>/dev/null || true
   [[ -f "${MANAGED_SCRIPT}" ]] || die "安装器落盘失败: ${MANAGED_SCRIPT}"
   ok "完整安装器已安全落盘: ${INSTALLER_ROOT}"
+  install_management_command
   export AID_RELEASE_CHANNEL="${REQUESTED_RELEASE_CHANNEL:-${RESOLVED_CHANNEL:-auto}}"
   export AID_TRUSTED_SOURCE_PACKAGE=1
   exec bash "${MANAGED_SCRIPT}" "${action}" "${package}"
@@ -4054,6 +4157,75 @@ place_updater_binary() { # place_updater_binary <包根目录>
   ok "升级器二进制已就位: ${DATA_ROOT}/app/updater/aid-updater"
 }
 
+# 从已签名官方清单中按宿主机架构取得小型升级器包。这条路径不构建三端，
+# 专用于老环境补装、升级器损坏恢复，以及主程序升级前的升级器优先更新。
+ensure_official_updater_binary() {
+  local platform updaterVersion currentVersion url mirror sha256 archive listFile extractDir source actual
+  local downloaded="no"
+  case "$(uname -m)" in
+    x86_64) platform="linux_amd64" ;;
+    aarch64) platform="linux_arm64" ;;
+    *) die "升级器不支持当前架构: $(uname -m)" ;;
+  esac
+  [[ -n "${RESOLVED_MANIFEST_PATH:-}" && -f "${RESOLVED_MANIFEST_PATH}" ]] || resolve_official_release
+  updaterVersion="$(json_updater_version "${RESOLVED_MANIFEST_PATH}" "${RESOLVED_CHANNEL}")"
+  url="$(json_updater_package_string "${RESOLVED_MANIFEST_PATH}" "${RESOLVED_CHANNEL}" "${platform}" url)"
+  mirror="$(json_updater_package_string "${RESOLVED_MANIFEST_PATH}" "${RESOLVED_CHANNEL}" "${platform}" mirror)"
+  sha256="$(json_updater_package_string "${RESOLVED_MANIFEST_PATH}" "${RESOLVED_CHANNEL}" "${platform}" sha256 | tr 'A-F' 'a-f')"
+  release_fields_valid "${updaterVersion}" "${url}" "${sha256}" \
+    || die "官方清单缺少 ${platform} 升级器制品"
+  manifest_payload_contains_updater "${RESOLVED_MANIFEST_PATH}" "${updaterVersion}" "${url}" "${sha256}" \
+    || die "升级器制品与签名清单载荷不一致"
+
+  currentVersion="$("${DATA_ROOT}/app/updater/aid-updater" -version 2>/dev/null || true)"
+  if [[ "${currentVersion}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] \
+      && [[ "$(version_compare "${currentVersion}" "${updaterVersion}")" != "-1" ]]; then
+    ok "升级器 ${currentVersion} 已存在且版本符合，跳过下载"
+    return 0
+  fi
+
+  require_download_tools
+  mkdir -p "${DATA_ROOT}/packages" "${DATA_ROOT}/app/updater"
+  archive="${DATA_ROOT}/packages/aid-updater_${updaterVersion}_${platform}.tar.gz"
+  for source in "${url}" "${mirror}"; do
+    [[ -n "${source}" ]] || continue
+    if try_download "${source}" "${archive}" "AID 升级器 ${updaterVersion}（${platform}）" sha256 "${sha256}"; then
+      downloaded="yes"
+      break
+    fi
+    warn "升级器当前下载地址不可用，切换备用地址"
+  done
+  [[ "${downloaded}" == "yes" ]] || die "AID 升级器 ${updaterVersion} 下载失败"
+  actual="$(sha256_file "${archive}" || true)"
+  [[ "${actual}" == "${sha256}" ]] || die "AID 升级器 SHA256 校验失败"
+
+  listFile="$(mktemp)"
+  if ! tar -tzf "${archive}" > "${listFile}" 2>/dev/null \
+      || [[ "$(grep -Ec '^(\./)?aid-updater$' "${listFile}")" -ne 1 ]] \
+      || [[ "$(wc -l < "${listFile}")" -ne 1 ]] \
+      || tar -tvzf "${archive}" 2>/dev/null | awk 'substr($1,1,1) != "-" { bad=1 } END { exit(bad ? 0 : 1) }'; then
+    rm -f -- "${listFile}"
+    rm -f -- "${archive}"
+    die "升级器压缩包结构不安全，已拒绝解压"
+  fi
+  rm -f -- "${listFile}"
+  extractDir="$(mktemp -d "${DATA_ROOT}/packages/.updater-extract.XXXXXX")"
+  if ! tar --no-same-owner --no-same-permissions -xzf "${archive}" -C "${extractDir}"; then
+    rm -rf -- "${extractDir}"
+    die "升级器压缩包解压失败"
+  fi
+  source="${extractDir}/aid-updater"
+  [[ -f "${source}" && ! -L "${source}" ]] \
+    || { rm -rf -- "${extractDir}"; die "升级器压缩包缺少可执行文件"; }
+  install -m 0755 "${source}" "${DATA_ROOT}/app/updater/aid-updater" \
+    || { rm -rf -- "${extractDir}"; die "升级器二进制落盘失败"; }
+  rm -rf -- "${extractDir}"
+  currentVersion="$("${DATA_ROOT}/app/updater/aid-updater" -version 2>/dev/null || true)"
+  [[ "${currentVersion}" == "${updaterVersion}" ]] \
+    || die "升级器二进制版本校验失败"
+  ok "升级器 ${updaterVersion} 已从官方发布制品安全恢复"
+}
+
 # ----------------------------------------------------------------------------
 # 升级器（aid-updater）安装：两种部署方式自动完成，页面即可一键升级
 #   docker 模式 → compose 内 aid-updater 容器运行（写配置即可，容器随编排拉起）
@@ -4146,16 +4318,25 @@ EOF
 
 # 安装/修复升级器（幂等；两种部署方式通用）
 setup_updater() { # setup_updater <docker|manual>
-  local mode="$1"
-  if [[ ! -f "${DATA_ROOT}/app/updater/aid-updater" ]]; then
-    warn "发布包未携带升级器二进制，跳过升级器安装（页面一键升级不可用，可手动升级）"
-    return 0
-  fi
+  local mode="$1" deadline
+  [[ -x "${DATA_ROOT}/app/updater/aid-updater" ]] \
+    || { err "缺少升级器二进制: ${DATA_ROOT}/app/updater/aid-updater"; return 1; }
   write_updater_config "${mode}"
+  # 清除旧心跳，本次必须由新进程重新上报，避免 60 秒窗口内将启动失败误判为健康。
+  rm -f -- "${UPDATER_DATA_DIR}/health.json"
   if [[ "${mode}" == "docker" ]]; then
-    # 容器模式：配置就位后（重新）拉起升级器容器即可
-    compose_cmd up -d aid-updater >/dev/null 2>&1 || true
-    compose_cmd restart aid-updater >/dev/null 2>&1 || true
+    # 容器模式：任何 Compose 或健康检查错误都必须返回失败，禁止误报“已启动”。
+    ensure_docker_image "docker:27-cli" "升级器Docker客户端"
+    section "安装/修复 Docker 在线升级器"
+    if ! compose_cmd up -d aid-updater || ! compose_cmd restart aid-updater; then
+      docker_container_diagnostics aid-updater "在线升级器"
+      stop_failed_docker_service aid-updater "在线升级器"
+      return 1
+    fi
+    if ! wait_docker_container_healthy aid-updater "在线升级器" 120; then
+      stop_failed_docker_service aid-updater "在线升级器"
+      return 1
+    fi
   else
     install -m 0755 "${DATA_ROOT}/app/updater/aid-updater" /usr/local/bin/aid-updater
     cat > /etc/systemd/system/aid-updater.service <<'EOF'
@@ -4179,7 +4360,18 @@ WantedBy=multi-user.target
 EOF
     systemctl daemon-reload
     systemctl enable aid-updater >/dev/null 2>&1 || true
-    systemctl restart aid-updater
+    systemctl restart aid-updater || { manual_service_diagnostics aid-updater "在线升级器"; return 1; }
+    deadline=$(( $(date +%s) + 60 ))
+    while [[ $(date +%s) -lt ${deadline} ]]; do
+      updater_runtime_ready manual && break
+      systemctl is-active --quiet aid-updater \
+        || { manual_service_diagnostics aid-updater "在线升级器"; return 1; }
+      sleep 2
+    done
+    if ! updater_runtime_ready manual; then
+      manual_service_diagnostics aid-updater "在线升级器（健康上报超时）"
+      return 1
+    fi
   fi
   ok "升级器已安装并启动（后台「项目升级配置」页可看到运行状态）"
 }
@@ -4635,7 +4827,10 @@ start_docker_application_stack() {
     fi
   fi
 
-  if [[ "${AID_SKIP_UPDATER_RESTART:-0}" != "1" && -f "${DATA_ROOT}/app/updater/aid-updater" ]]; then
+  if [[ "${AID_SKIP_UPDATER_RESTART:-0}" != "1" ]]; then
+    [[ -x "${DATA_ROOT}/app/updater/aid-updater" ]] \
+      || { err "在线升级器二进制未就位，拒绝完成不可升级的部署"; return 1; }
+    rm -f -- "${UPDATER_DATA_DIR}/health.json"
     section "启动在线升级器并执行健康检查"
     if ! compose_cmd up -d aid-updater || ! compose_cmd restart aid-updater; then
       docker_container_diagnostics aid-updater "在线升级器"
@@ -5305,6 +5500,12 @@ do_update() {
   else
     resolve_official_release
     target="${RESOLVED_VERSION}"
+    # 升级器是主程序升级的执行与回滚代理，必须优先恢复/更新并通过健康检查。
+    # 这里只下载当前架构的小型升级器制品，不会提前构建或替换三端主程序。
+    section "主程序升级前检查在线升级器"
+    ensure_official_updater_binary
+    setup_updater "${mode}" || die "升级器未就绪，主程序升级已中止"
+    install_management_command
     if [[ "${current}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
       comparison="$(version_compare "${target}" "${current}")"
       if [[ "${comparison}" == "0" ]]; then
@@ -5417,15 +5618,7 @@ do_update() {
   refresh_managed_installer "${package}" || die "新版部署模板刷新失败，服务尚未重启"
   do_restart
   wait_backend_healthy || die "新版本未就绪，可执行菜单「回滚到升级前备份」还原: ${backupDir}"
-  # 包内携带新版升级器二进制时重启升级器使其生效（未安装过则跳过）
-  if [[ -f "${DATA_ROOT}/app/updater/aid-updater" && -f "${UPDATER_CONFIG_FILE}" ]]; then
-    if [[ "${mode}" == "docker" ]]; then
-      compose_cmd restart aid-updater >/dev/null 2>&1 || true
-    else
-      install -m 0755 "${DATA_ROOT}/app/updater/aid-updater" /usr/local/bin/aid-updater 2>/dev/null || true
-      systemctl restart aid-updater 2>/dev/null || true
-    fi
-  fi
+  updater_runtime_ready "${mode}" || die "主程序已更新，但升级器健康检查未通过"
   target="$(current_version)"
   [[ "${target}" == "未知" ]] && target="${RESOLVED_VERSION:-$(version_from_package "${package}")}"
   targetChannel="${REQUESTED_RELEASE_CHANNEL:-$(state_get RELEASE_CHANNEL auto)}"
@@ -5784,6 +5977,7 @@ do_status() {
     manual)
       systemctl --no-pager --lines 0 status aid 2>/dev/null | head -n 5 || true
       systemctl --no-pager --lines 0 status aid-web 2>/dev/null | head -n 5 || true
+      systemctl --no-pager --lines 0 status aid-updater 2>/dev/null | head -n 5 || true
       ;;
     *) warn "尚未部署" ;;
   esac
@@ -5819,9 +6013,12 @@ do_logs() {
         fi
       else warn "手动部署的 MySQL 日志位置取决于你的安装方式"; fi ;;
     5)
+      if [[ "${mode}" == "docker" ]]; then
+        if docker inspect aid-updater >/dev/null 2>&1; then docker logs -f --tail 100 aid-updater
+        else warn "Docker 升级器未安装（修复: sudo aid setup-updater）"; fi
       # 先判断服务是否安装，避免 Ctrl+C 退出日志跟踪时误报"未安装"
-      if systemctl list-unit-files 2>/dev/null | grep -q '^aid-updater\.service'; then journalctl -u aid-updater -f -n 100
-      else warn "升级器未安装（安装: sudo bash ${SCRIPT_DIR}/install-updater.sh）"; fi ;;
+      elif systemctl list-unit-files 2>/dev/null | grep -q '^aid-updater\.service'; then journalctl -u aid-updater -f -n 100
+      else warn "systemd 升级器未安装（修复: sudo aid setup-updater）"; fi ;;
     *) warn "无效选择" ;;
   esac
 }
@@ -5863,10 +6060,16 @@ do_setup_updater() {
   require_root
   local mode; mode="$(detect_mode)"
   [[ "${mode}" != "none" ]] || die "尚未部署，首次部署会自动安装升级器"
-  if [[ ! -f "${DATA_ROOT}/app/updater/aid-updater" ]]; then
-    die "缺少升级器二进制 ${DATA_ROOT}/app/updater/aid-updater（当前部署的发布包版本过旧，请先菜单「更新」到新版本）"
+  if [[ "${mode}" == "docker" ]]; then
+    require_docker_runtime
+    ensure_env_file
+  else
+    ensure_conf_file
   fi
-  setup_updater "${mode}"
+  resolve_official_release
+  ensure_official_updater_binary
+  setup_updater "${mode}" || die "升级器安装/修复失败，请查看上方诊断日志"
+  install_management_command
   log "后台「项目升级配置 → 重新检测」即可看到升级器运行状态"
 }
 
