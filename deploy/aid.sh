@@ -1570,6 +1570,60 @@ current_version() {
   echo "${version:-$(state_get CURRENT_VERSION '未知')}"
 }
 
+# 版本号只能说明本地已有对应产物，不能代表服务已经成功启动。这里单独检查
+# 应用栈运行状态，供重复执行 install/update 时决定是直接退出还是进入自愈。
+docker_container_running_healthy() { # docker_container_running_healthy <容器名>
+  local container="$1" status health
+  status="$(docker inspect --format '{{.State.Status}}' "${container}" 2>/dev/null || true)"
+  [[ "${status}" == "running" ]] || return 1
+  health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "${container}" 2>/dev/null || true)"
+  [[ -z "${health}" || "${health}" == "healthy" ]]
+}
+
+deployment_application_ready() { # deployment_application_ready <docker|manual>
+  local mode="$1" container
+  case "${mode}" in
+    docker)
+      for container in aid-server aid-web aid-nginx; do
+        docker_container_running_healthy "${container}" || return 1
+      done
+      if docker_profile_enabled mysql; then
+        docker_container_running_healthy aid-mysql || return 1
+      fi
+      if docker_profile_enabled redis; then
+        docker_container_running_healthy aid-redis || return 1
+      fi
+      if docker_profile_enabled mq; then
+        docker_container_running_healthy aid-rocketmq-nameserver || return 1
+        docker_container_running_healthy aid-rocketmq-broker || return 1
+      fi
+      if docker_profile_enabled https; then
+        docker_container_running_healthy aid-nginx-https || return 1
+      fi
+      if [[ -f "${DATA_ROOT}/app/updater/aid-updater" ]]; then
+        docker_container_running_healthy aid-updater || return 1
+      fi
+      ;;
+    manual)
+      systemctl is-active --quiet aid || return 1
+      if [[ -f "${DATA_ROOT}/app/web-dist/server/index.mjs" ]]; then
+        systemctl is-active --quiet aid-web || return 1
+      fi
+      systemctl is-active --quiet nginx || return 1
+      if systemctl list-unit-files 2>/dev/null | grep -q '^aid-updater\.service'; then
+        systemctl is-active --quiet aid-updater || return 1
+      fi
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+deployment_artifacts_ready() {
+  [[ -s "${DATA_ROOT}/app/aid-admin.jar" \
+     && -f "${DATA_ROOT}/app/admin-dist/index.html" \
+     && -f "${DATA_ROOT}/app/web-dist/server/index.mjs" ]]
+}
+
 # ----------------------------------------------------------------------------
 # 官方版本发现、签名核验、源码构建与单文件自举
 # ----------------------------------------------------------------------------
@@ -4280,7 +4334,7 @@ do_install_manual() {
 # ----------------------------------------------------------------------------
 do_update() {
   require_root
-  local mode package supplied current target comparison go backupDir dist old f targetChannel
+  local mode package supplied current target comparison go backupDir dist old f targetChannel repairMode=0
   mode="$(detect_mode)"
   [[ "${mode}" != "none" ]] || die "尚未部署，请先执行首次部署"
   # 先用当前远程引导脚本/受管模板补齐旧配置；仅追加缺失键，原值不变且同目录留备份。
@@ -4305,8 +4359,24 @@ do_update() {
     if [[ "${current}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
       comparison="$(version_compare "${target}" "${current}")"
       if [[ "${comparison}" == "0" ]]; then
-        ok "当前已是 ${RESOLVED_CHANNEL} 渠道最新版: ${current}"
-        return 0
+        if deployment_application_ready "${mode}"; then
+          ok "当前已是 ${RESOLVED_CHANNEL} 渠道最新版且服务运行正常: ${current}"
+          return 0
+        fi
+        if deployment_artifacts_ready; then
+          warn "当前产物已是 ${RESOLVED_CHANNEL} 渠道最新版 ${current}，但服务未完整运行，开始执行同版本自愈启动"
+          do_restart
+          state_set DEPLOY_MODE "${mode}"
+          state_set DATA_ROOT "${DATA_ROOT}"
+          state_set CURRENT_VERSION "${current}"
+          state_set RELEASE_CHANNEL "${REQUESTED_RELEASE_CHANNEL:-$(state_get RELEASE_CHANNEL auto)}"
+          install_management_command
+          ok "同版本自愈完成，AID 服务已恢复运行"
+          print_access_info
+          return 0
+        fi
+        repairMode=1
+        warn "当前记录为最新版 ${current}，但服务未运行且程序产物不完整，将重新取得同版本发布包修复部署"
       fi
       if [[ "${comparison}" == "-1" ]]; then
         risk "远端版本 ${target} 低于当前版本 ${current}，自动更新绝不会执行降级"
@@ -4318,17 +4388,29 @@ do_update() {
     fi
   fi
 
-  section "版本升级确认"
+  if [[ "${repairMode}" == "1" ]]; then
+    section "同版本部署修复确认"
+  else
+    section "版本升级确认"
+  fi
   echo -e "  当前版本 : ${C_YELLOW}${current}${C_RESET}"
   echo -e "  目标版本 : ${C_GREEN}${target}${C_RESET} (${RESOLVED_CHANNEL:-本地包})"
-  risk "升级会短暂停止服务，并可能执行包内增量 SQL；请勿在生成任务运行期间操作"
+  if [[ "${repairMode}" == "1" ]]; then
+    risk "修复会重新放置当前版本程序产物并重启服务；数据库数据与已有配置不会被删除"
+  else
+    risk "升级会短暂停止服务，并可能执行包内增量 SQL；请勿在生成任务运行期间操作"
+  fi
   warn "脚本将在替换任何程序或执行 SQL 前备份三端产物与数据库；备份失败会立即中止"
   warn "后台「项目升级配置」仍是首选入口，具备签名版本校验、源码构建、SQL 历史记录和失败自动回滚"
   if [[ "${AID_ASSUME_YES:-0}" == "1" ]]; then
     risk "AID_ASSUME_YES=1：已跳过升级人工确认"
     go="y"
   else
-    go="$(ask_yes_no "确认从 ${current} 更新到 ${target}？" 'n')"
+    if [[ "${repairMode}" == "1" ]]; then
+      go="$(ask_yes_no "确认重新部署当前版本 ${target}？" 'n')"
+    else
+      go="$(ask_yes_no "确认从 ${current} 更新到 ${target}？" 'n')"
+    fi
   fi
   [[ "${go}" == "y" ]] || { log "已取消"; return; }
 
