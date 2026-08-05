@@ -5,7 +5,7 @@
 # 用法：
 #   sudo bash aid.sh              # 交互菜单（首次部署按版本标签拉取三端源码并构建）
 #   sudo bash aid.sh <子命令>     # 直通执行：install/auto/install-docker/install-manual/update/rollback/
-#                                 # restart/stop/status/default/logs/config/backup/setup-updater
+#                                 # restart/stop/status/default/logs/config/backup/setup-updater/uninstall
 #
 # 设计：
 #   - 全部数据统一放在 DATA_ROOT（默认 /data/aid）：程序、上传文件、日志、
@@ -4843,6 +4843,183 @@ do_default() {
   print_access_info strict
 }
 
+remove_aid_docker_runtime() { # remove_aid_docker_runtime <keep|purge>
+  local cleanupMode="$1" container network workdir repository imageId networks=""
+  local -a containers=(
+    aid-nginx-https aid-nginx aid-web aid-server aid-updater
+    aid-rocketmq-broker aid-rocketmq-nameserver aid-redis aid-mysql
+  )
+  command -v docker >/dev/null 2>&1 || return 0
+
+  # 删除容器前记录它们连接的网络；容器删除后只清理工作目录明确属于
+  # 当前 DATA_ROOT 的 Compose 网络，绝不执行 docker system/network prune。
+  networks="$(
+    for container in "${containers[@]}"; do
+      docker inspect --format '{{range $name, $value := .NetworkSettings.Networks}}{{$name}}{{"\n"}}{{end}}' \
+        "${container}" 2>/dev/null || true
+    done | sort -u
+  )"
+  for container in "${containers[@]}"; do
+    if docker inspect "${container}" >/dev/null 2>&1; then
+      docker rm -f "${container}" >/dev/null
+      log "已删除容器: ${container}"
+    fi
+  done
+  while IFS= read -r network; do
+    [[ -n "${network}" ]] || continue
+    workdir="$(docker network inspect --format '{{index .Labels "com.docker.compose.project.working_dir"}}' \
+      "${network}" 2>/dev/null || true)"
+    case "${workdir}" in
+      "${DATA_ROOT}/installer/deploy/docker"*)
+        docker network rm "${network}" >/dev/null 2>&1 || true
+        ;;
+    esac
+  done <<< "${networks}"
+
+  [[ "${cleanupMode}" == "purge" ]] || return 0
+  # 只删除仓库名以 aid/ 开头的本项目自建镜像；MySQL/Redis/Nginx/Node
+  # 等公共镜像可能被其他项目复用，卸载器始终保留。
+  while read -r repository imageId; do
+    [[ "${repository}" == aid/* && -n "${imageId}" ]] || continue
+    docker image rm -f "${imageId}" >/dev/null 2>&1 || true
+  done < <(docker image ls --format '{{.Repository}} {{.ID}}' 2>/dev/null)
+}
+
+remove_aid_system_services() {
+  local -a services=(aid.service aid-web.service aid-updater.service aid-mysql.service aid-redis.service)
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl disable --now "${services[@]}" >/dev/null 2>&1 || true
+  fi
+  rm -f -- \
+    /etc/systemd/system/aid.service \
+    /etc/systemd/system/aid-web.service \
+    /etc/systemd/system/aid-updater.service \
+    /etc/systemd/system/aid-mysql.service \
+    /etc/systemd/system/aid-redis.service
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    systemctl reset-failed >/dev/null 2>&1 || true
+  fi
+}
+
+remove_aid_nginx_site() {
+  rm -f -- /etc/nginx/conf.d/aid.conf
+  if [[ -d /etc/nginx/conf.d ]]; then
+    find /etc/nginx/conf.d -maxdepth 1 -type f -name 'aid.conf.bak.*' -delete 2>/dev/null || true
+  fi
+  if command -v nginx >/dev/null 2>&1 && nginx -t >/dev/null 2>&1; then
+    systemctl reload nginx >/dev/null 2>&1 || true
+  fi
+}
+
+remove_aid_command_links() {
+  local path target link
+  path="/usr/local/bin/aid"
+  if [[ -L "${path}" ]]; then
+    target="$(readlink "${path}" 2>/dev/null || true)"
+    case "${target}" in
+      "${DATA_ROOT}/installer/deploy/aid.sh"|"${MANAGED_SCRIPT}") rm -f -- "${path}" ;;
+    esac
+  fi
+  rm -f -- /usr/local/bin/aid-updater
+
+  # 手动部署可能创建指向 DATA_ROOT 隔离工具链的命令链接。只删除目标
+  # 明确位于本项目 runtime 下的链接，不影响系统自带 mysql/redis。
+  for link in mysql mysqldump redis-server redis-cli; do
+    path="/usr/local/bin/${link}"
+    [[ -L "${path}" ]] || continue
+    target="$(readlink -f "${path}" 2>/dev/null || true)"
+    case "${target}" in "${DATA_ROOT}/runtime/"*) rm -f -- "${path}" ;; esac
+  done
+}
+
+remove_aid_updater_runtime() { # remove_aid_updater_runtime <keep|purge>
+  local cleanupMode="$1"
+  rm -rf -- /etc/aid-updater
+  if [[ "${cleanupMode}" == "purge" ]]; then
+    rm -rf -- /var/lib/aid-updater
+  fi
+  return 0
+}
+
+validate_aid_purge_root() {
+  local resolved=""
+  [[ "${DATA_ROOT}" == /* ]] || die "拒绝清理非绝对数据目录: ${DATA_ROOT}"
+  case "${DATA_ROOT}" in
+    /|/bin|/boot|/data|/dev|/etc|/home|/opt|/root|/run|/srv|/tmp|/usr|/var)
+      die "拒绝清理高风险目录: ${DATA_ROOT}" ;;
+  esac
+  [[ "${DATA_ROOT#/}" == */* ]] || die "数据目录层级过浅，拒绝清理: ${DATA_ROOT}"
+  [[ ! -L "${DATA_ROOT}" ]] || die "数据目录是软链接，拒绝清理: ${DATA_ROOT}"
+  if [[ -e "${DATA_ROOT}" ]]; then
+    resolved="$(readlink -f -- "${DATA_ROOT}" 2>/dev/null || true)"
+    [[ "${resolved}" == "${DATA_ROOT}" ]] || die "数据目录解析异常，拒绝清理: ${resolved:-未知}"
+  fi
+}
+
+remove_aid_manual_accounts() {
+  # 手动部署专用系统账号仅服务于 DATA_ROOT 内的隔离 MySQL/Redis；彻底
+  # 清理时一并删除。普通卸载保留账号与数据，便于无损重新安装。
+  id aidmysql >/dev/null 2>&1 && userdel aidmysql >/dev/null 2>&1 || true
+  id aidredis >/dev/null 2>&1 && userdel aidredis >/dev/null 2>&1 || true
+  getent group aidmysql >/dev/null 2>&1 && groupdel aidmysql >/dev/null 2>&1 || true
+  getent group aidredis >/dev/null 2>&1 && groupdel aidredis >/dev/null 2>&1 || true
+}
+
+purge_aid_data() {
+  validate_aid_purge_root
+  [[ ! -e "${DATA_ROOT}" ]] || rm -rf -- "${DATA_ROOT}"
+  remove_aid_manual_accounts
+}
+
+do_uninstall() { # do_uninstall [keep|purge|--keep|--purge]
+  require_root
+  local requested="${1:-}" cleanupMode="" choice confirm mode
+  mode="$(detect_mode)"
+  echo ""
+  risk "卸载会立即停止 AID；请先确认没有生成任务运行，并已完成异机备份"
+  echo "  当前部署方式: ${mode}"
+  echo "  AID 数据目录 : ${DATA_ROOT}"
+  echo "  1) 仅卸载服务与运行入口，保留数据库、上传文件、配置、备份和构建缓存"
+  echo "  2) 彻底清除 AID，包括内置数据库数据、上传文件、配置、备份和缓存（不可恢复）"
+  echo "  0) 取消"
+  case "${requested}" in
+    keep|--keep) cleanupMode="keep" ;;
+    purge|--purge) cleanupMode="purge" ;;
+    '')
+      choice="$(ask '请选择卸载方式' '0')"
+      case "${choice}" in 1) cleanupMode="keep" ;; 2) cleanupMode="purge" ;; *) log "已取消卸载"; return 0 ;; esac
+      ;;
+    *) die "卸载参数只支持 keep/--keep 或 purge/--purge" ;;
+  esac
+
+  if [[ "${cleanupMode}" == "purge" ]]; then
+    validate_aid_purge_root
+    risk "将永久删除 ${DATA_ROOT}；内置 MySQL/Redis/MQ 数据与所有本机备份都无法恢复"
+    warn "外部或用户原有的 MySQL/Redis/RocketMQ、OSS/COS 对象不会被删除，请到对应平台单独处理"
+    confirm="$(ask '请输入 DELETE-AID 确认彻底清除' '')"
+    [[ "${confirm}" == "DELETE-AID" ]] || { log "确认文字不匹配，已取消卸载"; return 0; }
+  else
+    confirm="$(ask_yes_no '确认停止并卸载 AID，同时保留全部数据？' 'n')"
+    [[ "${confirm}" == "y" ]] || { log "已取消卸载"; return 0; }
+  fi
+
+  section "卸载 AID"
+  remove_aid_docker_runtime "${cleanupMode}"
+  remove_aid_system_services
+  remove_aid_nginx_site
+  remove_aid_command_links
+  remove_aid_updater_runtime "${cleanupMode}"
+  [[ "${cleanupMode}" != "purge" ]] || purge_aid_data
+
+  if [[ "${cleanupMode}" == "purge" ]]; then
+    ok "AID 已彻底清除；Docker/JDK/Nginx/Git 等共享系统环境及外部服务未删除"
+  else
+    ok "AID 服务与运行入口已卸载，数据完整保留在 ${DATA_ROOT}"
+    echo "重新安装时下载最新 aid.sh 并选择原部署方式，脚本会复用现有配置和数据。"
+  fi
+}
+
 do_status() {
   local mode; mode="$(detect_mode)"
   echo ""
@@ -4985,6 +5162,7 @@ show_menu() {
   echo " 10) 立即备份（数据库+上传文件）"
   echo " 11) 安装/修复在线升级器"
   echo " 12) 查看登录地址与数据库初始化账号"
+  echo " 13) 卸载 AID（可选保留数据或彻底清除）"
   echo "  0) 退出"
   echo "------------------------------------------------------"
 }
@@ -5009,12 +5187,13 @@ main() {
     stop)           do_stop; exit $? ;;
     status)         do_status; exit $? ;;
     default)        do_default; exit $? ;;
+    uninstall)      do_uninstall "${2:-}"; exit $? ;;
     logs)           do_logs; exit $? ;;
     config)         do_config; exit $? ;;
     backup)         do_backup; exit $? ;;
     setup-updater)  do_setup_updater; exit $? ;;
     '') ;;
-    *) die "未知子命令: $1（可用: install/auto/install-docker/install-manual/update/rollback/restart/stop/status/default/logs/config/backup/setup-updater）" ;;
+    *) die "未知子命令: $1（可用: install/auto/install-docker/install-manual/update/rollback/restart/stop/status/default/logs/config/backup/setup-updater/uninstall）" ;;
   esac
 
   # 交互菜单模式：Ctrl+C 只中断当前操作（如日志跟踪）回到菜单，不退出脚本
@@ -5036,6 +5215,7 @@ main() {
       10) do_backup || true ;;
       11) do_setup_updater || true ;;
       12) do_default || true ;;
+      13) do_uninstall || true ;;
       0) exit 0 ;;
       *) warn "无效选择" ;;
     esac

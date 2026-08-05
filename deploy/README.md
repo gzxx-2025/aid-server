@@ -100,6 +100,8 @@ sudo env AID_REMOTE_BOOTSTRAP=1 AID_RELEASE_CHANNEL=beta bash aid-install.sh upd
   9) 修改配置（内存/端口/凭证等）
  10) 立即备份（数据库+上传文件）
  11) 安装/修复在线升级器
+ 12) 查看登录地址与数据库初始化账号
+ 13) 卸载 AID（可选保留数据或彻底清除）
   0) 退出
 ------------------------------------------------------
 ```
@@ -112,8 +114,23 @@ sudo env AID_REMOTE_BOOTSTRAP=1 AID_RELEASE_CHANNEL=beta bash aid-install.sh upd
 - **回滚（菜单 4）**：从最近 3 份升级前备份中选择还原——程序产物直接还原；数据库默认不还原（避免丢失升级后产生的业务数据），需要时显式确认还原；回滚前还会对当前状态再做一份保护备份，误操作可救
 - **在线升级器自动安装**：源码构建包内置当前版本升级器二进制，两种部署方式首次部署都会自动装好（Docker 为编排内 `aid-updater` 容器，手动为 systemd 服务），部署完成即可用后台页面一键升级；损坏时菜单 11（或 `sudo bash aid.sh setup-updater`）一键修复
 - **密钥自动生成**：数据库密码、JWT 密钥留空自动生成强随机值
-- 也支持直通子命令：`sudo bash aid.sh install` / `update` / `backup` / `restart` / `status` / `logs` / `rollback` / `setup-updater`
+- 也支持直通子命令：`sudo bash aid.sh install` / `update` / `backup` / `restart` / `status` / `default` / `logs` / `rollback` / `setup-updater` / `uninstall`
 - 明确授权的无人值守环境可设置 `AID_ASSUME_YES=1` 跳过部署或升级确认；该变量会绕过风险确认，**不要在交互式生产运维中长期配置**
+
+### 卸载 AID
+
+Docker 与手动 systemd 部署统一使用：
+
+```bash
+sudo aid uninstall
+```
+
+卸载器提供两种模式：
+
+- `sudo aid uninstall --keep`：停止并删除 AID 容器/systemd 服务、Nginx 站点、升级器和管理入口，但保留 `DATA_ROOT` 下的数据库、上传文件、配置、备份及构建缓存。仍需输入 `y` 确认
+- `sudo aid uninstall --purge`：除上述内容外，永久删除 `DATA_ROOT`、内置 MySQL/Redis/RocketMQ 数据和 AID 自建镜像；必须再次输入完整的 `DELETE-AID`，不接受普通 `y` 或无人值守变量绕过
+
+卸载器只操作名称固定的 AID 容器、服务和站点，并在递归删除前拒绝 `/`、`/data`、`/home` 等高风险目录及软链接。它不会执行 Docker prune，不会卸载 Docker/JDK/Nginx/Git 等共享环境，也不会删除外部或用户原有的 MySQL、Redis、RocketMQ、OSS/COS 数据。需要删除外部数据时必须到对应服务单独确认处理。
 
 ## 本地开发环境（面向开发者）
 
