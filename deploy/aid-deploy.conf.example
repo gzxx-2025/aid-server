@@ -41,6 +41,7 @@ BACKEND_PORT=8080
 # ---------------- HTTPS（可选） ----------------
 # true=由脚本生成并校验 Nginx HTTPS 站点；false=仅保留 HTTP
 # 没有域名或尚未完成 DNS 解析时保持 false；下列 HTTPS 字段会被完全忽略。
+# 先在域名服务商把用户域名、管理域名的 A 记录都解析到服务器公网 IPv4；DNS 解析不会关闭 IP/HTTP 访问。
 # 此时用户端使用 http://服务器IP，管理端使用 http://服务器IP:ADMIN_PORT。
 HTTPS_ENABLED=false
 HTTPS_PORT=443
@@ -51,6 +52,7 @@ HTTPS_CERT_PATH=/data/aid/config/ssl/fullchain.pem
 HTTPS_KEY_PATH=/data/aid/config/ssl/privkey.pem
 
 # ---------------- 数据库（固定使用 MySQL 5.7） ----------------
+# DB_HOST=127.0.0.1 时 Navicat 推荐通过服务器 SSH 隧道连接，禁止直接向公网开放 3306。
 DB_HOST=127.0.0.1
 DB_PORT=3306
 DB_NAME=aid

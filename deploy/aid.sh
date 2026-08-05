@@ -3883,11 +3883,169 @@ start_docker_application_stack() {
   ok "AID 后端、Web、Nginx 与升级器已按顺序启动"
 }
 
+valid_ipv4() { # valid_ipv4 <IPv4>
+  local value="$1" octet octets=()
+  [[ "${value}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || return 1
+  IFS='.' read -r -a octets <<< "${value}"
+  for octet in "${octets[@]}"; do
+    (( 10#${octet} >= 0 && 10#${octet} <= 255 )) || return 1
+  done
+}
+
+private_ipv4() { # private_ipv4 <IPv4>
+  local value="$1" second
+  valid_ipv4 "${value}" || return 1
+  case "${value}" in
+    10.*|192.168.*) return 0 ;;
+    172.*)
+      second="${value#172.}"; second="${second%%.*}"
+      (( 10#${second} >= 16 && 10#${second} <= 31 )) ;;
+    *) return 1 ;;
+  esac
+}
+
+public_ipv4() { # public_ipv4 <可路由公网IPv4>
+  local value="$1" first second
+  valid_ipv4 "${value}" || return 1
+  private_ipv4 "${value}" && return 1
+  first="${value%%.*}"
+  case "${value}" in
+    0.*|127.*|169.254.*|192.0.2.*|198.51.100.*|203.0.113.*) return 1 ;;
+    100.*)
+      second="${value#100.}"; second="${second%%.*}"
+      (( 10#${second} < 64 || 10#${second} > 127 )) || return 1 ;;
+  esac
+  (( 10#${first} >= 1 && 10#${first} <= 223 ))
+}
+
+detect_private_ipv4() {
+  local candidate="" value iface cidr
+  candidate="${AID_PRIVATE_IP:-}"
+  private_ipv4 "${candidate}" && { echo "${candidate}"; return 0; }
+  if command -v ip >/dev/null 2>&1; then
+    candidate="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}')"
+    private_ipv4 "${candidate}" && { echo "${candidate}"; return 0; }
+    # 默认路由没有私网地址时再检查真实物理/云网卡，排除 Docker/容器网桥，
+    # 避免把 172.17.0.1 之类仅供容器使用的地址误报成服务器内网入口。
+    while read -r iface cidr; do
+      case "${iface}" in lo|docker*|br-*|veth*|virbr*|cni*|flannel*) continue ;; esac
+      candidate="${cidr%%/*}"
+      private_ipv4 "${candidate}" && { echo "${candidate}"; return 0; }
+    done < <(ip -4 -o addr show scope global 2>/dev/null | awk '{print $2, $4}')
+    return 1
+  fi
+  if command -v hostname >/dev/null 2>&1; then
+    for value in $(hostname -I 2>/dev/null || true); do
+      private_ipv4 "${value}" && { echo "${value}"; return 0; }
+    done
+  fi
+  return 1
+}
+
+detect_public_ipv4() {
+  local candidate="" endpoint value
+  candidate="${AID_PUBLIC_IP:-}"
+  public_ipv4 "${candidate}" && { echo "${candidate}"; return 0; }
+  if command -v curl >/dev/null 2>&1; then
+    for endpoint in https://4.ipw.cn https://api-ipv4.ip.sb/ip https://api.ipify.org; do
+      candidate="$(curl -4 -fsSL --connect-timeout 3 --max-time 5 "${endpoint}" 2>/dev/null \
+        | tr -d '[:space:]' || true)"
+      public_ipv4 "${candidate}" && { echo "${candidate}"; return 0; }
+    done
+  fi
+  # 无 NAT 的公网服务器可直接从默认路由源地址得到公网 IP。
+  if command -v ip >/dev/null 2>&1; then
+    candidate="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}')"
+    public_ipv4 "${candidate}" && { echo "${candidate}"; return 0; }
+  fi
+  if command -v hostname >/dev/null 2>&1; then
+    for value in $(hostname -I 2>/dev/null || true); do
+      public_ipv4 "${value}" && { echo "${value}"; return 0; }
+    done
+  fi
+  return 1
+}
+
+print_https_guidance() { # print_https_guidance <模式> <配置文件> <公网IP或空> <管理端路径>
+  local mode="$1" configFile="$2" publicIp="$3" adminPath="$4" profiles httpsProfiles
+  echo ""
+  echo "域名与 HTTPS："
+  if [[ "${mode}" == "docker" ]] && docker_profile_enabled https; then
+    echo "  DNS A记录 : $(env_get HTTPS_PUBLIC_DOMAIN)、$(env_get HTTPS_ADMIN_DOMAIN) -> ${publicIp:-服务器公网IP}"
+    echo "  用户域名 : https://$(env_get HTTPS_PUBLIC_DOMAIN):$(env_get HTTPS_PORT 443)/"
+    echo "  管理域名 : https://$(env_get HTTPS_ADMIN_DOMAIN):$(env_get HTTPS_PORT 443)${adminPath}"
+    echo "  证书文件 : $(env_get HTTPS_CERT_PATH "${DATA_ROOT}/config/ssl/fullchain.pem")"
+    echo "  私钥文件 : $(env_get HTTPS_KEY_PATH "${DATA_ROOT}/config/ssl/privkey.pem")"
+  elif [[ "${mode}" == "manual" && "$(conf_get HTTPS_ENABLED false)" == "true" ]]; then
+    echo "  DNS A记录 : $(conf_get HTTPS_PUBLIC_DOMAIN)、$(conf_get HTTPS_ADMIN_DOMAIN) -> ${publicIp:-服务器公网IP}"
+    echo "  用户域名 : https://$(conf_get HTTPS_PUBLIC_DOMAIN):$(conf_get HTTPS_PORT 443)/"
+    echo "  管理域名 : https://$(conf_get HTTPS_ADMIN_DOMAIN):$(conf_get HTTPS_PORT 443)${adminPath}"
+    echo "  证书文件 : $(conf_get HTTPS_CERT_PATH "${DATA_ROOT}/config/ssl/fullchain.pem")"
+    echo "  私钥文件 : $(conf_get HTTPS_KEY_PATH "${DATA_ROOT}/config/ssl/privkey.pem")"
+  else
+    echo "  1. 在域名服务商添加两个 A 记录：用户域名、管理域名 -> ${publicIp:-服务器公网IP}"
+    echo "  2. 申请覆盖两个域名的 SAN/通配符证书，将 fullchain.pem、privkey.pem 放入 ${DATA_ROOT}/config/ssl/"
+    echo "  3. 编辑配置文件: ${configFile}"
+    if [[ "${mode}" == "docker" ]]; then
+      profiles="$(env_get COMPOSE_PROFILES mysql,redis | tr -d '[:space:]')"
+      httpsProfiles="${profiles}"
+      [[ ",${httpsProfiles}," == *",https,"* ]] || httpsProfiles="${httpsProfiles:+${httpsProfiles},}https"
+      echo "     COMPOSE_PROFILES=${httpsProfiles}"
+    else
+      echo "     HTTPS_ENABLED=true"
+    fi
+    echo "     HTTPS_PUBLIC_DOMAIN=你的用户域名"
+    echo "     HTTPS_ADMIN_DOMAIN=你的管理域名"
+    echo "     HTTPS_CERT_PATH=${DATA_ROOT}/config/ssl/fullchain.pem"
+    echo "     HTTPS_KEY_PATH=${DATA_ROOT}/config/ssl/privkey.pem"
+    echo "  4. 放行 TCP 443 后执行: sudo aid restart"
+  fi
+  echo "  说明：DNS 解析不会关闭 IP/HTTP 访问；当前 80 和管理端口仍可使用。HTTPS 用 IP 访问会因证书域名不匹配而报警，应使用域名。"
+}
+
+print_mysql_access_guidance() { # print_mysql_access_guidance <模式> <公网IP或空> <配置文件>
+  local mode="$1" publicIp="$2" configFile="$3" dbHost dbPort dbName dbUser mysqlPort
+  if [[ "${mode}" == "docker" ]]; then
+    dbHost="$(env_get DB_HOST mysql)"; dbPort="$(env_get DB_PORT 3306)"
+    dbName="$(env_get DB_NAME aid)"; dbUser="$(env_get DB_USERNAME aid)"
+    mysqlPort="$(env_get MYSQL_PORT 3306)"
+    if docker_profile_enabled mysql; then
+      echo ""
+      echo "Navicat 连接内置 MySQL（推荐 SSH 隧道，不开放公网 3306）："
+      echo "  SSH主机/端口 : ${publicIp:-服务器公网IP}:22（使用服务器运维账号）"
+      echo "  MySQL主机/端口: 127.0.0.1:${mysqlPort}"
+      echo "  数据库/用户名 : ${dbName} / ${dbUser}"
+      echo "  数据库密码位置: ${ENV_FILE} 中的 DB_PASSWORD（不会在终端明文打印）"
+      return 0
+    fi
+  else
+    dbHost="$(conf_get DB_HOST 127.0.0.1)"; dbPort="$(conf_get DB_PORT 3306)"
+    dbName="$(conf_get DB_NAME aid)"; dbUser="$(conf_get DB_USERNAME aid)"
+    if [[ "${dbHost}" == "127.0.0.1" || "${dbHost}" == "localhost" ]]; then
+      echo ""
+      echo "Navicat 连接本机 MySQL（推荐 SSH 隧道，不开放公网 3306）："
+      echo "  SSH主机/端口 : ${publicIp:-服务器公网IP}:22（使用服务器运维账号）"
+      echo "  MySQL主机/端口: 127.0.0.1:${dbPort}"
+      echo "  数据库/用户名 : ${dbName} / ${dbUser}"
+      echo "  数据库密码位置: ${CONF} 中的 DB_PASSWORD（不会在终端明文打印）"
+      return 0
+    fi
+  fi
+  echo ""
+  echo "Navicat 连接外部 MySQL："
+  echo "  AID 当前连接: ${dbHost}:${dbPort}/${dbName}（用户 ${dbUser}）"
+  echo "  请使用数据库服务商提供的可访问地址；若仅内网开放，应通过数据库所在网络的 SSH/云数据库代理连接。"
+  echo "  数据库密码保存在 ${configFile} 的 DB_PASSWORD 中，不会在终端明文打印。"
+}
+
 print_access_info() {
-  local mode configFile adminPort adminPath
+  local mode configFile adminPort adminPath httpPort publicIp privateIp
   mode="$(detect_mode)"
   if [[ "${mode}" == "docker" ]]; then configFile="${ENV_FILE}"; else configFile="${CONF}"; fi
   adminPort="$(setting_get ADMIN_PORT 8089)"
+  httpPort="$(setting_get HTTP_PORT 80)"
+  publicIp="$(detect_public_ipv4 || true)"
+  privateIp="$(detect_private_ipv4 || true)"
   read_admin_entry_settings
   if [[ "${ADMIN_ENTRY_ENABLED_VALUE}" =~ ^(true|TRUE|Y|1)$ && -n "${ADMIN_ENTRY_CODE_VALUE}" ]]; then
     adminPath="/${ADMIN_ENTRY_CODE_VALUE}"
@@ -3897,23 +4055,29 @@ print_access_info() {
   echo ""
   echo -e "${C_GREEN}=================== 操作完成 ===================${C_RESET}"
   echo "访问地址:"
-  echo "  管理端登录入口: http://服务器IP:${adminPort}${adminPath}"
-  echo "  管理端本机示例: http://localhost:${adminPort}${adminPath}"
-  echo "  管理端默认账号: admin / admin123（首次登录后立即修改密码）"
-  echo "  用户端: http://服务器IP:$(setting_get HTTP_PORT 80)/"
-  if [[ "${mode}" == "docker" ]] && docker_profile_enabled https; then
-    local httpsPort httpsPortSuffix=""
-    httpsPort="$(env_get HTTPS_PORT 443)"
-    [[ "${httpsPort}" == "443" ]] || httpsPortSuffix=":${httpsPort}"
-    echo "  HTTPS用户端: https://$(env_get HTTPS_PUBLIC_DOMAIN)${httpsPortSuffix}/"
-    echo "  HTTPS管理端: https://$(env_get HTTPS_ADMIN_DOMAIN)${httpsPortSuffix}${adminPath}"
-  elif [[ "${mode}" == "manual" && "$(conf_get HTTPS_ENABLED false)" == "true" ]]; then
-    local httpsPort httpsPortSuffix=""
-    httpsPort="$(conf_get HTTPS_PORT 443)"
-    [[ "${httpsPort}" == "443" ]] || httpsPortSuffix=":${httpsPort}"
-    echo "  HTTPS用户端: https://$(conf_get HTTPS_PUBLIC_DOMAIN)${httpsPortSuffix}/"
-    echo "  HTTPS管理端: https://$(conf_get HTTPS_ADMIN_DOMAIN)${httpsPortSuffix}${adminPath}"
+  if [[ -n "${publicIp}" ]]; then
+    echo "  用户端外网访问入口: http://${publicIp}:${httpPort}/"
+  else
+    echo "  用户端外网访问入口: 未自动识别公网 IPv4，请在云服务器控制台查看后使用 http://公网IP:${httpPort}/"
   fi
+  if [[ -n "${privateIp}" ]]; then
+    echo "  用户端内网访问入口: http://${privateIp}:${httpPort}/"
+  else
+    echo "  用户端内网访问入口: 未检测到真实内网 IPv4；无私有网络的单网卡服务器可忽略"
+  fi
+  if [[ -n "${publicIp}" ]]; then
+    echo "  管理端外网访问入口: http://${publicIp}:${adminPort}${adminPath}"
+  else
+    echo "  管理端外网访问入口: 未自动识别公网 IPv4，请使用 http://公网IP:${adminPort}${adminPath}"
+  fi
+  if [[ -n "${privateIp}" ]]; then
+    echo "  管理端内网访问入口: http://${privateIp}:${adminPort}${adminPath}"
+  else
+    echo "  管理端内网访问入口: 未检测到真实内网 IPv4；无私有网络的单网卡服务器可忽略"
+  fi
+  echo "  管理端默认账号: admin / admin123（首次登录后立即修改密码）"
+  print_https_guidance "${mode}" "${configFile}" "${publicIp}" "${adminPath}"
+  print_mysql_access_guidance "${mode}" "${publicIp}" "${configFile}"
   echo "数据目录: ${DATA_ROOT}（程序/上传/日志/数据/备份全部在此）"
   echo "配置文件: ${configFile}（菜单「修改配置」可调整）"
   [[ -f "${MANAGED_SCRIPT}" ]] && echo "管理命令: sudo aid 或 sudo bash ${MANAGED_SCRIPT}"

@@ -240,14 +240,18 @@ Docker Nginx 不是写进宿主机 `/etc/nginx`：受管 HTTP 配置位于 `/dat
 
 访问地址：
 
-- 用户端：`http://服务器IP/`（`HTTP_PORT` 可配，默认 80）
-- 管理端：`http://服务器IP:8089/<随机访问码>`（首次部署生成12位随机访问码并打印完整地址），默认账号 `admin / admin123`，**登录后立即修改密码**
+- 用户端外网：`http://公网IP:HTTP_PORT/`；用户端内网：`http://内网IP:HTTP_PORT/`
+- 管理端外网：`http://公网IP:ADMIN_PORT/<随机访问码>`；管理端内网：`http://内网IP:ADMIN_PORT/<随机访问码>`
+- 部署完成页会自动识别并替换公网/内网 IPv4，不再输出含“服务器IP”的占位地址。公网探测失败时以云服务器控制台显示的公网 IPv4 为准；内网地址仅供同一 VPC、局域网或 VPN 内访问
+- 管理端默认账号为 `admin / admin123`，首次部署生成随机访问码并打印完整地址，**登录后立即修改密码**
 
 没有域名不影响 HTTP 部署：必须保留 `HTTP_PORT` 和 `ADMIN_PORT`，直接用服务器 IP 访问即可。Docker 保持 `COMPOSE_PROFILES=mysql,redis`（不要加入 `https`）；手动部署保持 `HTTPS_ENABLED=false`。此时 `HTTPS_PUBLIC_DOMAIN`、`HTTPS_ADMIN_DOMAIN`、证书和私钥路径只是占位值，不会读取或校验。不要把 `HTTP_PORT` 改成 443，443 端口本身不代表已启用 TLS。
 
 ### Docker 内置 HTTPS（可选 Profile）
 
 `HTTP_PORT=443` 只会把明文 HTTP 映射到 443，并不会启用 TLS，禁止这样配置。标准 HTTPS 使用独立 `https` Profile：用户端和管理端使用两个不同域名，共用一张覆盖两个域名的 SAN 或通配符证书。
+
+先在域名服务商添加两个 `A` 记录，例如 `www.example.com` 和 `admin.example.com` 都指向服务器公网 IPv4；等待 `dig +short 域名` 或域名服务商控制台确认解析生效。DNS 只负责把域名指向 IP，不会自动签发证书，也不会关闭原来的 IP/HTTP 入口。当前默认网关会继续监听 `HTTP_PORT` 和 `ADMIN_PORT`；若业务要求强制 HTTPS，应在云防火墙/安全组和独立反向代理中规划跳转与访问控制，不要误以为添加 DNS 后 IP 会自动失效。
 
 ```bash
 mkdir -p /data/aid/config/ssl
@@ -268,6 +272,8 @@ HTTPS_KEY_PATH=/data/aid/config/ssl/privkey.pem
 ```
 
 证书文件必须位于 `DATA_ROOT/config/ssl` 且不能是软链接。用户端访问 `https://www.example.com/`，管理端地址为 `https://admin.example.com/<随机访问码>`。证书续期后复制覆盖这两个文件并执行 `sudo aid restart`。未加入 `https` Profile 时不会启动 HTTPS 容器，也不会占用 443。部署完成后脚本会读取数据库中的实际访问码并输出完整登录地址。
+
+云安全组/防火墙至少按需放行 `80/TCP`、`ADMIN_PORT/TCP` 和启用后的 `443/TCP`。443 通过 IP 访问时证书名称与 IP 不匹配，浏览器出现安全警告是正常现象，HTTPS 应使用证书覆盖的域名访问。证书可以来自云厂商证书服务或 Let's Encrypt；若原证书路径是符号链接，应将实际 `fullchain.pem` 与 `privkey.pem` 安全复制到上述受控目录再重启。
 
 ### 内置或外部 MySQL、Redis、RocketMQ
 
@@ -290,6 +296,12 @@ DB_PASSWORD=请填写真实强密码
 - 备份、恢复和增量 SQL 使用一次性的 `mysql:5.7` 客户端容器，执行后自动删除；它不是数据库服务，不保存业务数据，宿主机无需安装 MySQL 客户端。
 
 不要只修改 `DB_HOST` 而保留 `mysql` Profile：这种矛盾配置会被安装脚本和升级器拒绝。后台「项目升级配置」页面同样支持切换，但只接受已经完成数据迁移且包含 AID 核心表的外部库。
+
+#### 使用 Navicat 连接 MySQL
+
+内置 MySQL 和手动部署的本机 MySQL 默认不向公网暴露 3306，这是有意的安全设计。Navicat 推荐启用“SSH 隧道”：SSH 主机填写服务器公网 IP、端口通常为 22，并使用服务器运维账号；MySQL 主机填写 `127.0.0.1`，Docker 模式端口填写 `MYSQL_PORT`，手动模式端口填写 `DB_PORT`；数据库、用户名分别使用 `DB_NAME`、`DB_USERNAME`，密码从权限为 600 的正式配置文件中的 `DB_PASSWORD` 获取。Docker 单文件部署通常使用 `/data/aid/config/docker.env`，手动部署使用 `/data/aid/aid-deploy.conf`，以安装完成页打印的实际路径为准。
+
+使用外部 MySQL 时，Navicat 应连接数据库服务商提供的可访问地址，而不是 AID 服务器 IP。外部库仅开放内网时，应使用数据库所在网络的 SSH 跳板机、VPN 或云数据库代理。不要为了方便把 Docker Compose 的 MySQL 绑定从 `127.0.0.1` 改成 `0.0.0.0`，也不要向全网开放安全组 3306。
 
 **Redis**：默认 `COMPOSE_PROFILES` 包含 `redis`，因此启动内置容器；使用外部实例时去掉 `redis`，并配置 `REDIS_HOST/REDIS_PORT/REDIS_USERNAME/REDIS_PASSWORD/REDIS_DATABASE`。用户名和密码均可留空；Redis 6+ ACL 填用户名与密码，传统 `requirepass` 只填密码。外部地址不能写 `127.0.0.1`，应使用容器可访问的内网 IP 或 DNS。
 
@@ -406,6 +418,8 @@ if command -v curl >/dev/null 2>&1; then curl -fL --retry 3 -o aid-install.sh ht
 ### 手动部署 HTTPS（可选）
 
 没有域名时无需配置本节：保留 `HTTP_PORT`、`ADMIN_PORT` 和 `HTTPS_ENABLED=false`，通过服务器 IP 访问。域名完成 DNS 解析并准备好有效证书后，再按下列配置启用。
+
+DNS 操作与 Docker 相同：用户域名、管理域名各添加一条指向服务器公网 IPv4 的 `A` 记录。解析完成后 IP 入口不会自动关闭；HTTP 是否保留、是否跳转 HTTPS 由 Nginx 和防火墙策略决定。HTTPS 必须使用证书覆盖的域名访问。
 
 证书同样复制到 `/data/aid/config/ssl/fullchain.pem` 与 `/data/aid/config/ssl/privkey.pem`，然后在 `aid-deploy.conf` 中设置：
 
