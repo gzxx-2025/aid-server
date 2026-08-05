@@ -2130,7 +2130,8 @@ validate_release_package() { # validate_release_package <包> <是否要求安�
     grep -Eq "(^|/)${archEntry}$" "${listFile}" || { rm -f "${listFile}"; die "发布包缺少本机架构的升级器"; }
   fi
   if [[ "${requireInstaller}" == "yes" ]]; then
-    for entry in installer/deploy/aid.sh installer/deploy/docker/.env.example \
+    for entry in installer/deploy/aid.sh installer/deploy/aid-deploy.conf.example \
+        installer/deploy/docker/.env.example \
         installer/deploy/docker/docker-compose.yml installer/deploy/docker/nginx/aid-https.conf.template \
         installer/deploy/docker/rocketmq/broker-entrypoint.sh \
         installer/sql/aid-init.sql; do
@@ -2297,6 +2298,68 @@ handoff_to_managed_installer() { # handoff_to_managed_installer <原始参数...
   fi
 }
 
+extract_installer_from_package() { # extract_installer_from_package <发布包>
+  local package="$1" listFile scriptEntry installerEntry normalizedEntry
+  local extractRoot sourceRoot required
+  mkdir -p "${DATA_ROOT}" || { err "无法创建数据目录: ${DATA_ROOT}"; return 1; }
+  if [[ -L "${INSTALLER_ROOT}" ]]; then
+    err "安装器目录不能是符号链接: ${INSTALLER_ROOT}"
+    return 1
+  fi
+
+  listFile="$(mktemp)"
+  if ! tar -tzf "${package}" > "${listFile}" 2>/dev/null; then
+    rm -f -- "${listFile}"
+    err "无法读取发布包目录: ${package}"
+    return 1
+  fi
+  # 同时兼容 installer/...、./installer/... 和带单层发布包根目录的
+  # aid-vX/installer/...；只提取已通过发布包安全检查的 installer 子树。
+  scriptEntry="$(grep -E '(^|/)installer/deploy/aid\.sh$' "${listFile}" | head -n 1 || true)"
+  if [[ -z "${scriptEntry}" ]]; then
+    rm -f -- "${listFile}"
+    err "发布包缺少一键安装脚本"
+    return 1
+  fi
+  installerEntry="${scriptEntry%/deploy/aid.sh}"
+
+  extractRoot="$(mktemp -d "${DATA_ROOT}/.installer-extract.XXXXXX")" \
+    || { rm -f -- "${listFile}"; err "无法创建安装器临时目录"; return 1; }
+  # 使用归档清单中的真实目录名直接提取。GNU tar 会递归提取该目录，同时保留
+  # ./installer 与 installer 的区别；-T 会规范化 ./ 前缀，因此这里不能使用清单文件。
+  if ! tar -xzf "${package}" -C "${extractRoot}" "${installerEntry}"; then
+    rm -rf -- "${extractRoot}"
+    rm -f -- "${listFile}"
+    err "提取发布包安装器目录失败: ${installerEntry}"
+    return 1
+  fi
+  normalizedEntry="${installerEntry#./}"
+  sourceRoot="${extractRoot}/${normalizedEntry}"
+  for required in deploy/aid.sh deploy/aid-deploy.conf.example \
+      deploy/docker/.env.example deploy/docker/docker-compose.yml \
+      deploy/docker/nginx/aid-https.conf.template \
+      deploy/docker/rocketmq/broker-entrypoint.sh sql/aid-init.sql; do
+    if [[ ! -f "${sourceRoot}/${required}" ]]; then
+      rm -rf -- "${extractRoot}"
+      rm -f -- "${listFile}"
+      err "提取后的安装器缺少组件: ${required}"
+      return 1
+    fi
+  done
+
+  mkdir -p "${INSTALLER_ROOT}" \
+    || { rm -rf -- "${extractRoot}"; rm -f -- "${listFile}"; err "无法创建安装器目录"; return 1; }
+  # 仅覆盖版本控制的安装器文件。发布包禁止携带 .env，因此用户现有配置不会被覆盖或删除。
+  if ! cp -a "${sourceRoot}/." "${INSTALLER_ROOT}/"; then
+    rm -rf -- "${extractRoot}"
+    rm -f -- "${listFile}"
+    err "写入安装器目录失败: ${INSTALLER_ROOT}"
+    return 1
+  fi
+  rm -rf -- "${extractRoot}"
+  rm -f -- "${listFile}"
+}
+
 bootstrap_installer_if_needed() { # bootstrap_installer_if_needed <发布包> <install-docker|install-manual>
   local package="$1" action="$2" managedDir
   managedDir="$(dirname "${MANAGED_SCRIPT}")"
@@ -2305,9 +2368,8 @@ bootstrap_installer_if_needed() { # bootstrap_installer_if_needed <发布包> <i
   fi
   validate_release_package "${package}" yes
   section "初始化 AID 一键安装器"
-  mkdir -p "${DATA_ROOT}"
-  tar -xzf "${package}" -C "${DATA_ROOT}" installer \
-    || die "从发布包提取安装器失败"
+  extract_installer_from_package "${package}" \
+    || die "从发布包提取安装器失败；发布包和现有配置均未被修改"
   chmod 700 "${MANAGED_SCRIPT}" 2>/dev/null || true
   [[ -f "${MANAGED_SCRIPT}" ]] || die "安装器落盘失败: ${MANAGED_SCRIPT}"
   ok "完整安装器已安全落盘: ${INSTALLER_ROOT}"
@@ -2319,7 +2381,7 @@ bootstrap_installer_if_needed() { # bootstrap_installer_if_needed <发布包> <i
 refresh_managed_installer() { # refresh_managed_installer <发布包>
   local package="$1"
   if tar -tzf "${package}" 2>/dev/null | grep -qE '(^|/)installer/deploy/aid\.sh$'; then
-    tar -xzf "${package}" -C "${DATA_ROOT}" installer \
+    extract_installer_from_package "${package}" \
       || { warn "程序已升级，但安装器文件刷新失败，请保留当前终端并人工检查"; return 1; }
     chmod 700 "${MANAGED_SCRIPT}" 2>/dev/null || true
     ok "部署管理脚本已同步到新版本"

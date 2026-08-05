@@ -835,7 +835,9 @@ EOF
   mkdir -p "$(dirname "$OUTPUT")"
   output_part="$OUTPUT.part"
   rm -f "$output_part"
-  (cd "$STAGING_DIR" && tar -czf "$output_part" ./*)
+  # 根目录成员使用规范名称（installer/...），避免不同 tar 实现对 ./installer
+  # 与 installer 的精确匹配行为不一致；aid.sh 仍兼容旧包中的 ./ 前缀。
+  (cd "$STAGING_DIR" && tar -czf "$output_part" *)
   mv -f "$output_part" "$OUTPUT"
   log "源码构建包已生成: $OUTPUT"
   log "SHA256: $(sha256sum "$OUTPUT" | awk '{print $1}')"
