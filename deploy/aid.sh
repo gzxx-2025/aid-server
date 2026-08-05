@@ -2473,8 +2473,31 @@ prepare_install_package() { # prepare_install_package [本地包]
   ensure_source_package
 }
 
+first_install_unmanaged_entry() { # first_install_unmanaged_entry <docker|manual>
+  local mode="$1" entry name
+  [[ -d "${DATA_ROOT}" ]] || return 1
+  while IFS= read -r -d '' entry; do
+    name="${entry##*/}"
+    case "${name}" in
+      packages|installer|config|source-build|build-cache|logs)
+        [[ -d "${entry}" && ! -L "${entry}" ]] && continue
+        ;;
+      aid-deploy.conf)
+        [[ -f "${entry}" && ! -L "${entry}" ]] && continue
+        ;;
+      runtime|mysql-data-manual|mysql-files|redis-data-manual|run)
+        # 手动部署会在首次确认前准备受管 MySQL/Redis；这些目录仍属于 AID。
+        [[ "${mode}" == "manual" && -d "${entry}" && ! -L "${entry}" ]] && continue
+        ;;
+    esac
+    printf '%s\n' "${entry}"
+    return 0
+  done < <(find "${DATA_ROOT}" -mindepth 1 -maxdepth 1 -print0 2>/dev/null)
+  return 1
+}
+
 confirm_first_install() { # confirm_first_install <docker|manual>
-  local mode="$1" answer defaultAnswer="y"
+  local mode="$1" answer defaultAnswer="y" unmanagedEntry=""
   section "首次部署确认"
   echo -e "  部署方式 : ${C_GREEN}${mode}${C_RESET}"
   echo -e "  目标版本 : ${C_GREEN}${RESOLVED_VERSION}${C_RESET} (${RESOLVED_CHANNEL})"
@@ -2487,9 +2510,9 @@ confirm_first_install() { # confirm_first_install <docker|manual>
   warn "安装会拉取 Docker 镜像、创建服务并占用以上端口；不会自动开放防火墙或修改域名解析"
   risk "后台初始账号为 admin / admin123，首次登录后必须立即修改密码"
   warn "官方媒体资产包体积较大且存储目标因人而异，本步骤不会静默下载或写入 OSS/COS"
-  if [[ -d "${DATA_ROOT}" ]] && find "${DATA_ROOT}" -mindepth 1 -maxdepth 1 \
-      ! -name packages ! -name installer ! -name config ! -name aid-deploy.conf -print -quit 2>/dev/null | grep -q .; then
-    risk "${DATA_ROOT} 已存在非安装缓存内容；继续前请确认这里不是其他业务的数据目录"
+  unmanagedEntry="$(first_install_unmanaged_entry "${mode}" || true)"
+  if [[ -n "${unmanagedEntry}" ]]; then
+    risk "${DATA_ROOT} 存在非 AID 安装缓存内容（检测到: ${unmanagedEntry}）；继续前请确认这里不是其他业务的数据目录"
     defaultAnswer="n"
   fi
   if [[ "${AID_ASSUME_YES:-0}" == "1" ]]; then
