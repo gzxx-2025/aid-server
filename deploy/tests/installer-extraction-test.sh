@@ -75,6 +75,16 @@ cat > "${REMOTE_SCRIPT_DIR}/aid.sh" <<'EOF'
 printf 'remote-latest:%s\n' "${1:-}" > "${AID_TEST_ACTION_FILE}"
 EOF
 chmod +x "${REMOTE_SCRIPT_DIR}/aid.sh"
+# 已部署环境使用远程最新脚本时，即使业务版本相同，也必须持久化更新受管
+# aid.sh；否则本次能执行 default，下一次 sudo aid default 仍会落回旧命令集。
+(
+  export AID_REMOTE_BOOTSTRAP=1
+  SCRIPT_DIR="${REMOTE_SCRIPT_DIR}"
+  handoff_to_managed_installer default
+)
+grep -Fq 'remote-latest' "${MANAGED_SCRIPT}" \
+  || { echo 'remote bootstrap must persist the latest manager for future sudo aid commands' >&2; exit 1; }
+
 (
   export AID_REMOTE_BOOTSTRAP=1 AID_TEST_ACTION_FILE="${REMOTE_ACTION_FILE}"
   SCRIPT_DIR="${REMOTE_SCRIPT_DIR}"

@@ -2338,12 +2338,33 @@ deployment_runtime_ready() {
 }
 
 handoff_to_managed_installer() { # handoff_to_managed_installer <原始参数...>
-  local managedDir
+  local managedDir currentManager stagedManager
+  managedDir="$(dirname "${MANAGED_SCRIPT}")"
   if [[ "${AID_REMOTE_BOOTSTRAP:-0}" == "1" ]]; then
-    ok "已启用远程最新引导脚本，不切换到旧版受管 aid.sh"
+    currentManager="${SCRIPT_DIR}/$(basename "${BASH_SOURCE[0]}")"
+    # 显式远程引导不仅本次使用最新逻辑，也把它原子同步到已部署的受管目录。
+    # 因此即使业务版本号未变化，下一次 sudo aid default/update 仍是新命令集。
+    if [[ "${SCRIPT_DIR}" != "${managedDir}" \
+        && -f "${currentManager}" && ! -L "${currentManager}" \
+        && -f "${INSTALLER_ROOT}/deploy/docker/docker-compose.yml" \
+        && -f "${INSTALLER_ROOT}/sql/aid-init.sql" ]]; then
+      if cmp -s "${currentManager}" "${MANAGED_SCRIPT}" 2>/dev/null; then
+        ok "已启用远程最新引导脚本，受管 aid.sh 已是最新"
+      else
+        stagedManager="${managedDir}/.aid.sh.remote.$$"
+        if install -m 0700 "${currentManager}" "${stagedManager}" 2>/dev/null \
+            && mv -f -- "${stagedManager}" "${MANAGED_SCRIPT}" 2>/dev/null; then
+          ok "已启用远程最新引导脚本，并同步到受管命令 sudo aid"
+        else
+          rm -f -- "${stagedManager}" 2>/dev/null || true
+          warn "当前仍使用远程最新脚本，但无法同步 ${MANAGED_SCRIPT}；下次请继续使用远程命令"
+        fi
+      fi
+    else
+      ok "已启用远程最新引导脚本，不切换到旧版受管 aid.sh"
+    fi
     return 0
   fi
-  managedDir="$(dirname "${MANAGED_SCRIPT}")"
   if [[ -f "${MANAGED_SCRIPT}" && "${SCRIPT_DIR}" != "${managedDir}" \
       && -f "${INSTALLER_ROOT}/deploy/docker/docker-compose.yml" \
       && -f "${INSTALLER_ROOT}/sql/aid-init.sql" ]]; then
