@@ -99,6 +99,7 @@ JDK_BUILD="8"
 JDK_HOME=""
 NODE_VERSION="22.22.0"
 NODE_HOME=""
+NODE_RUNTIME_ERROR=""
 MAVEN_VERSION="3.9.9"
 MAVEN_HOME=""
 GO_VERSION="1.22.12"
@@ -1737,6 +1738,47 @@ rank_download_urls() { # rank_download_urls <用途> <URL...>
   [[ -z "${deferred}" ]] || printf '%s' "${deferred}"
 }
 
+detect_glibc_version() {
+  local raw="" LC_ALL=C
+  if command -v getconf >/dev/null 2>&1; then
+    raw="$(getconf GNU_LIBC_VERSION 2>/dev/null || true)"
+  fi
+  if [[ "${raw}" =~ ([0-9]+\.[0-9]+) ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
+    return 0
+  fi
+  if command -v ldd >/dev/null 2>&1; then
+    raw="$(ldd --version 2>&1 | head -n 1 || true)"
+  fi
+  if [[ "${raw}" =~ ([0-9]+\.[0-9]+) ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
+    return 0
+  fi
+  return 1
+}
+
+node_runtime_matches() { # node_runtime_matches <node二进制>
+  local binary="$1" output="" firstLine=""
+  NODE_RUNTIME_ERROR=""
+  if [[ ! -x "${binary}" ]]; then
+    NODE_RUNTIME_ERROR="未找到可执行文件 ${binary}"
+    return 1
+  fi
+  if ! output="$("${binary}" -v 2>&1)"; then
+    output="${output//$'\r'/}"
+    firstLine="${output%%$'\n'*}"
+    NODE_RUNTIME_ERROR="${firstLine:-执行失败且未返回错误信息}"
+    return 1
+  fi
+  output="${output//$'\r'/}"
+  if [[ "${output}" != "v${NODE_VERSION}" ]]; then
+    firstLine="${output%%$'\n'*}"
+    NODE_RUNTIME_ERROR="期望 v${NODE_VERSION}，实际 ${firstLine:-无版本输出}"
+    return 1
+  fi
+  return 0
+}
+
 prepare_exact_jdk() {
   local arch checksum name cacheDir archive actual officialUrl cnUrl downloaded="no" url tmp installMode
   case "$(uname -m)" in
@@ -1816,6 +1858,7 @@ prepare_exact_jdk() {
 
 prepare_exact_node() {
   local arch checksum name cacheDir archive actual officialUrl cnUrl downloaded="no" url tmp installMode
+  local glibcVersion compatibilityBuild="no" buildLabel="官方构建" checksumSource="Node.js 官方发布摘要"
   case "$(uname -m)" in
     x86_64|amd64)
       arch=x64
@@ -1825,34 +1868,61 @@ prepare_exact_node() {
       checksum=25ba95dfb96871fa2ef977f11f95ea90818c8fa15c0f2110771db08d4ba423be ;;
     *) die "Node.js ${NODE_VERSION} 暂不支持当前架构: $(uname -m)" ;;
   esac
-  name="node-v${NODE_VERSION}-linux-${arch}.tar.gz"
+  glibcVersion="$(detect_glibc_version || true)"
+  [[ -n "${glibcVersion}" ]] || die "手动部署要求 glibc；当前系统无法识别 glibc 版本，请改用受支持的 Linux 或 Docker 部署"
+  if [[ "$(version_compare "${glibcVersion}" "2.28.0")" == "-1" ]]; then
+    [[ "${arch}" == "x64" ]] \
+      || die "当前 ${arch} 系统的 glibc ${glibcVersion} 低于 Node.js 要求的 2.28；请升级系统或改用 Docker 部署"
+    compatibilityBuild=yes
+    buildLabel="glibc 2.17兼容构建"
+    checksumSource="Node.js unofficial-builds 发布摘要"
+    name="node-v${NODE_VERSION}-linux-x64-glibc-217.tar.xz"
+    checksum=db4a1d582e6fffcf7fb348149ca4ac8fa685699c5bc46cd7e22bbf9a7e673454
+  else
+    name="node-v${NODE_VERSION}-linux-${arch}.tar.gz"
+  fi
   cacheDir="${DATA_ROOT}/build-cache/toolchains"
   archive="${cacheDir}/${name}"
   NODE_HOME="${cacheDir}/node-${NODE_VERSION}-${arch}"
-  if [[ -x "${NODE_HOME}/bin/node" && "$("${NODE_HOME}/bin/node" -v 2>/dev/null)" == "v${NODE_VERSION}" ]]; then
+  if node_runtime_matches "${NODE_HOME}/bin/node"; then
     export PATH="${NODE_HOME}/bin:${PATH}"
-    ok "Node.js ${NODE_VERSION} 已存在，跳过下载: ${NODE_HOME}"
+    ok "Node.js ${NODE_VERSION}（${buildLabel}）已存在，跳过下载: ${NODE_HOME}"
     return 0
   fi
+  if [[ -x "${NODE_HOME}/bin/node" ]]; then
+    warn "现有 Node.js 无法运行或版本不匹配，将重新准备: ${NODE_RUNTIME_ERROR:-未知原因}"
+  fi
   require_download_tools
+  installMode="${AID_DEPENDENCY_INSTALL_MODE:-auto}"
+  if [[ "${compatibilityBuild}" == "yes" ]]; then
+    ensure_host_command xz "xz解压工具" "xz-utils" "xz" "${installMode}"
+  fi
   mkdir -p "${cacheDir}"
   if [[ -f "${archive}" && "$(sha256_file "${archive}" || true)" != "${checksum}" ]]; then
     warn "Node.js 缓存校验失败，将重新下载"
     rm -f -- "${archive}"
   fi
   if [[ ! -f "${archive}" ]]; then
-    installMode="${AID_DEPENDENCY_INSTALL_MODE:-auto}"
     [[ "${installMode}" == "auto" ]] \
       || die "缺少 Node.js ${NODE_VERSION}；请放入 ${archive}，或把 DEPENDENCY_INSTALL_MODE 改为 auto"
     resolve_dependency_region
-    officialUrl="https://nodejs.org/dist/v${NODE_VERSION}/${name}"
-    cnUrl="https://npmmirror.com/mirrors/node/v${NODE_VERSION}/${name}"
+    if [[ "${compatibilityBuild}" == "yes" ]]; then
+      # Node.js 官方 Linux x64 二进制要求 glibc 2.28+。旧发行版使用 Node.js
+      # unofficial-builds 项目在 glibc 2.17 上构建的同版本产物；国内地址只做
+      # 字节镜像，最终仍以该项目发布的固定 SHA256 为信任边界。
+      officialUrl="https://unofficial-builds.nodejs.org/download/release/v${NODE_VERSION}/${name}"
+      cnUrl="https://gitee.com/gzxx-2025/aid-server/releases/download/toolchain-node-v${NODE_VERSION}/${name}"
+      warn "检测到 glibc ${glibcVersion}，将使用 Node.js ${NODE_VERSION} 的 glibc 2.17 兼容构建"
+    else
+      officialUrl="https://nodejs.org/dist/v${NODE_VERSION}/${name}"
+      cnUrl="https://npmmirror.com/mirrors/node/v${NODE_VERSION}/${name}"
+    fi
     local -a urls=()
     [[ -z "${AID_NODE_DOWNLOAD_URL:-}" ]] || urls+=("${AID_NODE_DOWNLOAD_URL}")
     if [[ "${RESOLVED_DEPENDENCY_REGION}" == "cn" ]]; then urls+=("${cnUrl}" "${officialUrl}"); else urls+=("${officialUrl}" "${cnUrl}"); fi
     mapfile -t urls < <(rank_download_urls "Node.js" "${urls[@]}")
     for url in "${urls[@]}"; do
-      if try_download "${url}" "${archive}" "Node.js ${NODE_VERSION}（${arch}）" \
+      if try_download "${url}" "${archive}" "Node.js ${NODE_VERSION}（${buildLabel}）" \
           && [[ "$(sha256_file "${archive}" || true)" == "${checksum}" ]]; then
         downloaded=yes; break
       fi
@@ -1863,12 +1933,21 @@ prepare_exact_node() {
   fi
   tmp="${NODE_HOME}.tmp.$$"
   rm -rf -- "${tmp}"; mkdir -p "${tmp}"
-  tar -xzf "${archive}" -C "${tmp}" --strip-components=1 || { rm -rf -- "${tmp}"; die "Node.js 压缩包解压失败"; }
-  [[ "$("${tmp}/bin/node" -v 2>/dev/null)" == "v${NODE_VERSION}" ]] \
-    || { rm -rf -- "${tmp}"; die "Node.js 实际版本不是 ${NODE_VERSION}"; }
+  if [[ "${compatibilityBuild}" == "yes" ]]; then
+    tar -xJf "${archive}" -C "${tmp}" --strip-components=1 \
+      || { rm -rf -- "${tmp}"; die "Node.js 兼容包解压失败"; }
+  else
+    tar -xzf "${archive}" -C "${tmp}" --strip-components=1 \
+      || { rm -rf -- "${tmp}"; die "Node.js 压缩包解压失败"; }
+  fi
+  if ! node_runtime_matches "${tmp}/bin/node"; then
+    actual="${NODE_RUNTIME_ERROR:-未知错误}"
+    rm -rf -- "${tmp}"
+    die "Node.js 无法在当前系统运行: ${actual}"
+  fi
   rm -rf -- "${NODE_HOME}"; mv "${tmp}" "${NODE_HOME}" || die "Node.js 安装目录就位失败"
   export PATH="${NODE_HOME}/bin:${PATH}"
-  ok "Node.js ${NODE_VERSION} 已通过官方 SHA256 校验: ${NODE_HOME}"
+  ok "Node.js ${NODE_VERSION}（${buildLabel}）已通过 ${checksumSource} SHA256 校验: ${NODE_HOME}"
 }
 
 prepare_exact_maven() {

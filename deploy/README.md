@@ -432,7 +432,7 @@ if command -v curl >/dev/null 2>&1; then curl -fL --retry 3 -o aid-install.sh ht
 
 脚本会自动生成 `/data/aid/aid-deploy.conf`。全新本机 MySQL 的 root/业务密码会生成强随机值写回配置；已有或外部 MySQL 无法安全猜测凭证，因此会要求输入真实密码（不回显）并当场校验。`TOKEN_SECRET` 留空同样自动生成。主机、端口或外部中间件拓扑不是默认值时，先按脚本提示编辑该配置再重试。
 
-手动部署始终使用宿主机隔离工具链，不因服务器碰巧存在 Docker 而改变构建方式。JDK、Node.js、Maven、Go 与 MySQL 归档先对候选 HTTPS 来源做短流量测速，再完整下载、校验官方摘要并缓存；Git、Nginx、Redis 客户端等使用发行版包管理器按需安装。Java 固定使用 Temurin OpenJDK 17.0.20，Web 固定使用 Node.js 22.22.0。配置调整后执行 `sudo aid restart` 只会重新校验现有版本和连通性，符合要求的组件全部跳过，不会重复安装或初始化。
+手动部署始终使用宿主机隔离工具链，不因服务器碰巧存在 Docker 而改变构建方式。JDK、Node.js、Maven、Go 与 MySQL 归档先对候选 HTTPS 来源做短流量测速，再完整下载、校验发布摘要并缓存；Git、Nginx、Redis 客户端等使用发行版包管理器按需安装。Java 固定使用 Temurin OpenJDK 17.0.20，Web 固定使用 Node.js 22.22.0。脚本会先识别宿主机 glibc：glibc 2.28+ 使用 Node.js 官方构建；CentOS 7 等 x64/glibc 2.17 系统自动改用 Node.js `unofficial-builds` 社区兼容构建及 Gitee 国内字节镜像，并强制核对其发布的固定 SHA-256，不升级或替换系统 glibc。AArch64 的旧 glibc 系统没有对应兼容构建，脚本会明确阻止安装并提示升级操作系统或改用 Docker。配置调整后执行 `sudo aid restart` 只会重新校验现有版本和连通性，符合要求的组件全部跳过，不会重复安装或初始化。
 
 脚本自动完成：依赖检测与按需安装 → 三仓同标签源码构建 → 配置文件校验 → 硬件校验 → 数据库连通性校验 → 空库自动导入基线（已有表跳过）→ 本地构建包摆位到 `/data/aid/app` → 注册 `aid` + `aid-web` 双 systemd 服务（环境变量含 `LOG_PATH=/data/aid/logs`，日志统一落数据目录）→ 生成 Nginx 站点 → 自动安装升级器 → 健康等待。
 
