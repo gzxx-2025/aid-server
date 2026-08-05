@@ -22,8 +22,12 @@ NODE_IMAGE="${AID_NODE_IMAGE:-node:22.22.0-bookworm-slim}"
 GO_IMAGE="${AID_GO_IMAGE:-golang:1.22.12-bookworm}"
 DEPENDENCY_INSTALL_MODE="${AID_DEPENDENCY_INSTALL_MODE:-auto}"
 DEPENDENCY_REGION="${AID_DEPENDENCY_REGION:-auto}"
-DOCKER_CN_MIRROR="${AID_DOCKER_CN_MIRROR:-docker.m.daocloud.io}"
+DEFAULT_DOCKER_MIRRORS="docker.m.daocloud.io,dockerproxy.net"
+DOCKER_MIRRORS="${AID_DOCKER_MIRRORS:-${AID_DOCKER_CN_MIRROR:-$DEFAULT_DOCKER_MIRRORS}}"
+DOCKER_MIRROR_ORDER=""
+DOCKER_MIRRORS_RESOLVED=0
 IMAGE_PULL_TIMEOUT_SECONDS="${AID_IMAGE_PULL_TIMEOUT_SECONDS:-900}"
+IMAGE_MANIFEST_PROBE_TIMEOUT_SECONDS="${AID_IMAGE_MANIFEST_PROBE_TIMEOUT_SECONDS:-45}"
 JDK_VERSION="17.0.20"
 JDK_BUILD="8"
 JDK_HOME=""
@@ -49,7 +53,8 @@ usage() {
   AID_MAVEN_FALLBACK_URL      覆盖备用 Maven 仓库
   AID_GO_PROXY                覆盖 Go 模块代理链
   AID_DEPENDENCY_REGION       依赖线路：auto、cn 或 global；auto 按服务器公网出口地区选择
-  AID_DOCKER_CN_MIRROR        Docker Hub 国内镜像域名，默认 docker.m.daocloud.io
+  AID_DOCKER_MIRRORS          Docker Hub 国内镜像前缀，逗号分隔；自动测速排序
+  AID_DOCKER_CN_MIRROR        兼容旧版单镜像设置（新配置优先使用 AID_DOCKER_MIRRORS）
   AID_JDK_DOWNLOAD_URL        覆盖 Temurin OpenJDK 17.0.20 下载地址
   AID_*_IMAGE                 覆盖 Docker 构建镜像
 EOF
@@ -130,14 +135,76 @@ detect_dependency_region() {
   esac
 }
 
+normalize_docker_mirror() {
+  mirror_value="$1"
+  mirror_value="$(printf '%s' "$mirror_value" | tr '[:upper:]' '[:lower:]')"
+  mirror_value="${mirror_value#https://}"
+  mirror_value="${mirror_value#http://}"
+  mirror_value="${mirror_value%/}"
+  printf '%s\n' "$mirror_value" | grep -Eq '^[a-z0-9.-]+(:[0-9]+)?(/[a-z0-9._/-]+)?$' || return 1
+  printf '%s\n' "$mirror_value"
+}
+
+probe_docker_mirror() {
+  mirror_probe="$1"
+  mirror_registry="${mirror_probe%%/*}"
+  command -v curl >/dev/null 2>&1 || return 1
+  mirror_result="$(curl -sS -o /dev/null --connect-timeout 3 --max-time 6 \
+    -w '%{http_code} %{time_total}' "https://$mirror_registry/v2/" 2>/dev/null || true)"
+  mirror_code="${mirror_result%% *}"
+  mirror_seconds="${mirror_result#* }"
+  case "$mirror_code" in 200|401) ;; *) return 1 ;; esac
+  awk -v value="$mirror_seconds" 'BEGIN { printf "%d\n", value * 1000 }'
+}
+
+resolve_docker_mirror_order() {
+  [ "$DOCKER_MIRRORS_RESOLVED" -eq 0 ] || return 0
+  mirror_ranked=''; mirror_deferred=''; mirror_seen=' '
+  old_ifs="$IFS"; IFS=','
+  for mirror_candidate in $DOCKER_MIRRORS; do
+    IFS="$old_ifs"
+    mirror_candidate="$(printf '%s' "$mirror_candidate" | tr -d '[:space:]')"
+    [ -n "$mirror_candidate" ] || { IFS=','; continue; }
+    mirror_normalized="$(normalize_docker_mirror "$mirror_candidate" 2>/dev/null || true)"
+    if [ -z "$mirror_normalized" ]; then
+      warn "已忽略非法 Docker 镜像地址: $mirror_candidate"
+      IFS=','; continue
+    fi
+    case "$mirror_seen" in *" $mirror_normalized "*) IFS=','; continue ;; esac
+    mirror_seen="$mirror_seen$mirror_normalized "
+    if mirror_latency="$(probe_docker_mirror "$mirror_normalized" 2>/dev/null)"; then
+      log "Docker镜像测速: $mirror_normalized ${mirror_latency}ms"
+      mirror_ranked="${mirror_ranked}${mirror_latency} ${mirror_normalized}\n"
+    else
+      warn "Docker镜像测速不可达，保留为末位重试: $mirror_normalized"
+      mirror_deferred="$mirror_deferred$mirror_normalized "
+    fi
+    IFS=','
+  done
+  IFS="$old_ifs"
+  mirror_sorted=''
+  if [ -n "$mirror_ranked" ]; then
+    mirror_sorted="$(printf '%b' "$mirror_ranked" | sort -n -k1,1 | awk '{printf "%s ", $2}')"
+  fi
+  DOCKER_MIRROR_ORDER="$mirror_sorted$mirror_deferred"
+  DOCKER_MIRROR_ORDER="${DOCKER_MIRROR_ORDER% }"
+  DOCKER_MIRRORS_RESOLVED=1
+  if [ -n "$DOCKER_MIRROR_ORDER" ]; then
+    log "Docker国内镜像尝试顺序: $(printf '%s' "$DOCKER_MIRROR_ORDER" | sed 's/ / -> /g')"
+  else
+    warn '未配置有效 Docker 国内镜像，将只尝试 Docker Hub 官方地址'
+  fi
+}
+
 dockerhub_mirror_image() {
-  image="$1"
+  mirror_prefix="$1"
+  image="$2"
   first="${image%%/*}"
   case "$image" in
     */*)
       case "$first" in *.*|*:*|localhost) return 1 ;; esac
-      printf '%s/%s\n' "$DOCKER_CN_MIRROR" "$image" ;;
-    *) printf '%s/library/%s\n' "$DOCKER_CN_MIRROR" "$image" ;;
+      printf '%s/%s\n' "$mirror_prefix" "$image" ;;
+    *) printf '%s/library/%s\n' "$mirror_prefix" "$image" ;;
   esac
 }
 
@@ -166,16 +233,61 @@ local_image_matches_digest() {
 }
 
 pull_docker_image() {
-  image="$1"
+  pull_image_ref="$1"
   if command -v timeout >/dev/null 2>&1; then
-    timeout "$IMAGE_PULL_TIMEOUT_SECONDS" docker pull "$image"
+    timeout "$IMAGE_PULL_TIMEOUT_SECONDS" docker pull "$pull_image_ref"
   else
-    docker pull "$image"
+    docker pull "$pull_image_ref"
   fi
 }
 
+probe_docker_image_manifest() {
+  manifest_probe_ref="$1"
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$IMAGE_MANIFEST_PROBE_TIMEOUT_SECONDS" docker manifest inspect "$manifest_probe_ref" >/dev/null 2>&1
+  else
+    docker manifest inspect "$manifest_probe_ref" >/dev/null 2>&1
+  fi
+}
+
+try_docker_mirrors() {
+  mirror_try_image="$1"; mirror_try_label="$2"; mirror_try_digest="$3"
+  resolve_docker_mirror_order
+  mirror_ready=''; mirror_deferred=''
+  for mirror_try_prefix in $DOCKER_MIRROR_ORDER; do
+    mirror_try_ref="$(dockerhub_mirror_image "$mirror_try_prefix" "$mirror_try_image" 2>/dev/null || true)"
+    [ -n "$mirror_try_ref" ] || continue
+    if probe_docker_image_manifest "$mirror_try_ref"; then
+      log "Docker镜像清单可用: $mirror_try_ref"
+      mirror_ready="$mirror_ready$mirror_try_prefix "
+    else
+      warn "Docker镜像清单预检失败，保留为末位重试: $mirror_try_ref"
+      mirror_deferred="$mirror_deferred$mirror_try_prefix "
+    fi
+  done
+  mirror_candidates="$mirror_ready$mirror_deferred"
+  mirror_candidates="${mirror_candidates% }"
+  for mirror_try_prefix in $mirror_candidates; do
+    mirror_try_ref="$(dockerhub_mirror_image "$mirror_try_prefix" "$mirror_try_image" 2>/dev/null || true)"
+    [ -n "$mirror_try_ref" ] || continue
+    log "通过国内镜像下载 $mirror_try_label: $mirror_try_ref"
+    if pull_docker_image "$mirror_try_ref"; then
+      if [ -z "$mirror_try_digest" ] || local_image_matches_digest "$mirror_try_ref" "$mirror_try_digest"; then
+        docker tag "$mirror_try_ref" "$mirror_try_image" || die "$mirror_try_label 镜像名称映射失败: $mirror_try_image"
+        log "$mirror_try_label 镜像下载成功: $mirror_try_prefix"
+        return 0
+      fi
+      warn "$mirror_try_label 镜像摘要与官方发布清单不一致，已拒绝来源: $mirror_try_prefix"
+      docker image rm "$mirror_try_ref" >/dev/null 2>&1 || true
+    else
+      warn "$mirror_try_label 镜像下载失败，继续下一个来源: $mirror_try_prefix"
+    fi
+  done
+  return 1
+}
+
 ensure_docker_image() {
-  image="$1"; label="$2"; digest=''; official_ref=''; mirror_ref=''
+  image="$1"; label="$2"; digest=''; official_ref=''
   digest="$(docker_image_digest "$image" 2>/dev/null || true)"
   if docker image inspect "$image" >/dev/null 2>&1; then
     if [ -z "$digest" ] || local_image_matches_digest "$image" "$digest"; then
@@ -184,54 +296,39 @@ ensure_docker_image() {
     fi
     warn "$label 本地镜像摘要不符合当前发布清单，将重新拉取: $image"
   fi
-  mirror_image="$(dockerhub_mirror_image "$image" 2>/dev/null || true)"
+  resolve_docker_mirror_order
   if [ -n "$digest" ]; then
     official_ref="$(image_with_digest "$image" "$digest")"
-    # 国内代理按标签拉取后核对 RepoDigest；只有与官方发布摘要一致才允许使用。
-    mirror_ref="$mirror_image"
   else
     official_ref="$image"
-    mirror_ref="$mirror_image"
     warn "$label 使用了自定义或未固定镜像，无法与官方发布摘要核对: $image"
   fi
-  if [ -n "$mirror_image" ] && docker image inspect "$mirror_image" >/dev/null 2>&1 \
-      && { [ -z "$digest" ] || local_image_matches_digest "$mirror_image" "$digest"; }; then
-    docker tag "$mirror_image" "$image"
-    log "$label 国内镜像已存在，已映射为标准名称: $image"
-    return 0
-  fi
-  if [ "$DEPENDENCY_INSTALL_MODE" = manual ]; then
-    die "缺少 $label 镜像 $image；请手动拉取后重试，或把 DEPENDENCY_INSTALL_MODE 改为 auto"
-  fi
-  if [ -n "$mirror_ref" ] && [ "$RESOLVED_DEPENDENCY_REGION" = cn ]; then
-    log "通过国内镜像下载 $label: $mirror_ref"
-    if pull_docker_image "$mirror_ref"; then
-      if [ -z "$digest" ] || local_image_matches_digest "$mirror_ref" "$digest"; then
-        docker tag "$mirror_ref" "$image"
-        return 0
-      fi
-      warn "$label 国内镜像摘要与官方发布清单不一致，已拒绝使用"
-      docker image rm "$mirror_ref" >/dev/null 2>&1 || true
+  for mirror_prefix in $DOCKER_MIRROR_ORDER; do
+    mirror_image="$(dockerhub_mirror_image "$mirror_prefix" "$image" 2>/dev/null || true)"
+    if [ -n "$mirror_image" ] && docker image inspect "$mirror_image" >/dev/null 2>&1 \
+        && { [ -z "$digest" ] || local_image_matches_digest "$mirror_image" "$digest"; }; then
+      docker tag "$mirror_image" "$image"
+      log "$label 国内镜像缓存有效，已映射为标准名称: $image"
+      return 0
     fi
-    warn "国内镜像下载失败，自动回退官方地址: $official_ref"
+  done
+  if [ "$DEPENDENCY_INSTALL_MODE" = manual ]; then
+    die "缺少 $label 镜像 $image；请从已配置镜像或官方地址手动拉取后重试，或把 DEPENDENCY_INSTALL_MODE 改为 auto"
+  fi
+  if [ "$RESOLVED_DEPENDENCY_REGION" = cn ]; then
+    if try_docker_mirrors "$image" "$label" "$digest"; then return 0; fi
+    warn "全部国内镜像均失败，自动回退官方地址: $official_ref"
   fi
   log "通过官方地址下载 $label: $official_ref"
   if pull_docker_image "$official_ref"; then
     [ "$official_ref" = "$image" ] || docker tag "$official_ref" "$image"
     return 0
   fi
-  if [ -n "$mirror_ref" ] && [ "$RESOLVED_DEPENDENCY_REGION" != cn ]; then
-    warn "官方地址下载失败，自动回退国内镜像: $mirror_ref"
-    if pull_docker_image "$mirror_ref"; then
-      if [ -z "$digest" ] || local_image_matches_digest "$mirror_ref" "$digest"; then
-        docker tag "$mirror_ref" "$image"
-        return 0
-      fi
-      warn "$label 国内镜像摘要与官方发布清单不一致，已拒绝使用"
-      docker image rm "$mirror_ref" >/dev/null 2>&1 || true
-    fi
+  if [ "$RESOLVED_DEPENDENCY_REGION" != cn ]; then
+    warn '官方地址下载失败，自动尝试测速后的国内镜像列表'
+    if try_docker_mirrors "$image" "$label" "$digest"; then return 0; fi
   fi
-  die "$label 镜像下载失败；官方地址和备用镜像均不可用: $image"
+  die "$label 镜像下载失败；官方地址和全部国内镜像均不可用: $image"
 }
 
 if [ "$USE_DOCKER" = yes ]; then

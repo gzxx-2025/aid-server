@@ -55,6 +55,8 @@ public class DeploymentConfigSaveDto {
     private String dependencyInstallMode;
     /** 依赖下载线路；auto 自动判断，cn 国内优先，global 官方优先 */
     private String dependencyRegion;
+    /** Docker Hub 国内镜像前缀，多个地址使用英文逗号分隔 */
+    private String dockerMirrors;
     /** Docker Compose 可选组件列表；包含 mysql 表示使用内置 MySQL */
     private String composeProfiles;
     /** 是否启用 RocketMQ */

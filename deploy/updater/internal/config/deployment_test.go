@@ -210,6 +210,7 @@ func TestValidateDependencyAndRocketMQFlushModes(t *testing.T) {
 		"REDIS_HOST": "redis", "REDIS_PORT": "6379", "TOKEN_SECRET": "tokensecret",
 		"COMPOSE_PROFILES": "mysql,redis", "ROCKETMQ_ENABLED": "false",
 		"DEPENDENCY_INSTALL_MODE": "manual", "DEPENDENCY_REGION": "cn", "ROCKETMQ_FLUSH_DISK_TYPE": "SYNC_FLUSH",
+		"DOCKER_MIRRORS": "docker.m.daocloud.io,dockerproxy.net,registry.example.com/team",
 	}
 	if err := validateDeploymentValues("docker", values); err != nil {
 		t.Fatalf("valid dependency and flush modes were rejected: %v", err)
@@ -224,6 +225,15 @@ func TestValidateDependencyAndRocketMQFlushModes(t *testing.T) {
 		t.Fatal("invalid dependency region should be rejected")
 	}
 	values["DEPENDENCY_REGION"] = "global"
+	values["DOCKER_MIRRORS"] = "https://registry.example.com,mirror.example.com:5000/team"
+	if err := validateDeploymentValues("docker", values); err != nil {
+		t.Fatalf("valid Docker mirror list was rejected: %v", err)
+	}
+	values["DOCKER_MIRRORS"] = "registry.example.com/team?token=secret"
+	if err := validateDeploymentValues("docker", values); err == nil {
+		t.Fatal("Docker mirror query credentials should be rejected")
+	}
+	values["DOCKER_MIRRORS"] = "docker.m.daocloud.io,dockerproxy.net"
 	values["ROCKETMQ_FLUSH_DISK_TYPE"] = "MEMORY_ONLY"
 	if err := validateDeploymentValues("docker", values); err == nil {
 		t.Fatal("invalid RocketMQ flush mode should be rejected")

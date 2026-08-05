@@ -83,8 +83,17 @@ SOURCE_GIT_IMAGE="${AID_GIT_IMAGE:-alpine/git:2.47.2}"
 SOURCE_MAVEN_IMAGE="${AID_MAVEN_IMAGE:-maven:3.9.9-eclipse-temurin-17}"
 SOURCE_NODE_IMAGE="${AID_NODE_IMAGE:-node:22.22.0-bookworm-slim}"
 SOURCE_GO_IMAGE="${AID_GO_IMAGE:-golang:1.22.12-bookworm}"
-DOCKER_CN_MIRROR="${AID_DOCKER_CN_MIRROR:-docker.m.daocloud.io}"
+# Docker Hub 国内代理采用可配置候选列表。默认值均为公开 Registry 代理；云厂商
+# 专属加速地址可通过正式配置 DOCKER_MIRRORS 或 AID_DOCKER_MIRRORS 覆盖。
+DEFAULT_DOCKER_MIRRORS="docker.m.daocloud.io,dockerproxy.net"
+DOCKER_MIRROR_ORDER=""
+DOCKER_MIRRORS_RESOLVED=0
 IMAGE_PULL_TIMEOUT_SECONDS="${AID_IMAGE_PULL_TIMEOUT_SECONDS:-900}"
+IMAGE_MANIFEST_PROBE_TIMEOUT_SECONDS="${AID_IMAGE_MANIFEST_PROBE_TIMEOUT_SECONDS:-45}"
+DOCKER_MIN_VERSION="24.0.0"
+DOCKER_COMPOSE_MIN_VERSION="2.20.0"
+GIT_MIN_VERSION="1.8.3"
+NGINX_MIN_VERSION="1.18.0"
 JDK_VERSION="17.0.20"
 JDK_BUILD="8"
 JDK_HOME=""
@@ -94,6 +103,12 @@ MAVEN_VERSION="3.9.9"
 MAVEN_HOME=""
 GO_VERSION="1.22.12"
 GO_HOME=""
+MYSQL_VERSION="5.7.44"
+MYSQL_HOME=""
+MYSQL_MANAGED_SERVICE="aid-mysql.service"
+REDIS_VERSION="7.2.15"
+REDIS_HOME=""
+REDIS_MANAGED_SERVICE="aid-redis.service"
 JAVA_RUNTIME_IMAGE="aid/openjdk:17.0.20"
 DEFAULT_ADMIN_ENTRY_CODE=""
 OS_PACKAGE_INDEX_READY=0
@@ -307,6 +322,7 @@ validate_docker_extended_config() {
   if [[ "$(env_get ROCKETMQ_ENABLED false)" == "true" ]]; then
     [[ -n "$(env_get ROCKETMQ_NAMESERVER '')" ]] || die "启用 RocketMQ 时必须配置 ROCKETMQ_NAMESERVER"
   fi
+  validate_rocketmq_mode docker
   [[ "$(env_get REDIS_DATABASE 0)" =~ ^[0-9]+$ ]] || die "REDIS_DATABASE 必须是非负整数"
   if docker_profile_enabled https; then
     validate_port HTTPS_PORT "$(env_get HTTPS_PORT 443)"
@@ -407,16 +423,157 @@ detect_mode() {
   echo "none"
 }
 
-require_docker_runtime() {
-  if ! command -v docker >/dev/null 2>&1; then
-    risk "未检测到 Docker Engine；AID 不会自动安装 Docker，也不会修改服务器软件源"
-    die "请管理员安装 Docker Engine 24+ 与 Compose v2 插件，确认 docker version 正常后重新运行"
+docker_cli_version() {
+  docker --version 2>/dev/null | sed -E 's/.*version[[:space:]]+v?([0-9]+(\.[0-9]+){1,2}).*/\1/' | head -n 1
+}
+
+docker_compose_version() {
+  docker compose version --short 2>/dev/null | sed -E 's/^v//' | head -n 1
+}
+
+docker_runtime_version_matches() {
+  local engine compose
+  command -v docker >/dev/null 2>&1 || return 1
+  engine="$(docker_cli_version)"
+  compose="$(docker_compose_version)"
+  [[ "${engine}" =~ ^[0-9]+\.[0-9]+ ]] && version_at_least "${engine}" "${DOCKER_MIN_VERSION}" \
+    && [[ "${compose}" =~ ^[0-9]+\.[0-9]+ ]] && version_at_least "${compose}" "${DOCKER_COMPOSE_MIN_VERSION}"
+}
+
+docker_repo_candidates() { # docker_repo_candidates <ubuntu|debian|centos> <相对文件>
+  local distro="$1" file="$2"
+  printf '%s\n' \
+    "https://mirrors.tuna.tsinghua.edu.cn/docker-ce/linux/${distro}/${file}" \
+    "https://mirrors.aliyun.com/docker-ce/linux/${distro}/${file}" \
+    "https://download.docker.com/linux/${distro}/${file}"
+}
+
+configure_new_docker_registry_mirrors() {
+  local daemonFile="/etc/docker/daemon.json" backup="" mirror json="" first=yes
+  resolve_docker_mirror_order
+  [[ -n "${DOCKER_MIRROR_ORDER}" ]] || return 0
+  for mirror in ${DOCKER_MIRROR_ORDER}; do
+    [[ "${first}" == "yes" ]] || json+=","
+    json+="\"https://${mirror}\""
+    first=no
+  done
+  mkdir -p /etc/docker
+  if [[ -s "${daemonFile}" ]]; then
+    # 已有 daemon.json 可能包含企业私库、存储驱动或日志策略。安装器绝不覆盖未知配置，
+    # AID 自身仍会通过 DOCKER_MIRRORS 逐个前缀拉取镜像。
+    warn "检测到现有 ${daemonFile}，为避免覆盖管理员配置，跳过写入全局 registry-mirrors"
+    return 0
   fi
-  docker info >/dev/null 2>&1 \
-    || die "Docker 已安装但守护进程未运行，请先启动 Docker 服务后重试"
-  docker compose version >/dev/null 2>&1 \
-    || die "未检测到 docker compose v2 插件，请安装 Compose 插件后重试（脚本不会自动安装）"
-  ok "Docker 运行环境可用；Git/JDK/Nginx/Redis 将按构建流程与 COMPOSE_PROFILES 使用容器"
+  backup="${daemonFile}.bak.$(date +%Y%m%d%H%M%S)"
+  [[ ! -e "${daemonFile}" ]] || cp -a "${daemonFile}" "${backup}"
+  printf '{\n  "registry-mirrors": [%s]\n}\n' "${json}" > "${daemonFile}" \
+    || die "Docker 镜像加速配置写入失败"
+  chmod 600 "${daemonFile}"
+  if command -v dockerd >/dev/null 2>&1 \
+      && ! dockerd --validate --config-file "${daemonFile}" >/dev/null 2>&1; then
+    [[ ! -e "${backup}" ]] || cp -a "${backup}" "${daemonFile}"
+    die "Docker daemon.json 校验失败，已恢复原配置"
+  fi
+  ok "Docker 全局镜像加速已按测速结果写入 ${daemonFile}"
+}
+
+install_docker_engine() {
+  local osId="" distro="" codename="" arch="" selected="" url tmp fingerprint manager=""
+  local -a rankedUrls=()
+  [[ -r /etc/os-release ]] || die "无法识别 Linux 发行版，不能自动安装 Docker"
+  # shellcheck disable=SC1091
+  . /etc/os-release
+  osId="${ID,,}"
+  case "${osId}" in
+    ubuntu|debian)
+      distro="${osId}"
+      install_os_packages "Docker安装基础工具" "ca-certificates curl gnupg" "ca-certificates curl gnupg2"
+      mapfile -t rankedUrls < <(rank_download_urls "Docker软件源" $(docker_repo_candidates "${distro}" gpg))
+      tmp="$(mktemp)"
+      for url in "${rankedUrls[@]}"; do
+        if try_download "${url}" "${tmp}" "Docker软件源签名"; then selected="${url%/gpg}"; break; fi
+      done
+      [[ -n "${selected}" && -s "${tmp}" ]] || { rm -f -- "${tmp}"; die "Docker 国内镜像与官方软件源均不可用"; }
+      fingerprint="$(gpg --show-keys --with-colons "${tmp}" 2>/dev/null | awk -F: '$1=="fpr" {print toupper($10); exit}')"
+      [[ "${fingerprint}" == "9DC858229FC7DD38854AE2D88D81803C0EBFCD88" ]] \
+        || { rm -f -- "${tmp}"; die "Docker 软件源签名指纹不匹配，已拒绝安装"; }
+      install -d -m 0755 /etc/apt/keyrings
+      install -m 0644 "${tmp}" /etc/apt/keyrings/aid-docker.asc
+      rm -f -- "${tmp}"
+      codename="${VERSION_CODENAME:-${UBUNTU_CODENAME:-}}"
+      [[ -n "${codename}" ]] || die "无法识别发行版代号，不能配置 Docker APT 软件源"
+      arch="$(dpkg --print-architecture)"
+      printf '%s\n' \
+        'Types: deb' \
+        "URIs: ${selected}" \
+        "Suites: ${codename}" \
+        'Components: stable' \
+        "Architectures: ${arch}" \
+        'Signed-By: /etc/apt/keyrings/aid-docker.asc' \
+        > /etc/apt/sources.list.d/aid-docker.sources
+      DEBIAN_FRONTEND=noninteractive apt-get update \
+        || die "Docker 软件源索引刷新失败；未继续安装"
+      DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin \
+        || die "Docker Engine 自动安装失败"
+      manager=apt ;;
+    centos|rhel|rocky|almalinux|almalinux_*|ol|oraclelinux|opencloudos|anolis)
+      distro=centos
+      install_os_packages "Docker安装基础工具" "ca-certificates curl" "ca-certificates curl"
+      mapfile -t rankedUrls < <(rank_download_urls "Docker软件源" $(docker_repo_candidates "${distro}" docker-ce.repo))
+      tmp="$(mktemp)"
+      for url in "${rankedUrls[@]}"; do
+        if try_download "${url}" "${tmp}" "Docker软件源配置"; then
+          grep -q '^gpgcheck=1' "${tmp}" && grep -q '^\[docker-ce-stable\]' "${tmp}" \
+            && { selected="${url}"; break; }
+        fi
+      done
+      [[ -n "${selected}" ]] || { rm -f -- "${tmp}"; die "Docker 国内镜像与官方软件源均不可用"; }
+      install -m 0644 "${tmp}" /etc/yum.repos.d/aid-docker-ce.repo
+      rm -f -- "${tmp}"
+      if command -v dnf >/dev/null 2>&1; then manager=dnf; else manager=yum; fi
+      "${manager}" install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin \
+        || die "Docker Engine 自动安装失败" ;;
+    *) die "当前发行版 ${osId} 暂不支持自动安装 Docker；请按 Docker 官方文档安装后重试" ;;
+  esac
+  configure_new_docker_registry_mirrors
+  systemctl daemon-reload
+  systemctl enable --now docker >/dev/null 2>&1 || die "Docker 已安装但服务启动失败"
+  ok "Docker Engine 与 Compose v2 已通过 ${manager} 安装并启动"
+}
+
+require_docker_runtime() {
+  local engine="" compose="" consent=""
+  if docker_runtime_version_matches; then
+    engine="$(docker_cli_version)"; compose="$(docker_compose_version)"
+    if ! docker info >/dev/null 2>&1; then
+      systemctl start docker >/dev/null 2>&1 || die "Docker 版本符合要求但守护进程无法启动"
+    fi
+    ok "Docker Engine ${engine} / Compose ${compose} 已存在且版本符合，跳过安装"
+    return 0
+  fi
+
+  engine="$(docker_cli_version 2>/dev/null || true)"
+  compose="$(docker_compose_version 2>/dev/null || true)"
+  if [[ -n "${engine}" || -n "${compose}" ]]; then
+    risk "Docker 版本不符合要求（Engine ${engine:-未检测到}，Compose ${compose:-未检测到}；要求 Engine ${DOCKER_MIN_VERSION}+ / Compose ${DOCKER_COMPOSE_MIN_VERSION}+）"
+    warn "升级 Docker 可能重启守护进程并短暂影响本机已有容器，请先确认业务窗口"
+  else
+    warn "未检测到 Docker Engine；仅在管理员确认后才会配置软件源并自动安装"
+  fi
+  consent="${AID_AUTO_INSTALL_DOCKER:-}"
+  case "${consent}" in
+    yes|y|true|1) consent=y ;;
+    no|n|false|0) consent=n ;;
+    '') consent="$(ask_yes_no '是否自动安装/升级 Docker Engine 与 Compose v2？' 'n')" ;;
+    *) die "AID_AUTO_INSTALL_DOCKER 只支持 yes 或 no" ;;
+  esac
+  if [[ "${consent}" != "y" ]]; then
+    die "已停止；请先人工安装 Docker Engine ${DOCKER_MIN_VERSION}+ 与 Compose ${DOCKER_COMPOSE_MIN_VERSION}+ 后重试"
+  fi
+  install_docker_engine
+  docker_runtime_version_matches || die "Docker 安装完成但版本仍不符合要求"
+  docker info >/dev/null 2>&1 || die "Docker 安装完成但守护进程不可用"
 }
 
 dependency_install_mode() { # dependency_install_mode <docker|manual>
@@ -448,6 +605,30 @@ dependency_region_setting() {
           echo auto
         fi ;;
     esac
+  fi
+}
+
+docker_mirror_setting() {
+  local configured=""
+  if [[ -n "${AID_DOCKER_MIRRORS:-}" ]]; then
+    echo "${AID_DOCKER_MIRRORS}"
+  elif [[ -n "${AID_DOCKER_CN_MIRROR:-}" ]]; then
+    # 兼容旧版单镜像环境变量。
+    echo "${AID_DOCKER_CN_MIRROR}"
+  else
+    case "${descriptorMode}" in
+      docker) configured="$(env_get DOCKER_MIRRORS "${DEFAULT_DOCKER_MIRRORS}")" ;;
+      manual|systemd) configured="$(conf_get DOCKER_MIRRORS "${DEFAULT_DOCKER_MIRRORS}")" ;;
+      *)
+        if [[ -f "${ENV_FILE}" ]]; then
+          configured="$(env_get DOCKER_MIRRORS "${DEFAULT_DOCKER_MIRRORS}")"
+        elif [[ -f "${CONF}" ]]; then
+          configured="$(conf_get DOCKER_MIRRORS "${DEFAULT_DOCKER_MIRRORS}")"
+        else
+          configured="${DEFAULT_DOCKER_MIRRORS}"
+        fi ;;
+    esac
+    echo "${configured:-${DEFAULT_DOCKER_MIRRORS}}"
   fi
 }
 
@@ -485,13 +666,73 @@ resolve_dependency_region() {
   fi
 }
 
-dockerhub_mirror_image() { # dockerhub_mirror_image <标准镜像>
-  local image="$1" first="${1%%/*}"
+normalize_docker_mirror() { # normalize_docker_mirror <Registry前缀>
+  local mirror="$1"
+  mirror="${mirror,,}"
+  mirror="${mirror#https://}"
+  mirror="${mirror#http://}"
+  mirror="${mirror%/}"
+  [[ "${mirror}" =~ ^[a-z0-9.-]+(:[0-9]+)?(/[a-z0-9._/-]+)?$ ]] || return 1
+  echo "${mirror}"
+}
+
+probe_docker_mirror() { # probe_docker_mirror <Registry前缀>；成功输出毫秒
+  local mirror="$1" registry result code seconds
+  command -v curl >/dev/null 2>&1 || return 1
+  registry="${mirror%%/*}"
+  result="$(curl --silent --show-error --output /dev/null \
+    --connect-timeout 3 --max-time 6 --write-out '%{http_code} %{time_total}' \
+    "https://${registry}/v2/" 2>/dev/null || true)"
+  code="${result%% *}"
+  seconds="${result#* }"
+  [[ "${code}" == "200" || "${code}" == "401" ]] || return 1
+  awk -v value="${seconds}" 'BEGIN { printf "%d\n", value * 1000 }'
+}
+
+# 复用成熟安装器的做法：候选源先做短连接测速，可达源按延迟排序；探测失败的
+# 候选仍保留在末尾参与真实 pull，避免 Registry 根接口临时异常造成误判。
+resolve_docker_mirror_order() {
+  (( DOCKER_MIRRORS_RESOLVED == 0 )) || return 0
+  local raw candidate mirror latency ranked="" deferred="" sorted="" seen=" "
+  raw="$(docker_mirror_setting)"
+  while IFS= read -r candidate; do
+    candidate="${candidate//[[:space:]]/}"
+    [[ -n "${candidate}" ]] || continue
+    mirror="$(normalize_docker_mirror "${candidate}" 2>/dev/null || true)"
+    if [[ -z "${mirror}" ]]; then
+      warn "已忽略非法 Docker 镜像地址: ${candidate}"
+      continue
+    fi
+    [[ "${seen}" != *" ${mirror} "* ]] || continue
+    seen+="${mirror} "
+    if latency="$(probe_docker_mirror "${mirror}" 2>/dev/null)"; then
+      log "Docker镜像测速: ${mirror} ${latency}ms"
+      ranked+="${latency} ${mirror}"$'\n'
+    else
+      warn "Docker镜像测速不可达，保留为末位重试: ${mirror}"
+      deferred+="${mirror} "
+    fi
+  done < <(printf '%s\n' "${raw}" | tr ',' '\n')
+  if [[ -n "${ranked}" ]]; then
+    sorted="$(printf '%s' "${ranked}" | sort -n -k1,1 | awk '{printf "%s ", $2}')"
+  fi
+  DOCKER_MIRROR_ORDER="${sorted}${deferred}"
+  DOCKER_MIRROR_ORDER="${DOCKER_MIRROR_ORDER% }"
+  DOCKER_MIRRORS_RESOLVED=1
+  if [[ -n "${DOCKER_MIRROR_ORDER}" ]]; then
+    log "Docker国内镜像尝试顺序: ${DOCKER_MIRROR_ORDER// / -> }"
+  else
+    warn "未配置有效 Docker 国内镜像，将只尝试 Docker Hub 官方地址"
+  fi
+}
+
+dockerhub_mirror_image() { # dockerhub_mirror_image <Registry前缀> <标准镜像>
+  local mirror="$1" image="$2" first="${2%%/*}"
   if [[ "${image}" == */* ]]; then
     [[ "${first}" != *.* && "${first}" != *:* && "${first}" != "localhost" ]] || return 1
-    echo "${DOCKER_CN_MIRROR}/${image}"
+    echo "${mirror}/${image}"
   else
-    echo "${DOCKER_CN_MIRROR}/library/${image}"
+    echo "${mirror}/library/${image}"
   fi
 }
 
@@ -533,9 +774,56 @@ pull_docker_image() {
   fi
 }
 
+probe_docker_image_manifest() { # probe_docker_image_manifest <完整镜像引用>
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "${IMAGE_MANIFEST_PROBE_TIMEOUT_SECONDS}" docker manifest inspect "$1" >/dev/null 2>&1
+  else
+    docker manifest inspect "$1" >/dev/null 2>&1
+  fi
+}
+
+try_docker_mirrors() { # try_docker_mirrors <镜像> <用途> <官方摘要>
+  local image="$1" label="$2" digest="$3" mirror mirrorRef candidateOrder
+  local readyMirrors="" deferredMirrors=""
+  resolve_docker_mirror_order
+  # Registry 根接口的延迟只能反映入口连通性。真实镜像可能在后端对象存储或某个
+  # 仓库路径上失败，因此再对当前镜像做 manifest 预检；通过者优先，失败者仍
+  # 保留在末尾参与真实 pull，避免第三方代理协议差异造成误判。
+  for mirror in ${DOCKER_MIRROR_ORDER}; do
+    mirrorRef="$(dockerhub_mirror_image "${mirror}" "${image}" 2>/dev/null || true)"
+    [[ -n "${mirrorRef}" ]] || continue
+    if probe_docker_image_manifest "${mirrorRef}"; then
+      log "Docker镜像清单可用: ${mirrorRef}"
+      readyMirrors+="${mirror} "
+    else
+      warn "Docker镜像清单预检失败，保留为末位重试: ${mirrorRef}"
+      deferredMirrors+="${mirror} "
+    fi
+  done
+  candidateOrder="${readyMirrors}${deferredMirrors}"
+  candidateOrder="${candidateOrder% }"
+  for mirror in ${candidateOrder}; do
+    mirrorRef="$(dockerhub_mirror_image "${mirror}" "${image}" 2>/dev/null || true)"
+    [[ -n "${mirrorRef}" ]] || continue
+    log "通过国内镜像下载${label}: ${mirrorRef}"
+    if pull_docker_image "${mirrorRef}"; then
+      if [[ -z "${digest}" ]] || local_image_matches_digest "${mirrorRef}" "${digest}"; then
+        docker tag "${mirrorRef}" "${image}" || die "${label}镜像名称映射失败: ${image}"
+        ok "${label}镜像下载成功: ${mirror}"
+        return 0
+      fi
+      warn "${label}镜像摘要与官方发布清单不一致，已拒绝来源: ${mirror}"
+      docker image rm "${mirrorRef}" >/dev/null 2>&1 || true
+    else
+      warn "${label}镜像下载失败，继续下一个来源: ${mirror}"
+    fi
+  done
+  return 1
+}
+
 ensure_docker_image() { # ensure_docker_image <镜像> <用途>
-  local image="$1" label="$2" installMode="${AID_DEPENDENCY_INSTALL_MODE:-auto}" mirrorImage=""
-  local digest="" officialRef="" mirrorRef=""
+  local image="$1" label="$2" installMode="${AID_DEPENDENCY_INSTALL_MODE:-auto}"
+  local digest="" officialRef="" mirror mirrorImage
   digest="$(docker_image_digest "${image}" 2>/dev/null || true)"
   if docker image inspect "${image}" >/dev/null 2>&1; then
     if [[ -z "${digest}" ]] || local_image_matches_digest "${image}" "${digest}"; then
@@ -545,37 +833,28 @@ ensure_docker_image() { # ensure_docker_image <镜像> <用途>
     warn "${label}本地镜像摘要不符合当前发布清单，将重新拉取已固定版本: ${image}"
   fi
   resolve_dependency_region
-  mirrorImage="$(dockerhub_mirror_image "${image}" 2>/dev/null || true)"
+  resolve_docker_mirror_order
   if [[ -n "${digest}" ]]; then
     officialRef="$(image_with_digest "${image}" "${digest}")"
-    # 部分国内代理可按标签返回正确官方摘要，但不支持直接使用清单摘要作为 URL。
-    # 因此镜像站按标签拉取，完成后必须核对 RepoDigest，匹配才允许映射为标准名称。
-    mirrorRef="${mirrorImage}"
   else
     officialRef="${image}"
-    mirrorRef="${mirrorImage}"
     warn "${label}使用了自定义或未固定镜像，无法与官方发布摘要核对: ${image}"
   fi
-  if [[ -n "${mirrorImage}" ]] && docker image inspect "${mirrorImage}" >/dev/null 2>&1 \
-      && { [[ -z "${digest}" ]] || local_image_matches_digest "${mirrorImage}" "${digest}"; }; then
-    docker tag "${mirrorImage}" "${image}" || die "${label}镜像名称映射失败: ${image}"
-    ok "${label}国内镜像已存在，已映射为标准名称: ${image}"
-    return 0
-  fi
-  if [[ "${installMode}" == "manual" ]]; then
-    die "缺少${label}镜像 ${image}；请手动拉取后重试，或把 DEPENDENCY_INSTALL_MODE 改为 auto"
-  fi
-  if [[ -n "${mirrorRef}" && "${RESOLVED_DEPENDENCY_REGION}" == "cn" ]]; then
-    log "通过国内镜像下载${label}: ${mirrorRef}"
-    if pull_docker_image "${mirrorRef}"; then
-      if [[ -z "${digest}" ]] || local_image_matches_digest "${mirrorRef}" "${digest}"; then
-        docker tag "${mirrorRef}" "${image}" || die "${label}镜像名称映射失败: ${image}"
-        return 0
-      fi
-      warn "${label}国内镜像摘要与官方发布清单不一致，已拒绝使用"
-      docker image rm "${mirrorRef}" >/dev/null 2>&1 || true
+  for mirror in ${DOCKER_MIRROR_ORDER}; do
+    mirrorImage="$(dockerhub_mirror_image "${mirror}" "${image}" 2>/dev/null || true)"
+    if [[ -n "${mirrorImage}" ]] && docker image inspect "${mirrorImage}" >/dev/null 2>&1 \
+        && { [[ -z "${digest}" ]] || local_image_matches_digest "${mirrorImage}" "${digest}"; }; then
+      docker tag "${mirrorImage}" "${image}" || die "${label}镜像名称映射失败: ${image}"
+      ok "${label}国内镜像缓存有效，已映射为标准名称: ${image}"
+      return 0
     fi
-    warn "国内镜像下载失败，自动回退官方地址: ${officialRef}"
+  done
+  if [[ "${installMode}" == "manual" ]]; then
+    die "缺少${label}镜像 ${image}；请从已配置镜像或官方地址手动拉取后重试，或把 DEPENDENCY_INSTALL_MODE 改为 auto"
+  fi
+  if [[ "${RESOLVED_DEPENDENCY_REGION}" == "cn" ]]; then
+    if try_docker_mirrors "${image}" "${label}" "${digest}"; then return 0; fi
+    warn "全部国内镜像均失败，自动回退官方地址: ${officialRef}"
   fi
   log "通过官方地址下载${label}: ${officialRef}"
   if pull_docker_image "${officialRef}"; then
@@ -583,18 +862,11 @@ ensure_docker_image() { # ensure_docker_image <镜像> <用途>
       || die "${label}镜像名称映射失败: ${image}"
     return 0
   fi
-  if [[ -n "${mirrorRef}" && "${RESOLVED_DEPENDENCY_REGION}" != "cn" ]]; then
-    warn "官方地址下载失败，自动回退国内镜像: ${mirrorRef}"
-    if pull_docker_image "${mirrorRef}"; then
-      if [[ -z "${digest}" ]] || local_image_matches_digest "${mirrorRef}" "${digest}"; then
-        docker tag "${mirrorRef}" "${image}" || die "${label}镜像名称映射失败: ${image}"
-        return 0
-      fi
-      warn "${label}国内镜像摘要与官方发布清单不一致，已拒绝使用"
-      docker image rm "${mirrorRef}" >/dev/null 2>&1 || true
-    fi
+  if [[ "${RESOLVED_DEPENDENCY_REGION}" != "cn" ]]; then
+    warn "官方地址下载失败，自动尝试测速后的国内镜像列表"
+    if try_docker_mirrors "${image}" "${label}" "${digest}"; then return 0; fi
   fi
-  die "${label}镜像下载失败；官方地址和备用镜像均不可用: ${image}"
+  die "${label}镜像下载失败；官方地址和全部国内镜像均不可用: ${image}"
 }
 
 prepare_source_build_images() {
@@ -656,6 +928,44 @@ ensure_host_command() { # ensure_host_command <命令> <用途> <apt包列表> <
   command -v "${commandName}" >/dev/null 2>&1 || die "已执行安装但仍未找到 ${commandName}，请检查系统 PATH"
 }
 
+ensure_git_runtime() {
+  local installMode="$1" version=""
+  if command -v git >/dev/null 2>&1; then
+    version="$(git --version 2>/dev/null | sed -nE 's/^git version ([0-9]+(\.[0-9]+)+).*/\1/p')"
+    if [[ -n "${version}" ]] && version_at_least "${version}" "${GIT_MIN_VERSION}"; then
+      ok "Git ${version} 已存在且版本符合，跳过安装"
+      return 0
+    fi
+    warn "现有 Git ${version:-未知} 低于要求 ${GIT_MIN_VERSION}，将通过系统包管理器升级"
+  fi
+  [[ "${installMode}" == "auto" ]] \
+    || die "缺少 Git ${GIT_MIN_VERSION}+；请人工安装后重试，或设置 DEPENDENCY_INSTALL_MODE=auto"
+  install_os_packages "Git ${GIT_MIN_VERSION}+" "git" "git"
+  version="$(git --version 2>/dev/null | sed -nE 's/^git version ([0-9]+(\.[0-9]+)+).*/\1/p')"
+  [[ -n "${version}" ]] && version_at_least "${version}" "${GIT_MIN_VERSION}" \
+    || die "系统软件源提供的 Git ${version:-未知} 仍低于 ${GIT_MIN_VERSION}，请升级发行版软件源后重试"
+  ok "Git ${version} 已安装且版本符合"
+}
+
+ensure_nginx_runtime() {
+  local installMode="$1" version=""
+  if command -v nginx >/dev/null 2>&1; then
+    version="$(nginx -v 2>&1 | sed -nE 's#^nginx version: nginx/([0-9]+(\.[0-9]+)+).*#\1#p')"
+    if [[ -n "${version}" ]] && version_at_least "${version}" "${NGINX_MIN_VERSION}"; then
+      ok "Nginx ${version} 已存在且版本符合，跳过安装"
+      return 0
+    fi
+    warn "现有 Nginx ${version:-未知} 低于要求 ${NGINX_MIN_VERSION}，将通过系统包管理器升级"
+  fi
+  [[ "${installMode}" == "auto" ]] \
+    || die "缺少 Nginx ${NGINX_MIN_VERSION}+；请人工安装后重试，或设置 DEPENDENCY_INSTALL_MODE=auto"
+  install_os_packages "Nginx ${NGINX_MIN_VERSION}+" "nginx" "nginx"
+  version="$(nginx -v 2>&1 | sed -nE 's#^nginx version: nginx/([0-9]+(\.[0-9]+)+).*#\1#p')"
+  [[ -n "${version}" ]] && version_at_least "${version}" "${NGINX_MIN_VERSION}" \
+    || die "系统软件源提供的 Nginx ${version:-未知} 仍低于 ${NGINX_MIN_VERSION}，请升级发行版软件源后重试"
+  ok "Nginx ${version} 已安装且版本符合"
+}
+
 version_at_least() { # version_at_least <当前版本> <最低版本>
   local current="$1" required="$2" first
   first="$(printf '%s\n%s\n' "${required}" "${current}" | sort -V | head -n 1)"
@@ -663,12 +973,470 @@ version_at_least() { # version_at_least <当前版本> <最低版本>
 }
 
 tcp_reachable() { # tcp_reachable <host> <port>
-  command -v timeout >/dev/null 2>&1 \
-    && timeout 3 bash -c 'exec 3<>/dev/tcp/"$1"/"$2"' _ "$1" "$2" >/dev/null 2>&1
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 3 bash -c 'exec 3<>/dev/tcp/"$1"/"$2"' _ "$1" "$2" >/dev/null 2>&1
+  elif command -v curl >/dev/null 2>&1; then
+    curl --silent --output /dev/null --connect-timeout 3 --max-time 3 "telnet://$1:$2" >/dev/null 2>&1
+  else
+    return 1
+  fi
+}
+
+rocketmq_nameserver_entries() { # rocketmq_nameserver_entries <host:port[;host:port]>
+  printf '%s\n' "$1" | tr ';,' '\n' | sed '/^[[:space:]]*$/d; s/^[[:space:]]*//; s/[[:space:]]*$//'
+}
+
+validate_rocketmq_nameserver_format() {
+  local value="$1" entry host port count=0
+  while IFS= read -r entry; do
+    [[ "${entry}" =~ ^([A-Za-z0-9._-]+):([0-9]+)$ ]] \
+      || die "ROCKETMQ_NAMESERVER 必须使用 host:port，多个地址用分号分隔"
+    host="${BASH_REMATCH[1]}"; port="${BASH_REMATCH[2]}"
+    [[ -n "${host}" ]] || die "RocketMQ NameServer 主机不能为空"
+    validate_port "RocketMQ NameServer端口" "${port}"
+    count=$((count + 1))
+  done < <(rocketmq_nameserver_entries "${value}")
+  (( count > 0 )) || die "启用 RocketMQ 时至少配置一个 NameServer"
+}
+
+rocketmq_setting() { # rocketmq_setting <docker|manual> <key> <默认值>
+  if [[ "$1" == "docker" ]]; then env_get "$2" "${3:-}"; else conf_get "$2" "${3:-}"; fi
+}
+
+validate_rocketmq_mode() { # validate_rocketmq_mode <docker|manual>
+  local mode="$1" enabled nameserver
+  enabled="$(rocketmq_setting "${mode}" ROCKETMQ_ENABLED false)"
+  if [[ "${mode}" == "docker" ]] && docker_profile_enabled mq && [[ "${enabled}" != "true" ]]; then
+    die "COMPOSE_PROFILES 包含 mq 时必须同时设置 ROCKETMQ_ENABLED=true；默认关闭请移除 mq"
+  fi
+  [[ "${enabled}" == "true" ]] || return 0
+  nameserver="$(rocketmq_setting "${mode}" ROCKETMQ_NAMESERVER '')"
+  validate_rocketmq_nameserver_format "${nameserver}"
+  if [[ "${mode}" == "docker" ]]; then
+    if docker_profile_enabled mq; then
+      [[ "${nameserver}" == "rocketmq-nameserver:9876" ]] \
+        || die "启用内置 RocketMQ 时 ROCKETMQ_NAMESERVER 必须为 rocketmq-nameserver:9876"
+    else
+      [[ "${nameserver}" != *"rocketmq-nameserver:"* ]] \
+        || die "使用外部 RocketMQ 时请从 COMPOSE_PROFILES 移除 mq，并填写真实 NameServer 地址"
+    fi
+  fi
+}
+
+check_external_rocketmq_connectivity() { # check_external_rocketmq_connectivity <docker|manual>
+  local mode="$1" enabled nameserver entry host port reachable=0 failed=""
+  enabled="$(rocketmq_setting "${mode}" ROCKETMQ_ENABLED false)"
+  [[ "${enabled}" == "true" ]] || { ok "RocketMQ 未启用，跳过中间件校验"; return 0; }
+  if [[ "${mode}" == "docker" ]] && docker_profile_enabled mq; then return 0; fi
+  nameserver="$(rocketmq_setting "${mode}" ROCKETMQ_NAMESERVER '')"
+  validate_rocketmq_nameserver_format "${nameserver}"
+  while IFS= read -r entry; do
+    host="${entry%:*}"; port="${entry##*:}"
+    if [[ "${host}" == "host.docker.internal" ]]; then
+      host="$(ip route 2>/dev/null | awk '/default/ {print $3; exit}')"
+      [[ -n "${host}" ]] || host=127.0.0.1
+    fi
+    if tcp_reachable "${host}" "${port}"; then
+      ok "RocketMQ NameServer 可达: ${entry}"
+      reachable=$((reachable + 1))
+    else
+      failed+="${entry} "
+    fi
+  done < <(rocketmq_nameserver_entries "${nameserver}")
+  (( reachable > 0 )) || die "RocketMQ NameServer 全部不可达：${failed% }；脚本不会自动安装 RocketMQ"
+  [[ -z "${failed}" ]] || warn "部分 RocketMQ NameServer 不可达，将使用其余节点: ${failed% }"
+}
+
+wait_internal_rocketmq_ready() {
+  [[ "$(env_get ROCKETMQ_ENABLED false)" == "true" ]] || return 0
+  docker_profile_enabled mq || return 0
+  local waited=0 status=""
+  while (( waited < 120 )); do
+    status="$(docker inspect --format '{{.State.Health.Status}}' aid-rocketmq-nameserver 2>/dev/null || true)"
+    [[ "${status}" == "healthy" ]] && { ok "内置 RocketMQ NameServer 已就绪"; return 0; }
+    sleep 3; waited=$((waited + 3))
+  done
+  die "内置 RocketMQ 启动超时，请查看 aid-rocketmq-nameserver 日志"
+}
+
+install_mysql_runtime_libraries() {
+  local installMode="$1"
+  if command -v ldconfig >/dev/null 2>&1 \
+      && ldconfig -p 2>/dev/null | grep -q 'libaio\.so\.1' \
+      && ldconfig -p 2>/dev/null | grep -q 'libnuma\.so\.1'; then
+    ok "MySQL 5.7 运行库已存在，跳过安装"
+    return 0
+  fi
+  [[ "${installMode}" == "auto" ]] || die "本机 MySQL 5.7 缺少运行库，请先安装 libaio 与 libnuma"
+  if command -v apt-get >/dev/null 2>&1; then
+    if [[ "${OS_PACKAGE_INDEX_READY}" != "1" ]]; then
+      DEBIAN_FRONTEND=noninteractive apt-get update || die "MySQL 运行库的软件包索引刷新失败"
+      OS_PACKAGE_INDEX_READY=1
+    fi
+    if apt-cache show libaio1 >/dev/null 2>&1; then
+      DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libaio1 libnuma1 \
+        || die "MySQL 5.7 运行库安装失败"
+    else
+      DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libaio1t64 libnuma1 \
+        || die "MySQL 5.7 运行库安装失败"
+    fi
+  elif command -v dnf >/dev/null 2>&1; then
+    dnf install -y libaio numactl-libs || die "MySQL 5.7 运行库安装失败"
+  elif command -v yum >/dev/null 2>&1; then
+    yum install -y libaio numactl-libs || die "MySQL 5.7 运行库安装失败"
+  else
+    die "无法自动安装 MySQL 运行库（libaio、libnuma）"
+  fi
+}
+
+install_mysql_compat_libraries() {
+  local installMode="$1"
+  [[ "${installMode}" == "auto" ]] \
+    || die "MySQL 5.7 缺少 libtinfo/libncurses 兼容库，请人工安装后重试"
+  if command -v apt-get >/dev/null 2>&1; then
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libtinfo5 \
+      || DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libncurses5 \
+      || die "MySQL 5.7 的 libtinfo.so.5 兼容库安装失败"
+  elif command -v dnf >/dev/null 2>&1; then
+    dnf install -y ncurses-compat-libs || dnf install -y ncurses-libs \
+      || die "MySQL 5.7 的 ncurses 兼容库安装失败"
+  elif command -v yum >/dev/null 2>&1; then
+    yum install -y ncurses-compat-libs || yum install -y ncurses-libs \
+      || die "MySQL 5.7 的 ncurses 兼容库安装失败"
+  else
+    die "无法自动安装 MySQL 5.7 的 libtinfo 兼容库"
+  fi
+}
+
+verify_mysql_archive_signature() { # verify_mysql_archive_signature <归档> <文件名> <缓存目录>
+  local archive="$1" name="$2" cacheDir="$3" keyFile signatureFile fingerprint gpgHome
+  local expected="859BE8D7C586F538430B19C2467B942D3A79BD29"
+  keyFile="${cacheDir}/RPM-GPG-KEY-mysql-2022"
+  signatureFile="${archive}.asc"
+  ensure_host_command gpg "GnuPG签名工具" "gnupg" "gnupg2" "${AID_DEPENDENCY_INSTALL_MODE:-auto}"
+  if [[ ! -s "${keyFile}" ]]; then
+    try_download "https://repo.mysql.com/RPM-GPG-KEY-mysql-2022" "${keyFile}" "MySQL官方GPG公钥" \
+      || die "MySQL 官方 GPG 公钥下载失败"
+  fi
+  fingerprint="$(gpg --show-keys --with-colons "${keyFile}" 2>/dev/null | awk -F: '$1=="fpr" {print toupper($10); exit}')"
+  [[ "${fingerprint}" == "${expected}" ]] || die "MySQL 官方 GPG 公钥指纹不匹配"
+  if [[ ! -s "${signatureFile}" ]]; then
+    try_download "https://downloads.mysql.com/archives/gpg/?file=${name}&p=23" "${signatureFile}" "MySQL归档GPG签名" \
+      || die "MySQL 官方归档签名下载失败"
+  fi
+  gpgHome="$(mktemp -d)"; chmod 700 "${gpgHome}"
+  GNUPGHOME="${gpgHome}" gpg --batch --quiet --import "${keyFile}" >/dev/null 2>&1 \
+    || { rm -rf -- "${gpgHome}"; die "MySQL GPG 公钥导入失败"; }
+  if ! GNUPGHOME="${gpgHome}" gpg --batch --status-fd=1 --verify "${signatureFile}" "${archive}" 2>/dev/null \
+      | grep -Fq "VALIDSIG ${expected}"; then
+    rm -rf -- "${gpgHome}"
+    die "MySQL ${MYSQL_VERSION} GPG 签名校验失败，已拒绝安装"
+  fi
+  rm -rf -- "${gpgHome}"
+  ok "MySQL ${MYSQL_VERSION} 已通过 Oracle 官方 MD5 与 GPG 双重校验"
+}
+
+prepare_managed_mysql() {
+  local installMode="$1" arch name cacheDir archive checksum actual downloaded=no url tmp reuseBinary=no
+  local dbHost dbPort dbName dbUser dbPwd rootPwd mysqlConf mysqlData mysqlFiles mysqlRun mysqlLog
+  local -a urls=()
+  case "$(uname -m)" in
+    x86_64|amd64) arch=x86_64 ;;
+    *) die "手动模式自动安装 MySQL ${MYSQL_VERSION} 目前仅支持 x86_64；其他架构请使用外部 MySQL 5.7" ;;
+  esac
+  name="mysql-${MYSQL_VERSION}-linux-glibc2.12-${arch}.tar.gz"
+  checksum="d7c8436bbf456e9a4398011a0c52bc40"
+  cacheDir="${DATA_ROOT}/build-cache/toolchains"
+  archive="${cacheDir}/${name}"
+  MYSQL_HOME="${DATA_ROOT}/runtime/mysql-${MYSQL_VERSION}"
+  mysqlData="${DATA_ROOT}/mysql-data-manual"
+  mysqlFiles="${DATA_ROOT}/mysql-files"
+  mysqlRun="${DATA_ROOT}/run/mysql"
+  mysqlLog="${DATA_ROOT}/logs/mysql"
+  mysqlConf="${CONFIG_ROOT}/mysql-5.7.cnf"
+  if [[ -x "${MYSQL_HOME}/bin/mysqld" ]] \
+      && "${MYSQL_HOME}/bin/mysqld" --version 2>/dev/null | grep -Fq "Ver 5.7.${MYSQL_VERSION##*.}"; then
+    reuseBinary=yes
+    ok "受管 MySQL ${MYSQL_VERSION} 二进制已存在，跳过下载和解压"
+  fi
+  if [[ "${reuseBinary}" != "yes" ]]; then
+    require_download_tools
+    mkdir -p "${cacheDir}" "${DATA_ROOT}/runtime"
+    if [[ -f "${archive}" && "$(md5_file "${archive}" 2>/dev/null || true)" != "${checksum}" ]]; then
+      warn "MySQL 缓存与官方归档摘要不一致，将重新下载"
+      rm -f -- "${archive}"
+    fi
+    if [[ ! -f "${archive}" ]]; then
+      [[ "${installMode}" == "auto" ]] || die "缺少 MySQL ${MYSQL_VERSION}；请安装后重试或启用自动依赖安装"
+      resolve_dependency_region
+      [[ -z "${AID_MYSQL_DOWNLOAD_URL:-}" ]] || urls+=("${AID_MYSQL_DOWNLOAD_URL}")
+      urls+=(
+        "https://downloads.mysql.com/archives/get/p/23/file/${name}"
+        "https://cdn.mysql.com/archives/mysql-5.7/${name}"
+      )
+      mapfile -t urls < <(rank_download_urls "MySQL ${MYSQL_VERSION}" "${urls[@]}")
+      for url in "${urls[@]}"; do
+        if try_download "${url}" "${archive}" "MySQL ${MYSQL_VERSION}（${arch}）"; then
+          actual="$(md5_file "${archive}" 2>/dev/null || true)"
+          if [[ "${actual}" == "${checksum}" ]]; then downloaded=yes; break; fi
+          warn "MySQL 下载文件与 Oracle 官方归档摘要不一致，拒绝使用当前来源"
+          rm -f -- "${archive}"
+        fi
+      done
+      [[ "${downloaded}" == "yes" ]] || die "MySQL ${MYSQL_VERSION} 官方归档与备用入口均下载失败"
+    fi
+    verify_mysql_archive_signature "${archive}" "${name}" "${cacheDir}"
+    install_mysql_runtime_libraries "${installMode}"
+    tmp="${MYSQL_HOME}.tmp.$$"
+    rm -rf -- "${tmp}"; mkdir -p "${tmp}"
+    tar -xzf "${archive}" -C "${tmp}" --strip-components=1 \
+      || { rm -rf -- "${tmp}"; die "MySQL 压缩包解压失败"; }
+    [[ -x "${tmp}/bin/mysqld" && -x "${tmp}/bin/mysql" ]] \
+      || { rm -rf -- "${tmp}"; die "MySQL 压缩包内容不完整"; }
+    if ldd "${tmp}/bin/mysqld" 2>/dev/null | grep -q 'not found' \
+        || ldd "${tmp}/bin/mysql" 2>/dev/null | grep -q 'not found'; then
+      install_mysql_compat_libraries "${installMode}"
+    fi
+    if ldd "${tmp}/bin/mysqld" 2>/dev/null | grep -q 'not found' \
+        || ldd "${tmp}/bin/mysql" 2>/dev/null | grep -q 'not found'; then
+      rm -rf -- "${tmp}"
+      die "MySQL 5.7 运行库仍不完整，请执行 ldd 检查缺失项"
+    fi
+    rm -rf -- "${MYSQL_HOME}"; mv "${tmp}" "${MYSQL_HOME}" || die "MySQL 安装目录就位失败"
+  fi
+
+  getent group aidmysql >/dev/null 2>&1 || groupadd --system aidmysql
+  id aidmysql >/dev/null 2>&1 || useradd --system --gid aidmysql --home-dir "${mysqlData}" --shell /sbin/nologin aidmysql
+  mkdir -p "${mysqlData}" "${mysqlFiles}" "${mysqlRun}" "${mysqlLog}" "${CONFIG_ROOT}"
+  chown -R aidmysql:aidmysql "${mysqlData}" "${mysqlFiles}" "${mysqlRun}" "${mysqlLog}"
+  chmod 750 "${mysqlData}" "${mysqlFiles}" "${mysqlRun}" "${mysqlLog}"
+  dbHost="$(conf_get DB_HOST 127.0.0.1)"; dbPort="$(conf_get DB_PORT 3306)"
+  dbName="$(conf_get DB_NAME aid)"; dbUser="$(conf_get DB_USERNAME aid)"
+  dbPwd="$(conf_get DB_PASSWORD '')"; rootPwd="$(conf_get MYSQL_ROOT_PASSWORD '')"
+  [[ "${dbName}" =~ ^[A-Za-z0-9_]+$ && "${dbUser}" =~ ^[A-Za-z0-9_.-]+$ ]] \
+    || die "DB_NAME 或 DB_USERNAME 格式不安全"
+  [[ -n "${dbPwd}" && -n "${rootPwd}" ]] || die "自动安装本机 MySQL 前必须生成数据库密码"
+  cat > "${mysqlConf}" <<EOF
+[mysqld]
+basedir=${MYSQL_HOME}
+datadir=${mysqlData}
+port=${dbPort}
+bind-address=127.0.0.1
+socket=${mysqlRun}/mysql.sock
+pid-file=${mysqlRun}/mysqld.pid
+log-error=${mysqlLog}/error.log
+user=aidmysql
+character-set-server=utf8mb4
+collation-server=utf8mb4_general_ci
+skip-name-resolve=ON
+symbolic-links=0
+secure-file-priv=${mysqlFiles}
+
+[client]
+port=${dbPort}
+socket=${mysqlRun}/mysql.sock
+default-character-set=utf8mb4
+EOF
+  chmod 640 "${mysqlConf}"
+  chown root:aidmysql "${mysqlConf}"
+  if [[ ! -d "${mysqlData}/mysql" ]]; then
+    "${MYSQL_HOME}/bin/mysqld" --defaults-file="${mysqlConf}" --initialize-insecure --user=aidmysql \
+      || die "MySQL 5.7 数据目录初始化失败"
+  fi
+  cat > "/etc/systemd/system/${MYSQL_MANAGED_SERVICE}" <<EOF
+[Unit]
+Description=AID managed MySQL 5.7
+After=network.target
+
+[Service]
+Type=simple
+User=aidmysql
+Group=aidmysql
+ExecStart=${MYSQL_HOME}/bin/mysqld --defaults-file=${mysqlConf}
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65535
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  systemctl daemon-reload
+  systemctl enable --now "${MYSQL_MANAGED_SERVICE}" >/dev/null 2>&1 || die "受管 MySQL 5.7 启动失败"
+  local waited=0
+  while (( waited < 60 )) && [[ ! -S "${mysqlRun}/mysql.sock" ]]; do sleep 2; waited=$((waited + 2)); done
+  [[ -S "${mysqlRun}/mysql.sock" ]] || die "受管 MySQL 5.7 启动超时"
+  local rootAuth="" accountReady=no
+  if MYSQL_PWD="${dbPwd}" "${MYSQL_HOME}/bin/mysql" --connect-timeout=3 \
+      -h 127.0.0.1 -P "${dbPort}" -u "${dbUser}" -e 'SELECT 1' >/dev/null 2>&1; then
+    accountReady=yes
+    ok "MySQL 数据目录与业务账号已初始化，跳过重复建库授权"
+  elif MYSQL_PWD="${rootPwd}" "${MYSQL_HOME}/bin/mysql" --protocol=socket -uroot -e 'SELECT 1' >/dev/null 2>&1; then
+    rootAuth="${rootPwd}"
+  elif "${MYSQL_HOME}/bin/mysql" --protocol=socket -uroot -e 'SELECT 1' >/dev/null 2>&1; then
+    rootAuth=""
+  else
+    die "受管 MySQL 已存在但 root 凭证与配置不一致，未修改任何账号"
+  fi
+  if [[ "${accountReady}" != "yes" ]]; then
+    if [[ "${dbUser}" == "root" ]]; then
+      MYSQL_PWD="${rootAuth}" "${MYSQL_HOME}/bin/mysql" --protocol=socket -uroot -e \
+        "CREATE DATABASE IF NOT EXISTS \`${dbName}\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci; ALTER USER 'root'@'localhost' IDENTIFIED BY '${rootPwd}'; FLUSH PRIVILEGES;" \
+        || die "MySQL root 初始化失败"
+      conf_set DB_PASSWORD "${rootPwd}"
+    else
+      MYSQL_PWD="${rootAuth}" "${MYSQL_HOME}/bin/mysql" --protocol=socket -uroot -e \
+        "CREATE DATABASE IF NOT EXISTS \`${dbName}\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci; CREATE USER IF NOT EXISTS '${dbUser}'@'127.0.0.1' IDENTIFIED BY '${dbPwd}'; ALTER USER '${dbUser}'@'127.0.0.1' IDENTIFIED BY '${dbPwd}'; GRANT ALL PRIVILEGES ON \`${dbName}\`.* TO '${dbUser}'@'127.0.0.1'; ALTER USER 'root'@'localhost' IDENTIFIED BY '${rootPwd}'; FLUSH PRIVILEGES;" \
+        || die "MySQL 业务账号初始化失败"
+    fi
+  fi
+  command -v mysql >/dev/null 2>&1 || ln -s "${MYSQL_HOME}/bin/mysql" /usr/local/bin/mysql
+  command -v mysqldump >/dev/null 2>&1 || ln -s "${MYSQL_HOME}/bin/mysqldump" /usr/local/bin/mysqldump
+  ok "MySQL ${MYSQL_VERSION} 已安装为独立服务 ${MYSQL_MANAGED_SERVICE}"
+}
+
+ensure_manual_mysql() {
+  local installMode="$1" host port user pwd version serverBinaryVersion service
+  host="$(conf_get DB_HOST 127.0.0.1)"; port="$(conf_get DB_PORT 3306)"
+  user="$(conf_get DB_USERNAME aid)"; pwd="$(conf_get DB_PASSWORD '')"
+  validate_port DB_PORT "${port}"
+  if [[ "${host}" == "127.0.0.1" || "${host}" == "localhost" ]]; then
+    if ! tcp_reachable "${host}" "${port}"; then
+      if command -v mysqld >/dev/null 2>&1; then
+        serverBinaryVersion="$(mysqld --version 2>/dev/null | sed -nE 's/.*Ver ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' | head -n 1)"
+        [[ "${serverBinaryVersion}" == 5.7.* ]] \
+          || die "检测到本机 MySQL ${serverBinaryVersion:-未知}，AID 手动部署要求 MySQL 5.7"
+        for service in aid-mysql mysqld mysql; do systemctl start "${service}" >/dev/null 2>&1 && break; done
+      else
+        [[ "${installMode}" == "auto" ]] || die "本机未安装 MySQL 5.7，请安装后重试或设置 DEPENDENCY_INSTALL_MODE=auto"
+        prepare_managed_mysql "${installMode}"
+      fi
+    fi
+  else
+    ok "已配置外部 MySQL ${host}:${port}，不会安装或修改本机 MySQL"
+  fi
+  user="$(conf_get DB_USERNAME aid)"; pwd="$(conf_get DB_PASSWORD '')"
+  ensure_host_command mysql "MySQL客户端" "default-mysql-client" "mariadb" "${installMode}"
+  tcp_reachable "${host}" "${port}" || die "MySQL ${host}:${port} 不可达"
+  version="$(MYSQL_PWD="${pwd}" mysql --protocol=TCP --connect-timeout=5 --host "${host}" --port "${port}" --user "${user}" -N -e 'SELECT VERSION()' 2>/dev/null | head -n 1)"
+  [[ "${version}" == 5.7.* ]] || die "数据库认证失败或服务端不是 MySQL 5.7（检测结果: ${version:-不可读取}）"
+  ok "MySQL ${version} 已可用且版本符合，跳过安装"
+}
+
+prepare_managed_redis() {
+  local installMode="$1" name checksum cacheDir archive actual downloaded=no url tmp
+  local redisHost redisPort redisUser redisPwd redisData redisRun redisLog redisConf buildLog
+  local -a urls=()
+  name="redis-${REDIS_VERSION}.tar.gz"
+  checksum="5f787552f04e12b77501367d6b0d403557adfcf20d6f6187be60d63d88fa4f12"
+  cacheDir="${DATA_ROOT}/build-cache/toolchains"
+  archive="${cacheDir}/${name}"
+  REDIS_HOME="${DATA_ROOT}/runtime/redis-${REDIS_VERSION}"
+  redisData="${DATA_ROOT}/redis-data-manual"
+  redisRun="${DATA_ROOT}/run/redis"
+  redisLog="${DATA_ROOT}/logs/redis"
+  redisConf="${CONFIG_ROOT}/redis.conf"
+  buildLog="${redisLog}/build-${REDIS_VERSION}.log"
+  if [[ ! -x "${REDIS_HOME}/src/redis-server" ]]; then
+    require_download_tools
+    mkdir -p "${cacheDir}" "${DATA_ROOT}/runtime" "${redisLog}"
+    if [[ -f "${archive}" && "$(sha256_file "${archive}" 2>/dev/null || true)" != "${checksum}" ]]; then
+      warn "Redis 缓存校验失败，将重新下载"
+      rm -f -- "${archive}"
+    fi
+    if [[ ! -f "${archive}" ]]; then
+      [[ "${installMode}" == "auto" ]] || die "缺少 Redis ${REDIS_VERSION}，请安装 Redis 6+ 后重试"
+      [[ -z "${AID_REDIS_DOWNLOAD_URL:-}" ]] || urls+=("${AID_REDIS_DOWNLOAD_URL}")
+      urls+=("https://download.redis.io/releases/${name}")
+      mapfile -t urls < <(rank_download_urls "Redis ${REDIS_VERSION}" "${urls[@]}")
+      for url in "${urls[@]}"; do
+        if try_download "${url}" "${archive}" "Redis ${REDIS_VERSION}" \
+            && [[ "$(sha256_file "${archive}" 2>/dev/null || true)" == "${checksum}" ]]; then
+          downloaded=yes; break
+        fi
+        warn "Redis 当前下载地址不可用或 SHA256 不匹配，尝试备用地址"
+        rm -f -- "${archive}"
+      done
+      [[ "${downloaded}" == "yes" ]] || die "Redis ${REDIS_VERSION} 下载失败或校验不通过"
+    fi
+    ensure_host_command gcc "C编译器" "build-essential" "gcc" "${installMode}"
+    ensure_host_command make "Make构建工具" "build-essential" "make" "${installMode}"
+    tmp="${REDIS_HOME}.tmp.$$"; rm -rf -- "${tmp}"; mkdir -p "${tmp}"
+    tar -xzf "${archive}" -C "${tmp}" --strip-components=1 \
+      || { rm -rf -- "${tmp}"; die "Redis 压缩包解压失败"; }
+    log "编译 Redis ${REDIS_VERSION}，完整日志: ${buildLog}"
+    if ! make -C "${tmp}" -j "$(nproc 2>/dev/null || echo 2)" BUILD_TLS=no MALLOC=libc >"${buildLog}" 2>&1; then
+      rm -rf -- "${tmp}"
+      die "Redis 源码编译失败，请查看 ${buildLog}"
+    fi
+    [[ -x "${tmp}/src/redis-server" && -x "${tmp}/src/redis-cli" ]] \
+      || { rm -rf -- "${tmp}"; die "Redis 编译产物不完整"; }
+    rm -rf -- "${REDIS_HOME}"; mv "${tmp}" "${REDIS_HOME}" || die "Redis 安装目录就位失败"
+    ok "Redis ${REDIS_VERSION} 已通过官方 SHA256 校验并完成本机编译"
+  else
+    ok "受管 Redis ${REDIS_VERSION} 已存在，跳过下载和编译"
+  fi
+
+  getent group aidredis >/dev/null 2>&1 || groupadd --system aidredis
+  id aidredis >/dev/null 2>&1 || useradd --system --gid aidredis --home-dir "${redisData}" --shell /sbin/nologin aidredis
+  mkdir -p "${redisData}" "${redisRun}" "${redisLog}" "${CONFIG_ROOT}"
+  chown -R aidredis:aidredis "${redisData}" "${redisRun}" "${redisLog}"
+  chmod 750 "${redisData}" "${redisRun}" "${redisLog}"
+  redisHost="$(conf_get REDIS_HOST 127.0.0.1)"; redisPort="$(conf_get REDIS_PORT 6379)"
+  redisUser="$(conf_get REDIS_USERNAME '')"; redisPwd="$(conf_get REDIS_PASSWORD '')"
+  [[ "${redisUser}" =~ ^[A-Za-z0-9_.-]*$ ]] || die "REDIS_USERNAME 格式不安全"
+  cat > "${redisConf}" <<EOF
+bind 127.0.0.1
+protected-mode yes
+port ${redisPort}
+daemonize no
+supervised systemd
+pidfile ${redisRun}/redis.pid
+dir ${redisData}
+dbfilename dump.rdb
+appendonly yes
+appendfsync everysec
+logfile ""
+EOF
+  if [[ -n "${redisUser}" && "${redisUser}" != "default" ]]; then
+    if [[ -n "${redisPwd}" ]]; then
+      printf 'user default off\nuser %s on >%s ~* &* +@all\n' "${redisUser}" "${redisPwd}" >> "${redisConf}"
+    else
+      printf 'user default off\nuser %s on nopass ~* &* +@all\n' "${redisUser}" >> "${redisConf}"
+    fi
+  elif [[ -n "${redisPwd}" ]]; then
+    printf 'requirepass %s\n' "${redisPwd}" >> "${redisConf}"
+  fi
+  chmod 640 "${redisConf}"
+  chown root:aidredis "${redisConf}"
+  cat > "/etc/systemd/system/${REDIS_MANAGED_SERVICE}" <<EOF
+[Unit]
+Description=AID managed Redis ${REDIS_VERSION}
+After=network.target
+
+[Service]
+Type=notify
+User=aidredis
+Group=aidredis
+ExecStart=${REDIS_HOME}/src/redis-server ${redisConf} --supervised systemd
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65535
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  systemctl daemon-reload
+  systemctl enable --now "${REDIS_MANAGED_SERVICE}" >/dev/null 2>&1 || die "受管 Redis 启动失败"
+  command -v redis-server >/dev/null 2>&1 || ln -s "${REDIS_HOME}/src/redis-server" /usr/local/bin/redis-server
+  command -v redis-cli >/dev/null 2>&1 || ln -s "${REDIS_HOME}/src/redis-cli" /usr/local/bin/redis-cli
+  ok "Redis ${REDIS_VERSION} 已安装为独立服务 ${REDIS_MANAGED_SERVICE}"
 }
 
 ensure_manual_host_dependencies() {
-  local installMode redisHost redisPort redisUser redisPwd redisVersion redisMajor
+  local installMode redisHost redisPort redisUser redisPwd redisVersion redisMajor redisDb
+  local -a redisArgs=()
   installMode="$(dependency_install_mode manual)"
   export AID_DEPENDENCY_INSTALL_MODE="${installMode}"
   command -v systemctl >/dev/null 2>&1 || die "手动部署要求使用 systemd"
@@ -676,21 +1444,17 @@ ensure_manual_host_dependencies() {
   prepare_exact_jdk
   prepare_exact_node
 
-  ensure_host_command mysql "MySQL客户端" "default-mysql-client" "mariadb" "${installMode}"
-  ensure_host_command nginx "Nginx" "nginx" "nginx" "${installMode}"
+  # 手动部署始终准备宿主机构建工具；即使服务器上碰巧存在 Docker，也不把它作为隐式依赖。
+  ensure_git_runtime "${installMode}"
+  prepare_exact_maven
+  prepare_exact_go
+
+  ensure_manual_mysql "${installMode}"
+  ensure_nginx_runtime "${installMode}"
   if ! systemctl is-active --quiet nginx; then
     [[ "${installMode}" == "auto" ]] || die "Nginx 未运行，请启动后重试"
     systemctl enable --now nginx >/dev/null 2>&1 || die "Nginx 自动启动失败，请执行 systemctl status nginx 排查"
     ok "Nginx 已启用并启动"
-  fi
-
-  # 有可用 Docker 时源码构建全部走容器，不要求宿主机重复安装 Git/Maven/Go。
-  if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
-    prepare_source_build_images
-  else
-    ensure_host_command git "Git" "git" "git" "${installMode}"
-    prepare_exact_maven
-    prepare_exact_go
   fi
 
   # 手动部署只有配置为本机 Redis 时才负责检查/可选安装；外部 Redis 永不改本机。
@@ -700,23 +1464,36 @@ ensure_manual_host_dependencies() {
     127.0.0.1|localhost)
       if ! tcp_reachable "${redisHost}" "${redisPort}"; then
         [[ "${installMode}" == "auto" ]] || die "本机 Redis ${redisHost}:${redisPort} 不可用，请启动后重试"
-        [[ -z "${redisUser}" && -z "${redisPwd}" ]] \
-          || die "配置了 Redis 认证，脚本不会覆盖本机 Redis 安全配置；请人工配置并启动"
-        ensure_host_command redis-server "Redis" "redis-server" "redis" "${installMode}"
-        redisVersion="$(redis-server --version 2>/dev/null | sed -E 's/.*v=([0-9]+(\.[0-9]+)*).*/\1/')"
-        redisMajor="${redisVersion%%.*}"
-        [[ "${redisMajor}" =~ ^[0-9]+$ && "${redisMajor}" -ge 6 ]] \
-          || die "系统软件源中的 Redis 版本过低（当前${redisVersion:-未知}，需要6+），请人工升级或使用外部Redis"
-        systemctl enable --now redis-server >/dev/null 2>&1 \
-          || systemctl enable --now redis >/dev/null 2>&1 \
-          || die "Redis 自动启动失败，请检查 systemctl status redis"
+        if command -v redis-server >/dev/null 2>&1; then
+          redisVersion="$(redis-server --version 2>/dev/null | sed -E 's/.*v=([0-9]+(\.[0-9]+)*).*/\1/')"
+          redisMajor="${redisVersion%%.*}"
+          [[ "${redisMajor}" =~ ^[0-9]+$ && "${redisMajor}" -ge 6 ]] \
+            || die "检测到本机 Redis ${redisVersion:-未知}，版本不符合且脚本不会覆盖已有服务；请升级到6+或改用外部Redis"
+          systemctl start aid-redis >/dev/null 2>&1 \
+            || systemctl start redis-server >/dev/null 2>&1 \
+            || systemctl start redis >/dev/null 2>&1 \
+            || die "现有 Redis 版本符合但无法启动，请检查其 systemd 日志"
+        else
+          prepare_managed_redis "${installMode}"
+        fi
         tcp_reachable "${redisHost}" "${redisPort}" || die "Redis 已安装但端口仍不可用"
-        ok "本机 Redis 已安装并启动"
+        ok "本机 Redis 已就绪"
       else
         ok "Redis ${redisHost}:${redisPort} 已可用，跳过安装"
       fi ;;
     *) ok "已配置外部 Redis ${redisHost}:${redisPort}，不会安装本机 Redis" ;;
   esac
+  ensure_host_command redis-cli "Redis客户端" "redis-tools" "redis" "${installMode}"
+  redisDb="$(conf_get REDIS_DATABASE 0)"
+  redisArgs=(--no-auth-warning -h "${redisHost}" -p "${redisPort}" -n "${redisDb}")
+  [[ -z "${redisUser}" ]] || redisArgs+=(--user "${redisUser}")
+  redisVersion="$(REDISCLI_AUTH="${redisPwd}" redis-cli "${redisArgs[@]}" INFO server 2>/dev/null \
+    | awk -F: '$1=="redis_version" {gsub("\r", "", $2); print $2; exit}')"
+  redisMajor="${redisVersion%%.*}"
+  [[ "${redisMajor}" =~ ^[0-9]+$ && "${redisMajor}" -ge 6 ]] \
+    || die "Redis 认证失败或版本不符合（需要6+，检测结果: ${redisVersion:-不可读取}）"
+  ok "Redis ${redisVersion} 已可用且版本符合，跳过安装"
+  check_external_rocketmq_connectivity manual
 }
 
 # 当前部署版本优先读取升级器同步维护的 build-info.json，旧环境回退到配置记录。
@@ -764,6 +1541,18 @@ sha512_file() { # sha512_file <文件>
   fi
 }
 
+md5_file() { # md5_file <文件>；仅用于校验 MySQL 官方归档页公布的固定摘要
+  if command -v md5sum >/dev/null 2>&1; then
+    md5sum "$1" | awk '{print tolower($1)}'
+  elif command -v md5 >/dev/null 2>&1; then
+    md5 -q "$1" | tr '[:upper:]' '[:lower:]'
+  elif command -v openssl >/dev/null 2>&1; then
+    openssl dgst -md5 "$1" | awk '{print tolower($NF)}'
+  else
+    return 1
+  fi
+}
+
 require_download_tools() {
   local installMode="${AID_DEPENDENCY_INSTALL_MODE:-auto}"
   ensure_host_command curl "curl" "curl ca-certificates" "curl ca-certificates" "${installMode}"
@@ -796,6 +1585,38 @@ try_download() { # try_download <URL> <目标文件> <名称>
   [[ -s "${part}" ]] || { rm -f "${part}"; return 1; }
   mv -f "${part}" "${target}"
   return 0
+}
+
+probe_download_url() { # probe_download_url <URL>；输出“字节每秒 首包毫秒”
+  local url="$1" result code speed first
+  result="$(curl --silent --show-error --location --range 0-65535 --output /dev/null \
+    --connect-timeout 3 --max-time 8 --proto '=https' --tlsv1.2 \
+    --write-out '%{http_code} %{speed_download} %{time_starttransfer}' "${url}" 2>/dev/null || true)"
+  code="${result%% *}"; result="${result#* }"
+  speed="${result%% *}"; first="${result#* }"
+  [[ "${code}" == "200" || "${code}" == "206" ]] || return 1
+  [[ "${speed}" =~ ^[0-9]+([.][0-9]+)?$ && "${first}" =~ ^[0-9]+([.][0-9]+)?$ ]] || return 1
+  awk -v s="${speed}" -v f="${first}" 'BEGIN { printf "%d %d\n", s, f * 1000 }'
+}
+
+# 与成熟面板安装器一致：候选下载源先用 64KiB Range 请求测速，吞吐优先、首包延迟次之。
+# 探测失败的源仍保留到末尾参与完整下载，避免 HEAD/Range 协议差异造成误判。
+rank_download_urls() { # rank_download_urls <用途> <URL...>
+  local label="$1" url metrics ranked="" deferred="" seen=$'\n'
+  shift
+  for url in "$@"; do
+    [[ -n "${url}" && "${seen}" != *$'\n'"${url}"$'\n'* ]] || continue
+    seen+="${url}"$'\n'
+    if metrics="$(probe_download_url "${url}" 2>/dev/null)"; then
+      echo "[$(date '+%H:%M:%S')] ${label}测速: ${metrics%% *}B/s，首包 ${metrics#* }ms  ${url}" >&2
+      ranked+="${metrics} ${url}"$'\n'
+    else
+      echo "[$(date '+%H:%M:%S')] [提示] ${label}测速不可达，保留为末位重试: ${url}" >&2
+      deferred+="${url}"$'\n'
+    fi
+  done
+  [[ -z "${ranked}" ]] || printf '%s' "${ranked}" | sort -k1,1nr -k2,2n | awk '{print $3}'
+  [[ -z "${deferred}" ]] || printf '%s' "${deferred}"
 }
 
 prepare_exact_jdk() {
@@ -841,6 +1662,7 @@ prepare_exact_jdk() {
     else
       urls+=("${officialUrl}" "${cnUrl}")
     fi
+    mapfile -t urls < <(rank_download_urls "OpenJDK" "${urls[@]}")
     for url in "${urls[@]}"; do
       if try_download "${url}" "${archive}" "Temurin OpenJDK ${JDK_VERSION}（${arch}）"; then
         actual="$(sha256_file "${archive}" || true)"
@@ -910,6 +1732,7 @@ prepare_exact_node() {
     local -a urls=()
     [[ -z "${AID_NODE_DOWNLOAD_URL:-}" ]] || urls+=("${AID_NODE_DOWNLOAD_URL}")
     if [[ "${RESOLVED_DEPENDENCY_REGION}" == "cn" ]]; then urls+=("${cnUrl}" "${officialUrl}"); else urls+=("${officialUrl}" "${cnUrl}"); fi
+    mapfile -t urls < <(rank_download_urls "Node.js" "${urls[@]}")
     for url in "${urls[@]}"; do
       if try_download "${url}" "${archive}" "Node.js ${NODE_VERSION}（${arch}）" \
           && [[ "$(sha256_file "${archive}" || true)" == "${checksum}" ]]; then
@@ -964,6 +1787,7 @@ prepare_exact_maven() {
     local -a urls=()
     [[ -z "${AID_MAVEN_DOWNLOAD_URL:-}" ]] || urls+=("${AID_MAVEN_DOWNLOAD_URL}")
     if [[ "${RESOLVED_DEPENDENCY_REGION}" == "cn" ]]; then urls+=("${cnUrl}" "${officialUrl}"); else urls+=("${officialUrl}" "${cnUrl}"); fi
+    mapfile -t urls < <(rank_download_urls "Maven" "${urls[@]}")
     for url in "${urls[@]}"; do
       if try_download "${url}" "${archive}" "Maven ${MAVEN_VERSION}" \
           && [[ "$(sha512_file "${archive}" || true)" == "${checksum}" ]]; then
@@ -1019,6 +1843,7 @@ prepare_exact_go() {
     local -a urls=()
     [[ -z "${AID_GO_DOWNLOAD_URL:-}" ]] || urls+=("${AID_GO_DOWNLOAD_URL}")
     if [[ "${RESOLVED_DEPENDENCY_REGION}" == "cn" ]]; then urls+=("${cnUrl}" "${officialUrl}"); else urls+=("${officialUrl}" "${cnUrl}"); fi
+    mapfile -t urls < <(rank_download_urls "Go" "${urls[@]}")
     for url in "${urls[@]}"; do
       if try_download "${url}" "${archive}" "Go ${GO_VERSION}（${arch}）" \
           && [[ "$(sha256_file "${archive}" || true)" == "${checksum}" ]]; then
@@ -1366,6 +2191,7 @@ ensure_source_package() {
   log "三端编译实时日志将同时保存到: ${buildLog}"
   AID_DATA_ROOT="${DATA_ROOT}" AID_MANIFEST_PUBLIC_KEY="${TRUSTED_MANIFEST_PUBLIC_KEY}" \
     AID_DEPENDENCY_REGION="$(dependency_region_setting)" \
+    AID_DOCKER_MIRRORS="$(docker_mirror_setting)" \
     AID_MANAGER_SCRIPT="${SCRIPT_DIR}/$(basename "${BASH_SOURCE[0]}")" \
     sh "${builder}" --version "${RESOLVED_VERSION}" --output "${RESOLVED_PACKAGE_PATH}" \
       --work-dir "${DATA_ROOT}/source-build/v${RESOLVED_VERSION}" 2>&1 | tee -a "${buildLog}"
@@ -1558,6 +2384,7 @@ write_embedded_config_defaults() { # write_embedded_config_defaults <docker|manu
 DATA_ROOT=${DATA_ROOT}
 DEPENDENCY_INSTALL_MODE=auto
 DEPENDENCY_REGION=auto
+DOCKER_MIRRORS=${DEFAULT_DOCKER_MIRRORS}
 HTTP_PORT=80
 ADMIN_PORT=8089
 HTTPS_PORT=443
@@ -1599,6 +2426,7 @@ EOF
 DATA_ROOT=${DATA_ROOT}
 DEPENDENCY_INSTALL_MODE=auto
 DEPENDENCY_REGION=auto
+DOCKER_MIRRORS=${DEFAULT_DOCKER_MIRRORS}
 HTTP_PORT=80
 ADMIN_PORT=8089
 BACKEND_PORT=8080
@@ -1611,7 +2439,8 @@ HTTPS_KEY_PATH=${DATA_ROOT}/config/ssl/privkey.pem
 DB_HOST=127.0.0.1
 DB_PORT=3306
 DB_NAME=aid
-DB_USERNAME=root
+MYSQL_ROOT_PASSWORD=
+DB_USERNAME=aid
 DB_PASSWORD=
 REDIS_HOST=127.0.0.1
 REDIS_PORT=6379
@@ -1759,6 +2588,8 @@ DATA_ROOT=${DATA_ROOT}
 DEPENDENCY_INSTALL_MODE=auto
 # auto=按网络自动选择；cn=国内镜像优先；global=官方地址优先。
 DEPENDENCY_REGION=auto
+# Docker Hub 国内代理前缀，逗号分隔；自动测速排序、失败逐级回退并校验官方摘要。
+DOCKER_MIRRORS=${DEFAULT_DOCKER_MIRRORS}
 
 # ---------------- HTTP 访问（无需域名） ----------------
 # 用户端：http://服务器IP；非 80 端口需在地址后追加端口。
@@ -1782,8 +2613,11 @@ HTTPS_KEY_PATH=${DATA_ROOT}/config/ssl/privkey.pem
 DB_HOST=127.0.0.1
 DB_PORT=3306
 DB_NAME=aid
-DB_USERNAME=root
-# 手动部署必须填写现有数据库账号的真实密码。
+# 仅由脚本新建本机 MySQL 5.7 时使用；留空会自动生成，外部 MySQL 不使用。
+MYSQL_ROOT_PASSWORD=
+# 新建本机数据库默认使用 aid 业务账号；外部数据库填写已有账号。
+DB_USERNAME=aid
+# 新建本机数据库留空会自动生成；外部/已有数据库必须填写真实密码。
 DB_PASSWORD=
 
 # ---------------- Redis ----------------
@@ -1826,17 +2660,33 @@ EOF
   for requiredKey in DB_HOST DB_PORT DB_NAME DB_USERNAME REDIS_HOST REDIS_PORT; do
     [[ -n "$(conf_get "${requiredKey}" '')" ]] || die "${requiredKey} 不能为空"
   done
-  # 必填校验：数据库密码必须由用户提供（无合理默认值）
-  local dbPwd
+  # 全新本机 MySQL 由安装器生成独立 root/业务密码；已有或外部数据库必须由管理员提供真实密码。
+  local dbPwd dbHost dbPort installMode rootPwd
   dbPwd="$(conf_get DB_PASSWORD '')"
+  dbHost="$(conf_get DB_HOST '')"; dbPort="$(conf_get DB_PORT 3306)"
+  installMode="$(dependency_install_mode manual)"
   if [[ -z "${dbPwd}" ]]; then
-    risk "手动部署必须连接现有数据库，脚本不会猜测或生成数据库密码"
-    dbPwd="$(ask_secret '请输入数据库密码（输入内容不会显示）')"
-    [[ -n "${dbPwd}" ]] || die "数据库密码不能为空；如需调整主机/端口，请编辑 ${CONF} 后重试"
-    validate_secret 'DB_PASSWORD' "${dbPwd}"
-    conf_set DB_PASSWORD "${dbPwd}"
+    if [[ "${installMode}" == "auto" && ( "${dbHost}" == "127.0.0.1" || "${dbHost}" == "localhost" ) ]] \
+        && ! command -v mysqld >/dev/null 2>&1 && ! tcp_reachable "${dbHost}" "${dbPort}"; then
+      dbPwd="$(gen_secret)"
+      conf_set DB_PASSWORD "${dbPwd}"
+      rootPwd="$(conf_get MYSQL_ROOT_PASSWORD '')"
+      if [[ -z "${rootPwd}" ]]; then
+        rootPwd="$(gen_secret)"
+        conf_set MYSQL_ROOT_PASSWORD "${rootPwd}"
+      fi
+      ok "全新本机 MySQL 将使用自动生成的强随机 root/业务密码"
+    else
+      risk "已有或外部 MySQL 必须填写真实数据库密码"
+      dbPwd="$(ask_secret '请输入数据库密码（输入内容不会显示）')"
+      [[ -n "${dbPwd}" ]] || die "数据库密码不能为空；如需调整主机/端口，请编辑 ${CONF} 后重试"
+      validate_secret 'DB_PASSWORD' "${dbPwd}"
+      conf_set DB_PASSWORD "${dbPwd}"
+    fi
   fi
   validate_secret 'DB_PASSWORD' "${dbPwd}"
+  rootPwd="$(conf_get MYSQL_ROOT_PASSWORD '')"
+  [[ -z "${rootPwd}" ]] || validate_secret 'MYSQL_ROOT_PASSWORD' "${rootPwd}"
   local redisPwd
   redisPwd="$(conf_get REDIS_PASSWORD '')"
   [[ -n "${redisPwd}" ]] && validate_secret 'REDIS_PASSWORD' "${redisPwd}"
@@ -1861,6 +2711,7 @@ EOF
   if [[ "$(conf_get ROCKETMQ_ENABLED false)" == "true" ]]; then
     [[ -n "$(conf_get ROCKETMQ_NAMESERVER '')" ]] || die "启用 RocketMQ 时必须配置 ROCKETMQ_NAMESERVER"
   fi
+  validate_rocketmq_mode manual
   [[ "$(conf_get REDIS_DATABASE 0)" =~ ^[0-9]+$ ]] || die "REDIS_DATABASE 必须是非负整数"
   case "$(conf_get HTTPS_ENABLED false)" in true|false) ;; *) die "HTTPS_ENABLED 只支持 true 或 false" ;; esac
   if [[ "$(conf_get HTTPS_ENABLED false)" == "true" ]]; then
@@ -1920,6 +2771,8 @@ DATA_ROOT=${DATA_ROOT}
 DEPENDENCY_INSTALL_MODE=auto
 # auto=按网络自动选择；cn=国内镜像优先；global=官方地址优先。
 DEPENDENCY_REGION=auto
+# Docker Hub 国内代理前缀，逗号分隔；自动测速排序、失败逐级回退并校验官方摘要。
+DOCKER_MIRRORS=${DEFAULT_DOCKER_MIRRORS}
 
 # ---------------- HTTP 访问（无需域名） ----------------
 # 用户端：http://服务器IP；非 80 端口需在地址后追加端口。
@@ -2258,7 +3111,7 @@ write_updater_config() { # write_updater_config <docker|manual>
     healthUrl="http://127.0.0.1:$(conf_get BACKEND_PORT 8080)"
     execContainer=""; clientImage=""; dockerNetwork=""
     dbHost="$(conf_get DB_HOST 127.0.0.1)"; dbPort="$(conf_get DB_PORT 3306)"
-    dbUser="$(conf_get DB_USERNAME root)"; dbPwd="$(conf_get DB_PASSWORD '')"
+    dbUser="$(conf_get DB_USERNAME aid)"; dbPwd="$(conf_get DB_PASSWORD '')"
     dbName="$(conf_get DB_NAME aid)"
     configPath="${CONF}"; defaultConfigPath="${DEFAULT_MANUAL_CONFIG}"
     write_deployment_descriptor systemd "${configPath}"
@@ -2394,8 +3247,9 @@ read_admin_entry_settings() {
     rows="$(docker_mysql_tool mysql --batch --skip-column-names "${dbName}" --execute "${query}" 2>/dev/null)" || return 0
   else
     rows="$(MYSQL_PWD="$(conf_get DB_PASSWORD '')" mysql \
+      --protocol=TCP \
       --host "$(conf_get DB_HOST 127.0.0.1)" --port "$(conf_get DB_PORT 3306)" \
-      --user "$(conf_get DB_USERNAME root)" --database "${dbName}" \
+      --user "$(conf_get DB_USERNAME aid)" --database "${dbName}" \
       --batch --skip-column-names --execute "${query}" 2>/dev/null)" || return 0
   fi
   local dbEnabled dbCode
@@ -2418,8 +3272,9 @@ ensure_admin_entry_code() { # ensure_admin_entry_code <docker|manual>
       || die "读取后台登录入口失败"
   else
     currentCode="$(MYSQL_PWD="$(conf_get DB_PASSWORD '')" mysql \
+      --protocol=TCP \
       --host "$(conf_get DB_HOST 127.0.0.1)" --port "$(conf_get DB_PORT 3306)" \
-      --user "$(conf_get DB_USERNAME root)" --database "${dbName}" \
+      --user "$(conf_get DB_USERNAME aid)" --database "${dbName}" \
       --batch --skip-column-names --execute "${query}" 2>/dev/null | tail -n 1)" \
       || die "读取后台登录入口失败"
   fi
@@ -2432,8 +3287,9 @@ ensure_admin_entry_code() { # ensure_admin_entry_code <docker|manual>
       || die "写入后台随机访问码失败"
   else
     MYSQL_PWD="$(conf_get DB_PASSWORD '')" mysql \
+      --protocol=TCP \
       --host "$(conf_get DB_HOST 127.0.0.1)" --port "$(conf_get DB_PORT 3306)" \
-      --user "$(conf_get DB_USERNAME root)" --database "${dbName}" --execute "${query}" >/dev/null \
+      --user "$(conf_get DB_USERNAME aid)" --database "${dbName}" --execute "${query}" >/dev/null \
       || die "写入后台随机访问码失败"
   fi
   ok "已为新部署生成12位随机后台访问码"
@@ -2549,8 +3405,8 @@ backup_database() { # backup_database <输出文件.sql.gz>
       | gzip > "${outFile}" || return 1
   else
     command -v mysqldump >/dev/null 2>&1 || { err "缺少 mysqldump（数据库备份需要）"; return 1; }
-    MYSQL_PWD="$(conf_get DB_PASSWORD)" mysqldump --host "$(conf_get DB_HOST 127.0.0.1)" --port "$(conf_get DB_PORT 3306)" \
-      --user "$(conf_get DB_USERNAME root)" --single-transaction --routines --triggers "$(conf_get DB_NAME aid)" \
+    MYSQL_PWD="$(conf_get DB_PASSWORD)" mysqldump --protocol=TCP --host "$(conf_get DB_HOST 127.0.0.1)" --port "$(conf_get DB_PORT 3306)" \
+      --user "$(conf_get DB_USERNAME aid)" --single-transaction --routines --triggers "$(conf_get DB_NAME aid)" \
       | gzip > "${outFile}" || return 1
   fi
   [[ -s "${outFile}" ]] || { err "数据库备份文件为空"; return 1; }
@@ -2564,8 +3420,8 @@ restore_database() { # restore_database <备份文件.sql.gz>
   if [[ "${mode}" == "docker" ]]; then
     gunzip < "${dumpFile}" | docker_mysql_tool mysql --default-character-set=utf8mb4 "$(env_get DB_NAME aid)" || return 1
   else
-    gunzip < "${dumpFile}" | MYSQL_PWD="$(conf_get DB_PASSWORD)" mysql --host "$(conf_get DB_HOST 127.0.0.1)" --port "$(conf_get DB_PORT 3306)" \
-      --user "$(conf_get DB_USERNAME root)" --default-character-set=utf8mb4 "$(conf_get DB_NAME aid)" || return 1
+    gunzip < "${dumpFile}" | MYSQL_PWD="$(conf_get DB_PASSWORD)" mysql --protocol=TCP --host "$(conf_get DB_HOST 127.0.0.1)" --port "$(conf_get DB_PORT 3306)" \
+      --user "$(conf_get DB_USERNAME aid)" --default-character-set=utf8mb4 "$(conf_get DB_NAME aid)" || return 1
   fi
   return 0
 }
@@ -2577,8 +3433,8 @@ run_sql_file() { # run_sql_file <sql文件>
   if [[ "${mode}" == "docker" ]]; then
     docker_mysql_tool mysql --default-character-set=utf8mb4 "$(env_get DB_NAME aid)" < "${sqlFile}" || return 1
   else
-    MYSQL_PWD="$(conf_get DB_PASSWORD)" mysql --host "$(conf_get DB_HOST 127.0.0.1)" --port "$(conf_get DB_PORT 3306)" \
-      --user "$(conf_get DB_USERNAME root)" --default-character-set=utf8mb4 "$(conf_get DB_NAME aid)" < "${sqlFile}" || return 1
+    MYSQL_PWD="$(conf_get DB_PASSWORD)" mysql --protocol=TCP --host "$(conf_get DB_HOST 127.0.0.1)" --port "$(conf_get DB_PORT 3306)" \
+      --user "$(conf_get DB_USERNAME aid)" --default-character-set=utf8mb4 "$(conf_get DB_NAME aid)" < "${sqlFile}" || return 1
   fi
   return 0
 }
@@ -2689,6 +3545,7 @@ do_install_docker() {
   prepare_install_package "${1:-}"
   package="${RESOLVED_PACKAGE_PATH}"
   prepare_docker_runtime_images
+  check_external_rocketmq_connectivity docker
   bootstrap_installer_if_needed "${package}" install-docker
 
   [[ "${existingMode}" == "none" ]] && confirm_first_install docker
@@ -2719,6 +3576,7 @@ do_install_docker() {
   log "启动容器编排..."
   validate_https_runtime
   compose_cmd up -d || die "容器编排启动失败"
+  wait_internal_rocketmq_ready
   if ! wait_backend_healthy; then
     if docker_profile_enabled mysql; then
       die "部署未完成；若确认是首次内置数据库初始化失败，请备份后再按日志人工处理 ${DATA_ROOT}/mysql-data"
@@ -2957,18 +3815,17 @@ do_install_manual() {
   bootstrap_installer_if_needed "${package}" install-manual
 
   [[ "${existingMode}" == "none" ]] && confirm_first_install manual
-  # 硬件校验基线按配置实际评估：启用 MQ（手动部署常与业务同机）按含 MQ 内存计
+  # 手动部署不自动安装 RocketMQ，启用时只连接外部实例，因此不计入本机内存基线。
   local mqPlan="no"
-  [[ "$(conf_get ROCKETMQ_ENABLED false)" == "true" ]] && mqPlan="yes"
   check_hardware manual "${mqPlan}"
 
   # 数据库连通性与初始化
   local dbHost dbPort dbUser dbPwd dbName tableCount
   dbHost="$(conf_get DB_HOST)"; dbPort="$(conf_get DB_PORT)"; dbUser="$(conf_get DB_USERNAME)"
   dbPwd="$(conf_get DB_PASSWORD)"; dbName="$(conf_get DB_NAME)"
-  MYSQL_PWD="${dbPwd}" mysql --host "${dbHost}" --port "${dbPort}" --user "${dbUser}" -e "SELECT 1" >/dev/null 2>&1 \
+  MYSQL_PWD="${dbPwd}" mysql --protocol=TCP --host "${dbHost}" --port "${dbPort}" --user "${dbUser}" -e "SELECT 1" >/dev/null 2>&1 \
     || die "数据库连接失败，请检查配置（菜单「修改配置」可修改后重试）"
-  tableCount="$(MYSQL_PWD="${dbPwd}" mysql --host "${dbHost}" --port "${dbPort}" --user "${dbUser}" \
+  tableCount="$(MYSQL_PWD="${dbPwd}" mysql --protocol=TCP --host "${dbHost}" --port "${dbPort}" --user "${dbUser}" \
     -N -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='${dbName}'" 2>/dev/null || echo 0)"
   if [[ "${tableCount}" -gt 0 ]]; then
     ok "数据库 ${dbName} 已有 ${tableCount} 张表，跳过初始化"
@@ -2976,9 +3833,9 @@ do_install_manual() {
     local initSql="${REPO_DIR}/sql/aid-init.sql"
     [[ -f "${initSql}" ]] || die "未找到初始化脚本 ${initSql}"
     log "创建数据库并导入基线（约 1 分钟）..."
-    MYSQL_PWD="${dbPwd}" mysql --host "${dbHost}" --port "${dbPort}" --user "${dbUser}" \
+    MYSQL_PWD="${dbPwd}" mysql --protocol=TCP --host "${dbHost}" --port "${dbPort}" --user "${dbUser}" \
       -e "CREATE DATABASE IF NOT EXISTS \`${dbName}\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci"
-    MYSQL_PWD="${dbPwd}" mysql --host "${dbHost}" --port "${dbPort}" --user "${dbUser}" \
+    MYSQL_PWD="${dbPwd}" mysql --protocol=TCP --host "${dbHost}" --port "${dbPort}" --user "${dbUser}" \
       --default-character-set=utf8mb4 "${dbName}" < "${initSql}" || die "基线导入失败"
     ok "数据库初始化完成"
   fi
@@ -3239,6 +4096,7 @@ do_restart() {
       export AID_DEPENDENCY_INSTALL_MODE="$(dependency_install_mode docker)"
       require_docker_runtime
       prepare_docker_runtime_images
+      check_external_rocketmq_connectivity docker
       disable_internal_mysql_for_external \
         || die "外部 MySQL 未准备完成，配置未生效"
       disable_unused_docker_services
@@ -3251,6 +4109,7 @@ do_restart() {
       log "重启容器编排（.env 配置变更同时生效）..."
       validate_https_runtime
       compose_cmd up -d
+      wait_internal_rocketmq_ready
       compose_cmd restart aid-server aid-web nginx 2>/dev/null || true
       if docker_profile_enabled https; then
         compose_cmd restart nginx-https 2>/dev/null || true

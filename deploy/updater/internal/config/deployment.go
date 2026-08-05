@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -34,6 +35,7 @@ var commonDeploymentKeys = map[string]bool{
 	"REDIS_HOST": true, "REDIS_PORT": true, "REDIS_USERNAME": true,
 	"REDIS_PASSWORD": true, "REDIS_DATABASE": true,
 	"TOKEN_SECRET": true, "JAVA_OPTS": true, "DEPENDENCY_INSTALL_MODE": true, "DEPENDENCY_REGION": true,
+	"DOCKER_MIRRORS":   true,
 	"ROCKETMQ_ENABLED": true, "ROCKETMQ_NAMESERVER": true,
 	"ROCKETMQ_ACCESS_KEY": true, "ROCKETMQ_SECRET_KEY": true,
 	"ROCKETMQ_FLUSH_DISK_TYPE": true,
@@ -50,7 +52,7 @@ var dockerDeploymentKeys = map[string]bool{
 }
 
 var manualDeploymentKeys = map[string]bool{
-	"DATA_ROOT": true, "HTTPS_ENABLED": true,
+	"DATA_ROOT": true, "HTTPS_ENABLED": true, "MYSQL_ROOT_PASSWORD": true,
 }
 
 var secretDeploymentKeys = map[string]bool{
@@ -61,6 +63,9 @@ var secretDeploymentKeys = map[string]bool{
 	"ROCKETMQ_ACCESS_KEY": true,
 	"ROCKETMQ_SECRET_KEY": true,
 }
+
+var dockerMirrorPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]*(:[0-9]{1,5})?(/[a-z0-9._/-]+)?$`)
+var rocketMQNameServerPattern = regexp.MustCompile(`^[A-Za-z0-9._-]+:([0-9]{1,5})$`)
 
 // ReadDeploymentState 从唯一配置真源读取当前配置，并只生成不含密钥的页面快照。
 func (c *Config) ReadDeploymentState() (*DeploymentState, error) {
@@ -366,6 +371,9 @@ func validateDeploymentValues(mode string, values map[string]string) error {
 	if dependencyRegion != "auto" && dependencyRegion != "cn" && dependencyRegion != "global" {
 		return fmt.Errorf("DEPENDENCY_REGION 只支持 auto、cn 或 global")
 	}
+	if err := validateDockerMirrors(values["DOCKER_MIRRORS"]); err != nil {
+		return err
+	}
 	flushDiskType := valueOr(values, "ROCKETMQ_FLUSH_DISK_TYPE", "ASYNC_FLUSH")
 	if flushDiskType != "ASYNC_FLUSH" && flushDiskType != "SYNC_FLUSH" {
 		return fmt.Errorf("ROCKETMQ_FLUSH_DISK_TYPE 只支持 ASYNC_FLUSH 或 SYNC_FLUSH")
@@ -390,6 +398,11 @@ func validateDeploymentValues(mode string, values map[string]string) error {
 	if values["ROCKETMQ_ENABLED"] == "true" && strings.TrimSpace(values["ROCKETMQ_NAMESERVER"]) == "" {
 		return fmt.Errorf("RocketMQ地址不能为空")
 	}
+	if values["ROCKETMQ_ENABLED"] == "true" {
+		if err := validateRocketMQNameServers(values["ROCKETMQ_NAMESERVER"]); err != nil {
+			return err
+		}
+	}
 	if mode == "docker" {
 		profiles, err := parseComposeProfiles(values["COMPOSE_PROFILES"])
 		if err != nil {
@@ -400,6 +413,16 @@ func validateDeploymentValues(mode string, values map[string]string) error {
 			if username != "" && username != "default" {
 				return fmt.Errorf("内置Redis仅支持default用户")
 			}
+		}
+		mqEnabled := values["ROCKETMQ_ENABLED"] == "true"
+		if profiles["mq"] && !mqEnabled {
+			return fmt.Errorf("mq组件启用时必须开启RocketMQ")
+		}
+		if profiles["mq"] && strings.TrimSpace(values["ROCKETMQ_NAMESERVER"]) != "rocketmq-nameserver:9876" {
+			return fmt.Errorf("内置RocketMQ地址必须使用rocketmq-nameserver:9876")
+		}
+		if mqEnabled && !profiles["mq"] && strings.Contains(values["ROCKETMQ_NAMESERVER"], "rocketmq-nameserver:") {
+			return fmt.Errorf("外部RocketMQ必须填写真实NameServer地址")
 		}
 		if profiles["mysql"] {
 			if strings.TrimSpace(values["MYSQL_ROOT_PASSWORD"]) == "" || strings.TrimSpace(values["MYSQL_PORT"]) == "" {
@@ -425,6 +448,51 @@ func validateDeploymentValues(mode string, values map[string]string) error {
 		}
 		if err := validateHTTPSValues(values); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func validateRocketMQNameServers(value string) error {
+	entries := strings.FieldsFunc(value, func(r rune) bool { return r == ';' || r == ',' })
+	if len(entries) == 0 {
+		return fmt.Errorf("RocketMQ地址不能为空")
+	}
+	for _, entry := range entries {
+		entry = strings.TrimSpace(entry)
+		matches := rocketMQNameServerPattern.FindStringSubmatch(entry)
+		if len(matches) != 2 {
+			return fmt.Errorf("RocketMQ地址必须使用host:port")
+		}
+		port, err := strconv.Atoi(matches[1])
+		if err != nil || port < 1 || port > 65535 {
+			return fmt.Errorf("RocketMQ端口范围错误")
+		}
+	}
+	return nil
+}
+
+// validateDockerMirrors 限制 Registry 前缀为无凭据、无查询参数的镜像地址，防止
+// 配置内容在 Shell/Docker 命令边界产生歧义。空值表示使用安装器内置候选列表。
+func validateDockerMirrors(value string) error {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	if len(value) > 1024 {
+		return fmt.Errorf("DOCKER_MIRRORS 内容过长")
+	}
+	mirrors := strings.Split(value, ",")
+	if len(mirrors) > 8 {
+		return fmt.Errorf("DOCKER_MIRRORS 最多配置8个地址")
+	}
+	for _, raw := range mirrors {
+		mirror := strings.ToLower(strings.TrimSpace(raw))
+		mirror = strings.TrimPrefix(mirror, "https://")
+		mirror = strings.TrimPrefix(mirror, "http://")
+		mirror = strings.TrimSuffix(mirror, "/")
+		if !dockerMirrorPattern.MatchString(mirror) || strings.ContainsAny(mirror, "@?#\\") {
+			return fmt.Errorf("DOCKER_MIRRORS 地址格式错误")
 		}
 	}
 	return nil

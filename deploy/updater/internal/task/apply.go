@@ -356,10 +356,12 @@ func (r *Runner) buildSourcePackage(t *Task, archivePath, sourceWorkDir string) 
 	if dependencyRegion == "" {
 		dependencyRegion = "auto"
 	}
+	dockerMirrors := strings.TrimSpace(deploymentState.Values["DOCKER_MIRRORS"])
 	cmd.Env = append(os.Environ(),
 		"AID_DATA_ROOT="+filepath.Dir(filepath.Dir(r.cfg.Install.BackendJar)),
 		"AID_DEPENDENCY_INSTALL_MODE="+dependencyMode,
-		"AID_DEPENDENCY_REGION="+dependencyRegion)
+		"AID_DEPENDENCY_REGION="+dependencyRegion,
+		"AID_DOCKER_MIRRORS="+dockerMirrors)
 	cmd.Stdout = log.Writer()
 	cmd.Stderr = log.Writer()
 	log.Printf("开始远程源码构建 AID %s", t.TargetVersion)

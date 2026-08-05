@@ -5,7 +5,7 @@
 | 方式 | 适用场景 | 说明 |
 |------|---------|------|
 | Docker 部署（推荐） | 绝大多数用户 | 中间件全部容器化 |
-| 手动部署 | 已有 MySQL/Redis 等基础设施 | systemd + Nginx 方式 |
+| 手动部署 | 不使用容器或对宿主机服务有明确要求 | systemd + Nginx；本机缺失依赖按版本自动准备 |
 
 统一约定：**全部数据默认放在 `/data/aid`**——程序产物（`app/`）、受管安装器和 Docker 配置（`installer/`）、上传文件（`uploadPath/` 与私有归档 `uploadPath-private/`）、日志（`logs/`）、MySQL/Redis/RocketMQ 数据、备份（`backups/`）、本地源码构建包（`packages/`）、依赖缓存（`build-cache/`）与手动部署配置（`aid-deploy.conf`）都在这一个目录下，备份或迁移整个目录即可。
 
@@ -78,7 +78,7 @@ sudo env AID_REMOTE_BOOTSTRAP=1 AID_RELEASE_CHANNEL=beta bash aid-install.sh upd
 
 - 脚本只接受 HTTPS 版本清单，并只拉取 AID 官方 GitHub/Gitee 三个公开仓库；三端必须使用完全相同的 `v<版本>` 标签，禁止混用分支或平台。构建后的本地包仍会检查目录结构、路径穿越、特殊链接和内置脚本语法。
 - OpenSSL 支持 Ed25519 `pkeyutl -rawin` 时会验证清单签名；较老的 OpenSSL 会以黄色信息明确提示。高安全环境建议升级 OpenSSL，后台在线升级器始终执行完整签名校验。
-- 脚本不会静默开放防火墙、修改 DNS/域名、配置 HTTPS 证书、删除已有数据库，也不会自动导入大体积官方资产包；这些动作依赖你的网络与对象存储方案，自动猜测风险更高。
+- 脚本不会静默开放防火墙、修改 DNS/域名、配置 HTTPS 证书、删除已有数据库，也不会自动导入大体积官方资产包。Docker 缺失或版本过低时会先单独提示对现有容器的风险，只有管理员明确同意后才配置软件源并安装/升级。
 - 发现 `/data/aid` 已有非安装缓存内容、版本降级、数据库恢复、低于推荐硬件等情况时，默认拒绝或要求再次确认。`AID_ASSUME_YES=1` 只应在你已做好外部备份且明确授权的自动化环境使用。
 - 本机备份不能替代异机备份。上线前应把数据库、`/data/aid/uploadPath` 和配置文件定期备份到另一台机器或对象存储。
 
@@ -104,7 +104,7 @@ sudo env AID_REMOTE_BOOTSTRAP=1 AID_RELEASE_CHANNEL=beta bash aid-install.sh upd
 ------------------------------------------------------
 ```
 
-- **自动判断每个环节**：自动识别部署方式与当前状态；数据库已初始化自动跳过；依赖缺失明确报错
+- **自动判断每个环节**：自动识别部署方式与当前状态；组件存在且版本符合、数据库已经初始化时直接跳过；缺失项才下载、安装或启动
 - **配置真源清晰**：首次部署自动从模板创建正式配置——单文件 Docker 部署默认使用 `/data/aid/config/docker.env`，手动部署使用 `/data/aid/aid-deploy.conf`；最终以脚本打印和 `/data/aid/config/deployment.json` 指向的绝对路径为准。密码和密钥留空时生成强随机值，后续只修改这一份正式配置
 - **配置变更受控**：后台「项目升级配置 → 运行配置」只展示脱敏字段，可校验、应用或恢复上一份配置；升级器会先备份配置，原子写入后重启并健康检查，失败自动恢复。自定义配置文件只能位于 `/data/aid/config`，禁止软链接和任意路径读写
 - **资源全部可调**：后端 JVM、MySQL 缓冲池、Redis 内存上限、RocketMQ Broker/NameServer 内存（镜像默认 8G 大堆已按 1G 覆盖）在部署时逐项询问，回车用默认值
@@ -155,7 +155,9 @@ MySQL 首次启动自动创建 `aid_test` 库并导入 `sql/` 初始化脚本（
 
 Docker 构建固定使用 Node.js 22.22.0；后台管理端和 Web 用户端还必须在各自 `package.json` 的 `packageManager` 中固定完整 npm 版本，当前均为 npm 10.9.4。发布机与服务器源码构建都会通过引导 npm 执行项目声明的精确版本，再运行 `npm ci` 和生产构建，不依赖宿主机或 Node 镜像碰巧携带的 npm 版本；`package-lock.json` 与 `package.json` 不一致时会明确阻止发布。Java 构建与运行固定使用 Eclipse Temurin OpenJDK 17.0.20+8。JDK 按宿主机架构自动选择 x64 或 AArch64 压缩包，下载后核对 Adoptium 官方 SHA-256，不修改宿主机默认 Java。构建镜像与依赖缓存在 `/data/aid/build-cache`，后续升级会直接复用。
 
-`DEPENDENCY_REGION=auto` 会在目标服务器运行时按公网出口地区自动选择下载线路，地区服务不可用时再按网络可达性判断：国内优先 DaoCloud Docker Hub 镜像、清华 Adoptium 镜像、npmmirror 和 goproxy.cn；国际优先 Docker Hub、Adoptium、npm 和 proxy.golang.org。Maven 在两种线路下均固定优先使用阿里云公共仓库，失败时自动用原始 Maven Central 重新构建；可通过 `AID_MAVEN_MIRROR_URL` 与 `AID_MAVEN_FALLBACK_URL` 分别覆盖。其他首选线路失败也会自动回退，且可明确设置为 `cn` 或 `global`。Docker 国内镜像按标签下载后必须匹配发布脚本内固定的官方 RepoDigest，否则会拒绝使用并尝试官方地址。
+`DEPENDENCY_REGION=auto` 会在目标服务器运行时按公网出口地区自动选择下载线路，地区服务不可用时再按网络可达性判断：国内依赖优先使用国内镜像，国际线路优先使用上游官方地址。Maven 在两种线路下均固定优先使用阿里云公共仓库，失败时自动用原始 Maven Central 重新构建；可通过 `AID_MAVEN_MIRROR_URL` 与 `AID_MAVEN_FALLBACK_URL` 分别覆盖。其他首选线路失败也会自动回退，且可明确设置为 `cn` 或 `global`。
+
+Docker Hub 代理由正式配置项 `DOCKER_MIRRORS` 管理，默认候选为 `docker.m.daocloud.io,dockerproxy.net`。脚本先对所有候选 Registry 的 `/v2/` 接口进行短连接测速，再对当前要下载的具体镜像执行限时 manifest 预检：清单可用的来源优先，预检失败的来源保留在末尾兜底，真实拉取失败仍会继续尝试下一来源。这样可以识别“Registry 首页可访问，但 MySQL 分层存储不可用”的假可用节点。代理按标签下载后还必须匹配发布脚本内固定的官方 RepoDigest，否则立即拒绝该内容并继续回退。多个地址使用英文逗号分隔，最多 8 个；支持云厂商分配的专属加速域名，不允许在该配置中放入账号、密码或 URL 查询参数。旧版 `AID_DOCKER_CN_MIRROR` 环境变量仍兼容，但新部署应使用 `DOCKER_MIRRORS`。
 
 三端构建不再隐藏 Maven 输出，并会分别打印服务端、后台管理端、Web 用户端的依赖安装、编译和完成状态。通过 `aid.sh` 部署或更新时，终端实时显示同一份日志，并以 `source-build-v<版本>-<时间>.log` 保存到 `/data/aid/logs/`；后台一键升级时，相同输出会进入升级器的 `updater.log`。
 
@@ -179,13 +181,13 @@ Docker 构建固定使用 Node.js 22.22.0；后台管理端和 Web 用户端还�
 
 - Linux 服务器，4 核 8G 起步，磁盘 100G+
 - curl、tar（宿主机有 Git 时直接使用；没有时使用隔离的 Git 容器，不会安装系统软件）
-- Docker Engine 24+，compose 插件 v2.20+（`docker compose version` 能正常输出；可选依赖声明需要 2.20+）
+- Docker Engine 24+，compose 插件 v2.20+；如果缺失，脚本会询问是否按测速后的清华/阿里云/官方 Docker CE 软件源自动安装
 
 Docker 一键部署固定使用 MySQL 5.7，因此服务器需要使用 `x86_64` 架构。官方 MySQL 5.7 镜像不提供 ARM64 版本，脚本检测到 ARM64 时会明确中止，不会擅自切换数据库大版本。
 
-如果没有安装 Docker，脚本只会用红色信息提示需要安装 Docker Engine 24+ 与 Compose v2 插件，然后安全退出；不会运行远程安装脚本、修改软件源或主动安装 Docker。
+如果没有安装 Docker 或版本不符合，脚本会先打印变更范围与“可能影响本机已有容器”的风险，再询问是否自动安装/升级；默认答案是 `no`。同意后才使用 HTTPS 软件源、核对 Docker 官方 GPG 指纹、安装 Engine/Compose 并启动服务；拒绝则不修改系统。已有合格版本时整段跳过。
 
-**国内服务器注意**：Docker Hub 官方源在国内网络下通常无法直接拉取镜像，部署前先配置镜像加速（任选其一：云厂商容器镜像加速地址，或公开加速站）：
+**国内服务器注意**：AID 已内置多 Registry 测速与真实拉取回退。全新自动安装 Docker 且 `/etc/docker/daemon.json` 不存在时，脚本会把测速后的 `DOCKER_MIRRORS` 写入全局加速配置；检测到管理员已有 daemon.json 时绝不覆盖，AID 仍通过自己的候选前缀拉取镜像。需要手工配置时可使用：
 
 ```bash
 sudo mkdir -p /etc/docker
@@ -200,7 +202,7 @@ EOF
 sudo systemctl daemon-reload && sudo systemctl restart docker
 ```
 
-阿里云/腾讯云服务器建议使用各自控制台提供的专属加速地址（更稳定）。
+阿里云/腾讯云服务器建议把控制台提供的专属加速地址同时放在 `registry-mirrors` 和 AID 的 `DOCKER_MIRRORS` 首位。公开代理属于外部服务，可能临时限流或不可用；多候选和官方回退用于提高成功率，不承诺任何第三方来源永久可用。
 
 ### 部署步骤（自动拉取源码构建、自动创建安全配置）
 
@@ -210,16 +212,25 @@ if command -v curl >/dev/null 2>&1; then curl -fL --retry 3 -o aid-install.sh ht
 
 脚本会先从版本标签源码构建本地包，再从本地包提取部署套件，并由 `.env.example` 自动生成正式配置；数据库密码、JWT 密钥等空值会生成强随机值写回。单文件首次部署的配置真源是 `/data/aid/config/docker.env`，完成后脚本也会明确打印实际路径。默认采用内置 MySQL + Redis、关闭 RocketMQ 与 HTTPS 的保守组合。需要改端口、HTTPS、外部 MySQL/Redis 或 RocketMQ 时，编辑实际配置文件后执行 `sudo aid restart` 生效。
 
-Docker 模式不会要求宿主机另装 Git、JDK、Node、Go、Nginx 或 Redis：Node.js 22.22.0 与 Maven/Go 使用一次性隔离构建容器；OpenJDK 17.0.20 从校验后的压缩包生成本地固定运行镜像；HTTP Nginx 为运行容器；MySQL、Redis、RocketMQ 与 HTTPS 由 `COMPOSE_PROFILES` 决定是否启动对应容器。宿主机只需管理员预先安装并启动 Docker Engine 24+ 与 Compose v2，脚本不会自动安装 Docker 或修改系统软件源。
+Docker 模式不会要求宿主机另装 Git、JDK、Node、Go、Nginx 或 Redis：Node.js 22.22.0 与 Maven/Go 使用一次性隔离构建容器；OpenJDK 17.0.20 从校验后的压缩包生成本地固定运行镜像；HTTP Nginx 为运行容器；MySQL、Redis、RocketMQ 与 HTTPS 由 `COMPOSE_PROFILES` 决定是否启动对应容器。宿主机只需要 Docker Engine 24+ 与 Compose v2；缺失时经管理员确认可由脚本安装。
 
 依赖处理由正式配置中的 `DEPENDENCY_INSTALL_MODE` 控制：
 
 | 值 | Docker 部署行为 | 手动 systemd 部署行为 |
 |----|-----------------|------------------------|
-| `auto`（默认） | 缺失镜像按 `DEPENDENCY_REGION` 自动下载，并校验固定的官方镜像摘要 | JDK 17.0.20、Node 22.22.0、Maven 3.9.9、Go 1.22.12 下载到隔离缓存并校验；Git/Nginx/MySQL客户端等系统工具按需安装 |
+| `auto`（默认） | 缺失镜像按 `DEPENDENCY_REGION` 自动下载并校验；Docker 缺失/过旧仍需单独确认 | JDK 17.0.20、Node 22.22.0、Maven 3.9.9、Go 1.22.12 下载到隔离缓存并校验；Git/Nginx/本机 MySQL5.7/Redis 等按需安装 |
 | `manual` | 缺镜像立即停止并打印准确的 `docker pull` 命令 | 只检查并列出缺失或版本不合格项，不修改系统 |
 
-Docker Engine 与 Compose 无论哪种模式都必须由管理员安装；脚本不会执行远程安装脚本或修改 Docker 软件源。外部 MySQL、Redis、RocketMQ 只做配置和连通性校验，绝不会在宿主机安装同名服务或覆盖外部配置。MySQL 服务端固定要求 5.7，为避免发行版默认安装成 MySQL 8/MariaDB，手动模式不代装服务端：请选择已有 MySQL 5.7、外部 MySQL 5.7，或改用推荐的 Docker 内置 MySQL 5.7。
+例如使用三个候选镜像时，在 `/data/aid/config/docker.env`（Docker）或 `/data/aid/aid-deploy.conf`（systemd）中写入：
+
+```dotenv
+DEPENDENCY_REGION=auto
+DOCKER_MIRRORS=专属加速域名,docker.m.daocloud.io,dockerproxy.net
+```
+
+留空会使用安装器内置候选；原配置升级时会先在同目录备份，只补充缺少的 `DOCKER_MIRRORS`，不会覆盖已有值。部署后也可在后台管理的“系统升级 → 部署配置”中维护该列表。
+
+Docker Engine/Compose 缺失或版本过旧时由管理员单独确认是否自动安装；现有合格版本直接跳过。外部 MySQL、Redis、RocketMQ 只做配置、认证和连通性校验，绝不会在宿主机安装同名服务或覆盖外部配置。手动模式配置本机地址且未发现数据库时，会安装隔离的 Oracle MySQL 5.7.44 通用二进制，下载文件必须匹配官方归档摘要，绝不会用发行版默认的 MySQL 8/MariaDB 冒充。
 
 脚本自动完成：依赖预检 → 三仓同标签源码拉取与隔离构建 → `.env` 校验（缺失密钥自动生成）→ 硬件校验（按 `.env` 实际配置评估）→ 本地构建包摆位到 `/data/aid/app` → 自动安装升级器 → 启动编排 → 首次启动自动建库导入 `sql/` 全部脚本 → 健康等待（最长 5 分钟）→ 成功摘要 / 失败诊断。
 
@@ -356,20 +367,20 @@ sudo aid restart
 | 组件 | 版本 | 说明 |
 |------|------|------|
 | JDK | Temurin OpenJDK 17.0.20+8 | 脚本按架构下载到数据目录，不切换系统默认 Java |
-| Git | 2.x | 拉取三个公开仓库的固定版本标签 |
-| Maven | 3.9.9 | 无 Docker 时下载到隔离缓存，用于服务端源码构建 |
+| Git | 1.8.3+ | 拉取三个公开仓库的固定版本标签；启动时校验最低版本 |
+| Maven | 3.9.9 | 下载到隔离缓存，用于服务端源码构建 |
 | MySQL | 5.7 | 业务数据库（本机或远程均可） |
 | Redis | 6.x+ | 缓存与分布式锁 |
 | Node.js | 22.22.0 | 后台/Web 构建与用户端 SSR 运行 |
 | npm | 由各端 `packageManager` 精确锁定（当前 10.9.4） | 后台管理端与 Web 用户端源码构建；不使用宿主机的漂移版本 |
-| Go | 1.22.12 | 无 Docker 时下载到隔离缓存，用于在线升级器源码构建 |
-| Nginx | 1.20+ | 静态托管与反向代理 |
+| Go | 1.22.12 | 下载到隔离缓存，用于在线升级器源码构建 |
+| Nginx | 1.18+ | 静态托管与反向代理；启动时校验最低版本 |
 | mysql 客户端 + curl | - | 数据库初始化与健康检查 |
 | RocketMQ | 5.x | 可选（不装则走本地任务模式，功能完整） |
 
-默认 `DEPENDENCY_INSTALL_MODE=auto`：OpenJDK 17.0.20 下载到 `/data/aid/build-cache/toolchains` 并校验 SHA-256，systemd 直接使用该隔离路径；不会替换系统 Java 或修改 `alternatives`。其余缺失工具使用 `apt-get`、`dnf` 或 `yum` 安装。若发行版软件源无法提供最低版本，脚本会停止并要求管理员按发行版标准安装。设置为 `manual` 后只检查和提示。
+默认 `DEPENDENCY_INSTALL_MODE=auto`：OpenJDK 17.0.20、Node、Maven、Go、MySQL 5.7.44 与 Redis 7.2.15 使用固定版本和官方摘要，缓存到 `/data/aid/build-cache/toolchains`；MySQL/Redis 的受管运行目录位于 `/data/aid/runtime`。Git、Nginx、编译器等通用工具才使用 `apt-get`、`dnf` 或 `yum` 安装。设置为 `manual` 后只检查和提示，不修改系统。
 
-MySQL 5.7 服务端、Docker Engine、外部中间件不会自动安装。本机 Redis 仅在地址为 `127.0.0.1/localhost`、端口不可用且没有配置 ACL/密码时允许自动安装并启动；配置外部 Redis 时自动跳过本机安装。手动部署启用 RocketMQ 时使用已准备的本机或外部 NameServer，脚本不会下载并接管 Broker。这样可以避免自动安装错误数据库大版本、覆盖现有认证配置或把外部服务误装到当前服务器。
+手动模式完全不依赖 Docker。配置本机 MySQL 且服务缺失时安装隔离的 5.7.44，并生成 `aid-mysql.service`；已有 5.7 或外部 5.7 只校验后跳过，检测到其他大版本立即停止。本机 Redis 缺失时编译固定的 7.2.15 并生成 `aid-redis.service`，支持空密码、默认用户密码或 Redis 6+ ACL 用户；已有 6+ 只启动和校验，旧版本不会被静默覆盖。外部 Redis 只校验。RocketMQ 永远不自动安装，启用后必须至少有一个外部 NameServer 可达。
 
 ### 部署步骤（配置真源 = aid-deploy.conf）
 
@@ -379,9 +390,9 @@ MySQL 5.7 服务端、Docker Engine、外部中间件不会自动安装。本机
 if command -v curl >/dev/null 2>&1; then curl -fL --retry 3 -o aid-install.sh https://gitee.com/gzxx-2025/aid-server/raw/master/deploy/aid.sh; elif command -v wget >/dev/null 2>&1; then wget -O aid-install.sh https://gitee.com/gzxx-2025/aid-server/raw/master/deploy/aid.sh; else echo '请先安装 curl 或 wget'; false; fi && sudo env AID_REMOTE_BOOTSTRAP=1 bash aid-install.sh install-manual
 ```
 
-脚本会自动生成 `/data/aid/aid-deploy.conf`。手动部署连接的是现有 MySQL/Redis，无法安全猜测外部数据库凭证，因此首次运行会要求输入数据库密码（输入不回显），并当场校验连通性；`TOKEN_SECRET` 留空时自动生成强随机值。主机、端口或外部中间件拓扑不是默认值时，先按脚本提示编辑该配置再重试。
+脚本会自动生成 `/data/aid/aid-deploy.conf`。全新本机 MySQL 的 root/业务密码会生成强随机值写回配置；已有或外部 MySQL 无法安全猜测凭证，因此会要求输入真实密码（不回显）并当场校验。`TOKEN_SECRET` 留空同样自动生成。主机、端口或外部中间件拓扑不是默认值时，先按脚本提示编辑该配置再重试。
 
-手动部署按配置连接现有 MySQL 和可选 RocketMQ，不会安装或覆盖这两类服务。若服务器上有可用 Docker，源码编译优先使用隔离构建容器；没有 Docker 时，JDK、Node.js、Maven、Go 会下载到数据目录的隔离工具链缓存并校验官方摘要，Git、Nginx、MySQL 客户端等系统工具才通过发行版包管理器按需安装。Java 服务固定使用 Temurin OpenJDK 17.0.20，Web 服务固定使用 Node.js 22.22.0。本机无认证 Redis 可自动安装，外部或带认证 Redis 只连接不改配置。
+手动部署始终使用宿主机隔离工具链，不因服务器碰巧存在 Docker 而改变构建方式。JDK、Node.js、Maven、Go 与 MySQL 归档先对候选 HTTPS 来源做短流量测速，再完整下载、校验官方摘要并缓存；Git、Nginx、Redis 客户端等使用发行版包管理器按需安装。Java 固定使用 Temurin OpenJDK 17.0.20，Web 固定使用 Node.js 22.22.0。配置调整后执行 `sudo aid restart` 只会重新校验现有版本和连通性，符合要求的组件全部跳过，不会重复安装或初始化。
 
 脚本自动完成：依赖检测与按需安装 → 三仓同标签源码构建 → 配置文件校验 → 硬件校验 → 数据库连通性校验 → 空库自动导入基线（已有表跳过）→ 本地构建包摆位到 `/data/aid/app` → 注册 `aid` + `aid-web` 双 systemd 服务（环境变量含 `LOG_PATH=/data/aid/logs`，日志统一落数据目录）→ 生成 Nginx 站点 → 自动安装升级器 → 健康等待。
 

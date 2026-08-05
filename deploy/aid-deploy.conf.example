@@ -9,9 +9,10 @@
 #
 # 说明：
 #   - DEPENDENCY_INSTALL_MODE=auto 时，固定工具链下载到隔离缓存，系统服务按需使用包管理器
-#   - 源码构建优先使用可用的 Docker；没有 Docker 时使用校验后的 JDK/Node/Maven/Go
-#   - 外部 MySQL/Redis/RocketMQ 永远只连接，不会在本机安装或覆盖
-#   - MySQL 5.7 服务端与 Docker Engine 不自动安装；本机 Redis 仅在无认证默认配置时可自动安装
+#   - 源码构建使用校验后的 JDK 17、Node、Maven、Go 和 Git；版本符合时直接跳过
+#   - 本机 MySQL/Redis 仅在地址为 127.0.0.1/localhost 且确实缺失时自动安装
+#   - 外部 MySQL/Redis/RocketMQ 永远只连接和校验，不会在本机安装或覆盖
+#   - RocketMQ 不自动安装；启用前必须准备可连接的外部 NameServer
 #   - TOKEN_SECRET 留空 = 部署脚本自动生成强随机值写回本文件
 #   - 密码不能包含 空格、#、引号、$、反斜杠（会破坏配置解析）
 #   - 数据目录默认 /data/aid，如需更换：执行脚本前 export AID_DATA_ROOT=/你的路径
@@ -23,10 +24,13 @@ DATA_ROOT=/data/aid
 # ---------------- 依赖处理 ----------------
 # auto（默认）：JDK、Node、Maven、Go 固定版本下载到隔离缓存，其余系统工具按需安装；
 # manual：只检查并打印缺失项，不安装软件。已有且版本合格的依赖两种模式都会跳过。
-# Docker Engine、MySQL5.7服务端、外部Redis/RocketMQ永远不会被本脚本自动安装或覆盖。
+# 手动部署不会安装 Docker/RocketMQ；本机 MySQL5.7、Redis 缺失时按需安装。
 DEPENDENCY_INSTALL_MODE=auto
 # auto=按服务器公网出口地区自动选择；cn=国内镜像优先；global=官方地址优先。
 DEPENDENCY_REGION=auto
+# 服务器存在 Docker 时，源码构建容器使用这些 Docker Hub 国内代理；按测速结果依次尝试。
+# 支持云厂商专属加速域名，多个地址用英文逗号分隔，不要填写账号或密码。
+DOCKER_MIRRORS=docker.m.daocloud.io,dockerproxy.net
 # 用户端（C端）对外端口，由 Nginx 监听
 HTTP_PORT=80
 # 后台管理端对外端口；访问码由首次部署脚本随机生成并在完成后打印。
@@ -50,12 +54,14 @@ HTTPS_KEY_PATH=/data/aid/config/ssl/privkey.pem
 DB_HOST=127.0.0.1
 DB_PORT=3306
 DB_NAME=aid
-# 账号需具备建库权限（或提前手工建好库，脚本检测到已有表会跳过初始化）
-DB_USERNAME=root
-# 必填：数据库密码
+# 仅由脚本新建本机 MySQL 5.7 时使用；留空会生成强随机值，外部数据库忽略。
+MYSQL_ROOT_PASSWORD=
+# 新建本机数据库建议使用 aid；外部数据库填写已有且具备建库权限的账号。
+DB_USERNAME=aid
+# 本机新建时留空会生成；外部/已有数据库必须填写真实密码。
 DB_PASSWORD=
 
-# ---------------- Redis（自备 6.x+） ----------------
+# ---------------- Redis（本机可自动安装 6.x+，也支持外部） ----------------
 REDIS_HOST=127.0.0.1
 REDIS_PORT=6379
 # Redis 6+ ACL 用户名；传统 requirepass 或无认证模式留空

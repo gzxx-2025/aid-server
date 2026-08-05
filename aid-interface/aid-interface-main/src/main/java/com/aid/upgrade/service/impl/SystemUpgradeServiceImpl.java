@@ -386,6 +386,7 @@ public class SystemUpgradeServiceImpl implements ISystemUpgradeService {
         putDeploymentValue(values, "JAVA_OPTS", dto.getJavaOpts(), false);
         putDeploymentValue(values, "DEPENDENCY_INSTALL_MODE", dto.getDependencyInstallMode(), false);
         putDeploymentValue(values, "DEPENDENCY_REGION", dto.getDependencyRegion(), false);
+        putDeploymentValue(values, "DOCKER_MIRRORS", dto.getDockerMirrors(), false);
         putDeploymentValue(values, "COMPOSE_PROFILES", dto.getComposeProfiles(), false);
         putDeploymentValue(values, "ROCKETMQ_ENABLED", dto.getRocketmqEnabled(), false);
         putDeploymentValue(values, "ROCKETMQ_NAMESERVER", dto.getRocketmqNameserver(), false);

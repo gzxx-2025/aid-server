@@ -161,6 +161,13 @@ services:
       redis:
         condition: service_healthy
         required: false
+      # 内置 MQ Profile 启用时等待 NameServer/Broker；使用外部 MQ 时 required:false 自动忽略。
+      rocketmq-nameserver:
+        condition: service_healthy
+        required: false
+      rocketmq-broker:
+        condition: service_started
+        required: false
 
   # 用户端（Nuxt SSR，Node 运行 web-dist 下的 server/index.mjs）
   aid-web:
@@ -322,3 +329,9 @@ services:
     depends_on:
       rocketmq-nameserver:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/10911' 2>/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 30s
