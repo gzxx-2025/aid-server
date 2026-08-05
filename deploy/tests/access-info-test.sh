@@ -69,6 +69,9 @@ grep -Fq '管理端外网访问入口: http://8.8.4.4:8090/4Azs8kbhPL5e' <<< "${
 grep -Fq '管理端内网访问入口: http://10.20.30.40:8090/4Azs8kbhPL5e' <<< "${dockerOutput}"
 grep -Fq 'Navicat 连接内置 MySQL（推荐 SSH 隧道，不开放公网 3306）' <<< "${dockerOutput}"
 grep -Fq 'COMPOSE_PROFILES=mysql,redis,https' <<< "${dockerOutput}"
+grep -Fq '初始账号: admin' <<< "${dockerOutput}"
+grep -Fq '初始密码: admin123' <<< "${dockerOutput}"
+grep -Fq 'sql/aid-init.sql 的数据库初始化默认值' <<< "${dockerOutput}"
 if grep -Fq 'http://服务器IP' <<< "${dockerOutput}" || grep -Fq 'http://localhost:8090' <<< "${dockerOutput}"; then
   echo 'FAIL: legacy placeholder/local access links are still printed' >&2
   exit 1
@@ -79,5 +82,13 @@ manualOutput="$(print_access_info)"
 grep -Fq '用户端外网访问入口: http://8.8.4.4:80/' <<< "${manualOutput}"
 grep -Fq 'Navicat 连接本机 MySQL（推荐 SSH 隧道，不开放公网 3306）' <<< "${manualOutput}"
 grep -Fq 'HTTPS_ENABLED=true' <<< "${manualOutput}"
+
+# `aid default` 必须要求已部署，并以严格模式读取数据库中的真实访问码。
+require_root() { :; }
+docker() { :; }
+print_access_info() { printf 'strict=%s\n' "${1:-}"; }
+MOCK_MODE=docker
+defaultOutput="$(do_default)"
+grep -Fq 'strict=strict' <<< "${defaultOutput}"
 
 echo 'access info tests passed'

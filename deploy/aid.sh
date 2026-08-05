@@ -5,7 +5,7 @@
 # 用法：
 #   sudo bash aid.sh              # 交互菜单（首次部署按版本标签拉取三端源码并构建）
 #   sudo bash aid.sh <子命令>     # 直通执行：install/auto/install-docker/install-manual/update/rollback/
-#                                 # restart/stop/status/logs/config/backup/setup-updater
+#                                 # restart/stop/status/default/logs/config/backup/setup-updater
 #
 # 设计：
 #   - 全部数据统一放在 DATA_ROOT（默认 /data/aid）：程序、上传文件、日志、
@@ -2464,7 +2464,7 @@ install_management_command() {
     return 0
   fi
   ln -s "${MANAGED_SCRIPT}" "${commandPath}" 2>/dev/null \
-    && ok "已安装管理命令: sudo aid（更新可用 sudo aid update）" \
+    && ok "已安装管理命令: sudo aid（更新: sudo aid update；查看地址: sudo aid default）" \
     || warn "无法创建 ${commandPath}，不影响部署与后台在线升级"
 }
 
@@ -3459,13 +3459,13 @@ read_admin_entry_settings() {
   dbName="$(setting_get DB_NAME aid)"
   query="SELECT config_name, config_value FROM aid_config WHERE category='admin_entry' AND config_name IN ('enabled','access_code')"
   if [[ "${mode}" == "docker" ]]; then
-    rows="$(docker_mysql_tool mysql --batch --skip-column-names "${dbName}" --execute "${query}" 2>/dev/null)" || return 0
+    rows="$(docker_mysql_tool mysql --batch --skip-column-names "${dbName}" --execute "${query}" 2>/dev/null)" || return 1
   else
     rows="$(MYSQL_PWD="$(conf_get DB_PASSWORD '')" mysql \
       --protocol=TCP \
       --host "$(conf_get DB_HOST 127.0.0.1)" --port "$(conf_get DB_PORT 3306)" \
       --user "$(conf_get DB_USERNAME aid)" --database "${dbName}" \
-      --batch --skip-column-names --execute "${query}" 2>/dev/null)" || return 0
+      --batch --skip-column-names --execute "${query}" 2>/dev/null)" || return 1
   fi
   local dbEnabled dbCode
   dbEnabled="$(printf '%s\n' "${rows}" | awk -F '\t' '$1 == "enabled" {print $2; exit}')"
@@ -3476,6 +3476,7 @@ read_admin_entry_settings() {
   elif [[ -n "${rows}" ]]; then
     ADMIN_ENTRY_CODE_VALUE=""
   fi
+  return 0
 }
 
 ensure_admin_entry_code() { # ensure_admin_entry_code <docker|manual>
@@ -4038,16 +4039,23 @@ print_mysql_access_guidance() { # print_mysql_access_guidance <模式> <公网IP
   echo "  数据库密码保存在 ${configFile} 的 DB_PASSWORD 中，不会在终端明文打印。"
 }
 
-print_access_info() {
-  local mode configFile adminPort adminPath httpPort publicIp privateIp
+print_access_info() { # print_access_info [strict]
+  local strict="${1:-no}" mode configFile adminPort adminPath httpPort publicIp privateIp entryReadOk=1
   mode="$(detect_mode)"
   if [[ "${mode}" == "docker" ]]; then configFile="${ENV_FILE}"; else configFile="${CONF}"; fi
   adminPort="$(setting_get ADMIN_PORT 8089)"
   httpPort="$(setting_get HTTP_PORT 80)"
   publicIp="$(detect_public_ipv4 || true)"
   privateIp="$(detect_private_ipv4 || true)"
-  read_admin_entry_settings
-  if [[ "${ADMIN_ENTRY_ENABLED_VALUE}" =~ ^(true|TRUE|Y|1)$ && -n "${ADMIN_ENTRY_CODE_VALUE}" ]]; then
+  if ! read_admin_entry_settings; then
+    entryReadOk=0
+    [[ "${strict}" != "strict" ]] \
+      || die "无法从数据库读取管理端访问码；请确认 MySQL 已运行，或先执行 sudo aid restart"
+    warn "数据库暂不可读，无法确认管理端实际访问码；下面的管理端地址仅作排查提示"
+  fi
+  if [[ "${entryReadOk}" == "0" ]]; then
+    adminPath="/<访问码读取失败>"
+  elif [[ "${ADMIN_ENTRY_ENABLED_VALUE}" =~ ^(true|TRUE|Y|1)$ && -n "${ADMIN_ENTRY_CODE_VALUE}" ]]; then
     adminPath="/${ADMIN_ENTRY_CODE_VALUE}"
   else
     adminPath="/login"
@@ -4075,7 +4083,12 @@ print_access_info() {
   else
     echo "  管理端内网访问入口: 未检测到真实内网 IPv4；无私有网络的单网卡服务器可忽略"
   fi
-  echo "  管理端默认账号: admin / admin123（首次登录后立即修改密码）"
+  echo ""
+  echo "数据库初始化管理员："
+  echo "  初始账号: admin"
+  echo "  初始密码: admin123"
+  echo "  说明：以上是 sql/aid-init.sql 的数据库初始化默认值；若已修改，请以数据库当前账号为准。"
+  echo "        密码以不可逆摘要保存，无法通过本命令反查；本命令不会重置账号、密码或数据库。"
   print_https_guidance "${mode}" "${configFile}" "${publicIp}" "${adminPath}"
   print_mysql_access_guidance "${mode}" "${publicIp}" "${configFile}"
   echo "数据目录: ${DATA_ROOT}（程序/上传/日志/数据/备份全部在此）"
@@ -4794,6 +4807,21 @@ do_stop() {
   ok "已停止"
 }
 
+do_default() {
+  require_root
+  local mode
+  mode="$(detect_mode)"
+  [[ "${mode}" != "none" ]] || die "尚未部署，请先完成首次部署"
+  if [[ "${mode}" == "docker" ]]; then
+    [[ -f "${ENV_FILE}" ]] || die "Docker 配置文件不存在: ${ENV_FILE}"
+    command -v docker >/dev/null 2>&1 || die "未检测到 Docker，无法读取实际管理端访问码"
+  else
+    [[ -f "${CONF}" ]] || die "手动部署配置文件不存在: ${CONF}"
+    command -v mysql >/dev/null 2>&1 || die "未检测到 mysql 客户端，无法读取实际管理端访问码"
+  fi
+  print_access_info strict
+}
+
 do_status() {
   local mode; mode="$(detect_mode)"
   echo ""
@@ -4935,6 +4963,7 @@ show_menu() {
   echo "  9) 修改配置（编辑配置文件后一键生效）"
   echo " 10) 立即备份（数据库+上传文件）"
   echo " 11) 安装/修复在线升级器"
+  echo " 12) 查看登录地址与数据库初始化账号"
   echo "  0) 退出"
   echo "------------------------------------------------------"
 }
@@ -4958,12 +4987,13 @@ main() {
     restart)        do_restart; exit $? ;;
     stop)           do_stop; exit $? ;;
     status)         do_status; exit $? ;;
+    default)        do_default; exit $? ;;
     logs)           do_logs; exit $? ;;
     config)         do_config; exit $? ;;
     backup)         do_backup; exit $? ;;
     setup-updater)  do_setup_updater; exit $? ;;
     '') ;;
-    *) die "未知子命令: $1（可用: install/auto/install-docker/install-manual/update/rollback/restart/stop/status/logs/config/backup/setup-updater）" ;;
+    *) die "未知子命令: $1（可用: install/auto/install-docker/install-manual/update/rollback/restart/stop/status/default/logs/config/backup/setup-updater）" ;;
   esac
 
   # 交互菜单模式：Ctrl+C 只中断当前操作（如日志跟踪）回到菜单，不退出脚本
@@ -4984,6 +5014,7 @@ main() {
       9) do_config || true ;;
       10) do_backup || true ;;
       11) do_setup_updater || true ;;
+      12) do_default || true ;;
       0) exit 0 ;;
       *) warn "无效选择" ;;
     esac

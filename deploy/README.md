@@ -34,7 +34,7 @@ deploy/
 if command -v curl >/dev/null 2>&1; then curl -fL --retry 3 -o aid-install.sh https://gitee.com/gzxx-2025/aid-server/raw/master/deploy/aid.sh; elif command -v wget >/dev/null 2>&1; then wget -O aid-install.sh https://gitee.com/gzxx-2025/aid-server/raw/master/deploy/aid.sh; else echo '请先安装 curl 或 wget'; false; fi && sudo env AID_REMOTE_BOOTSTRAP=1 bash aid-install.sh install
 ```
 
-这条命令不会把网络响应直接送入 Shell：只有 `curl/wget` 成功保存 `aid-install.sh` 后才执行。`AID_REMOTE_BOOTSTRAP=1` 表示本次必须使用刚下载的最新控制逻辑；在已部署服务器上不会被旧的受管脚本接管。`install` 是自动入口：未部署时执行推荐的 Docker 首次安装；检测到已经部署时自动改为检查并升级，不会重复初始化数据库。部署成功后还会安全创建 `sudo aid` 管理命令（如果系统已有同名命令则不覆盖）。
+这条命令不会把网络响应直接送入 Shell：只有 `curl/wget` 成功保存 `aid-install.sh` 后才执行。`AID_REMOTE_BOOTSTRAP=1` 表示本次必须使用刚下载的最新控制逻辑；在已部署服务器上不会被旧的受管脚本接管。`install` 是自动入口：未部署时执行推荐的 Docker 首次安装；检测到已经部署时自动改为检查并升级，不会重复初始化数据库。部署成功后还会安全创建 `sudo aid` 管理命令（如果系统已有同名命令则不覆盖）。随时执行 `sudo aid default` 可重新显示用户端、管理端、公网/内网、HTTPS 入口和数据库初始化管理员说明。
 
 Gitee 原始文件访问失败时，可改用 GitHub 备用地址：
 
@@ -244,6 +244,14 @@ Docker Nginx 不是写进宿主机 `/etc/nginx`：受管 HTTP 配置位于 `/dat
 - 管理端外网：`http://公网IP:ADMIN_PORT/<随机访问码>`；管理端内网：`http://内网IP:ADMIN_PORT/<随机访问码>`
 - 部署完成页会自动识别并替换公网/内网 IPv4，不再输出含“服务器IP”的占位地址。公网探测失败时以云服务器控制台显示的公网 IPv4 为准；内网地址仅供同一 VPC、局域网或 VPN 内访问
 - 管理端默认账号为 `admin / admin123`，首次部署生成随机访问码并打印完整地址，**登录后立即修改密码**
+
+忘记完整入口时执行：
+
+```bash
+sudo aid default
+```
+
+该命令会从当前配置和数据库读取真实后台访问码，打印用户端、管理端的公网/内网及 HTTPS 地址。它只会显示 `sql/aid-init.sql` 定义的初始化账号 `admin / admin123` 并明确标注其性质；管理员修改后的密码以不可逆摘要保存，命令不会反查、回显或重置密码，也不会重新初始化数据库。若数据库未运行，命令会明确失败并提示先执行 `sudo aid restart`，不会用猜测的访问码拼接错误地址。
 
 没有域名不影响 HTTP 部署：必须保留 `HTTP_PORT` 和 `ADMIN_PORT`，直接用服务器 IP 访问即可。Docker 保持 `COMPOSE_PROFILES=mysql,redis`（不要加入 `https`）；手动部署保持 `HTTPS_ENABLED=false`。此时 `HTTPS_PUBLIC_DOMAIN`、`HTTPS_ADMIN_DOMAIN`、证书和私钥路径只是占位值，不会读取或校验。不要把 `HTTP_PORT` 改成 443，443 端口本身不代表已启用 TLS。
 
