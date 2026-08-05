@@ -2370,6 +2370,16 @@ bootstrap_installer_if_needed() { # bootstrap_installer_if_needed <发布包> <i
   section "初始化 AID 一键安装器"
   extract_installer_from_package "${package}" \
     || die "从发布包提取安装器失败；发布包和现有配置均未被修改"
+  # 用户通过官方远程命令明确启用最新引导脚本时，发布包只提供其余受管文件；
+  # aid.sh 本身必须保留当前远程版本，不能再次退回缓存源码包内的旧脚本。
+  if [[ "${AID_REMOTE_BOOTSTRAP:-0}" == "1" && "${SCRIPT_DIR}" != "${managedDir}" ]]; then
+    local currentManager="${SCRIPT_DIR}/$(basename "${BASH_SOURCE[0]}")"
+    [[ -f "${currentManager}" && ! -L "${currentManager}" ]] \
+      || die "远程最新引导脚本不可读取: ${currentManager}"
+    cp -f -- "${currentManager}" "${MANAGED_SCRIPT}" \
+      || die "同步远程最新引导脚本失败"
+    ok "远程最新引导脚本已同步到受管安装目录"
+  fi
   chmod 700 "${MANAGED_SCRIPT}" 2>/dev/null || true
   [[ -f "${MANAGED_SCRIPT}" ]] || die "安装器落盘失败: ${MANAGED_SCRIPT}"
   ok "完整安装器已安全落盘: ${INSTALLER_ROOT}"
@@ -3134,10 +3144,11 @@ compose_cmd() {
   profiles="$(env_get COMPOSE_PROFILES mysql,redis | tr -d '[:space:]')"
   if [[ "$(env_get DB_HOST mysql)" == "mysql" && ",${profiles}," != *",mysql,"* ]]; then
     if [[ -n "${profiles}" ]]; then profiles="${profiles},mysql"; else profiles="mysql"; fi
-    COMPOSE_PROFILES="${profiles}" docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_DIR}/docker-compose.yml" "$@"
-    return $?
   fi
-  docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_DIR}/docker-compose.yml" "$@"
+  # --env-file 仅负责 Compose 文件变量替换；部分 Compose 版本不会据此激活
+  # COMPOSE_PROFILES。每次调用都显式传递（包括空值），避免内置 Redis/MQ/HTTPS
+  # 未启动，或继承当前 Shell 的旧 Profile 意外启动可选服务。
+  COMPOSE_PROFILES="${profiles}" docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_DIR}/docker-compose.yml" "$@"
 }
 
 validate_https_runtime() {

@@ -66,6 +66,25 @@ test_direct_extraction "${DOT_PACKAGE}"
 test_direct_extraction "${PLAIN_PACKAGE}"
 test_direct_extraction "${WRAPPED_PACKAGE}"
 
+# 远程最新引导模式必须保留当前脚本，不能被缓存发布包中的旧 aid.sh 覆盖。
+REMOTE_SCRIPT_DIR="${TMP_ROOT}/remote-bootstrap"
+REMOTE_ACTION_FILE="${TMP_ROOT}/remote-bootstrap-action.txt"
+mkdir -p "${REMOTE_SCRIPT_DIR}"
+cat > "${REMOTE_SCRIPT_DIR}/aid.sh" <<'EOF'
+#!/usr/bin/env bash
+printf 'remote-latest:%s\n' "${1:-}" > "${AID_TEST_ACTION_FILE}"
+EOF
+chmod +x "${REMOTE_SCRIPT_DIR}/aid.sh"
+(
+  export AID_REMOTE_BOOTSTRAP=1 AID_TEST_ACTION_FILE="${REMOTE_ACTION_FILE}"
+  SCRIPT_DIR="${REMOTE_SCRIPT_DIR}"
+  bootstrap_installer_if_needed "${DOT_PACKAGE}" install-docker
+)
+[[ "$(cat "${REMOTE_ACTION_FILE}")" == 'remote-latest:install-docker' ]] \
+  || { echo 'remote bootstrap script must replace and execute instead of the cached manager' >&2; exit 1; }
+grep -Fq 'remote-latest' "${MANAGED_SCRIPT}" \
+  || { echo 'managed installer must retain the remote bootstrap script' >&2; exit 1; }
+
 test_bootstrap_action() {
   local package="$1" action="$2" actionFile
   actionFile="${TMP_ROOT}/${action}.txt"
