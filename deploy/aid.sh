@@ -95,10 +95,18 @@ IMAGE_MANIFEST_PROBE_TIMEOUT_SECONDS="${AID_IMAGE_MANIFEST_PROBE_TIMEOUT_SECONDS
 DOCKER_MIN_VERSION="24.0.0"
 DOCKER_COMPOSE_MIN_VERSION="2.20.0"
 GIT_MIN_VERSION="1.8.3"
-NGINX_MIN_VERSION="1.18.0"
+NGINX_VERSION="1.30.4"
+NGINX_MIN_VERSION="1.30.4"
+NGINX_HOME=""
+NGINX_BIN=""
+NGINX_SERVICE=""
+NGINX_SITE_DIR=""
+NGINX_MANAGED_SERVICE="aid-nginx.service"
 JDK_VERSION="17.0.20"
 JDK_BUILD="8"
 JDK_HOME=""
+MANUAL_JDK_VERSION="17.0.8"
+JAVA_PROFILE_FILE="${AID_JAVA_PROFILE_FILE:-/etc/profile.d/aid-java.sh}"
 NODE_VERSION="22.22.0"
 NODE_HOME=""
 NODE_RUNTIME_ERROR=""
@@ -109,7 +117,7 @@ GO_HOME=""
 MYSQL_VERSION="5.7.44"
 MYSQL_HOME=""
 MYSQL_MANAGED_SERVICE="aid-mysql.service"
-REDIS_VERSION="7.2.15"
+REDIS_VERSION="8.0.5"
 REDIS_HOME=""
 REDIS_MANAGED_SERVICE="aid-redis.service"
 # 宝塔公开安装器当前维护的 HTTPS 下载节点池。这里只复用节点测速与容灾思路，
@@ -968,23 +976,200 @@ ensure_git_runtime() {
   ok "Git ${version} 已安装且版本符合"
 }
 
-ensure_nginx_runtime() {
-  local installMode="$1" version=""
-  if command -v nginx >/dev/null 2>&1; then
-    version="$(nginx -v 2>&1 | sed -nE 's#^nginx version: nginx/([0-9]+(\.[0-9]+)+).*#\1#p')"
-    if [[ -n "${version}" ]] && version_at_least "${version}" "${NGINX_MIN_VERSION}"; then
-      ok "Nginx ${version} 已存在且版本符合，跳过安装"
-      return 0
+nginx_binary_version() { # nginx_binary_version <二进制路径>
+  "$1" -v 2>&1 | sed -nE 's#^nginx version: nginx/([0-9]+(\.[0-9]+)+).*#\1#p'
+}
+
+select_existing_nginx_runtime() {
+  local candidate version
+  local -a candidates=()
+  NGINX_HOME="${DATA_ROOT}/runtime/nginx-${NGINX_VERSION}"
+  [[ -x "${NGINX_HOME}/sbin/nginx" ]] && candidates+=("${NGINX_HOME}/sbin/nginx")
+  command -v nginx >/dev/null 2>&1 && candidates+=("$(command -v nginx)")
+  [[ -x /www/server/nginx/sbin/nginx ]] && candidates+=(/www/server/nginx/sbin/nginx)
+  for candidate in "${candidates[@]}"; do
+    version="$(nginx_binary_version "${candidate}")"
+    [[ -n "${version}" ]] && version_at_least "${version}" "${NGINX_MIN_VERSION}" || continue
+    NGINX_BIN="${candidate}"
+    if [[ "${candidate}" == "${NGINX_HOME}/sbin/nginx" ]]; then
+      NGINX_SERVICE="${NGINX_MANAGED_SERVICE}"
+      NGINX_SITE_DIR="${CONFIG_ROOT}/nginx/conf.d"
+    elif [[ "${candidate}" == /www/server/nginx/* ]]; then
+      NGINX_SERVICE="nginx.service"
+      NGINX_SITE_DIR="/www/server/panel/vhost/nginx"
+    else
+      NGINX_SERVICE="nginx.service"
+      NGINX_SITE_DIR="/etc/nginx/conf.d"
     fi
-    warn "现有 Nginx ${version:-未知} 低于要求 ${NGINX_MIN_VERSION}，将通过系统包管理器升级"
+    ok "Nginx ${version} 已存在且版本符合，跳过下载和编译: ${candidate}"
+    return 0
+  done
+  return 1
+}
+
+ensure_nginx_build_dependencies() {
+  local installMode="$1"
+  ensure_host_command gcc "C编译器" "build-essential" "gcc" "${installMode}"
+  ensure_host_command make "Make构建工具" "build-essential" "make" "${installMode}"
+  if [[ ! -f /usr/include/pcre2.h && ! -f /usr/include/pcre.h ]]; then
+    [[ "${installMode}" == "auto" ]] || die "编译 Nginx ${NGINX_VERSION} 需要 PCRE 开发库"
+    install_os_packages "Nginx PCRE开发库" "libpcre2-dev" "pcre2-devel"
+  else
+    ok "Nginx PCRE 开发库已存在，跳过安装"
+  fi
+  if [[ ! -f /usr/include/zlib.h ]]; then
+    [[ "${installMode}" == "auto" ]] || die "编译 Nginx ${NGINX_VERSION} 需要 zlib 开发库"
+    install_os_packages "Nginx zlib开发库" "zlib1g-dev" "zlib-devel"
+  else
+    ok "Nginx zlib 开发库已存在，跳过安装"
+  fi
+  if [[ ! -f /usr/include/openssl/ssl.h ]]; then
+    [[ "${installMode}" == "auto" ]] || die "编译 Nginx ${NGINX_VERSION} 需要 OpenSSL 开发库"
+    install_os_packages "Nginx OpenSSL开发库" "libssl-dev" "openssl-devel"
+  else
+    ok "Nginx OpenSSL 开发库已存在，跳过安装"
+  fi
+}
+
+prepare_managed_nginx() {
+  local installMode="$1" name checksum cacheDir archive downloaded=no url sourceDir buildLog jobs
+  local -a urls=()
+  name="nginx-${NGINX_VERSION}.tar.gz"
+  checksum="4261dc90e9e47c1c4041276e9aaa3d48ebe2e664f728e14fa95ae6c67d57a08b"
+  cacheDir="${DATA_ROOT}/build-cache/toolchains"
+  archive="${cacheDir}/${name}"
+  NGINX_HOME="${DATA_ROOT}/runtime/nginx-${NGINX_VERSION}"
+  NGINX_BIN="${NGINX_HOME}/sbin/nginx"
+  NGINX_SERVICE="${NGINX_MANAGED_SERVICE}"
+  NGINX_SITE_DIR="${CONFIG_ROOT}/nginx/conf.d"
+  buildLog="${DATA_ROOT}/logs/nginx/build-${NGINX_VERSION}.log"
+  require_download_tools
+  mkdir -p "${cacheDir}" "${DATA_ROOT}/runtime" "$(dirname "${buildLog}")"
+  if [[ -f "${archive}" ]] && ! file_digest_matches "${archive}" sha256 "${checksum}"; then
+    warn "Nginx 缓存校验失败，将重新下载"
+    rm -f -- "${archive}"
+  fi
+  if [[ ! -f "${archive}" ]]; then
+    [[ "${installMode}" == "auto" ]] \
+      || die "缺少 Nginx ${NGINX_VERSION}；请人工安装后重试，或设置 DEPENDENCY_INSTALL_MODE=auto"
+    mapfile -t urls < <(
+      [[ -z "${AID_NGINX_DOWNLOAD_URL:-}" ]] || printf '%s\n' "${AID_NGINX_DOWNLOAD_URL}"
+      bt_artifact_urls "src/${name}"
+      printf '%s\n' "https://nginx.org/download/${name}"
+    )
+    for url in "${urls[@]}"; do
+      [[ -n "${url}" ]] || continue
+      if try_download "${url}" "${archive}" "Nginx ${NGINX_VERSION}" sha256 "${checksum}"; then
+        downloaded=yes
+        break
+      fi
+      warn "Nginx 当前节点不可用或摘要不匹配，切换下一个宝塔/官方节点"
+    done
+    [[ "${downloaded}" == "yes" ]] || die "Nginx ${NGINX_VERSION} 下载失败或校验不通过"
+  fi
+  ensure_nginx_build_dependencies "${installMode}"
+  sourceDir="${cacheDir}/nginx-source-${NGINX_VERSION}.tmp.$$"
+  rm -rf -- "${sourceDir}"
+  mkdir -p "${sourceDir}" "${NGINX_SITE_DIR}" "${DATA_ROOT}/run/nginx" "${DATA_ROOT}/logs/nginx"
+  tar -xzf "${archive}" -C "${sourceDir}" --strip-components=1 \
+    || { rm -rf -- "${sourceDir}"; die "Nginx 压缩包解压失败"; }
+  jobs="$(nproc 2>/dev/null || echo 2)"; [[ "${jobs}" =~ ^[0-9]+$ ]] || jobs=2
+  (( jobs > 4 )) && jobs=4
+  log "编译 Nginx ${NGINX_VERSION}，完整日志: ${buildLog}"
+  rm -rf -- "${NGINX_HOME}"
+  if ! (cd "${sourceDir}" && ./configure \
+      --prefix="${NGINX_HOME}" \
+      --sbin-path="${NGINX_BIN}" \
+      --conf-path="${NGINX_HOME}/conf/nginx.conf" \
+      --pid-path="${DATA_ROOT}/run/nginx/nginx.pid" \
+      --error-log-path="${DATA_ROOT}/logs/nginx/error.log" \
+      --http-log-path="${DATA_ROOT}/logs/nginx/access.log" \
+      --with-http_ssl_module --with-http_v2_module --with-http_realip_module \
+      --with-http_gzip_static_module --with-threads >"${buildLog}" 2>&1 \
+      && make -j "${jobs}" >>"${buildLog}" 2>&1 \
+      && make install >>"${buildLog}" 2>&1); then
+    rm -rf -- "${sourceDir}" "${NGINX_HOME}"
+    die "Nginx ${NGINX_VERSION} 源码编译失败，请查看 ${buildLog}"
+  fi
+  rm -rf -- "${sourceDir}"
+  [[ -x "${NGINX_BIN}" ]] && [[ "$(nginx_binary_version "${NGINX_BIN}")" == "${NGINX_VERSION}" ]] \
+    || die "Nginx 编译产物不完整或实际版本不正确"
+  cat > "${NGINX_HOME}/conf/nginx.conf" <<EOF
+worker_processes auto;
+pid ${DATA_ROOT}/run/nginx/nginx.pid;
+error_log ${DATA_ROOT}/logs/nginx/error.log warn;
+
+events { worker_connections 4096; }
+
+http {
+    include ${NGINX_HOME}/conf/mime.types;
+    default_type application/octet-stream;
+    access_log ${DATA_ROOT}/logs/nginx/access.log;
+    sendfile on;
+    keepalive_timeout 65;
+    include ${NGINX_SITE_DIR}/*.conf;
+}
+EOF
+  cat > "/etc/systemd/system/${NGINX_MANAGED_SERVICE}" <<EOF
+[Unit]
+Description=AID managed Nginx ${NGINX_VERSION}
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStartPre=${NGINX_BIN} -t -c ${NGINX_HOME}/conf/nginx.conf
+ExecStart=${NGINX_BIN} -c ${NGINX_HOME}/conf/nginx.conf -g 'daemon off;'
+ExecReload=${NGINX_BIN} -c ${NGINX_HOME}/conf/nginx.conf -s reload
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  chmod 644 "/etc/systemd/system/${NGINX_MANAGED_SERVICE}"
+  systemctl daemon-reload
+  command -v nginx >/dev/null 2>&1 || ln -s "${NGINX_BIN}" /usr/local/bin/nginx
+  ok "Nginx ${NGINX_VERSION} 已通过固定 SHA256 校验并安装为 ${NGINX_MANAGED_SERVICE}"
+}
+
+ensure_nginx_runtime() {
+  local installMode="$1" existing="" version=""
+  if select_existing_nginx_runtime; then return 0; fi
+  if command -v nginx >/dev/null 2>&1; then
+    existing="$(command -v nginx)"; version="$(nginx_binary_version "${existing}")"
+    if systemctl is-active --quiet nginx.service 2>/dev/null; then
+      die "现有 Nginx ${version:-未知} 低于 ${NGINX_MIN_VERSION} 且正在运行；脚本不会覆盖现有站点，请先人工升级或停止后重试"
+    fi
+    warn "现有 Nginx ${version:-未知} 低于 ${NGINX_MIN_VERSION}；将安装隔离的 AID Nginx ${NGINX_VERSION}"
   fi
   [[ "${installMode}" == "auto" ]] \
     || die "缺少 Nginx ${NGINX_MIN_VERSION}+；请人工安装后重试，或设置 DEPENDENCY_INSTALL_MODE=auto"
-  install_os_packages "Nginx ${NGINX_MIN_VERSION}+" "nginx" "nginx"
-  version="$(nginx -v 2>&1 | sed -nE 's#^nginx version: nginx/([0-9]+(\.[0-9]+)+).*#\1#p')"
-  [[ -n "${version}" ]] && version_at_least "${version}" "${NGINX_MIN_VERSION}" \
-    || die "系统软件源提供的 Nginx ${version:-未知} 仍低于 ${NGINX_MIN_VERSION}，请升级发行版软件源后重试"
-  ok "Nginx ${version} 已安装且版本符合"
+  prepare_managed_nginx "${installMode}"
+}
+
+nginx_runtime_active() {
+  if [[ "${NGINX_SERVICE}" == "${NGINX_MANAGED_SERVICE}" ]]; then
+    systemctl is-active --quiet "${NGINX_SERVICE}" 2>/dev/null
+    return $?
+  fi
+  [[ -n "${NGINX_SERVICE}" ]] && systemctl is-active --quiet "${NGINX_SERVICE}" 2>/dev/null && return 0
+  [[ -n "${NGINX_BIN}" ]] && pgrep -x nginx >/dev/null 2>&1
+}
+
+start_nginx_runtime() {
+  nginx_runtime_active && return 0
+  [[ -n "${NGINX_SERVICE}" ]] \
+    || die "Nginx 已安装但未识别到服务，请先启动 ${NGINX_BIN:-nginx}"
+  systemctl enable --now "${NGINX_SERVICE}" >/dev/null 2>&1 \
+    || die "Nginx 自动启动失败，请执行 systemctl status ${NGINX_SERVICE} 排查"
+  ok "Nginx 已启用并启动: ${NGINX_SERVICE}"
+}
+
+reload_nginx_runtime() {
+  "${NGINX_BIN}" -t >/dev/null 2>&1 || return 1
+  if [[ -n "${NGINX_SERVICE}" ]] && systemctl reload "${NGINX_SERVICE}" >/dev/null 2>&1; then return 0; fi
+  "${NGINX_BIN}" -s reload >/dev/null 2>&1
 }
 
 version_at_least() { # version_at_least <当前版本> <最低版本>
@@ -1496,12 +1681,107 @@ ensure_manual_mysql() {
   ok "MySQL ${version} 已可用且版本符合，跳过安装"
 }
 
+compiler_major_version() { # compiler_major_version <gcc路径>
+  local version
+  version="$("$1" -dumpfullversion -dumpversion 2>/dev/null | head -n 1)"
+  printf '%s\n' "${version%%.*}"
+}
+
+select_redis_build_compiler() {
+  local cc cxx major
+  while IFS='|' read -r cc cxx; do
+    [[ -x "${cc}" && -x "${cxx}" ]] || continue
+    major="$(compiler_major_version "${cc}")"
+    [[ "${major}" =~ ^[0-9]+$ && "${major}" -ge 7 ]] || continue
+    export CC="${cc}" CXX="${cxx}"
+    ok "Redis 编译器已就绪: $(${CC} --version 2>/dev/null | head -n 1)"
+    return 0
+  done <<EOF
+${CC:-}|${CXX:-}
+/opt/rh/gcc-toolset-13/root/usr/bin/gcc|/opt/rh/gcc-toolset-13/root/usr/bin/g++
+/opt/rh/devtoolset-7/root/usr/bin/gcc|/opt/rh/devtoolset-7/root/usr/bin/g++
+$(command -v gcc 2>/dev/null || true)|$(command -v g++ 2>/dev/null || true)
+EOF
+  return 1
+}
+
+install_centos7_redis_compiler() {
+  local cacheDir releaseRpm checksum downloaded=no url repoFile
+  cacheDir="${DATA_ROOT}/build-cache/toolchains"
+  releaseRpm="${cacheDir}/centos-release-scl-rh-2-3.el7.centos.noarch.rpm"
+  checksum="7941441bef911de9a9659743847aca92ea63e73d0199d53800626339f55d41d7"
+  mkdir -p "${cacheDir}"
+  if ! rpm -q centos-release-scl-rh >/dev/null 2>&1; then
+    require_download_tools
+    if [[ -f "${releaseRpm}" ]] && ! file_digest_matches "${releaseRpm}" sha256 "${checksum}"; then
+      warn "CentOS SCL 仓库引导包摘要不匹配，将重新下载"
+      rm -f -- "${releaseRpm}"
+    fi
+    if [[ ! -f "${releaseRpm}" ]]; then
+      for url in \
+        "https://mirrors.aliyun.com/centos/7.9.2009/extras/x86_64/Packages/centos-release-scl-rh-2-3.el7.centos.noarch.rpm" \
+        "https://mirrors.cloud.tencent.com/centos/7.9.2009/extras/x86_64/Packages/centos-release-scl-rh-2-3.el7.centos.noarch.rpm"; do
+        if try_download "${url}" "${releaseRpm}" "CentOS 7 SCL仓库引导包" sha256 "${checksum}"; then
+          downloaded=yes; break
+        fi
+      done
+      [[ "${downloaded}" == "yes" ]] || die "CentOS 7 SCL 仓库引导包下载失败"
+    fi
+    rpm -K "${releaseRpm}" 2>/dev/null | grep -Eqi 'rsa.*ok|pgp.*ok|digests.*ok' \
+      || die "CentOS 7 SCL 仓库引导包签名校验失败"
+    rpm -Uvh --replacepkgs "${releaseRpm}" >/dev/null \
+      || die "CentOS 7 SCL 仓库引导包安装失败"
+  fi
+
+  repoFile="/etc/yum.repos.d/aid-centos-sclo-rh.repo"
+  cat > "${repoFile}" <<'EOF'
+# AID 为 EOL CentOS 7 提供的只读 SCL 国内镜像；不修改系统原有仓库文件。
+[aid-centos-sclo-rh]
+name=AID CentOS-7 SCLo rh
+baseurl=https://mirrors.aliyun.com/centos/7/sclo/$basearch/rh/
+        https://mirrors.cloud.tencent.com/centos/7/sclo/$basearch/rh/
+        https://vault.epel.cloud/centos/7/sclo/$basearch/rh/
+enabled=1
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-SCLo
+EOF
+  yum --disablerepo=centos-sclo-rh --enablerepo=aid-centos-sclo-rh \
+    install -y devtoolset-7-gcc devtoolset-7-gcc-c++ \
+    || die "CentOS 7 Redis 编译工具链安装失败"
+}
+
+ensure_redis_build_compiler() {
+  local installMode="$1" osId="" osVersion=""
+  select_redis_build_compiler && return 0
+  [[ "${installMode}" == "auto" ]] \
+    || die "编译 Redis ${REDIS_VERSION} 需要 GCC/G++ 7+；请安装后重试"
+  if [[ -f /etc/os-release ]]; then
+    osId="$(. /etc/os-release; printf '%s' "${ID:-}")"
+    osVersion="$(. /etc/os-release; printf '%s' "${VERSION_ID:-}")"
+  fi
+  if [[ "${osId}" == "centos" && "${osVersion%%.*}" == "7" ]]; then
+    install_centos7_redis_compiler
+  elif command -v apt-get >/dev/null 2>&1; then
+    install_os_packages "Redis GCC/G++ 7+编译器" "build-essential" "gcc gcc-c++"
+  elif command -v dnf >/dev/null 2>&1; then
+    dnf install -y gcc gcc-c++ || die "Redis GCC/G++ 编译器安装失败"
+  elif command -v yum >/dev/null 2>&1; then
+    yum install -y gcc gcc-c++ || die "Redis GCC/G++ 编译器安装失败"
+  else
+    die "当前系统无法自动安装 Redis GCC/G++ 7+ 编译器"
+  fi
+  select_redis_build_compiler \
+    || die "系统安装源未提供 GCC/G++ 7+；请升级操作系统编译器或使用外部 Redis 6+"
+}
+
 prepare_managed_redis() {
-  local installMode="$1" name checksum cacheDir archive actual downloaded=no url tmp
+  local installMode="$1" name btChecksum officialChecksum cacheDir archive actual downloaded=no url tmp
   local redisHost redisPort redisUser redisPwd redisData redisRun redisLog redisConf buildLog
   local -a urls=()
   name="redis-${REDIS_VERSION}.tar.gz"
-  checksum="5f787552f04e12b77501367d6b0d403557adfcf20d6f6187be60d63d88fa4f12"
+  # 宝塔和 Redis 官方归档的源码树一致，但 gzip 打包元数据不同，因此分别固定两个可信摘要。
+  btChecksum="1e8beff55b0c798429ca4fc4c62e064000f37c8b7e9742ab4ebd4edfc3888417"
+  officialChecksum="012bca956fc7151abc2281950e69768ee9c53ce4b36588772041675bc95fd313"
   cacheDir="${DATA_ROOT}/build-cache/toolchains"
   archive="${cacheDir}/${name}"
   REDIS_HOME="${DATA_ROOT}/runtime/redis-${REDIS_VERSION}"
@@ -1510,30 +1790,38 @@ prepare_managed_redis() {
   redisLog="${DATA_ROOT}/logs/redis"
   redisConf="${CONFIG_ROOT}/redis.conf"
   buildLog="${redisLog}/build-${REDIS_VERSION}.log"
-  if [[ ! -x "${REDIS_HOME}/src/redis-server" ]]; then
+  if [[ ! -x "${REDIS_HOME}/src/redis-server" ]] \
+      || ! "${REDIS_HOME}/src/redis-server" --version 2>/dev/null | grep -Fq "v=${REDIS_VERSION}"; then
     require_download_tools
     mkdir -p "${cacheDir}" "${DATA_ROOT}/runtime" "${redisLog}"
-    if [[ -f "${archive}" && "$(sha256_file "${archive}" 2>/dev/null || true)" != "${checksum}" ]]; then
+    actual="$(sha256_file "${archive}" 2>/dev/null || true)"
+    if [[ -f "${archive}" && "${actual}" != "${btChecksum}" && "${actual}" != "${officialChecksum}" ]]; then
       warn "Redis 缓存校验失败，将重新下载"
       rm -f -- "${archive}"
     fi
     if [[ ! -f "${archive}" ]]; then
       [[ "${installMode}" == "auto" ]] || die "缺少 Redis ${REDIS_VERSION}，请安装 Redis 6+ 后重试"
-      [[ -z "${AID_REDIS_DOWNLOAD_URL:-}" ]] || urls+=("${AID_REDIS_DOWNLOAD_URL}")
-      urls+=("https://download.redis.io/releases/${name}")
-      mapfile -t urls < <(rank_download_urls "Redis ${REDIS_VERSION}" "${urls[@]}")
+      mapfile -t urls < <(
+        [[ -z "${AID_REDIS_DOWNLOAD_URL:-}" ]] || printf '%s\n' "${AID_REDIS_DOWNLOAD_URL}"
+        bt_artifact_urls "src/${name}"
+        printf '%s\n' "https://download.redis.io/releases/${name}"
+      )
       for url in "${urls[@]}"; do
-        if try_download "${url}" "${archive}" "Redis ${REDIS_VERSION}" sha256 "${checksum}" \
-            && [[ "$(sha256_file "${archive}" 2>/dev/null || true)" == "${checksum}" ]]; then
-          downloaded=yes; break
+        [[ -n "${url}" ]] || continue
+        if try_download "${url}" "${archive}" "Redis ${REDIS_VERSION}"; then
+          actual="$(sha256_file "${archive}" 2>/dev/null || true)"
+          if [[ "${actual}" == "${btChecksum}" || "${actual}" == "${officialChecksum}" ]]; then
+            downloaded=yes
+            break
+          fi
         fi
         warn "Redis 当前下载地址不可用或 SHA256 不匹配，尝试备用地址"
         rm -f -- "${archive}"
       done
       [[ "${downloaded}" == "yes" ]] || die "Redis ${REDIS_VERSION} 下载失败或校验不通过"
     fi
-    ensure_host_command gcc "C编译器" "build-essential" "gcc" "${installMode}"
     ensure_host_command make "Make构建工具" "build-essential" "make" "${installMode}"
+    ensure_redis_build_compiler "${installMode}"
     tmp="${REDIS_HOME}.tmp.$$"; rm -rf -- "${tmp}"; mkdir -p "${tmp}"
     tar -xzf "${archive}" -C "${tmp}" --strip-components=1 \
       || { rm -rf -- "${tmp}"; die "Redis 压缩包解压失败"; }
@@ -1544,8 +1832,10 @@ prepare_managed_redis() {
     fi
     [[ -x "${tmp}/src/redis-server" && -x "${tmp}/src/redis-cli" ]] \
       || { rm -rf -- "${tmp}"; die "Redis 编译产物不完整"; }
+    "${tmp}/src/redis-server" --version 2>/dev/null | grep -Fq "v=${REDIS_VERSION}" \
+      || { rm -rf -- "${tmp}"; die "Redis 编译产物实际版本不是 ${REDIS_VERSION}"; }
     rm -rf -- "${REDIS_HOME}"; mv "${tmp}" "${REDIS_HOME}" || die "Redis 安装目录就位失败"
-    ok "Redis ${REDIS_VERSION} 已通过官方 SHA256 校验并完成本机编译"
+    ok "Redis ${REDIS_VERSION} 已通过固定 SHA256 校验并完成本机编译"
   else
     ok "受管 Redis ${REDIS_VERSION} 已存在，跳过下载和编译"
   fi
@@ -1614,7 +1904,7 @@ ensure_manual_host_dependencies() {
   export AID_DEPENDENCY_INSTALL_MODE="${installMode}"
   command -v systemctl >/dev/null 2>&1 || die "手动部署要求使用 systemd"
 
-  prepare_exact_jdk
+  prepare_manual_jdk
   prepare_exact_node
 
   # 手动部署始终准备宿主机构建工具；即使服务器上碰巧存在 Docker，也不把它作为隐式依赖。
@@ -1624,10 +1914,9 @@ ensure_manual_host_dependencies() {
 
   ensure_manual_mysql "${installMode}"
   ensure_nginx_runtime "${installMode}"
-  if ! systemctl is-active --quiet nginx; then
-    [[ "${installMode}" == "auto" ]] || die "Nginx 未运行，请启动后重试"
-    systemctl enable --now nginx >/dev/null 2>&1 || die "Nginx 自动启动失败，请执行 systemctl status nginx 排查"
-    ok "Nginx 已启用并启动"
+  if ! nginx_runtime_active; then
+    [[ "${installMode}" == "auto" ]] || die "Nginx 未运行，请启动 ${NGINX_SERVICE:-nginx.service} 后重试"
+    start_nginx_runtime
   fi
 
   # 手动部署只有配置为本机 Redis 时才负责检查/可选安装；外部 Redis 永不改本机。
@@ -1718,7 +2007,8 @@ deployment_application_ready() { # deployment_application_ready <docker|manual>
       if [[ -f "${DATA_ROOT}/app/web-dist/server/index.mjs" ]]; then
         systemctl is-active --quiet aid-web || return 1
       fi
-      systemctl is-active --quiet nginx || return 1
+      select_existing_nginx_runtime >/dev/null 2>&1 || return 1
+      nginx_runtime_active || return 1
       if systemctl list-unit-files 2>/dev/null | grep -q '^aid-updater\.service'; then
         systemctl is-active --quiet aid-updater || return 1
       fi
@@ -2111,6 +2401,98 @@ prepare_exact_jdk() {
   rm -rf -- "${JDK_HOME}"
   mv "${tmp}" "${JDK_HOME}" || die "OpenJDK 安装目录就位失败"
   ok "Temurin OpenJDK ${JDK_VERSION} 已通过官方 SHA256 校验: ${JDK_HOME}"
+}
+
+# 非 Docker 部署使用宝塔公开节点提供的 Oracle JDK 17.0.8 归档；Docker 构建和运行镜像
+# 继续使用上面的 Temurin 17.0.20，避免改变已经发布的容器运行时基线。
+prepare_manual_jdk() {
+  local machineArch btArch oracleArch checksum name cacheDir archive actual downloaded=no url tmp installMode
+  local systemJava systemJdkHome=""
+  local -a urls=()
+  machineArch="$(uname -m)"
+  case "${machineArch}" in
+    x86_64|amd64)
+      btArch=x64; oracleArch=x64
+      checksum="74b528a33bb2dfa02b4d74a0d66c9aff52e4f52924ce23a62d7f9eb1a6744657" ;;
+    aarch64|arm64)
+      btArch=arm; oracleArch=aarch64
+      checksum="cd24d7b21ec0791c5a77dfe0d9d7836c5b1a8b4b75db7d33d253d07caa243117" ;;
+    *) die "Oracle JDK ${MANUAL_JDK_VERSION} 暂不支持当前架构: ${machineArch}" ;;
+  esac
+  name="jdk-${MANUAL_JDK_VERSION}.tar.gz"
+  cacheDir="${DATA_ROOT}/build-cache/toolchains"
+  archive="${cacheDir}/oracle-jdk-${MANUAL_JDK_VERSION}-${btArch}.tar.gz"
+  JDK_HOME="${DATA_ROOT}/runtime/jdk-${MANUAL_JDK_VERSION}-${btArch}"
+  if [[ ! -x "${JDK_HOME}/bin/java" ]]; then
+    if [[ -n "${JAVA_HOME:-}" && -x "${JAVA_HOME}/bin/java" && -x "${JAVA_HOME}/bin/javac" ]]; then
+      systemJdkHome="${JAVA_HOME}"
+    elif command -v java >/dev/null 2>&1; then
+      systemJava="$(readlink -f "$(command -v java)" 2>/dev/null || command -v java)"
+      systemJdkHome="$(dirname "$(dirname "${systemJava}")")"
+    fi
+    if [[ -x "${systemJdkHome}/bin/java" && -x "${systemJdkHome}/bin/javac" ]] \
+        && "${systemJdkHome}/bin/java" -version 2>&1 | head -n 1 | grep -Fq "${MANUAL_JDK_VERSION}"; then
+      JDK_HOME="${systemJdkHome}"
+    fi
+  fi
+  if [[ -x "${JDK_HOME}/bin/java" && -x "${JDK_HOME}/bin/javac" ]] \
+      && "${JDK_HOME}/bin/java" -version 2>&1 | head -n 1 | grep -Fq "${MANUAL_JDK_VERSION}"; then
+    ok "Oracle JDK ${MANUAL_JDK_VERSION} 已存在且版本匹配，跳过下载: ${JDK_HOME}"
+  else
+    require_download_tools
+    mkdir -p "${cacheDir}" "${DATA_ROOT}/runtime"
+    if [[ -f "${archive}" ]]; then
+      actual="$(sha256_file "${archive}" 2>/dev/null || true)"
+      if [[ "${actual}" != "${checksum}" ]]; then
+        warn "JDK ${MANUAL_JDK_VERSION} 缓存不完整或摘要不匹配，将重新下载"
+        rm -f -- "${archive}"
+      fi
+    fi
+    if [[ ! -f "${archive}" ]]; then
+      installMode="${AID_DEPENDENCY_INSTALL_MODE:-auto}"
+      [[ "${installMode}" == "auto" ]] \
+        || die "缺少 Oracle JDK ${MANUAL_JDK_VERSION}；请放入 ${archive}，或把 DEPENDENCY_INSTALL_MODE 改为 auto"
+      mapfile -t urls < <(
+        [[ -z "${AID_MANUAL_JDK_DOWNLOAD_URL:-}" ]] || printf '%s\n' "${AID_MANUAL_JDK_DOWNLOAD_URL}"
+        bt_artifact_urls "src/jdk/${btArch}/${name}"
+        printf '%s\n' "https://download.oracle.com/java/17/archive/jdk-${MANUAL_JDK_VERSION}_linux-${oracleArch}_bin.tar.gz"
+      )
+      for url in "${urls[@]}"; do
+        [[ -n "${url}" ]] || continue
+        if try_download "${url}" "${archive}" "Oracle JDK ${MANUAL_JDK_VERSION}（${btArch}）" sha256 "${checksum}"; then
+          downloaded=yes
+          break
+        fi
+        warn "JDK 当前节点不可用或摘要不匹配，切换下一个宝塔/Oracle 节点"
+      done
+      [[ "${downloaded}" == "yes" ]] \
+        || die "Oracle JDK ${MANUAL_JDK_VERSION} 下载失败或固定 SHA256 校验不通过"
+    fi
+    tmp="${JDK_HOME}.tmp.$$"
+    rm -rf -- "${tmp}"; mkdir -p "${tmp}"
+    tar -xzf "${archive}" -C "${tmp}" --strip-components=1 \
+      || { rm -rf -- "${tmp}"; die "Oracle JDK 压缩包解压失败"; }
+    if [[ ! -x "${tmp}/bin/java" || ! -x "${tmp}/bin/javac" ]] \
+        || ! "${tmp}/bin/java" -version 2>&1 | head -n 1 | grep -Fq "${MANUAL_JDK_VERSION}"; then
+      rm -rf -- "${tmp}"
+      die "Oracle JDK 实际版本不是 ${MANUAL_JDK_VERSION} 或开发工具不完整"
+    fi
+    rm -rf -- "${JDK_HOME}"
+    mv "${tmp}" "${JDK_HOME}" || die "Oracle JDK 安装目录就位失败"
+    ok "Oracle JDK ${MANUAL_JDK_VERSION} 已通过 Oracle 固定 SHA256 校验: ${JDK_HOME}"
+  fi
+
+  mkdir -p "$(dirname "${JAVA_PROFILE_FILE}")"
+  cat > "${JAVA_PROFILE_FILE}" <<EOF
+# AID 非 Docker 运行环境；重新登录或执行 source ${JAVA_PROFILE_FILE} 后对交互终端生效。
+export JAVA_HOME="${JDK_HOME}"
+export PATH="\${JAVA_HOME}/bin:\${PATH}"
+EOF
+  chmod 644 "${JAVA_PROFILE_FILE}"
+  export JAVA_HOME="${JDK_HOME}"
+  export PATH="${JAVA_HOME}/bin:${PATH}"
+  hash -r 2>/dev/null || true
+  ok "JAVA_HOME 与 PATH 已在当前安装进程立即生效，并持久化到 ${JAVA_PROFILE_FILE}"
 }
 
 prepare_exact_node() {
@@ -4545,7 +4927,9 @@ do_install_docker() {
 # ----------------------------------------------------------------------------
 write_systemd_units() {
   local javaBin nodeBin
-  [[ -x "${JDK_HOME}/bin/java" ]] || prepare_exact_jdk
+  [[ -x "${JDK_HOME}/bin/java" ]] \
+    && "${JDK_HOME}/bin/java" -version 2>&1 | head -n 1 | grep -Fq "${MANUAL_JDK_VERSION}" \
+    || prepare_manual_jdk
   javaBin="${JDK_HOME}/bin/java"
   nodeBin="$(command -v node)"
   cat > /etc/systemd/system/aid.service <<EOF
@@ -4560,6 +4944,8 @@ EnvironmentFile=${CONF}
 Environment=AID_PROFILE=${DATA_ROOT}/uploadPath
 Environment=LOG_PATH=${DATA_ROOT}/logs
 Environment=SERVER_PORT=$(conf_get BACKEND_PORT 8080)
+Environment=JAVA_HOME=${JDK_HOME}
+Environment=PATH=${JDK_HOME}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
 ExecStart=${javaBin} $(conf_get JAVA_OPTS '-Xms1g -Xmx2g') -jar ${DATA_ROOT}/app/aid-admin.jar
 Restart=always
 RestartSec=5
@@ -4591,7 +4977,7 @@ EOF
 }
 
 write_nginx_site() {
-  local httpPort adminPort backendPort content httpsPort httpsDomain httpsAdminDomain certPath keyPath
+  local httpPort adminPort backendPort content httpsPort httpsDomain httpsAdminDomain certPath keyPath backupPath siteFile
   httpPort="$(conf_get HTTP_PORT 80)"
   adminPort="$(conf_get ADMIN_PORT 8089)"
   backendPort="$(conf_get BACKEND_PORT 8080)"
@@ -4720,18 +5106,20 @@ server {
     }
 }"
   fi
-  if command -v nginx >/dev/null 2>&1 && [[ -d /etc/nginx/conf.d ]]; then
-    local backupPath=""
-    if [[ -f /etc/nginx/conf.d/aid.conf ]]; then
-      backupPath="/etc/nginx/conf.d/aid.conf.bak.$(date +%s)"
-      cp /etc/nginx/conf.d/aid.conf "${backupPath}"
+  if [[ -n "${NGINX_BIN}" && -x "${NGINX_BIN}" && -n "${NGINX_SITE_DIR}" ]]; then
+    mkdir -p "${NGINX_SITE_DIR}"
+    siteFile="${NGINX_SITE_DIR}/aid.conf"
+    backupPath=""
+    if [[ -f "${siteFile}" ]]; then
+      backupPath="${siteFile}.bak.$(date +%s)"
+      cp "${siteFile}" "${backupPath}"
     fi
-    echo "${content}" > /etc/nginx/conf.d/aid.conf
-    if ! nginx -t >/dev/null 2>&1; then
-      if [[ -n "${backupPath}" ]]; then cp "${backupPath}" /etc/nginx/conf.d/aid.conf; else rm -f /etc/nginx/conf.d/aid.conf; fi
+    echo "${content}" > "${siteFile}"
+    if ! "${NGINX_BIN}" -t >/dev/null 2>&1; then
+      if [[ -n "${backupPath}" ]]; then cp "${backupPath}" "${siteFile}"; else rm -f "${siteFile}"; fi
       die "Nginx 配置校验失败，已恢复原站点配置"
     fi
-    systemctl reload nginx || die "Nginx 重载失败"
+    reload_nginx_runtime || die "Nginx 重载失败，请检查 ${NGINX_SERVICE:-${NGINX_BIN}}"
     ok "Nginx 站点已生效"
   else
     [[ "$(conf_get HTTPS_ENABLED false)" != "true" ]] || die "启用 HTTPS 前必须先安装并启动 Nginx"
@@ -5222,7 +5610,7 @@ remove_aid_docker_runtime() { # remove_aid_docker_runtime <keep|purge>
 }
 
 remove_aid_system_services() {
-  local -a services=(aid.service aid-web.service aid-updater.service aid-mysql.service aid-redis.service)
+  local -a services=(aid.service aid-web.service aid-updater.service aid-mysql.service aid-redis.service aid-nginx.service)
   if command -v systemctl >/dev/null 2>&1; then
     systemctl disable --now "${services[@]}" >/dev/null 2>&1 || true
   fi
@@ -5231,7 +5619,9 @@ remove_aid_system_services() {
     /etc/systemd/system/aid-web.service \
     /etc/systemd/system/aid-updater.service \
     /etc/systemd/system/aid-mysql.service \
-    /etc/systemd/system/aid-redis.service
+    /etc/systemd/system/aid-redis.service \
+    /etc/systemd/system/aid-nginx.service \
+    "${JAVA_PROFILE_FILE}"
   if command -v systemctl >/dev/null 2>&1; then
     systemctl daemon-reload >/dev/null 2>&1 || true
     systemctl reset-failed >/dev/null 2>&1 || true
@@ -5239,12 +5629,14 @@ remove_aid_system_services() {
 }
 
 remove_aid_nginx_site() {
-  rm -f -- /etc/nginx/conf.d/aid.conf
-  if [[ -d /etc/nginx/conf.d ]]; then
-    find /etc/nginx/conf.d -maxdepth 1 -type f -name 'aid.conf.bak.*' -delete 2>/dev/null || true
-  fi
-  if command -v nginx >/dev/null 2>&1 && nginx -t >/dev/null 2>&1; then
-    systemctl reload nginx >/dev/null 2>&1 || true
+  local dir
+  for dir in "${CONFIG_ROOT}/nginx/conf.d" /etc/nginx/conf.d /www/server/panel/vhost/nginx; do
+    [[ -d "${dir}" ]] || continue
+    rm -f -- "${dir}/aid.conf"
+    find "${dir}" -maxdepth 1 -type f -name 'aid.conf.bak.*' -delete 2>/dev/null || true
+  done
+  if select_existing_nginx_runtime >/dev/null 2>&1 && "${NGINX_BIN}" -t >/dev/null 2>&1; then
+    reload_nginx_runtime >/dev/null 2>&1 || true
   fi
 }
 
@@ -5261,7 +5653,7 @@ remove_aid_command_links() {
 
   # 手动部署可能创建指向 DATA_ROOT 隔离工具链的命令链接。只删除目标
   # 明确位于本项目 runtime 下的链接，不影响系统自带 mysql/redis。
-  for link in mysql mysqldump redis-server redis-cli; do
+  for link in mysql mysqldump redis-server redis-cli nginx; do
     path="/usr/local/bin/${link}"
     [[ -L "${path}" ]] || continue
     target="$(readlink -f "${path}" 2>/dev/null || true)"

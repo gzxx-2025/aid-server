@@ -235,7 +235,7 @@ Docker 模式不会要求宿主机另装 Git、JDK、Node、Go、Nginx 或 Redis
 
 | 值 | Docker 部署行为 | 手动 systemd 部署行为 |
 |----|-----------------|------------------------|
-| `auto`（默认） | 缺失镜像按 `DEPENDENCY_REGION` 自动下载并校验；Docker 缺失/过旧仍需单独确认 | JDK 17.0.20、Node 22.22.0、Maven 3.9.9、Go 1.22.12 下载到隔离缓存并校验；Git/Nginx/本机 MySQL5.7/Redis 等按需安装 |
+| `auto`（默认） | 缺失镜像按 `DEPENDENCY_REGION` 自动下载并校验；Docker 缺失/过旧仍需单独确认 | Oracle JDK 17.0.8、Nginx 1.30.4、Node 22.22.0、Maven 3.9.9、Go 1.22.12、MySQL 5.7.44、Redis 8.0.5 按需下载到隔离目录并校验；Git 与编译依赖按需安装 |
 | `manual` | 缺镜像立即停止并打印准确的 `docker pull` 命令 | 只检查并列出缺失或版本不合格项，不修改系统 |
 
 例如使用三个候选镜像时，在 `/data/aid/config/docker.env`（Docker）或 `/data/aid/aid-deploy.conf`（systemd）中写入：
@@ -406,21 +406,23 @@ sudo aid restart
 
 | 组件 | 版本 | 说明 |
 |------|------|------|
-| JDK | Temurin OpenJDK 17.0.20+8 | 脚本按架构下载到数据目录，不切换系统默认 Java |
+| JDK | Oracle JDK 17.0.8 | 脚本按架构下载到数据目录，写入 `/etc/profile.d/aid-java.sh`，并给 AID systemd 服务注入固定 `JAVA_HOME/PATH` |
 | Git | 1.8.3+ | 拉取三个公开仓库的固定版本标签；启动时校验最低版本 |
 | Maven | 3.9.9 | 下载到隔离缓存，用于服务端源码构建 |
-| MySQL | 5.7 | 业务数据库（本机或远程均可） |
-| Redis | 6.x+ | 缓存与分布式锁 |
+| MySQL | 5.7.44（受管安装）/ 5.7.x（已有或外部） | 业务数据库（本机或远程均可） |
+| Redis | 8.0.5（受管安装）/ 6.x+（已有或外部） | 缓存与分布式锁 |
 | Node.js | 22.22.0 | 后台/Web 构建与用户端 SSR 运行 |
 | npm | 由各端 `packageManager` 精确锁定（当前 10.9.4） | 后台管理端与 Web 用户端源码构建；不使用宿主机的漂移版本 |
 | Go | 1.22.12 | 下载到隔离缓存，用于在线升级器源码构建 |
-| Nginx | 1.18+ | 静态托管与反向代理；启动时校验最低版本 |
+| Nginx | 1.30.4+ | 静态托管与反向代理；缺失时源码安装隔离的 1.30.4 |
 | mysql 客户端 + curl | - | 数据库初始化与健康检查 |
 | RocketMQ | 5.x | 可选（不装则走本地任务模式，功能完整） |
 
-默认 `DEPENDENCY_INSTALL_MODE=auto`：OpenJDK 17.0.20、Node、Maven、Go、MySQL 5.7.44 与 Redis 7.2.15 使用固定版本和官方摘要，缓存到 `/data/aid/build-cache/toolchains`；MySQL/Redis 的受管运行目录位于 `/data/aid/runtime`。Git、Nginx、编译器等通用工具才使用 `apt-get`、`dnf` 或 `yum` 安装。设置为 `manual` 后只检查和提示，不修改系统。
+默认 `DEPENDENCY_INSTALL_MODE=auto`：Oracle JDK 17.0.8、Nginx 1.30.4、Node、Maven、Go、MySQL 5.7.44 与 Redis 8.0.5 使用固定版本和固定摘要，缓存到 `/data/aid/build-cache/toolchains`，受管运行目录位于 `/data/aid/runtime`。JDK/Nginx/Redis 优先使用测速后的宝塔公开节点，官方地址兜底；Git、编译器和开发库才使用 `apt-get`、`dnf` 或 `yum`。设置为 `manual` 后只检查和提示，不修改系统。
 
-手动模式完全不依赖 Docker。配置本机 MySQL 且服务缺失时安装隔离的 5.7.44，并生成 `aid-mysql.service`；已有 5.7 或外部 5.7 只校验后跳过，检测到其他大版本立即停止。本机 Redis 缺失时编译固定的 7.2.15 并生成 `aid-redis.service`，支持空密码、默认用户密码或 Redis 6+ ACL 用户；已有 6+ 只启动和校验，旧版本不会被静默覆盖。外部 Redis 只校验。RocketMQ 永远不自动安装，启用后必须至少有一个外部 NameServer 可达。
+Redis 8.0.5 源码构建要求 GCC/G++ 7+。CentOS 7 自带 GCC 4.8 不满足时，安装器会参考宝塔的 SCL 方案安装 devtoolset-7；AID 只新增 `/etc/yum.repos.d/aid-centos-sclo-rh.repo`，按阿里云、腾讯云、宝塔所用归档源的顺序容灾，不覆盖系统原有 yum 仓库文件。仓库引导 RPM 与 Redis 源码都必须先通过固定摘要/签名校验。
+
+手动模式完全不依赖 Docker。配置本机 MySQL 且服务缺失时安装隔离的 5.7.44，并生成 `aid-mysql.service`；已有 5.7 或外部 5.7 只校验后跳过，检测到其他大版本立即停止。本机 Redis 缺失时编译固定的 8.0.5 并生成 `aid-redis.service`，支持空密码、默认用户密码或 Redis 6+ ACL 用户；已有 6+ 只启动和校验，旧版本不会被静默覆盖。外部 Redis 只校验。RocketMQ 永远不自动安装，启用后必须至少有一个外部 NameServer 可达。
 
 ### 部署步骤（配置真源 = aid-deploy.conf）
 
@@ -432,11 +434,11 @@ if command -v curl >/dev/null 2>&1; then curl -fL --retry 3 -o aid-install.sh ht
 
 脚本会自动生成 `/data/aid/aid-deploy.conf`。全新本机 MySQL 的 root/业务密码会生成强随机值写回配置；已有或外部 MySQL 无法安全猜测凭证，因此会要求输入真实密码（不回显）并当场校验。`TOKEN_SECRET` 留空同样自动生成。主机、端口或外部中间件拓扑不是默认值时，先按脚本提示编辑该配置再重试。
 
-手动部署始终使用宿主机隔离工具链，不因服务器碰巧存在 Docker 而改变构建方式。JDK、Node.js、Maven、Go 与 MySQL 归档先对候选 HTTPS 来源做短流量测速，再完整下载、校验发布摘要并缓存；Git、Nginx、Redis 客户端等使用发行版包管理器按需安装。Java 固定使用 Temurin OpenJDK 17.0.20，Web 固定使用 Node.js 22.22.0。脚本会先识别宿主机 glibc：glibc 2.28+ 使用 Node.js 官方构建；CentOS 7 等 x64/glibc 2.17 系统自动改用 Node.js `unofficial-builds` 社区兼容构建及 Gitee 国内字节镜像，并强制核对其发布的固定 SHA-256，不升级或替换系统 glibc。AArch64 的旧 glibc 系统没有对应兼容构建，脚本会明确阻止安装并提示升级操作系统或改用 Docker。配置调整后执行 `sudo aid restart` 只会重新校验现有版本和连通性，符合要求的组件全部跳过，不会重复安装或初始化。
+手动部署始终使用宿主机隔离工具链，不因服务器碰巧存在 Docker 而改变构建方式。JDK、Nginx、Redis、Node.js、Maven、Go 与 MySQL 归档会从宝塔公开镜像池或各组件官方地址完整下载，只有固定摘要校验通过才会解压或编译；中断后保留 `.part` 文件，重试时支持续传，已完成且版本匹配则直接跳过。Java 固定使用 Oracle JDK 17.0.8，Web 固定使用 Node.js 22.22.0。安装器会在当前进程立即导出 `JAVA_HOME/PATH`，同时持久化 `/etc/profile.d/aid-java.sh`；当前登录终端若要直接执行 `java`，重新登录或运行 `source /etc/profile.d/aid-java.sh`。脚本会先识别宿主机 glibc：glibc 2.28+ 使用 Node.js 官方构建；CentOS 7 等 x64/glibc 2.17 系统自动改用 Node.js `unofficial-builds` 社区兼容构建及 Gitee 国内字节镜像，并强制核对其发布的固定 SHA-256，不升级或替换系统 glibc。AArch64 的旧 glibc 系统没有对应兼容构建，脚本会明确阻止安装并提示升级操作系统或改用 Docker。配置调整后执行 `sudo aid restart` 只会重新校验现有版本和连通性，符合要求的组件全部跳过，不会重复安装或初始化。
 
 脚本自动完成：依赖检测与按需安装 → 三仓同标签源码构建 → 配置文件校验 → 硬件校验 → 数据库连通性校验 → 空库自动导入基线（已有表跳过）→ 本地构建包摆位到 `/data/aid/app` → 注册 `aid` + `aid-web` 双 systemd 服务（环境变量含 `LOG_PATH=/data/aid/logs`，日志统一落数据目录）→ 生成 Nginx 站点 → 自动安装升级器 → 健康等待。
 
-手动部署的 Nginx 站点标准路径是 `/etc/nginx/conf.d/aid.conf`。脚本写入前会备份现有同名文件，执行 `nginx -t` 成功后才重载；校验失败自动恢复旧文件。只有系统 Nginx 无法使用时，才把候选配置输出到 `/data/aid/aid-nginx.conf` 供管理员人工处理。
+全新服务器会安装隔离的 Nginx 1.30.4，主配置在 `/data/aid/runtime/nginx-1.30.4/conf/nginx.conf`，AID 站点在 `/data/aid/config/nginx/conf.d/aid.conf`，由 `aid-nginx.service` 管理。已有 Nginx 1.30.4+ 会直接复用：标准系统安装写入 `/etc/nginx/conf.d/aid.conf`，宝塔安装写入 `/www/server/panel/vhost/nginx/aid.conf`。脚本写入前会备份现有同名文件，执行配置校验成功后才重载；校验失败自动恢复旧文件。正在运行的旧版 Nginx 不会被静默覆盖。
 
 全部业务配置项通过环境变量注入 systemd 服务定义（`DB_*`、`REDIS_*`、`TOKEN_SECRET`、`AID_PROFILE`、`LOG_PATH`、`ROCKETMQ_*`），jar 内配置永不修改；后续调整都编辑 `/data/aid/aid-deploy.conf` 后执行菜单「重启服务」生效（服务定义自动重写）。
 

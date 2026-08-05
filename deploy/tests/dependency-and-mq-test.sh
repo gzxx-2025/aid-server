@@ -87,7 +87,7 @@ if docker_tcp_reachable mq.invalid 9876; then
   exit 1
 fi
 
-export MOCK_GIT_VERSION=2.47.2 MOCK_NGINX_VERSION=1.26.3
+export MOCK_GIT_VERSION=2.47.2 MOCK_NGINX_VERSION=1.30.4
 ensure_git_runtime manual >/dev/null
 ensure_nginx_runtime manual >/dev/null
 

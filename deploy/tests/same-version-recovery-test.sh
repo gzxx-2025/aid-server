@@ -68,11 +68,16 @@ systemctl() {
   case "$*" in
     'is-active --quiet aid') return 0 ;;
     'is-active --quiet aid-web') return 0 ;;
-    'is-active --quiet nginx') return 0 ;;
+    'is-active --quiet aid-nginx.service') return 0 ;;
     'list-unit-files') return 0 ;;
     'is-active --quiet aid-updater') return 0 ;;
     *) return 1 ;;
   esac
+}
+select_existing_nginx_runtime() {
+  NGINX_BIN=/bin/true
+  NGINX_SERVICE=aid-nginx.service
+  NGINX_SITE_DIR="${CONFIG_ROOT}/nginx/conf.d"
 }
 deployment_application_ready manual
 
