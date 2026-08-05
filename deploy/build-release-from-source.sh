@@ -525,41 +525,63 @@ docker_maven_build() {
      exec mvn -s /tmp/settings.xml -Dmaven.repo.local=/cache/m2 clean package -DskipTests'
 }
 
+read_project_npm_version() {
+  source_dir="$1"; label="$2"
+  package_file="$source_dir/package.json"
+  [ -f "$package_file" ] || die "$label 缺少 package.json"
+  npm_version="$(sed -n 's/^[[:space:]]*"packageManager"[[:space:]]*:[[:space:]]*"npm@\([^"]*\)".*/\1/p' \
+    "$package_file" | head -n 1)"
+  if ! printf '%s\n' "$npm_version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+    die "$label 必须在 package.json 的 packageManager 中固定完整 npm 版本（例如 npm@10.9.4）"
+  fi
+  printf '%s\n' "$npm_version"
+}
+
 docker_npm_build() {
-  source_dir="$1"; cache_dir="$2"; label="$3"; selected_registry="$NPM_REGISTRY"
-  log "[构建][$label][依赖] npm ci，首选源: $NPM_REGISTRY"
+  source_dir="$1"; cache_dir="$2"; label="$3"; npm_version="$4"; selected_registry="$NPM_REGISTRY"
+  log "[构建][$label][依赖] npm@$npm_version ci，首选源: $NPM_REGISTRY"
   if ! docker run --rm --user "$uid_gid" -e NUXT_TELEMETRY_DISABLED=1 \
+      -e "AID_NPM_VERSION=$npm_version" \
       -e "npm_config_registry=$NPM_REGISTRY" -e npm_config_cache=/cache/npm \
       -v "$source_dir:/workspace" -v "$cache_dir:/cache/npm" \
       -w /workspace "$NODE_IMAGE" sh -lc \
-      '[ "$(node -v)" = v22.22.0 ] || { echo "[失败] Node.js实际版本不是22.22.0" >&2; exit 1; }; npm ci'; then
+      '[ "$(node -v)" = v22.22.0 ] || { echo "[失败] Node.js实际版本不是22.22.0" >&2; exit 1; }; \
+       exec npm exec --yes "--package=npm@$AID_NPM_VERSION" -- npm ci'; then
     warn "$label npm 依赖从首选源安装失败，切换备用源: $NPM_REGISTRY_FALLBACK"
     selected_registry="$NPM_REGISTRY_FALLBACK"
     docker run --rm --user "$uid_gid" -e NUXT_TELEMETRY_DISABLED=1 \
+      -e "AID_NPM_VERSION=$npm_version" \
       -e "npm_config_registry=$selected_registry" -e npm_config_cache=/cache/npm \
       -v "$source_dir:/workspace" -v "$cache_dir:/cache/npm" \
       -w /workspace "$NODE_IMAGE" sh -lc \
-      '[ "$(node -v)" = v22.22.0 ] || exit 1; npm ci'
+      '[ "$(node -v)" = v22.22.0 ] || exit 1; \
+       npm exec --yes "--package=npm@$AID_NPM_VERSION" -- npm ci' \
+      || die "$label npm@$npm_version ci 失败；如日志出现 EUSAGE/Missing，请同步提交 package.json 与 package-lock.json"
   fi
-  log "[构建][$label][编译] npm run build，使用源: $selected_registry"
+  log "[构建][$label][编译] npm@$npm_version run build，使用源: $selected_registry"
   docker run --rm --user "$uid_gid" -e NUXT_TELEMETRY_DISABLED=1 \
+    -e "AID_NPM_VERSION=$npm_version" \
     -e "npm_config_registry=$selected_registry" -e npm_config_cache=/cache/npm \
     -v "$source_dir:/workspace" -v "$cache_dir:/cache/npm" \
-    -w /workspace "$NODE_IMAGE" npm run build
+    -w /workspace "$NODE_IMAGE" sh -lc \
+    'exec npm exec --yes "--package=npm@$AID_NPM_VERSION" -- npm run build'
   log "[构建][$label][完成] 生产构建成功"
 }
 
 host_npm_build() {
-  source_dir="$1"; cache_dir="$2"; label="$3"; selected_registry="$NPM_REGISTRY"
-  log "[构建][$label][依赖] npm ci，首选源: $NPM_REGISTRY"
-  if ! (cd "$source_dir" && npm_config_registry="$NPM_REGISTRY" npm_config_cache="$cache_dir" npm ci); then
+  source_dir="$1"; cache_dir="$2"; label="$3"; npm_version="$4"; selected_registry="$NPM_REGISTRY"
+  log "[构建][$label][依赖] npm@$npm_version ci，首选源: $NPM_REGISTRY"
+  if ! (cd "$source_dir" && npm_config_registry="$NPM_REGISTRY" npm_config_cache="$cache_dir" \
+      npm exec --yes "--package=npm@$npm_version" -- npm ci); then
     warn "$label npm 依赖从首选源安装失败，切换备用源: $NPM_REGISTRY_FALLBACK"
     selected_registry="$NPM_REGISTRY_FALLBACK"
-    (cd "$source_dir" && npm_config_registry="$selected_registry" npm_config_cache="$cache_dir" npm ci)
+    (cd "$source_dir" && npm_config_registry="$selected_registry" npm_config_cache="$cache_dir" \
+      npm exec --yes "--package=npm@$npm_version" -- npm ci) \
+      || die "$label npm@$npm_version ci 失败；如日志出现 EUSAGE/Missing，请同步提交 package.json 与 package-lock.json"
   fi
-  log "[构建][$label][编译] npm run build，使用源: $selected_registry"
+  log "[构建][$label][编译] npm@$npm_version run build，使用源: $selected_registry"
   (cd "$source_dir" && NUXT_TELEMETRY_DISABLED=1 npm_config_registry="$selected_registry" \
-    npm_config_cache="$cache_dir" npm run build)
+    npm_config_cache="$cache_dir" npm exec --yes "--package=npm@$npm_version" -- npm run build)
   log "[构建][$label][完成] 生产构建成功"
 }
 
@@ -584,11 +606,11 @@ build_with_docker() {
   fi
   log '[构建][服务端][完成] aid-admin.jar 构建成功'
 
-  log '[构建][后台管理端][开始] Node.js 22.22.0'
-  docker_npm_build "$ADMIN_DIR" "$CACHE_DIR/npm-admin" '后台管理端'
+  log "[构建][后台管理端][开始] Node.js 22.22.0 + npm@$ADMIN_NPM_VERSION"
+  docker_npm_build "$ADMIN_DIR" "$CACHE_DIR/npm-admin" '后台管理端' "$ADMIN_NPM_VERSION"
 
-  log '[构建][Web用户端][开始] Node.js 22.22.0'
-  docker_npm_build "$WEB_DIR" "$CACHE_DIR/npm-web" 'Web用户端'
+  log "[构建][Web用户端][开始] Node.js 22.22.0 + npm@$WEB_NPM_VERSION"
+  docker_npm_build "$WEB_DIR" "$CACHE_DIR/npm-web" 'Web用户端' "$WEB_NPM_VERSION"
 
   for arch in amd64 arm64; do
     log "编译升级器 linux/$arch"
@@ -612,10 +634,10 @@ build_with_host() {
       mvn -s "$WORK_DIR/maven-settings-fallback.xml" -Dmaven.repo.local="$CACHE_DIR/m2" clean package -DskipTests)
   fi
   log '[构建][服务端][完成] aid-admin.jar 构建成功'
-  log '[构建][后台管理端][开始] 使用服务器本机 Node.js 工具链'
-  host_npm_build "$ADMIN_DIR" "$CACHE_DIR/npm-admin" '后台管理端'
-  log '[构建][Web用户端][开始] 使用服务器本机 Node.js 工具链'
-  host_npm_build "$WEB_DIR" "$CACHE_DIR/npm-web" 'Web用户端'
+  log "[构建][后台管理端][开始] 使用服务器本机 Node.js + npm@$ADMIN_NPM_VERSION"
+  host_npm_build "$ADMIN_DIR" "$CACHE_DIR/npm-admin" '后台管理端' "$ADMIN_NPM_VERSION"
+  log "[构建][Web用户端][开始] 使用服务器本机 Node.js + npm@$WEB_NPM_VERSION"
+  host_npm_build "$WEB_DIR" "$CACHE_DIR/npm-web" 'Web用户端' "$WEB_NPM_VERSION"
   for arch in amd64 arm64; do
     log "编译升级器 linux/$arch"
     (cd "$SERVER_DIR/deploy/updater" && GOOS=linux GOARCH="$arch" CGO_ENABLED=0 GOPROXY="$GO_PROXY" \
@@ -701,6 +723,8 @@ assemble_package() {
   "sourceRef": "$TAG",
   "jdkVersion": "$JDK_VERSION",
   "nodeVersion": "22.22.0",
+  "adminNpmVersion": "$ADMIN_NPM_VERSION",
+  "webNpmVersion": "$WEB_NPM_VERSION",
   "serverCommit": "$server_commit",
   "adminCommit": "$admin_commit",
   "webCommit": "$web_commit",
@@ -749,6 +773,10 @@ if ! clone_release_set; then
     die "从 $SOURCE_FORGE 拉取三端源码失败"
   fi
 fi
+
+ADMIN_NPM_VERSION="$(read_project_npm_version "$ADMIN_DIR" '后台管理端')"
+WEB_NPM_VERSION="$(read_project_npm_version "$WEB_DIR" 'Web用户端')"
+log "前端锁定工具链: 后台管理端 npm@$ADMIN_NPM_VERSION，Web用户端 npm@$WEB_NPM_VERSION"
 
 mkdir -p "$STAGING_DIR/updater" "$CACHE_DIR/m2" "$CACHE_DIR/npm-admin" \
   "$CACHE_DIR/npm-web" "$CACHE_DIR/go-build" "$CACHE_DIR/go-mod"

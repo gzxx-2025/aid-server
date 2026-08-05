@@ -153,7 +153,7 @@ MySQL 首次启动自动创建 `aid_test` 库并导入 `sql/` 初始化脚本（
 
 正常部署和更新都由 `aid.sh` 自动处理，不需要用户访问发布页。版本清单、源码标签和小型升级器均以 Gitee 为主源、GitHub 为备用源；源码平台会先实际检测 Gitee 的 `aid-server`、`aid-admin`、`aid-web` 三个仓库是否都存在目标标签，任一失败就整组切换到 GitHub。构建固定使用 `v<版本>` 标签，绝不拉取会继续变化的 `master`，也不会在同一次构建中混用两个平台。
 
-Docker 构建固定使用 Node.js 22.22.0；Java 构建与运行固定使用 Eclipse Temurin OpenJDK 17.0.20+8。JDK 按宿主机架构自动选择 x64 或 AArch64 压缩包，下载后核对 Adoptium 官方 SHA-256，不修改宿主机默认 Java。构建镜像与依赖缓存在 `/data/aid/build-cache`，后续升级会直接复用。
+Docker 构建固定使用 Node.js 22.22.0；后台管理端和 Web 用户端还必须在各自 `package.json` 的 `packageManager` 中固定完整 npm 版本，当前均为 npm 10.9.4。发布机与服务器源码构建都会通过引导 npm 执行项目声明的精确版本，再运行 `npm ci` 和生产构建，不依赖宿主机或 Node 镜像碰巧携带的 npm 版本；`package-lock.json` 与 `package.json` 不一致时会明确阻止发布。Java 构建与运行固定使用 Eclipse Temurin OpenJDK 17.0.20+8。JDK 按宿主机架构自动选择 x64 或 AArch64 压缩包，下载后核对 Adoptium 官方 SHA-256，不修改宿主机默认 Java。构建镜像与依赖缓存在 `/data/aid/build-cache`，后续升级会直接复用。
 
 `DEPENDENCY_REGION=auto` 会在目标服务器运行时按公网出口地区自动选择下载线路，地区服务不可用时再按网络可达性判断：国内优先 DaoCloud Docker Hub 镜像、清华 Adoptium 镜像、npmmirror 和 goproxy.cn；国际优先 Docker Hub、Adoptium、npm 和 proxy.golang.org。Maven 在两种线路下均固定优先使用阿里云公共仓库，失败时自动用原始 Maven Central 重新构建；可通过 `AID_MAVEN_MIRROR_URL` 与 `AID_MAVEN_FALLBACK_URL` 分别覆盖。其他首选线路失败也会自动回退，且可明确设置为 `cn` 或 `global`。Docker 国内镜像按标签下载后必须匹配发布脚本内固定的官方 RepoDigest，否则会拒绝使用并尝试官方地址。
 
@@ -361,7 +361,7 @@ sudo aid restart
 | MySQL | 5.7 | 业务数据库（本机或远程均可） |
 | Redis | 6.x+ | 缓存与分布式锁 |
 | Node.js | 22.22.0 | 后台/Web 构建与用户端 SSR 运行 |
-| npm | 随 Node.js | 后台管理端与 Web 用户端源码构建 |
+| npm | 由各端 `packageManager` 精确锁定（当前 10.9.4） | 后台管理端与 Web 用户端源码构建；不使用宿主机的漂移版本 |
 | Go | 1.22.12 | 无 Docker 时下载到隔离缓存，用于在线升级器源码构建 |
 | Nginx | 1.20+ | 静态托管与反向代理 |
 | mysql 客户端 + curl | - | 数据库初始化与健康检查 |
