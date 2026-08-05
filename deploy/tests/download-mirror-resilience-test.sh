@@ -26,11 +26,15 @@ probe_bt_node() {
 mapfile -t ranked < <(rank_bt_mirror_nodes "${node_a}" "${node_b}" "${node_c}" "${node_d}")
 [[ "${ranked[0]}" == "${node_c}" && "${ranked[1]}" == "${node_a}" \
     && "${ranked[2]}" == "${node_b}" && "${ranked[3]}" == "${node_d}" ]] \
-  || { printf 'FAIL: 宝塔节点排序不符合吞吐/延迟规则: %s\n' "${ranked[*]}" >&2; exit 1; }
+  || { printf 'FAIL: AID镜像节点排序不符合吞吐/延迟规则: %s\n' "${ranked[*]}" >&2; exit 1; }
 
 read -r -a bt_nodes <<< "${BT_MIRROR_NODES_CN}"
-[[ "${#bt_nodes[@]}" -eq 10 ]] || { echo 'FAIL: 宝塔 HTTPS 节点池必须包含 10 个唯一节点' >&2; exit 1; }
+[[ "${#bt_nodes[@]}" -eq 10 ]] || { echo 'FAIL: AID HTTPS 镜像池必须包含 10 个唯一节点' >&2; exit 1; }
 [[ " ${BT_MIRROR_NODES_CN} " != *' http://'* ]] || { echo 'FAIL: 镜像池不得包含 HTTP 节点' >&2; exit 1; }
+if grep -F '节点测速:' "${ROOT_DIR}/deploy/aid.sh" | grep -Fvq 'AID 国内镜像测速:'; then
+  echo 'FAIL: 用户可见测速日志必须使用 AID 品牌' >&2
+  exit 1
+fi
 
 printf 'AID resumable download fixture\nsecond line\n' > "${TMP_ROOT}/source.bin"
 expected="$(sha256sum "${TMP_ROOT}/source.bin" | awk '{print $1}')"
@@ -67,8 +71,8 @@ fi
   || { echo 'FAIL: 摘要错误的文件应被清理' >&2; exit 1; }
 
 grep -Fq 'mysql-boost-${MYSQL_VERSION}.tar.gz' "${ROOT_DIR}/deploy/aid.sh" \
-  || { echo 'FAIL: MySQL 未接入宝塔官方源包兜底' >&2; exit 1; }
+  || { echo 'FAIL: MySQL 未接入 AID 镜像源包兜底' >&2; exit 1; }
 grep -Fq 'b8fe262c4679cb7bbc379a3f1addc723844db168628ce2acf78d33906849e491' "${ROOT_DIR}/deploy/aid.sh" \
-  || { echo 'FAIL: MySQL 宝塔源包缺少固定 SHA256' >&2; exit 1; }
+  || { echo 'FAIL: MySQL AID镜像源包缺少固定 SHA256' >&2; exit 1; }
 
 echo 'download mirror resilience tests passed'

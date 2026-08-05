@@ -120,7 +120,7 @@ MYSQL_MANAGED_SERVICE="aid-mysql.service"
 REDIS_VERSION="8.0.5"
 REDIS_HOME=""
 REDIS_MANAGED_SERVICE="aid-redis.service"
-# 宝塔公开安装器当前维护的 HTTPS 下载节点池。这里只复用节点测速与容灾思路，
+# AID 国内依赖镜像候选池。安装器会统一测速、排序并在失败时切换节点，
 # 任何下载内容仍必须通过 AID 固定的官方摘要/签名校验后才可安装。
 BT_MIRROR_NODES_CN="https://dg2.bt.cn https://download-cdn1.bt.cn https://download.bt.cn https://ctcc1-node.bt.cn https://cmcc1-node.bt.cn https://ctcc2-node.bt.cn https://hk1-node.bt.cn https://na1-node.bt.cn https://jp1-node.bt.cn https://cf1-node.aapanel.com"
 BT_MIRROR_NODES_GLOBAL="https://cf1-node.aapanel.com https://jp1-node.bt.cn https://na1-node.bt.cn https://download.bt.cn https://dg2.bt.cn https://download-cdn1.bt.cn https://ctcc1-node.bt.cn https://ctcc2-node.bt.cn https://hk1-node.bt.cn https://cmcc1-node.bt.cn"
@@ -1063,7 +1063,7 @@ prepare_managed_nginx() {
         downloaded=yes
         break
       fi
-      warn "Nginx 当前节点不可用或摘要不匹配，切换下一个宝塔/官方节点"
+      warn "Nginx 当前节点不可用或摘要不匹配，切换下一个 AID 镜像/官方节点"
     done
     [[ "${downloaded}" == "yes" ]] || die "Nginx ${NGINX_VERSION} 下载失败或校验不通过"
   fi
@@ -1366,6 +1366,17 @@ install_mysql_compat_libraries() {
   fi
 }
 
+mysql_gpg_key_fingerprint() { # mysql_gpg_key_fingerprint <公钥文件>，兼容 CentOS 7 的旧版 GnuPG
+  local keyFile="$1" inspectHome fingerprint=""
+  inspectHome="$(mktemp -d)"; chmod 700 "${inspectHome}"
+  if GNUPGHOME="${inspectHome}" gpg --batch --quiet --import "${keyFile}" >/dev/null 2>&1; then
+    fingerprint="$(GNUPGHOME="${inspectHome}" gpg --batch --with-colons --fingerprint 2>/dev/null \
+      | awk -F: '$1=="fpr" {print toupper($10); exit}')"
+  fi
+  rm -rf -- "${inspectHome}"
+  printf '%s\n' "${fingerprint}"
+}
+
 verify_mysql_archive_signature() { # verify_mysql_archive_signature <归档> <文件名> <缓存目录> [摘要说明]
   local archive="$1" name="$2" cacheDir="$3" digestLabel="${4:-Oracle 官方 MD5}"
   local keyFile signatureFile fingerprint gpgHome
@@ -1377,8 +1388,16 @@ verify_mysql_archive_signature() { # verify_mysql_archive_signature <归档> <�
     try_download "https://repo.mysql.com/RPM-GPG-KEY-mysql-2022" "${keyFile}" "MySQL官方GPG公钥" \
       || die "MySQL 官方 GPG 公钥下载失败"
   fi
-  fingerprint="$(gpg --show-keys --with-colons "${keyFile}" 2>/dev/null | awk -F: '$1=="fpr" {print toupper($10); exit}')"
-  [[ "${fingerprint}" == "${expected}" ]] || die "MySQL 官方 GPG 公钥指纹不匹配"
+  fingerprint="$(mysql_gpg_key_fingerprint "${keyFile}")"
+  if [[ "${fingerprint}" != "${expected}" ]]; then
+    warn "MySQL GPG 公钥缓存指纹异常，删除缓存并从 Oracle 官方地址重新获取"
+    rm -f -- "${keyFile}" "${keyFile}.part"
+    try_download "https://repo.mysql.com/RPM-GPG-KEY-mysql-2022" "${keyFile}" "MySQL官方GPG公钥" \
+      || die "MySQL 官方 GPG 公钥重新下载失败"
+    fingerprint="$(mysql_gpg_key_fingerprint "${keyFile}")"
+  fi
+  [[ "${fingerprint}" == "${expected}" ]] \
+    || die "MySQL 官方 GPG 公钥重新下载后指纹仍不匹配"
   if [[ ! -s "${signatureFile}" ]]; then
     try_download "https://downloads.mysql.com/archives/gpg/?file=${name}&p=23" "${signatureFile}" "MySQL归档GPG签名" \
       || die "MySQL 官方归档签名下载失败"
@@ -1386,10 +1405,17 @@ verify_mysql_archive_signature() { # verify_mysql_archive_signature <归档> <�
   gpgHome="$(mktemp -d)"; chmod 700 "${gpgHome}"
   GNUPGHOME="${gpgHome}" gpg --batch --quiet --import "${keyFile}" >/dev/null 2>&1 \
     || { rm -rf -- "${gpgHome}"; die "MySQL GPG 公钥导入失败"; }
-  if ! GNUPGHOME="${gpgHome}" gpg --batch --status-fd=1 --verify "${signatureFile}" "${archive}" 2>/dev/null \
-      | grep -Fq "VALIDSIG ${expected}"; then
-    rm -rf -- "${gpgHome}"
-    die "MySQL ${MYSQL_VERSION} GPG 签名校验失败，已拒绝安装"
+  # 临时 keyring 中只导入了上方已核对主指纹的 Oracle 公钥；签名可由其认证子密钥完成，
+  # 因此以 gpg 的完整验签退出码为准，不能把 VALIDSIG 的签名子密钥指纹误当成主指纹。
+  if ! GNUPGHOME="${gpgHome}" gpg --batch --verify "${signatureFile}" "${archive}" >/dev/null 2>&1; then
+    warn "MySQL GPG 签名缓存校验失败，删除缓存并重新下载官方签名"
+    rm -f -- "${signatureFile}" "${signatureFile}.part"
+    if ! try_download "https://downloads.mysql.com/archives/gpg/?file=${name}&p=23" \
+        "${signatureFile}" "MySQL归档GPG签名" \
+        || ! GNUPGHOME="${gpgHome}" gpg --batch --verify "${signatureFile}" "${archive}" >/dev/null 2>&1; then
+      rm -rf -- "${gpgHome}"
+      die "MySQL ${MYSQL_VERSION} GPG 签名校验失败，已拒绝安装"
+    fi
   fi
   rm -rf -- "${gpgHome}"
   ok "MySQL ${MYSQL_VERSION} 已通过 ${digestLabel} 与 Oracle GPG 双重校验"
@@ -1438,9 +1464,9 @@ prepare_managed_mysql_from_bt_source() { # Oracle 二进制入口不可用时的
         downloaded=yes
         break
       fi
-      warn "MySQL 源包当前节点不可用或校验失败，切换下一个宝塔/Oracle 节点"
+      warn "MySQL 源包当前节点不可用或校验失败，切换下一个 AID 镜像/Oracle 节点"
     done
-    [[ "${downloaded}" == "yes" ]] || die "MySQL ${MYSQL_VERSION} 二进制与宝塔源包入口均不可用"
+    [[ "${downloaded}" == "yes" ]] || die "MySQL ${MYSQL_VERSION} 二进制与 AID 镜像源包入口均不可用"
   fi
   verify_mysql_archive_signature "${sourceArchive}" "${sourceName}" "${cacheDir}" "Oracle 固定 SHA256"
   install_mysql_runtime_libraries "${installMode}"
@@ -1461,7 +1487,7 @@ prepare_managed_mysql_from_bt_source() { # Oracle 二进制入口不可用时的
     memoryJobs=$((memoryKb / 1258291)); (( memoryJobs < 1 )) && memoryJobs=1
     (( jobs > memoryJobs )) && jobs="${memoryJobs}"
   fi
-  warn "Oracle 二进制包入口均失败，启用已签名的宝塔 MySQL 源包兜底；编译会临时占用 CPU，完整日志: ${buildLog}"
+  warn "Oracle 二进制包入口均失败，启用已签名的 AID 镜像源包兜底；编译会临时占用 CPU，完整日志: ${buildLog}"
   if ! (cd "${buildDir}" && cmake .. \
       -DCMAKE_INSTALL_PREFIX="${installDir}" \
       -DSYSCONFDIR="${CONFIG_ROOT}" \
@@ -1486,7 +1512,7 @@ prepare_managed_mysql_from_bt_source() { # Oracle 二进制入口不可用时的
   rm -rf -- "${MYSQL_HOME}"
   mv "${installDir}" "${MYSQL_HOME}" || die "MySQL 源码编译产物就位失败"
   rm -rf -- "${sourceRoot}"
-  ok "MySQL ${MYSQL_VERSION} 已通过宝塔镜像节点下载并完成受控源码编译"
+  ok "MySQL ${MYSQL_VERSION} 已通过 AID 国内镜像下载并完成受控源码编译"
 }
 
 prepare_managed_mysql() {
@@ -1779,7 +1805,7 @@ prepare_managed_redis() {
   local redisHost redisPort redisUser redisPwd redisData redisRun redisLog redisConf buildLog
   local -a urls=()
   name="redis-${REDIS_VERSION}.tar.gz"
-  # 宝塔和 Redis 官方归档的源码树一致，但 gzip 打包元数据不同，因此分别固定两个可信摘要。
+  # 国内镜像和 Redis 官方归档的源码树一致，但 gzip 打包元数据不同，因此分别固定两个可信摘要。
   btChecksum="1e8beff55b0c798429ca4fc4c62e064000f37c8b7e9742ab4ebd4edfc3888417"
   officialChecksum="012bca956fc7151abc2281950e69768ee9c53ce4b36588772041675bc95fd313"
   cacheDir="${DATA_ROOT}/build-cache/toolchains"
@@ -2173,20 +2199,20 @@ probe_bt_node() { # probe_bt_node <节点>；输出“高速/普通 评分 延�
   fi
 }
 
-rank_bt_mirror_nodes() { # 按宝塔 net_test 规则输出完整节点顺序，而不是只取一个节点
+rank_bt_mirror_nodes() { # 按吞吐量与首包延迟输出完整节点顺序，而不是只取一个节点
   local node metrics fast="" normal="" deferred="" seen=$'\n'
   for node in "$@"; do
     [[ -n "${node}" && "${seen}" != *$'\n'"${node}"$'\n'* ]] || continue
     seen+="${node}"$'\n'
     if metrics="$(probe_bt_node "${node}" 2>/dev/null)"; then
-      echo "[$(date '+%H:%M:%S')] 宝塔节点测速: ${metrics%% *} ${metrics#* }  ${node}" >&2
+      echo "[$(date '+%H:%M:%S')] AID 国内镜像测速: ${metrics%% *} ${metrics#* }  ${node}" >&2
       if [[ "${metrics%% *}" == "fast" ]]; then
         metrics="${metrics#* }"; fast+="${metrics%% *} ${node}"$'\n'
       else
         metrics="${metrics#* }"; normal+="${metrics#* } ${node}"$'\n'
       fi
     else
-      echo "[$(date '+%H:%M:%S')] [提示] 宝塔节点测速不可达，保留为末位重试: ${node}" >&2
+      echo "[$(date '+%H:%M:%S')] [提示] AID 国内镜像测速不可达，保留为末位重试: ${node}" >&2
       deferred+="${node}"$'\n'
     fi
   done
@@ -2201,12 +2227,13 @@ resolve_bt_mirror_order() {
   local -a candidates=() uniqueCandidates=()
   (( BT_MIRRORS_RESOLVED == 0 )) || return 0
   resolve_dependency_region
-  configured="${AID_BT_MIRROR_NODES:-}"
+  # 新名称面向用户保持 AID 品牌；旧变量仅为已部署环境提供兼容读取。
+  configured="${AID_DEPENDENCY_MIRROR_NODES:-${AID_BT_MIRROR_NODES:-}}"
   if [[ -n "${configured}" ]]; then
     configured="${configured//,/ }"
     read -r -a candidates <<< "${configured}"
     for node in "${candidates[@]}"; do
-      bt_node_allowed "${node}" || die "AID_BT_MIRROR_NODES 只允许使用内置宝塔 HTTPS 节点: ${node}"
+      bt_node_allowed "${node}" || die "AID_DEPENDENCY_MIRROR_NODES 只允许使用内置 AID HTTPS 镜像节点: ${node}"
     done
   elif [[ "${RESOLVED_DEPENDENCY_REGION}" == "cn" ]]; then
     read -r -a candidates <<< "${BT_MIRROR_NODES_CN}"
@@ -2239,13 +2266,13 @@ resolve_bt_mirror_order() {
     chmod 600 "${cacheFile}.tmp.$$"
     mv -f -- "${cacheFile}.tmp.$$" "${cacheFile}"
   else
-    ok "复用 24 小时内的宝塔镜像测速结果: ${cacheFile}"
+    ok "复用 24 小时内的 AID 国内镜像测速结果: ${cacheFile}"
   fi
   BT_MIRROR_ORDER="${order}"
   BT_MIRRORS_RESOLVED=1
 }
 
-bt_artifact_urls() { # bt_artifact_urls <宝塔节点内相对路径>
+bt_artifact_urls() { # bt_artifact_urls <AID依赖镜像节点内相对路径>
   local path="${1#/}" node
   resolve_bt_mirror_order
   while IFS= read -r node; do
@@ -2403,7 +2430,7 @@ prepare_exact_jdk() {
   ok "Temurin OpenJDK ${JDK_VERSION} 已通过官方 SHA256 校验: ${JDK_HOME}"
 }
 
-# 非 Docker 部署使用宝塔公开节点提供的 Oracle JDK 17.0.8 归档；Docker 构建和运行镜像
+# 非 Docker 部署使用 AID 国内镜像节点提供的 Oracle JDK 17.0.8 归档；Docker 构建和运行镜像
 # 继续使用上面的 Temurin 17.0.20，避免改变已经发布的容器运行时基线。
 prepare_manual_jdk() {
   local machineArch btArch oracleArch checksum name cacheDir archive actual downloaded=no url tmp installMode
@@ -2463,7 +2490,7 @@ prepare_manual_jdk() {
           downloaded=yes
           break
         fi
-        warn "JDK 当前节点不可用或摘要不匹配，切换下一个宝塔/Oracle 节点"
+        warn "JDK 当前节点不可用或摘要不匹配，切换下一个 AID 镜像/Oracle 节点"
       done
       [[ "${downloaded}" == "yes" ]] \
         || die "Oracle JDK ${MANUAL_JDK_VERSION} 下载失败或固定 SHA256 校验不通过"

@@ -27,7 +27,13 @@ cat > "${TMP_ROOT}/compiler/g++" <<'EOF'
 #!/usr/bin/env bash
 echo 'g++ test 7.5.0'
 EOF
-chmod +x "${TMP_ROOT}/compiler/gcc" "${TMP_ROOT}/compiler/g++"
+cat > "${TMP_ROOT}/compiler/java" <<'EOF'
+#!/usr/bin/env bash
+echo 'openjdk version "11.0.0"' >&2
+EOF
+chmod +x "${TMP_ROOT}/compiler/gcc" "${TMP_ROOT}/compiler/g++" "${TMP_ROOT}/compiler/java"
+unset JAVA_HOME
+export PATH="${TMP_ROOT}/compiler:/usr/bin:/bin"
 export CC="${TMP_ROOT}/compiler/gcc" CXX="${TMP_ROOT}/compiler/g++"
 select_redis_build_compiler >/dev/null \
   || { echo 'FAIL: Redis GCC/G++ 7+ toolchain was not accepted' >&2; exit 1; }
