@@ -5,7 +5,7 @@
 # 用法：
 #   sudo bash aid.sh              # 交互菜单（首次部署按版本标签拉取三端源码并构建）
 #   sudo bash aid.sh <子命令>     # 直通执行：install/auto/install-docker/install-manual/update/rollback/
-#                                 # restart/stop/status/default/logs/config/backup/setup-updater/uninstall
+#                                 # restart/stop/status/default/mysql/logs/config/backup/setup-updater/uninstall
 #
 # 设计：
 #   - 全部数据统一放在 DATA_ROOT（默认 /data/aid）：程序、上传文件、日志、
@@ -206,6 +206,9 @@ ask_secret() { # ask_secret <提示>
   echo "${answer}"
 }
 gen_secret() { tr -dc 'A-Za-z0-9' </dev/urandom | head -c 48 || true; }
+# MySQL 密码需要兼顾终端手工录入体验，自动生成固定 12 位字母数字；JWT 等
+# 其他密钥仍使用上面的 48 位随机值，不随数据库密码规则缩短。
+gen_database_secret() { gen_secret | head -c 12; }
 
 # Docker 部署配置真源：默认 deploy/docker/.env；单文件首次部署或后台迁移时可位于 DATA_ROOT/config。
 env_get() { # env_get <key> <默认值>
@@ -1515,6 +1518,91 @@ prepare_managed_mysql_from_bt_source() { # Oracle 二进制入口不可用时的
   ok "MySQL ${MYSQL_VERSION} 已通过 AID 国内镜像下载并完成受控源码编译"
 }
 
+# 受管 MySQL 使用独立 Socket，root 操作必须显式指定 Socket，避免客户端误连
+# /tmp/mysql.sock 后把“连接位置错误”误报为“密码不一致”。
+managed_mysql_root_exec() { # managed_mysql_root_exec <mysql> <socket> <password> [mysql参数...]
+  local mysqlBin="$1" mysqlSocket="$2" password="$3"
+  shift 3
+  MYSQL_PWD="${password}" "${mysqlBin}" --connect-timeout=3 --protocol=socket \
+    --socket="${mysqlSocket}" -uroot "$@"
+}
+
+managed_mysql_business_exec() { # managed_mysql_business_exec <mysql> <host> <port> <database> <user> <password> [mysql参数...]
+  local mysqlBin="$1" host="$2" port="$3" database="$4" user="$5" password="$6"
+  shift 6
+  MYSQL_PWD="${password}" "${mysqlBin}" --connect-timeout=3 --protocol=TCP \
+    --host="${host}" --port="${port}" --database="${database}" --user="${user}" "$@"
+}
+
+# 正式配置文件是受管数据库的唯一凭证真源。安装与恢复都会重新应用库名、
+# root 密码、业务账号、业务密码和授权，随后用两套配置分别回连验证。
+reconcile_managed_mysql_credentials() { # <mysql> <socket> <host> <port> <db> <user> <dbPwd> <rootPwd>
+  local mysqlBin="$1" mysqlSocket="$2" host="$3" port="$4"
+  local database="$5" user="$6" dbPwd="$7" rootPwd="$8" rootAuth=""
+
+  if managed_mysql_root_exec "${mysqlBin}" "${mysqlSocket}" "${rootPwd}" -e 'SELECT 1' >/dev/null 2>&1; then
+    rootAuth="${rootPwd}"
+  elif managed_mysql_root_exec "${mysqlBin}" "${mysqlSocket}" "" -e 'SELECT 1' >/dev/null 2>&1; then
+    # 只兼容 initialize-insecure 创建且尚未设置密码的全新数据目录。
+    rootAuth=""
+  else
+    die "受管 MySQL root 密码与 ${CONF} 不一致；请恢复正确的 MYSQL_ROOT_PASSWORD 后重试"
+  fi
+
+  if [[ "${user}" == "root" ]]; then
+    [[ "${dbPwd}" == "${rootPwd}" ]] \
+      || die "DB_USERNAME=root 时 DB_PASSWORD 必须与 MYSQL_ROOT_PASSWORD 一致"
+    managed_mysql_root_exec "${mysqlBin}" "${mysqlSocket}" "${rootAuth}" -e \
+      "CREATE DATABASE IF NOT EXISTS \`${database}\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci; ALTER USER 'root'@'localhost' IDENTIFIED BY '${rootPwd}'; FLUSH PRIVILEGES;" \
+      || die "MySQL root 配置同步失败"
+  else
+    managed_mysql_root_exec "${mysqlBin}" "${mysqlSocket}" "${rootAuth}" -e \
+      "CREATE DATABASE IF NOT EXISTS \`${database}\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci; CREATE USER IF NOT EXISTS '${user}'@'127.0.0.1' IDENTIFIED BY '${dbPwd}'; ALTER USER '${user}'@'127.0.0.1' IDENTIFIED BY '${dbPwd}'; GRANT ALL PRIVILEGES ON \`${database}\`.* TO '${user}'@'127.0.0.1'; ALTER USER 'root'@'localhost' IDENTIFIED BY '${rootPwd}'; FLUSH PRIVILEGES;" \
+      || die "MySQL 业务账号配置同步失败"
+  fi
+
+  managed_mysql_root_exec "${mysqlBin}" "${mysqlSocket}" "${rootPwd}" -e 'SELECT 1' >/dev/null 2>&1 \
+    || die "MySQL root 凭证同步校验失败"
+  managed_mysql_business_exec "${mysqlBin}" "${host}" "${port}" "${database}" "${user}" "${dbPwd}" -e 'SELECT 1' >/dev/null 2>&1 \
+    || die "MySQL 业务凭证同步校验失败"
+  ok "MySQL 数据库、root 与业务账号已和配置文件保持一致"
+}
+
+# 兼容旧脚本在账号初始化前失败、却已向配置写入 48 位随机密码的现场。仅当
+# AID 受管数据目录仍是空 root、业务账号不可用且目标库没有任何表时，才把这两项
+# 尚未生效的旧随机值安全迁移成 12 位；已经投入使用的密码绝不自动改写。
+normalize_pristine_managed_mysql_credentials() { # <mysql> <socket> <host> <port> <db> <user> <dbPwd> <rootPwd>
+  local mysqlBin="$1" mysqlSocket="$2" host="$3" port="$4"
+  local database="$5" user="$6" dbPwd="$7" rootPwd="$8" tableCount backupPath newDbPwd newRootPwd
+  MANAGED_DB_PASSWORD="${dbPwd}"
+  MANAGED_ROOT_PASSWORD="${rootPwd}"
+  if (( ${#dbPwd} >= 10 && ${#dbPwd} <= 16 && ${#rootPwd} >= 10 && ${#rootPwd} <= 16 )); then
+    return 0
+  fi
+  managed_mysql_root_exec "${mysqlBin}" "${mysqlSocket}" "${rootPwd}" -e 'SELECT 1' >/dev/null 2>&1 \
+    && return 0
+  managed_mysql_root_exec "${mysqlBin}" "${mysqlSocket}" "" -e 'SELECT 1' >/dev/null 2>&1 \
+    || return 0
+  managed_mysql_business_exec "${mysqlBin}" "${host}" "${port}" "${database}" "${user}" "${dbPwd}" -e 'SELECT 1' >/dev/null 2>&1 \
+    && return 0
+  tableCount="$(managed_mysql_root_exec "${mysqlBin}" "${mysqlSocket}" "" --batch --skip-column-names \
+    -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='${database}'" 2>/dev/null | tail -n 1 || true)"
+  [[ "${tableCount}" == "0" ]] || return 0
+
+  backupPath="${CONF}.bak.$(date '+%Y%m%d-%H%M%S')"
+  cp -p -- "${CONF}" "${backupPath}" || die "备份旧 MySQL 配置失败"
+  chmod 600 "${backupPath}" 2>/dev/null || true
+  newDbPwd="$(gen_database_secret)"
+  newRootPwd="$(gen_database_secret)"
+  while [[ "${newRootPwd}" == "${newDbPwd}" ]]; do newRootPwd="$(gen_database_secret)"; done
+  conf_set DB_PASSWORD "${newDbPwd}"
+  conf_set MYSQL_ROOT_PASSWORD "${newRootPwd}"
+  MANAGED_DB_PASSWORD="${newDbPwd}"
+  MANAGED_ROOT_PASSWORD="${newRootPwd}"
+  ok "检测到未完成初始化的旧配置，MySQL root/业务密码已迁移为12位随机值"
+  echo "  原配置备份: ${backupPath}"
+}
+
 prepare_managed_mysql() {
   local installMode="$1" arch name cacheDir archive checksum actual downloaded=no url tmp reuseBinary=no
   local dbHost dbPort dbName dbUser dbPwd rootPwd mysqlConf mysqlData mysqlFiles mysqlRun mysqlLog
@@ -1650,30 +1738,11 @@ EOF
   local waited=0
   while (( waited < 60 )) && [[ ! -S "${mysqlRun}/mysql.sock" ]]; do sleep 2; waited=$((waited + 2)); done
   [[ -S "${mysqlRun}/mysql.sock" ]] || die "受管 MySQL 5.7 启动超时"
-  local rootAuth="" accountReady=no
-  if MYSQL_PWD="${dbPwd}" "${MYSQL_HOME}/bin/mysql" --connect-timeout=3 \
-      -h 127.0.0.1 -P "${dbPort}" -u "${dbUser}" -e 'SELECT 1' >/dev/null 2>&1; then
-    accountReady=yes
-    ok "MySQL 数据目录与业务账号已初始化，跳过重复建库授权"
-  elif MYSQL_PWD="${rootPwd}" "${MYSQL_HOME}/bin/mysql" --protocol=socket -uroot -e 'SELECT 1' >/dev/null 2>&1; then
-    rootAuth="${rootPwd}"
-  elif "${MYSQL_HOME}/bin/mysql" --protocol=socket -uroot -e 'SELECT 1' >/dev/null 2>&1; then
-    rootAuth=""
-  else
-    die "受管 MySQL 已存在但 root 凭证与配置不一致，未修改任何账号"
-  fi
-  if [[ "${accountReady}" != "yes" ]]; then
-    if [[ "${dbUser}" == "root" ]]; then
-      MYSQL_PWD="${rootAuth}" "${MYSQL_HOME}/bin/mysql" --protocol=socket -uroot -e \
-        "CREATE DATABASE IF NOT EXISTS \`${dbName}\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci; ALTER USER 'root'@'localhost' IDENTIFIED BY '${rootPwd}'; FLUSH PRIVILEGES;" \
-        || die "MySQL root 初始化失败"
-      conf_set DB_PASSWORD "${rootPwd}"
-    else
-      MYSQL_PWD="${rootAuth}" "${MYSQL_HOME}/bin/mysql" --protocol=socket -uroot -e \
-        "CREATE DATABASE IF NOT EXISTS \`${dbName}\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci; CREATE USER IF NOT EXISTS '${dbUser}'@'127.0.0.1' IDENTIFIED BY '${dbPwd}'; ALTER USER '${dbUser}'@'127.0.0.1' IDENTIFIED BY '${dbPwd}'; GRANT ALL PRIVILEGES ON \`${dbName}\`.* TO '${dbUser}'@'127.0.0.1'; ALTER USER 'root'@'localhost' IDENTIFIED BY '${rootPwd}'; FLUSH PRIVILEGES;" \
-        || die "MySQL 业务账号初始化失败"
-    fi
-  fi
+  normalize_pristine_managed_mysql_credentials "${MYSQL_HOME}/bin/mysql" "${mysqlRun}/mysql.sock" \
+    "127.0.0.1" "${dbPort}" "${dbName}" "${dbUser}" "${dbPwd}" "${rootPwd}"
+  dbPwd="${MANAGED_DB_PASSWORD}"; rootPwd="${MANAGED_ROOT_PASSWORD}"
+  reconcile_managed_mysql_credentials "${MYSQL_HOME}/bin/mysql" "${mysqlRun}/mysql.sock" \
+    "127.0.0.1" "${dbPort}" "${dbName}" "${dbUser}" "${dbPwd}" "${rootPwd}"
   command -v mysql >/dev/null 2>&1 || ln -s "${MYSQL_HOME}/bin/mysql" /usr/local/bin/mysql
   command -v mysqldump >/dev/null 2>&1 || ln -s "${MYSQL_HOME}/bin/mysqldump" /usr/local/bin/mysqldump
   ok "MySQL ${MYSQL_VERSION} 已安装为独立服务 ${MYSQL_MANAGED_SERVICE}"
@@ -1681,6 +1750,7 @@ EOF
 
 ensure_manual_mysql() {
   local installMode="$1" host port user pwd version serverBinaryVersion service
+  local managedMysqlHome managedSocket rootPwd database
   host="$(conf_get DB_HOST 127.0.0.1)"; port="$(conf_get DB_PORT 3306)"
   user="$(conf_get DB_USERNAME aid)"; pwd="$(conf_get DB_PASSWORD '')"
   validate_port DB_PORT "${port}"
@@ -1698,6 +1768,28 @@ ensure_manual_mysql() {
     fi
   else
     ok "已配置外部 MySQL ${host}:${port}，不会安装或修改本机 MySQL"
+  fi
+  managedMysqlHome="${DATA_ROOT}/runtime/mysql-${MYSQL_VERSION}"
+  managedSocket="${DATA_ROOT}/run/mysql/mysql.sock"
+  if [[ ( "${host}" == "127.0.0.1" || "${host}" == "localhost" ) \
+      && -x "${managedMysqlHome}/bin/mysql" && -S "${managedSocket}" ]] \
+      && systemctl is-active --quiet "${MYSQL_MANAGED_SERVICE}"; then
+    database="$(conf_get DB_NAME aid)"
+    rootPwd="$(conf_get MYSQL_ROOT_PASSWORD '')"
+    [[ -n "${rootPwd}" ]] || die "受管 MySQL 必须在 ${CONF} 配置 MYSQL_ROOT_PASSWORD"
+    normalize_pristine_managed_mysql_credentials "${managedMysqlHome}/bin/mysql" "${managedSocket}" \
+      127.0.0.1 "${port}" "${database}" "${user}" "${pwd}" "${rootPwd}"
+    pwd="${MANAGED_DB_PASSWORD}"; rootPwd="${MANAGED_ROOT_PASSWORD}"
+    reconcile_managed_mysql_credentials "${managedMysqlHome}/bin/mysql" "${managedSocket}" \
+      127.0.0.1 "${port}" "${database}" "${user}" "${pwd}" "${rootPwd}"
+    # 上一次若在账号初始化阶段中断，prepare_managed_mysql 尚未来得及创建命令入口。
+    # 优先复用受管 MySQL 自带客户端，避免再通过 yum 安装 MariaDB 兼容客户端。
+    if ! command -v mysql >/dev/null 2>&1 && [[ ! -e /usr/local/bin/mysql && ! -L /usr/local/bin/mysql ]]; then
+      ln -s "${managedMysqlHome}/bin/mysql" /usr/local/bin/mysql
+    fi
+    if ! command -v mysqldump >/dev/null 2>&1 && [[ ! -e /usr/local/bin/mysqldump && ! -L /usr/local/bin/mysqldump ]]; then
+      ln -s "${managedMysqlHome}/bin/mysqldump" /usr/local/bin/mysqldump
+    fi
   fi
   user="$(conf_get DB_USERNAME aid)"; pwd="$(conf_get DB_PASSWORD '')"
   ensure_host_command mysql "MySQL客户端" "default-mysql-client" "mariadb" "${installMode}"
@@ -3333,7 +3425,7 @@ install_management_command() {
     return 0
   fi
   ln -s "${MANAGED_SCRIPT}" "${commandPath}" 2>/dev/null \
-    && ok "已安装管理命令: sudo aid（更新: sudo aid update；查看地址: sudo aid default）" \
+    && ok "已安装管理命令: sudo aid（更新: sudo aid update；查看地址: sudo aid default；数据库: sudo aid mysql）" \
     || warn "无法创建 ${commandPath}，不影响部署与后台在线升级"
 }
 
@@ -3750,14 +3842,14 @@ EOF
   if [[ -z "${dbPwd}" ]]; then
     if [[ "${installMode}" == "auto" && ( "${dbHost}" == "127.0.0.1" || "${dbHost}" == "localhost" ) ]] \
         && ! command -v mysqld >/dev/null 2>&1 && ! tcp_reachable "${dbHost}" "${dbPort}"; then
-      dbPwd="$(gen_secret)"
+      dbPwd="$(gen_database_secret)"
       conf_set DB_PASSWORD "${dbPwd}"
       rootPwd="$(conf_get MYSQL_ROOT_PASSWORD '')"
       if [[ -z "${rootPwd}" ]]; then
-        rootPwd="$(gen_secret)"
+        rootPwd="$(gen_database_secret)"
         conf_set MYSQL_ROOT_PASSWORD "${rootPwd}"
       fi
-      ok "全新本机 MySQL 将使用自动生成的强随机 root/业务密码"
+      ok "全新本机 MySQL 将使用自动生成的12位 root/业务密码"
     else
       risk "已有或外部 MySQL 必须填写真实数据库密码"
       dbPwd="$(ask_secret '请输入数据库密码（输入内容不会显示）')"
@@ -3936,8 +4028,8 @@ EOF
   if docker_profile_enabled mysql; then
     for key in MYSQL_ROOT_PASSWORD DB_PASSWORD; do
       if [[ -z "$(env_get "${key}" '')" ]]; then
-        env_set "${key}" "$(gen_secret)"
-        ok "${key} 留空，已为内置 MySQL 生成强随机值写入 .env"
+        env_set "${key}" "$(gen_database_secret)"
+        ok "${key} 留空，已为内置 MySQL 生成12位随机值写入 .env"
       fi
     done
   fi
@@ -4469,18 +4561,89 @@ ensure_admin_entry_code() { # ensure_admin_entry_code <docker|manual>
   ok "已为新部署生成12位随机后台访问码"
 }
 
+docker_container_env_value() { # docker_container_env_value <容器> <变量名>
+  docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$1" 2>/dev/null \
+    | sed -n "s/^$2=//p" | head -n 1
+}
+
+docker_managed_mysql_root_exec() { # <password> [mysql参数...]
+  local password="$1"
+  shift
+  MYSQL_PWD="${password}" docker exec -i -e MYSQL_PWD aid-mysql mysql \
+    --connect-timeout=3 --protocol=socket -uroot "$@"
+}
+
+docker_managed_mysql_business_exec() { # <password> <database> <user> [mysql参数...]
+  local password="$1" database="$2" user="$3"
+  shift 3
+  MYSQL_PWD="${password}" docker exec -i -e MYSQL_PWD aid-mysql mysql \
+    --connect-timeout=3 --protocol=TCP --host=127.0.0.1 --port=3306 \
+    --database="${database}" --user="${user}" "$@"
+}
+
+# MySQL 镜像只会在空数据目录首次应用 MYSQL_* 环境变量。这里在每次启动时把
+# 已存在数据目录中的账号重新同步到正式 .env，确保修改配置后不会出现容器健康、
+# 但业务账号仍使用旧密码的分裂状态。
+reconcile_docker_managed_mysql_credentials() { # reconcile_docker_managed_mysql_credentials <上次容器root密码或空>
+  local previousRootPwd="$1" rootPwd dbPwd database user rootAuth="" deadline status
+  rootPwd="$(env_get MYSQL_ROOT_PASSWORD '')"; dbPwd="$(env_get DB_PASSWORD '')"
+  database="$(env_get DB_NAME aid)"; user="$(env_get DB_USERNAME aid)"
+  [[ -n "${rootPwd}" && -n "${dbPwd}" ]] || { err "内置 MySQL 凭证不能为空"; return 1; }
+  [[ "${user}" != "root" ]] \
+    || { err "Docker 内置 MySQL 的 DB_USERNAME 不能使用 root，请配置独立业务账号"; return 1; }
+
+  deadline=$(( $(date +%s) + 120 ))
+  while [[ $(date +%s) -lt ${deadline} ]]; do
+    if docker_managed_mysql_root_exec "${rootPwd}" -e 'SELECT 1' >/dev/null 2>&1; then
+      rootAuth="${rootPwd}"
+      break
+    fi
+    if [[ -n "${previousRootPwd}" && "${previousRootPwd}" != "${rootPwd}" ]] \
+        && docker_managed_mysql_root_exec "${previousRootPwd}" -e 'SELECT 1' >/dev/null 2>&1; then
+      rootAuth="${previousRootPwd}"
+      break
+    fi
+    if docker_managed_mysql_root_exec "" -e 'SELECT 1' >/dev/null 2>&1; then
+      rootAuth=""
+      break
+    fi
+    status="$(docker inspect --format '{{.State.Status}}' aid-mysql 2>/dev/null || true)"
+    if [[ "${status}" == "exited" || "${status}" == "dead" ]]; then
+      docker_container_diagnostics aid-mysql "内置 MySQL 5.7"
+      return 1
+    fi
+    sleep 3
+  done
+  if [[ -z "${rootAuth}" ]] \
+      && ! docker_managed_mysql_root_exec "" -e 'SELECT 1' >/dev/null 2>&1; then
+    err "内置 MySQL root 密码与 ${ENV_FILE} 不一致，且无法从上次容器配置恢复"
+    return 1
+  fi
+
+  docker_managed_mysql_root_exec "${rootAuth}" -e \
+    "CREATE DATABASE IF NOT EXISTS \`${database}\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci; CREATE USER IF NOT EXISTS '${user}'@'%' IDENTIFIED BY '${dbPwd}'; ALTER USER '${user}'@'%' IDENTIFIED BY '${dbPwd}'; GRANT ALL PRIVILEGES ON \`${database}\`.* TO '${user}'@'%'; ALTER USER 'root'@'localhost' IDENTIFIED BY '${rootPwd}'; FLUSH PRIVILEGES;" \
+    >/dev/null || { err "内置 MySQL 账号同步失败"; return 1; }
+  docker_managed_mysql_root_exec "${rootPwd}" -e 'SELECT 1' >/dev/null 2>&1 \
+    || { err "内置 MySQL root 凭证同步校验失败"; return 1; }
+  docker_managed_mysql_business_exec "${dbPwd}" "${database}" "${user}" -e 'SELECT 1' >/dev/null 2>&1 \
+    || { err "内置 MySQL 业务凭证同步校验失败"; return 1; }
+  ok "内置 MySQL 数据库、root 与业务账号已和配置文件保持一致"
+}
+
 # 确保 MySQL 就绪。外部模式只做连接及 5.7 版本校验，绝不拉起 aid-mysql。
 ensure_mysql_ready() {
-  local mode AID_DEPENDENCY_INSTALL_MODE; mode="${1:-$(detect_mode)}"
+  local mode AID_DEPENDENCY_INSTALL_MODE previousRootPwd=""; mode="${1:-$(detect_mode)}"
   if [[ "${mode}" != "docker" ]]; then return 0; fi
   AID_DEPENDENCY_INSTALL_MODE="$(dependency_install_mode docker)"
   ensure_docker_image "mysql:5.7" "MySQL5.7"
   if docker_profile_enabled mysql; then
     log "启动并检查内置 MySQL 5.7..."
+    previousRootPwd="$(docker_container_env_value aid-mysql MYSQL_ROOT_PASSWORD || true)"
     if ! compose_cmd up -d mysql; then
       docker_container_diagnostics aid-mysql "内置 MySQL 5.7"
       return 1
     fi
+    reconcile_docker_managed_mysql_credentials "${previousRootPwd}" || return 1
     wait_docker_container_healthy aid-mysql "内置 MySQL 5.7" 120 || return 1
   else
     local version
@@ -4966,38 +5129,53 @@ print_https_guidance() { # print_https_guidance <模式> <配置文件> <公网I
 }
 
 print_mysql_access_guidance() { # print_mysql_access_guidance <模式> <公网IP或空> <配置文件>
-  local mode="$1" publicIp="$2" configFile="$3" dbHost dbPort dbName dbUser mysqlPort
+  local mode="$1" publicIp="$2" configFile="$3" dbHost dbPort dbName dbUser mysqlPort dbPwd rootPwd
   if [[ "${mode}" == "docker" ]]; then
     dbHost="$(env_get DB_HOST mysql)"; dbPort="$(env_get DB_PORT 3306)"
     dbName="$(env_get DB_NAME aid)"; dbUser="$(env_get DB_USERNAME aid)"
+    dbPwd="$(env_get DB_PASSWORD '')"; rootPwd="$(env_get MYSQL_ROOT_PASSWORD '')"
     mysqlPort="$(env_get MYSQL_PORT 3306)"
     if docker_profile_enabled mysql; then
       echo ""
-      echo "Navicat 连接内置 MySQL（推荐 SSH 隧道，不开放公网 3306）："
+      echo "MySQL 数据库信息（敏感信息，仅限服务器管理员查看）："
+      echo "  部署类型       : Docker 内置 MySQL 5.7"
       echo "  SSH主机/端口 : ${publicIp:-服务器公网IP}:22（使用服务器运维账号）"
       echo "  MySQL主机/端口: 127.0.0.1:${mysqlPort}"
       echo "  数据库/用户名 : ${dbName} / ${dbUser}"
-      echo "  数据库密码位置: ${ENV_FILE} 中的 DB_PASSWORD（不会在终端明文打印）"
+      echo "  业务账号密码   : ${dbPwd}"
+      echo "  root账号密码   : ${rootPwd}"
+      echo "  配置文件       : ${configFile}"
+      echo "  Navicat建议    : 使用 SSH 隧道，不要向公网开放 3306"
+      echo "  安全提醒       : 请勿截图、转发或把以上密码写入公开日志"
       return 0
     fi
   else
     dbHost="$(conf_get DB_HOST 127.0.0.1)"; dbPort="$(conf_get DB_PORT 3306)"
     dbName="$(conf_get DB_NAME aid)"; dbUser="$(conf_get DB_USERNAME aid)"
+    dbPwd="$(conf_get DB_PASSWORD '')"; rootPwd="$(conf_get MYSQL_ROOT_PASSWORD '')"
     if [[ "${dbHost}" == "127.0.0.1" || "${dbHost}" == "localhost" ]]; then
       echo ""
-      echo "Navicat 连接本机 MySQL（推荐 SSH 隧道，不开放公网 3306）："
+      echo "MySQL 数据库信息（敏感信息，仅限服务器管理员查看）："
+      echo "  部署类型       : 本机 MySQL 5.7"
       echo "  SSH主机/端口 : ${publicIp:-服务器公网IP}:22（使用服务器运维账号）"
       echo "  MySQL主机/端口: 127.0.0.1:${dbPort}"
       echo "  数据库/用户名 : ${dbName} / ${dbUser}"
-      echo "  数据库密码位置: ${CONF} 中的 DB_PASSWORD（不会在终端明文打印）"
+      echo "  业务账号密码   : ${dbPwd}"
+      [[ -z "${rootPwd}" ]] || echo "  root账号密码   : ${rootPwd}"
+      echo "  配置文件       : ${configFile}"
+      echo "  Navicat建议    : 使用 SSH 隧道，不要向公网开放 3306"
+      echo "  安全提醒       : 请勿截图、转发或把以上密码写入公开日志"
       return 0
     fi
   fi
   echo ""
-  echo "Navicat 连接外部 MySQL："
-  echo "  AID 当前连接: ${dbHost}:${dbPort}/${dbName}（用户 ${dbUser}）"
+  echo "外部 MySQL 数据库信息（敏感信息，仅限服务器管理员查看）："
+  echo "  AID 当前连接   : ${dbHost}:${dbPort}/${dbName}"
+  echo "  业务账号       : ${dbUser}"
+  echo "  业务账号密码   : ${dbPwd}"
+  echo "  配置文件       : ${configFile}"
   echo "  请使用数据库服务商提供的可访问地址；若仅内网开放，应通过数据库所在网络的 SSH/云数据库代理连接。"
-  echo "  数据库密码保存在 ${configFile} 的 DB_PASSWORD 中，不会在终端明文打印。"
+  echo "  安全提醒       : 请勿截图、转发或把以上密码写入公开日志"
 }
 
 print_access_info() { # print_access_info [strict]
@@ -5787,6 +5965,21 @@ do_default() {
   print_access_info strict
 }
 
+do_mysql_info() {
+  require_root
+  local mode configFile publicIp
+  mode="$(detect_mode)"
+  [[ "${mode}" != "none" ]] || die "尚未部署，请先完成首次部署"
+  if [[ "${mode}" == "docker" ]]; then
+    configFile="${ENV_FILE}"
+  else
+    configFile="${CONF}"
+  fi
+  [[ -f "${configFile}" ]] || die "部署配置文件不存在: ${configFile}"
+  publicIp="$(detect_public_ipv4 || true)"
+  print_mysql_access_guidance "${mode}" "${publicIp}" "${configFile}"
+}
+
 remove_aid_docker_runtime() { # remove_aid_docker_runtime <keep|purge>
   local cleanupMode="$1" container network workdir repository imageId networks=""
   local -a containers=(
@@ -6121,6 +6314,7 @@ show_menu() {
   echo " 11) 安装/修复在线升级器"
   echo " 12) 查看登录地址与数据库初始化账号"
   echo " 13) 卸载 AID（可选保留数据或彻底清除）"
+  echo " 14) 查看 MySQL 数据库连接与账号信息"
   echo "  0) 退出"
   echo "------------------------------------------------------"
 }
@@ -6145,13 +6339,14 @@ main() {
     stop)           do_stop; exit $? ;;
     status)         do_status; exit $? ;;
     default)        do_default; exit $? ;;
+    mysql|db)       do_mysql_info; exit $? ;;
     uninstall)      do_uninstall "${2:-}"; exit $? ;;
     logs)           do_logs; exit $? ;;
     config)         do_config; exit $? ;;
     backup)         do_backup; exit $? ;;
     setup-updater)  do_setup_updater; exit $? ;;
     '') ;;
-    *) die "未知子命令: $1（可用: install/auto/install-docker/install-manual/update/rollback/restart/stop/status/default/logs/config/backup/setup-updater/uninstall）" ;;
+    *) die "未知子命令: $1（可用: install/auto/install-docker/install-manual/update/rollback/restart/stop/status/default/mysql/logs/config/backup/setup-updater/uninstall）" ;;
   esac
 
   # 交互菜单模式：Ctrl+C 只中断当前操作（如日志跟踪）回到菜单，不退出脚本
@@ -6174,6 +6369,7 @@ main() {
       11) do_setup_updater || true ;;
       12) do_default || true ;;
       13) do_uninstall || true ;;
+      14) do_mysql_info || true ;;
       0) exit 0 ;;
       *) warn "无效选择" ;;
     esac

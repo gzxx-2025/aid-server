@@ -34,7 +34,7 @@ deploy/
 if command -v curl >/dev/null 2>&1; then curl -fL --retry 3 -o aid-install.sh https://gitee.com/gzxx-2025/aid-server/raw/master/deploy/aid.sh; elif command -v wget >/dev/null 2>&1; then wget -O aid-install.sh https://gitee.com/gzxx-2025/aid-server/raw/master/deploy/aid.sh; else echo '请先安装 curl 或 wget'; false; fi && sudo env AID_REMOTE_BOOTSTRAP=1 bash aid-install.sh install
 ```
 
-这条命令不会把网络响应直接送入 Shell：只有 `curl/wget` 成功保存 `aid-install.sh` 后才执行。`AID_REMOTE_BOOTSTRAP=1` 表示本次必须使用刚下载的最新控制逻辑；在已部署服务器上不会被旧的受管脚本接管。`install` 是自动入口：未部署时执行推荐的 Docker 首次安装；检测到已经部署时自动改为检查并升级，不会重复初始化数据库。部署成功后还会安全创建 `sudo aid` 管理命令（如果系统已有同名命令则不覆盖）。随时执行 `sudo aid default` 可重新显示用户端、管理端、公网/内网、HTTPS 入口和数据库初始化管理员说明。
+这条命令不会把网络响应直接送入 Shell：只有 `curl/wget` 成功保存 `aid-install.sh` 后才执行。`AID_REMOTE_BOOTSTRAP=1` 表示本次必须使用刚下载的最新控制逻辑；在已部署服务器上不会被旧的受管脚本接管。`install` 是自动入口：未部署时执行推荐的 Docker 首次安装；检测到已经部署时自动改为检查并升级，不会重复初始化数据库。部署成功后还会安全创建 `sudo aid` 管理命令（如果系统已有同名命令则不覆盖）。随时执行 `sudo aid default` 可重新显示用户端、管理端、公网/内网、HTTPS 入口、数据库初始化管理员及 MySQL 连接信息；只查看 MySQL 时执行 `sudo aid mysql`。
 
 Gitee 原始文件访问失败时，可改用 GitHub 备用地址：
 
@@ -102,6 +102,7 @@ sudo env AID_REMOTE_BOOTSTRAP=1 AID_RELEASE_CHANNEL=beta bash aid-install.sh upd
  11) 安装/修复在线升级器
  12) 查看登录地址与数据库初始化账号
  13) 卸载 AID（可选保留数据或彻底清除）
+ 14) 查看 MySQL 数据库连接与账号信息
   0) 退出
 ------------------------------------------------------
 ```
@@ -113,8 +114,9 @@ sudo env AID_REMOTE_BOOTSTRAP=1 AID_RELEASE_CHANNEL=beta bash aid-install.sh upd
 - **自动更新（菜单 3）**：按已保存渠道读取最新版本；相同版本直接提示已是最新，远端版本较低时拒绝自动降级；确认后才拉取标签并构建，且**升级前自动做完整备份**（程序产物 + 数据库全量 + 版本标记，保留最近 3 份）；构建包内增量 SQL 自动执行
 - **回滚（菜单 4）**：从最近 3 份升级前备份中选择还原——程序产物直接还原；数据库默认不还原（避免丢失升级后产生的业务数据），需要时显式确认还原；回滚前还会对当前状态再做一份保护备份，误操作可救
 - **在线升级器自动安装**：源码构建包内置当前版本升级器二进制，两种部署方式首次部署都会自动装好（Docker 为编排内 `aid-updater` 容器，手动为 systemd 服务），部署完成即可用后台页面一键升级；损坏时菜单 11（或 `sudo aid setup-updater`）会从签名清单下载当前架构的小型升级器并完成健康检查
-- **密钥自动生成**：数据库密码、JWT 密钥留空自动生成强随机值
-- 受管安装器支持统一直通子命令：`sudo aid update` / `backup` / `restart` / `status` / `default` / `logs` / `rollback` / `setup-updater` / `uninstall`，不受当前工作目录影响
+- **密钥自动生成**：内置 MySQL 的 root 与业务密码留空时分别生成 12 位字母数字随机值，JWT 密钥仍使用 48 位随机值；外部数据库密码始终由管理员提供，安装器不会擅自改写
+- **受管数据库配置一致性**：Docker 与手动模式都会把内置 MySQL 的库名、root 密码、业务账号、业务密码和授权同步到正式配置，并在启动主程序前回连验证；外部 MySQL 只验证配置中的账号，不修改服务商账号
+- 受管安装器支持统一直通子命令：`sudo aid update` / `backup` / `restart` / `status` / `default` / `mysql` / `logs` / `rollback` / `setup-updater` / `uninstall`，不受当前工作目录影响
 - 明确授权的无人值守环境可设置 `AID_ASSUME_YES=1` 跳过部署或升级确认；该变量会绕过风险确认，**不要在交互式生产运维中长期配置**
 
 ### 卸载 AID
@@ -227,7 +229,7 @@ sudo systemctl daemon-reload && sudo systemctl restart docker
 if command -v curl >/dev/null 2>&1; then curl -fL --retry 3 -o aid-install.sh https://gitee.com/gzxx-2025/aid-server/raw/master/deploy/aid.sh; elif command -v wget >/dev/null 2>&1; then wget -O aid-install.sh https://gitee.com/gzxx-2025/aid-server/raw/master/deploy/aid.sh; else echo '请先安装 curl 或 wget'; false; fi && sudo env AID_REMOTE_BOOTSTRAP=1 bash aid-install.sh install
 ```
 
-脚本会先从版本标签源码构建本地包，再从本地包提取部署套件，并由 `.env.example` 自动生成正式配置；数据库密码、JWT 密钥等空值会生成强随机值写回。单文件首次部署的配置真源是 `/data/aid/config/docker.env`，完成后脚本也会明确打印实际路径。默认采用内置 MySQL + Redis、关闭 RocketMQ 与 HTTPS 的保守组合。需要改端口、HTTPS、外部 MySQL/Redis 或 RocketMQ 时，编辑实际配置文件后执行 `sudo aid restart` 生效。
+脚本会先从版本标签源码构建本地包，再从本地包提取部署套件，并由 `.env.example` 自动生成正式配置；内置 MySQL 的 root/业务密码留空时生成 12 位字母数字随机值，JWT 密钥仍生成 48 位随机值。单文件首次部署的配置真源是 `/data/aid/config/docker.env`，完成后脚本也会明确打印实际路径。默认采用内置 MySQL + Redis、关闭 RocketMQ 与 HTTPS 的保守组合。需要改端口、HTTPS、外部 MySQL/Redis 或 RocketMQ 时，编辑实际配置文件后执行 `sudo aid restart` 生效。
 
 Docker 模式不会要求宿主机另装 Git、JDK、Node、Go、Nginx 或 Redis：Node.js 22.22.0 与 Maven/Go 使用一次性隔离构建容器；OpenJDK 17.0.20 从校验后的压缩包生成本地固定运行镜像；HTTP Nginx 为运行容器；MySQL、Redis、RocketMQ 与 HTTPS 由 `COMPOSE_PROFILES` 决定是否启动对应容器。宿主机只需要 Docker Engine 24+ 与 Compose v2；缺失时经管理员确认可由脚本安装。
 
@@ -268,7 +270,13 @@ Docker Nginx 不是写进宿主机 `/etc/nginx`：受管 HTTP 配置位于 `/dat
 sudo aid default
 ```
 
-该命令会从当前配置和数据库读取真实后台访问码，打印用户端、管理端的公网/内网及 HTTPS 地址。它只会显示 `sql/aid-init.sql` 定义的初始化账号 `admin / admin123` 并明确标注其性质；管理员修改后的密码以不可逆摘要保存，命令不会反查、回显或重置密码，也不会重新初始化数据库。若数据库未运行，命令会明确失败并提示先执行 `sudo aid restart`，不会用猜测的访问码拼接错误地址。
+该命令会从当前配置和数据库读取真实后台访问码，打印用户端、管理端的公网/内网及 HTTPS 地址，并显示当前 MySQL 主机、端口、库名、业务账号、业务密码以及内置 MySQL 的 root 密码。它只会显示 `sql/aid-init.sql` 定义的初始化账号 `admin / admin123` 并明确标注其性质；管理员修改后的后台登录密码以不可逆摘要保存，命令不会反查、回显或重置后台账号密码，也不会重新初始化数据库。若数据库未运行，命令会明确失败并提示先执行 `sudo aid restart`，不会用猜测的访问码拼接错误地址。数据库信息属于高敏感内容，命令只允许 root 执行，不要截图、转发或复制到公开日志。
+
+只查看数据库连接与账号信息时执行：
+
+```bash
+sudo aid mysql
+```
 
 没有域名不影响 HTTP 部署：必须保留 `HTTP_PORT` 和 `ADMIN_PORT`，直接用服务器 IP 访问即可。Docker 保持 `COMPOSE_PROFILES=mysql,redis`（不要加入 `https`）；手动部署保持 `HTTPS_ENABLED=false`。此时 `HTTPS_PUBLIC_DOMAIN`、`HTTPS_ADMIN_DOMAIN`、证书和私钥路径只是占位值，不会读取或校验。不要把 `HTTP_PORT` 改成 443，443 端口本身不代表已启用 TLS。
 
@@ -324,7 +332,7 @@ DB_PASSWORD=请填写真实强密码
 
 #### 使用 Navicat 连接 MySQL
 
-内置 MySQL 和手动部署的本机 MySQL 默认不向公网暴露 3306，这是有意的安全设计。Navicat 推荐启用“SSH 隧道”：SSH 主机填写服务器公网 IP、端口通常为 22，并使用服务器运维账号；MySQL 主机填写 `127.0.0.1`，Docker 模式端口填写 `MYSQL_PORT`，手动模式端口填写 `DB_PORT`；数据库、用户名分别使用 `DB_NAME`、`DB_USERNAME`，密码从权限为 600 的正式配置文件中的 `DB_PASSWORD` 获取。Docker 单文件部署通常使用 `/data/aid/config/docker.env`，手动部署使用 `/data/aid/aid-deploy.conf`，以安装完成页打印的实际路径为准。
+内置 MySQL 和手动部署的本机 MySQL 默认不向公网暴露 3306，这是有意的安全设计。Navicat 推荐启用“SSH 隧道”：SSH 主机填写服务器公网 IP、端口通常为 22，并使用服务器运维账号；MySQL 主机填写 `127.0.0.1`，Docker 模式端口填写 `MYSQL_PORT`，手动模式端口填写 `DB_PORT`；数据库、用户名分别使用 `DB_NAME`、`DB_USERNAME`。部署完成页会打印业务密码和内置 root 密码，之后可用 `sudo aid mysql` 再次查看；Docker 单文件部署通常使用 `/data/aid/config/docker.env`，手动部署使用 `/data/aid/aid-deploy.conf`，以安装完成页打印的实际路径为准。配置文件权限为 600，数据库信息同样不要复制到公开日志。
 
 使用外部 MySQL 时，Navicat 应连接数据库服务商提供的可访问地址，而不是 AID 服务器 IP。外部库仅开放内网时，应使用数据库所在网络的 SSH 跳板机、VPN 或云数据库代理。不要为了方便把 Docker Compose 的 MySQL 绑定从 `127.0.0.1` 改成 `0.0.0.0`，也不要向全网开放安全组 3306。
 
