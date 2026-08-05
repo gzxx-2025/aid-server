@@ -296,9 +296,12 @@ DB_PASSWORD=请填写真实强密码
 **RocketMQ 三态**（`.env` 内注释有完整组合示例）：
 - **不启用（默认）**：`ROCKETMQ_ENABLED=false`，系统走本地任务模式，功能完整，MQ 组件完全不加载
 - **内置容器**：`COMPOSE_PROFILES=mysql,redis,mq` + `ROCKETMQ_ENABLED=true`；Broker/NameServer 内存用 `MQ_BROKER_JAVA_OPTS`/`MQ_NAMESRV_JAVA_OPTS` 调整（镜像默认 8G 大堆已覆盖为 1G/256m）。如同时填写 `ROCKETMQ_ACCESS_KEY` 与 `ROCKETMQ_SECRET_KEY`，内置 Broker 会自动开启 ACL；两项同时留空则只适合可信内网。启用后到后台「消息队列配置」开启 MQ 派发并测试连接
+- **宿主机已有实例**：`COMPOSE_PROFILES` 不含 `mq`，设置 `ROCKETMQ_ENABLED=true`、`ROCKETMQ_NAMESERVER=host.docker.internal:9876`。Docker 中的 `127.0.0.1`/`localhost` 指向 AID 业务容器自身，因此会被安装器和升级器拒绝；宿主机 NameServer 必须监听 Docker 网桥可访问的地址
 - **外部实例**（另一台机器的 MQ）：`ROCKETMQ_ENABLED=true` + `ROCKETMQ_NAMESERVER=192.168.1.10:9876`，本机不启动 MQ 容器、不占内存；外部服务启用 ACL 时同时填写 `ROCKETMQ_ACCESS_KEY` 与 `ROCKETMQ_SECRET_KEY`，未启用 ACL 时两项同时留空
 
 外部 MySQL、外部 Redis、外部 RocketMQ，同时启用内置 HTTPS 的完整 Profile 写法是 `COMPOSE_PROFILES=https`；外部组件不加入 `mysql`/`redis`/`mq` Profile。RocketMQ ACL 凭证仅允许字母和数字，会同时注入生产者、声明式消费者和后台连接测试；使用内置 MQ 时还会在容器运行期生成 Broker ACL 文件。页面只显示“已配置”，不会回传原文；真实凭证只保存在权限为 600 的正式运行配置中，不会写入仓库或配置模板。
+
+安装、更新和 `sudo aid restart` 都会从临时 AID 容器的网络视角探测外部 NameServer，而不是只检查宿主机端口。探测失败会打印实际配置文件路径（单文件 Docker 部署默认 `/data/aid/config/docker.env`）以及关闭、内置、宿主机、其他服务器四种修复写法。NameServer 可达仍不代表 Broker 地址正确：外部 Broker 的 `brokerIP1` 必须填写 AID 容器可访问的宿主机网桥地址或内网 IP，不能发布 `127.0.0.1`。
 
 内置 Broker 通过 `ROCKETMQ_FLUSH_DISK_TYPE` 选择刷盘策略：`ASYNC_FLUSH`（默认）性能优先，`SYNC_FLUSH` 在 Broker 返回成功前同步刷盘、持久性更高但延迟更大。AID 的生成任务本身仍通过 MQ 异步消费；生产者发送会等待 Broker 确认，不提供“发送后不看结果”的无确认模式，避免任务未入队却被业务误判为成功。外部或手动安装的 RocketMQ 必须在其 Broker 配置中设置 `flushDiskType`，AID 侧字段不会远程改写外部服务。
 

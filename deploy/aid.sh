@@ -986,17 +986,44 @@ rocketmq_nameserver_entries() { # rocketmq_nameserver_entries <host:port[;host:p
   printf '%s\n' "$1" | tr ';,' '\n' | sed '/^[[:space:]]*$/d; s/^[[:space:]]*//; s/[[:space:]]*$//'
 }
 
-validate_rocketmq_nameserver_format() {
-  local value="$1" entry host port count=0
+rocketmq_config_error() { # rocketmq_config_error <docker|manual> <错误说明>
+  local mode="$1" message="$2" configPath
+  if [[ "${mode}" == "docker" ]]; then configPath="${ENV_FILE}"; else configPath="${CONF}"; fi
+  err "${message}"
+  echo -e "  ${C_CYAN}请修改配置文件${C_RESET}: ${configPath}" >&2
+  if [[ "${mode}" == "docker" ]]; then
+    echo "  关闭 MQ   : COMPOSE_PROFILES 删除 mq，ROCKETMQ_ENABLED=false" >&2
+    echo "  内置 MQ   : COMPOSE_PROFILES 加入 mq，ROCKETMQ_ENABLED=true，ROCKETMQ_NAMESERVER=rocketmq-nameserver:9876" >&2
+    echo "  宿主机 MQ : COMPOSE_PROFILES 删除 mq，ROCKETMQ_ENABLED=true，ROCKETMQ_NAMESERVER=host.docker.internal:9876" >&2
+    echo "  外部 MQ   : COMPOSE_PROFILES 删除 mq，ROCKETMQ_ENABLED=true，ROCKETMQ_NAMESERVER=内网IP或DNS:9876" >&2
+    echo "  修改完成后重新执行当前命令；已有部署也可执行 sudo aid restart。" >&2
+  else
+    echo "  关闭 MQ   : ROCKETMQ_ENABLED=false" >&2
+    echo "  外部 MQ   : ROCKETMQ_ENABLED=true，ROCKETMQ_NAMESERVER=内网IP或DNS:9876" >&2
+    echo "  手动部署不会自动安装 RocketMQ；修改后重新执行当前命令或 sudo aid restart。" >&2
+  fi
+  exit 1
+}
+
+validate_rocketmq_nameserver_format() { # validate_rocketmq_nameserver_format <值> [docker|manual]
+  local value="$1" mode="${2:-}" entry host port count=0
   while IFS= read -r entry; do
-    [[ "${entry}" =~ ^([A-Za-z0-9._-]+):([0-9]+)$ ]] \
-      || die "ROCKETMQ_NAMESERVER 必须使用 host:port，多个地址用分号分隔"
+    if [[ ! "${entry}" =~ ^([A-Za-z0-9._-]+):([0-9]+)$ ]]; then
+      [[ -z "${mode}" ]] && die "ROCKETMQ_NAMESERVER 必须使用 host:port，多个地址用分号分隔"
+      rocketmq_config_error "${mode}" "ROCKETMQ_NAMESERVER 必须使用 host:port，多个地址用分号分隔"
+    fi
     host="${BASH_REMATCH[1]}"; port="${BASH_REMATCH[2]}"
-    [[ -n "${host}" ]] || die "RocketMQ NameServer 主机不能为空"
-    validate_port "RocketMQ NameServer端口" "${port}"
+    if [[ -z "${host}" || ! "${port}" =~ ^[0-9]+$ || ${#port} -gt 5 ]] \
+        || (( 10#${port} < 1 || 10#${port} > 65535 )); then
+      [[ -z "${mode}" ]] && die "RocketMQ NameServer 的主机或端口无效"
+      rocketmq_config_error "${mode}" "RocketMQ NameServer 的主机或端口无效: ${entry}"
+    fi
     count=$((count + 1))
   done < <(rocketmq_nameserver_entries "${value}")
-  (( count > 0 )) || die "启用 RocketMQ 时至少配置一个 NameServer"
+  if (( count == 0 )); then
+    [[ -z "${mode}" ]] && die "启用 RocketMQ 时至少配置一个 NameServer"
+    rocketmq_config_error "${mode}" "启用 RocketMQ 时至少配置一个 NameServer"
+  fi
 }
 
 rocketmq_setting() { # rocketmq_setting <docker|manual> <key> <默认值>
@@ -1004,46 +1031,83 @@ rocketmq_setting() { # rocketmq_setting <docker|manual> <key> <默认值>
 }
 
 validate_rocketmq_mode() { # validate_rocketmq_mode <docker|manual>
-  local mode="$1" enabled nameserver
+  local mode="$1" enabled nameserver entry host
   enabled="$(rocketmq_setting "${mode}" ROCKETMQ_ENABLED false)"
   if [[ "${mode}" == "docker" ]] && docker_profile_enabled mq && [[ "${enabled}" != "true" ]]; then
-    die "COMPOSE_PROFILES 包含 mq 时必须同时设置 ROCKETMQ_ENABLED=true；默认关闭请移除 mq"
+    rocketmq_config_error docker "COMPOSE_PROFILES 包含 mq，但 ROCKETMQ_ENABLED 不是 true"
   fi
   [[ "${enabled}" == "true" ]] || return 0
   nameserver="$(rocketmq_setting "${mode}" ROCKETMQ_NAMESERVER '')"
-  validate_rocketmq_nameserver_format "${nameserver}"
+  validate_rocketmq_nameserver_format "${nameserver}" "${mode}"
   if [[ "${mode}" == "docker" ]]; then
     if docker_profile_enabled mq; then
       [[ "${nameserver}" == "rocketmq-nameserver:9876" ]] \
-        || die "启用内置 RocketMQ 时 ROCKETMQ_NAMESERVER 必须为 rocketmq-nameserver:9876"
+        || rocketmq_config_error docker "已启用内置 RocketMQ，但 NameServer 地址不是 rocketmq-nameserver:9876"
     else
       [[ "${nameserver}" != *"rocketmq-nameserver:"* ]] \
-        || die "使用外部 RocketMQ 时请从 COMPOSE_PROFILES 移除 mq，并填写真实 NameServer 地址"
+        || rocketmq_config_error docker "当前未启用内置 mq Profile，不能使用容器服务名 rocketmq-nameserver"
+      while IFS= read -r entry; do
+        host="${entry%:*}"
+        case "${host,,}" in
+          127.0.0.1|localhost)
+            rocketmq_config_error docker "Docker 中的 ${entry} 指向业务容器自身；MQ 在宿主机时请改用 host.docker.internal:${entry##*:}" ;;
+        esac
+      done < <(rocketmq_nameserver_entries "${nameserver}")
     fi
   fi
 }
 
+docker_tcp_reachable() { # docker_tcp_reachable <host> <port>；必须从容器网络视角探测
+  local host="$1" port="$2" probeName="aid-mq-probe-$$-${RANDOM}" result=1
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 12 docker run --rm --name "${probeName}" --pull=never --network bridge \
+      --add-host host.docker.internal:host-gateway "${JAVA_RUNTIME_IMAGE}" \
+      bash -c 'exec 3<>/dev/tcp/"$1"/"$2"' _ "${host}" "${port}" >/dev/null 2>&1 && result=0
+  else
+    docker run --rm --name "${probeName}" --pull=never --network bridge \
+      --add-host host.docker.internal:host-gateway "${JAVA_RUNTIME_IMAGE}" \
+      bash -c 'exec 3<>/dev/tcp/"$1"/"$2"' _ "${host}" "${port}" >/dev/null 2>&1 && result=0
+  fi
+  docker rm -f "${probeName}" >/dev/null 2>&1 || true
+  return "${result}"
+}
+
 check_external_rocketmq_connectivity() { # check_external_rocketmq_connectivity <docker|manual>
-  local mode="$1" enabled nameserver entry host port reachable=0 failed=""
+  local mode="$1" enabled nameserver entry host port reachable=0 failed="" configPath networkLabel
   enabled="$(rocketmq_setting "${mode}" ROCKETMQ_ENABLED false)"
   [[ "${enabled}" == "true" ]] || { ok "RocketMQ 未启用，跳过中间件校验"; return 0; }
   if [[ "${mode}" == "docker" ]] && docker_profile_enabled mq; then return 0; fi
   nameserver="$(rocketmq_setting "${mode}" ROCKETMQ_NAMESERVER '')"
-  validate_rocketmq_nameserver_format "${nameserver}"
+  validate_rocketmq_nameserver_format "${nameserver}" "${mode}"
+  if [[ "${mode}" == "docker" ]]; then
+    configPath="${ENV_FILE}"; networkLabel="Docker容器网络"
+  else
+    configPath="${CONF}"; networkLabel="当前服务器"
+  fi
   while IFS= read -r entry; do
     host="${entry%:*}"; port="${entry##*:}"
-    if [[ "${host}" == "host.docker.internal" ]]; then
-      host="$(ip route 2>/dev/null | awk '/default/ {print $3; exit}')"
-      [[ -n "${host}" ]] || host=127.0.0.1
-    fi
-    if tcp_reachable "${host}" "${port}"; then
+    if [[ "${mode}" == "docker" ]] && docker_tcp_reachable "${host}" "${port}"; then
+      ok "RocketMQ NameServer 可从 AID 容器网络访问: ${entry}"
+      reachable=$((reachable + 1))
+    elif [[ "${mode}" != "docker" ]] && tcp_reachable "${host}" "${port}"; then
       ok "RocketMQ NameServer 可达: ${entry}"
       reachable=$((reachable + 1))
     else
       failed+="${entry} "
     fi
   done < <(rocketmq_nameserver_entries "${nameserver}")
-  (( reachable > 0 )) || die "RocketMQ NameServer 全部不可达：${failed% }；脚本不会自动安装 RocketMQ"
+  if (( reachable == 0 )); then
+    err "RocketMQ NameServer 从${networkLabel}全部不可达: ${failed% }"
+    echo "  请修改配置文件: ${configPath}" >&2
+    if [[ "${mode}" == "docker" ]]; then
+      echo "  MQ 在宿主机：使用 host.docker.internal:9876，并确保 NameServer 监听宿主机可访问地址。" >&2
+      echo "  MQ 在其他服务器：使用容器可路由的内网 IP/DNS；Broker 的 brokerIP1 也必须能被容器访问。" >&2
+      echo "  不使用 MQ：从 COMPOSE_PROFILES 删除 mq，并设置 ROCKETMQ_ENABLED=false。" >&2
+    else
+      echo "  请确认防火墙、NameServer 监听地址和端口；脚本不会自动安装 RocketMQ。" >&2
+    fi
+    exit 1
+  fi
   [[ -z "${failed}" ]] || warn "部分 RocketMQ NameServer 不可达，将使用其余节点: ${failed% }"
 }
 

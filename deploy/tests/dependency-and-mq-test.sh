@@ -29,16 +29,26 @@ write_docker_config 'mysql,redis' true 'mq-a.internal:9876;mq-b.internal:9876'
 validate_rocketmq_mode docker
 
 write_docker_config 'mysql,redis,mq' false 'rocketmq-nameserver:9876'
-if (validate_rocketmq_mode docker >/dev/null 2>&1); then
+if error_output="$(validate_rocketmq_mode docker 2>&1)"; then
   echo 'mq profile without ROCKETMQ_ENABLED=true must fail' >&2
   exit 1
 fi
+printf '%s\n' "${error_output}" | grep -Fq "${ENV_FILE}" \
+  || { echo 'RocketMQ config error must print the actual Docker config path' >&2; exit 1; }
 
 write_docker_config 'mysql,redis,mq' true 'mq.external:9876'
 if (validate_rocketmq_mode docker >/dev/null 2>&1); then
   echo 'internal mq profile with external nameserver must fail' >&2
   exit 1
 fi
+
+write_docker_config 'mysql,redis' true '127.0.0.1:9876'
+if error_output="$(validate_rocketmq_mode docker 2>&1)"; then
+  echo 'Docker external RocketMQ loopback address must fail' >&2
+  exit 1
+fi
+printf '%s\n' "${error_output}" | grep -Fq 'host.docker.internal:9876' \
+  || { echo 'loopback error must explain the Docker host alias' >&2; exit 1; }
 
 cat > "${CONF}" <<'EOF'
 ROCKETMQ_ENABLED=true
@@ -53,6 +63,8 @@ case "$*" in
   '--version') echo "Docker version ${MOCK_DOCKER_VERSION}, build test" ;;
   'compose version --short') echo "${MOCK_COMPOSE_VERSION}" ;;
   'info') exit 0 ;;
+  run\ *) exit "${MOCK_DOCKER_TCP_RESULT:-1}" ;;
+  rm\ -f\ *) exit 0 ;;
   *) exit 1 ;;
 esac
 EOF
@@ -66,6 +78,14 @@ echo "nginx version: nginx/${MOCK_NGINX_VERSION}" >&2
 EOF
 chmod +x "${TMP_ROOT}/bin/docker" "${TMP_ROOT}/bin/git" "${TMP_ROOT}/bin/nginx"
 PATH="${TMP_ROOT}/bin:${PATH}"
+
+export MOCK_DOCKER_TCP_RESULT=0
+docker_tcp_reachable host.docker.internal 9876
+export MOCK_DOCKER_TCP_RESULT=1
+if docker_tcp_reachable mq.invalid 9876; then
+  echo 'failed Docker-network TCP probe must be reported as unreachable' >&2
+  exit 1
+fi
 
 export MOCK_GIT_VERSION=2.47.2 MOCK_NGINX_VERSION=1.26.3
 ensure_git_runtime manual >/dev/null

@@ -175,6 +175,14 @@ func TestValidateDockerExternalServicesAndHTTPS(t *testing.T) {
 	if err := validateDeploymentValues("docker", values); err != nil {
 		t.Fatalf("valid external-service HTTPS config was rejected: %v", err)
 	}
+	values["ROCKETMQ_NAMESERVER"] = "127.0.0.1:9876"
+	if err := validateDeploymentValues("docker", values); err == nil {
+		t.Fatal("Docker external RocketMQ loopback address should be rejected")
+	}
+	values["ROCKETMQ_NAMESERVER"] = "host.docker.internal:9876"
+	if err := validateDeploymentValues("docker", values); err != nil {
+		t.Fatalf("Docker host RocketMQ alias was rejected: %v", err)
+	}
 	values["ROCKETMQ_SECRET_KEY"] = ""
 	if err := validateDeploymentValues("docker", values); err == nil {
 		t.Fatal("incomplete RocketMQ ACL credentials should be rejected")

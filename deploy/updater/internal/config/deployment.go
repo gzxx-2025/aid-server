@@ -424,6 +424,9 @@ func validateDeploymentValues(mode string, values map[string]string) error {
 		if mqEnabled && !profiles["mq"] && strings.Contains(values["ROCKETMQ_NAMESERVER"], "rocketmq-nameserver:") {
 			return fmt.Errorf("外部RocketMQ必须填写真实NameServer地址")
 		}
+		if mqEnabled && !profiles["mq"] && rocketMQNameServersContainLoopback(values["ROCKETMQ_NAMESERVER"]) {
+			return fmt.Errorf("Docker外部RocketMQ不能使用127.0.0.1或localhost，宿主机MQ请使用host.docker.internal")
+		}
 		if profiles["mysql"] {
 			if strings.TrimSpace(values["MYSQL_ROOT_PASSWORD"]) == "" || strings.TrimSpace(values["MYSQL_PORT"]) == "" {
 				return fmt.Errorf("内置MySQL必须配置root密码和映射端口")
@@ -470,6 +473,20 @@ func validateRocketMQNameServers(value string) error {
 		}
 	}
 	return nil
+}
+
+func rocketMQNameServersContainLoopback(value string) bool {
+	entries := strings.FieldsFunc(value, func(r rune) bool { return r == ';' || r == ',' })
+	for _, entry := range entries {
+		host, _, found := strings.Cut(strings.TrimSpace(entry), ":")
+		if !found {
+			continue
+		}
+		if strings.EqualFold(host, "localhost") || host == "127.0.0.1" {
+			return true
+		}
+	}
+	return false
 }
 
 // validateDockerMirrors 限制 Registry 前缀为无凭据、无查询参数的镜像地址，防止
