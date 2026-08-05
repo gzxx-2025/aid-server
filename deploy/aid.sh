@@ -283,7 +283,7 @@ validate_https_file() { # validate_https_file <配置名> <路径>
 }
 
 validate_docker_extended_config() {
-  local dbHost dbPort redisUser redisPwd mqAccessKey mqSecretKey domain adminDomain certPath keyPath
+  local dbHost dbPort redisHost redisPort redisUser redisPwd mqAccessKey mqSecretKey domain adminDomain certPath keyPath
   dependency_install_mode docker >/dev/null
   validate_compose_profiles
   dbHost="$(env_get DB_HOST mysql)"; dbPort="$(env_get DB_PORT 3306)"
@@ -299,7 +299,19 @@ validate_docker_extended_config() {
     case "${dbHost}" in localhost|127.0.0.1|::1) die "Docker 外部 MySQL 不能填写本容器回环地址，请使用内网 IP、DNS 或 host.docker.internal" ;; esac
     [[ -n "$(env_get DB_PASSWORD '')" ]] || die "外部 MySQL 必须填写真实 DB_PASSWORD"
   fi
+  redisHost="$(env_get REDIS_HOST redis)"; redisPort="$(env_get REDIS_PORT 6379)"
   redisUser="$(env_get REDIS_USERNAME '')"; redisPwd="$(env_get REDIS_PASSWORD '')"
+  validate_port REDIS_PORT "${redisPort}"
+  if docker_profile_enabled redis; then
+    [[ "${redisHost}" == "redis" && "${redisPort}" == "6379" ]] \
+      || die "启用内置 Redis 时 REDIS_HOST/REDIS_PORT 必须为 redis/6379"
+  else
+    [[ -n "${redisHost}" && "${redisHost}" != "redis" ]] \
+      || die "外部 Redis 必须配置可访问的 REDIS_HOST"
+    case "${redisHost}" in
+      localhost|127.0.0.1|::1) die "Docker 外部 Redis 不能填写本容器回环地址，请使用内网 IP、DNS 或 host.docker.internal" ;;
+    esac
+  fi
   [[ -n "${redisUser}" ]] && validate_secret 'REDIS_USERNAME' "${redisUser}"
   [[ -n "${redisPwd}" ]] && validate_secret 'REDIS_PASSWORD' "${redisPwd}"
   if docker_profile_enabled redis && [[ -n "${redisUser}" && "${redisUser}" != "default" ]]; then
@@ -1109,18 +1121,6 @@ check_external_rocketmq_connectivity() { # check_external_rocketmq_connectivity 
     exit 1
   fi
   [[ -z "${failed}" ]] || warn "部分 RocketMQ NameServer 不可达，将使用其余节点: ${failed% }"
-}
-
-wait_internal_rocketmq_ready() {
-  [[ "$(env_get ROCKETMQ_ENABLED false)" == "true" ]] || return 0
-  docker_profile_enabled mq || return 0
-  local waited=0 status=""
-  while (( waited < 120 )); do
-    status="$(docker inspect --format '{{.State.Health.Status}}' aid-rocketmq-nameserver 2>/dev/null || true)"
-    [[ "${status}" == "healthy" ]] && { ok "内置 RocketMQ NameServer 已就绪"; return 0; }
-    sleep 3; waited=$((waited + 3))
-  done
-  die "内置 RocketMQ 启动超时，请查看 aid-rocketmq-nameserver 日志"
 }
 
 install_mysql_runtime_libraries() {
@@ -3165,10 +3165,11 @@ wait_https_healthy() {
     status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' aid-nginx-https 2>/dev/null || true)"
     [[ "${status}" == "healthy" ]] && { ok "HTTPS 入口已就绪"; return 0; }
     [[ "${status}" == "unhealthy" || "${status}" == "exited" || "${status}" == "dead" ]] \
-      && die "HTTPS 容器状态异常: ${status}，请查看 docker logs aid-nginx-https"
+      && { err "HTTPS 容器状态异常: ${status}"; return 1; }
     sleep 2; elapsed=$((elapsed + 2))
   done
-  die "HTTPS 容器健康检查超时，请查看 docker logs aid-nginx-https"
+  err "HTTPS 容器健康检查超时"
+  return 1
 }
 
 # ----------------------------------------------------------------------------
@@ -3462,12 +3463,12 @@ ensure_mysql_ready() {
   AID_DEPENDENCY_INSTALL_MODE="$(dependency_install_mode docker)"
   ensure_docker_image "mysql:5.7" "MySQL5.7"
   if docker_profile_enabled mysql; then
-    compose_cmd up -d mysql >/dev/null 2>&1 || true
-    local deadline=$(( $(date +%s) + 90 ))
-    until [[ "$(docker inspect -f '{{.State.Health.Status}}' aid-mysql 2>/dev/null)" == "healthy" ]]; do
-      [[ $(date +%s) -ge ${deadline} ]] && { err "MySQL 容器未就绪"; return 1; }
-      sleep 3
-    done
+    log "启动并检查内置 MySQL 5.7..."
+    if ! compose_cmd up -d mysql; then
+      docker_container_diagnostics aid-mysql "内置 MySQL 5.7"
+      return 1
+    fi
+    wait_docker_container_healthy aid-mysql "内置 MySQL 5.7" 120 || return 1
   else
     local version
     log "检查外部 MySQL: $(env_get DB_HOST):$(env_get DB_PORT 3306)"
@@ -3478,6 +3479,119 @@ ensure_mysql_ready() {
     ok "外部 MySQL 5.7 连接正常"
   fi
   return 0
+}
+
+docker_container_diagnostics() { # docker_container_diagnostics <容器名> <组件名>
+  local container="$1" label="$2"
+  err "${label} 未就绪，容器诊断信息如下："
+  docker ps -a --filter "name=^/${container}$" \
+    --format '  {{.Names}}  {{.Status}}  {{.Image}}' 2>/dev/null || true
+  docker inspect "${container}" --format \
+    '  status={{.State.Status}} restartCount={{.RestartCount}} exitCode={{.State.ExitCode}} oomKilled={{.State.OOMKilled}} error={{.State.Error}}' \
+    2>/dev/null || true
+  docker inspect "${container}" --format \
+    '{{if .State.Health}}{{range .State.Health.Log}}{{println "  health" .Start "exit=" .ExitCode .Output}}{{end}}{{end}}' \
+    2>/dev/null | tail -n 8 || true
+  echo "  最近日志（最多120行）: docker logs --tail 120 ${container}" >&2
+  docker logs --tail 120 "${container}" 2>&1 | tail -n 120 >&2 || true
+}
+
+wait_docker_container_healthy() { # wait_docker_container_healthy <容器名> <组件名> [超时秒]
+  local container="$1" label="$2" timeoutSeconds="${3:-120}"
+  local deadline status="" initialRestarts currentRestarts
+  deadline=$(( $(date +%s) + timeoutSeconds ))
+  initialRestarts="$(docker inspect --format '{{.RestartCount}}' "${container}" 2>/dev/null || echo 0)"
+  [[ "${initialRestarts}" =~ ^[0-9]+$ ]] || initialRestarts=0
+  while [[ $(date +%s) -lt ${deadline} ]]; do
+    status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "${container}" 2>/dev/null || true)"
+    [[ "${status}" == "healthy" ]] && { ok "${label} 已就绪"; return 0; }
+    if [[ "${status}" == "unhealthy" || "${status}" == "exited" || "${status}" == "dead" ]]; then
+      docker_container_diagnostics "${container}" "${label}"
+      return 1
+    fi
+    currentRestarts="$(docker inspect --format '{{.RestartCount}}' "${container}" 2>/dev/null || echo 0)"
+    if [[ "${currentRestarts}" =~ ^[0-9]+$ ]] && (( currentRestarts >= initialRestarts + 2 )); then
+      docker_container_diagnostics "${container}" "${label}（检测到循环重启）"
+      return 1
+    fi
+    sleep 3
+  done
+  docker_container_diagnostics "${container}" "${label}（等待 ${timeoutSeconds}s 超时）"
+  return 1
+}
+
+ensure_redis_ready() { # Docker：内置 Redis 启动探活；外部 Redis 校验认证与版本
+  local redisHost redisPort redisUser redisPwd redisDb redisInfo redisVersion redisMajor
+  local -a redisArgs=()
+  redisHost="$(env_get REDIS_HOST redis)"; redisPort="$(env_get REDIS_PORT 6379)"
+  redisUser="$(env_get REDIS_USERNAME '')"; redisPwd="$(env_get REDIS_PASSWORD '')"
+  redisDb="$(env_get REDIS_DATABASE 0)"
+  if docker_profile_enabled redis; then
+    log "启动并检查内置 Redis..."
+    if ! compose_cmd up -d redis; then
+      docker_container_diagnostics aid-redis "内置 Redis"
+      return 1
+    fi
+    wait_docker_container_healthy aid-redis "内置 Redis" 120 || return 1
+    return 0
+  fi
+
+  log "从 Docker 容器网络检查外部 Redis: ${redisHost}:${redisPort}"
+  ensure_docker_image "redis:7-alpine" "外部Redis校验客户端"
+  redisArgs=(redis-cli --no-auth-warning -h "${redisHost}" -p "${redisPort}" -n "${redisDb}")
+  [[ -z "${redisUser}" ]] || redisArgs+=(--user "${redisUser}")
+  redisInfo="$(REDISCLI_AUTH="${redisPwd}" docker run --rm --pull=never --network bridge \
+    --add-host host.docker.internal:host-gateway -e REDISCLI_AUTH redis:7-alpine \
+    "${redisArgs[@]}" INFO server 2>/dev/null || true)"
+  redisVersion="$(printf '%s\n' "${redisInfo}" | awk -F: '$1=="redis_version" {gsub("\r", "", $2); print $2; exit}')"
+  redisMajor="${redisVersion%%.*}"
+  if [[ ! "${redisMajor}" =~ ^[0-9]+$ || "${redisMajor}" -lt 6 ]]; then
+    err "外部 Redis 认证失败、网络不可达或版本低于6（检测结果: ${redisVersion:-不可读取}）"
+    echo "  请修改配置文件: ${ENV_FILE}" >&2
+    return 1
+  fi
+  ok "外部 Redis ${redisVersion} 认证、网络与版本校验通过"
+}
+
+wait_docker_database_schema_ready() {
+  local dbName deadline coreTableCount=""
+  dbName="$(env_get DB_NAME aid)"
+  deadline=$(( $(date +%s) + 300 ))
+  log "等待 AID 数据库初始化与核心表校验..."
+  while [[ $(date +%s) -lt ${deadline} ]]; do
+    coreTableCount="$(docker_mysql_tool mysql --batch --skip-column-names \
+      --execute "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='${dbName}' AND table_name IN ('aid_config','sys_user')" \
+      2>/dev/null | tail -n 1 || true)"
+    [[ "${coreTableCount}" == "2" ]] \
+      && { ok "AID 数据库初始化完成，核心表校验通过"; return 0; }
+    sleep 3
+  done
+  err "AID 数据库在300秒内未完成初始化，核心表数量: ${coreTableCount:-不可读取}"
+  if docker_profile_enabled mysql; then
+    docker_container_diagnostics aid-mysql "内置 MySQL 5.7"
+  else
+    echo "  请检查外部数据库 ${dbName} 的初始化结果与账号权限" >&2
+  fi
+  return 1
+}
+
+prepare_docker_runtime_dependencies() {
+  section "启动前置服务并执行健康检查"
+  ensure_mysql_ready docker || return 1
+  wait_docker_database_schema_ready || return 1
+  ensure_redis_ready || return 1
+  check_external_rocketmq_connectivity docker
+  if docker_profile_enabled mq; then
+    log "启动并检查内置 RocketMQ NameServer 与 Broker..."
+    if ! compose_cmd up -d rocketmq-nameserver rocketmq-broker; then
+      docker_container_diagnostics aid-rocketmq-nameserver "RocketMQ NameServer"
+      docker_container_diagnostics aid-rocketmq-broker "RocketMQ Broker"
+      return 1
+    fi
+    wait_docker_container_healthy aid-rocketmq-nameserver "RocketMQ NameServer" 120 || return 1
+    wait_docker_container_healthy aid-rocketmq-broker "RocketMQ Broker" 180 || return 1
+  fi
+  ok "MySQL、Redis 与可选 RocketMQ 前置检查全部通过"
 }
 
 initialize_external_mysql() {
@@ -3629,6 +3743,74 @@ wait_backend_healthy() {
   ok "后端已就绪"
 }
 
+stop_failed_docker_service() { # stop_failed_docker_service <容器名> <组件名>
+  local container="$1" label="$2"
+  docker stop "${container}" >/dev/null 2>&1 || true
+  risk "${label} 启动失败，已停止该容器的循环重启；MySQL/Redis 等前置服务保持运行，修复配置后重新执行安装或重启"
+}
+
+start_docker_application_stack() {
+  validate_https_runtime
+
+  section "启动 AID 后端并执行健康检查"
+  if ! compose_cmd up -d aid-server; then
+    docker_container_diagnostics aid-server "AID 后端"
+    stop_failed_docker_service aid-server "AID 后端"
+    return 1
+  fi
+  if ! wait_docker_container_healthy aid-server "AID 后端" "${HEALTH_WAIT_SECONDS}" \
+      || ! wait_backend_healthy; then
+    stop_failed_docker_service aid-server "AID 后端"
+    return 1
+  fi
+
+  section "启动 Web 用户端与 Nginx 网关"
+  if ! compose_cmd up -d aid-web; then
+    docker_container_diagnostics aid-web "Web 用户端"
+    stop_failed_docker_service aid-web "Web 用户端"
+    return 1
+  fi
+  if ! wait_docker_container_healthy aid-web "Web 用户端" 120; then
+    stop_failed_docker_service aid-web "Web 用户端"
+    return 1
+  fi
+  if ! compose_cmd up -d nginx; then
+    docker_container_diagnostics aid-nginx "Nginx 网关"
+    stop_failed_docker_service aid-nginx "Nginx 网关"
+    return 1
+  fi
+  if ! wait_docker_container_healthy aid-nginx "Nginx 网关" 120; then
+    stop_failed_docker_service aid-nginx "Nginx 网关"
+    return 1
+  fi
+  if docker_profile_enabled https; then
+    if ! compose_cmd up -d nginx-https; then
+      docker_container_diagnostics aid-nginx-https "HTTPS 入口"
+      stop_failed_docker_service aid-nginx-https "HTTPS 入口"
+      return 1
+    fi
+    if ! wait_https_healthy; then
+      docker_container_diagnostics aid-nginx-https "HTTPS 入口"
+      stop_failed_docker_service aid-nginx-https "HTTPS 入口"
+      return 1
+    fi
+  fi
+
+  if [[ "${AID_SKIP_UPDATER_RESTART:-0}" != "1" && -f "${DATA_ROOT}/app/updater/aid-updater" ]]; then
+    section "启动在线升级器并执行健康检查"
+    if ! compose_cmd up -d aid-updater; then
+      docker_container_diagnostics aid-updater "在线升级器"
+      stop_failed_docker_service aid-updater "在线升级器"
+      return 1
+    fi
+    if ! wait_docker_container_healthy aid-updater "在线升级器" 120; then
+      stop_failed_docker_service aid-updater "在线升级器"
+      return 1
+    fi
+  fi
+  ok "AID 后端、Web、Nginx 与升级器已按顺序启动"
+}
+
 print_access_info() {
   local mode configFile adminPort adminPath
   mode="$(detect_mode)"
@@ -3713,37 +3895,28 @@ do_install_docker() {
   # 才停用可能存在的内置容器，且始终保留 mysql-data 目录。
   disable_internal_mysql_for_external \
     || die "外部 MySQL 未准备完成，部署已中止且不会启动内置 MySQL"
-  ensure_mysql_ready docker || die "数据库未就绪，部署已中止"
-  ensure_admin_entry_code docker
-  disable_unused_docker_services
-
   # 硬件校验基线按 .env 实际配置评估：profiles 含 mq 才计入内置 MQ 内存
   local mqPlan="no"
   docker_profile_enabled mq && mqPlan="yes"
   check_hardware docker "${mqPlan}"
+
+  # 所有前置服务必须在主程序启动前独立达到健康状态。
+  if docker_profile_enabled mq; then
+    mkdir -p "${DATA_ROOT}/rocketmq/broker-data" "${DATA_ROOT}/rocketmq/broker-logs" "${DATA_ROOT}/rocketmq/namesrv-logs"
+    chown -R 3000:3000 "${DATA_ROOT}/rocketmq" 2>/dev/null || true
+  fi
+  prepare_docker_runtime_dependencies \
+    || die "前置服务检查失败，AID 主程序尚未启动；请按上方组件日志处理后重试"
+  ensure_admin_entry_code docker
+  disable_unused_docker_services
 
   place_artifacts "${package}"
   # 升级器配置先于容器编排就位，aid-updater 容器首次拉起即可正常运行
   if [[ -f "${DATA_ROOT}/app/updater/aid-updater" ]]; then
     write_updater_config docker
   fi
-  # RocketMQ 数据目录属主（镜像内 rocketmq 用户 uid=3000）；profiles 含 mq 即启用了内置 MQ
-  if docker_profile_enabled mq; then
-    mkdir -p "${DATA_ROOT}/rocketmq/broker-data" "${DATA_ROOT}/rocketmq/broker-logs" "${DATA_ROOT}/rocketmq/namesrv-logs"
-    chown -R 3000:3000 "${DATA_ROOT}/rocketmq" 2>/dev/null || true
-  fi
-
-  log "启动容器编排..."
-  validate_https_runtime
-  compose_cmd up -d || die "容器编排启动失败"
-  wait_internal_rocketmq_ready
-  if ! wait_backend_healthy; then
-    if docker_profile_enabled mysql; then
-      die "部署未完成；若确认是首次内置数据库初始化失败，请备份后再按日志人工处理 ${DATA_ROOT}/mysql-data"
-    fi
-    die "部署未完成；外部 MySQL 模式不会创建或清理本地 mysql-data，请按上方连接信息排查"
-  fi
-  wait_https_healthy
+  start_docker_application_stack \
+    || die "AID 服务分阶段启动失败；失败容器已停止循环重启，前置数据服务保持运行"
   targetVersion="${RESOLVED_VERSION:-$(version_from_package "${package}")}"
   targetChannel="${REQUESTED_RELEASE_CHANNEL:-auto}"
   # 只有健康检查成功后才写入“已部署”状态，避免失败的首次安装被当成升级。
@@ -3960,6 +4133,69 @@ server {
   fi
 }
 
+manual_service_diagnostics() { # manual_service_diagnostics <systemd服务> <组件名>
+  local service="$1" label="$2"
+  err "${label} 未就绪，systemd 诊断信息如下："
+  systemctl --no-pager --lines 8 status "${service}" 2>&1 || true
+  echo "  最近日志（最多120行）: journalctl -u ${service} --no-pager -n 120" >&2
+  journalctl -u "${service}" --no-pager -n 120 2>&1 || true
+}
+
+wait_manual_web_healthy() {
+  local deadline=$(( $(date +%s) + 120 ))
+  while [[ $(date +%s) -lt ${deadline} ]]; do
+    curl -sf -o /dev/null http://127.0.0.1:3000/ 2>/dev/null \
+      && { ok "Web 用户端已就绪"; return 0; }
+    if ! systemctl is-active --quiet aid-web; then
+      manual_service_diagnostics aid-web "Web 用户端"
+      return 1
+    fi
+    sleep 3
+  done
+  manual_service_diagnostics aid-web "Web 用户端（等待120s超时）"
+  return 1
+}
+
+start_manual_application_stack() {
+  write_systemd_units
+  section "启动 AID 后端并执行健康检查"
+  systemctl enable aid >/dev/null 2>&1 || true
+  if ! systemctl restart aid; then
+    manual_service_diagnostics aid "AID 后端"
+    systemctl stop aid >/dev/null 2>&1 || true
+    return 1
+  fi
+  if ! wait_backend_healthy; then
+    manual_service_diagnostics aid "AID 后端"
+    systemctl stop aid >/dev/null 2>&1 || true
+    risk "AID 后端启动失败，已停止循环重启；MySQL/Redis 保持运行，修复配置后重新执行安装或重启"
+    return 1
+  fi
+
+  if [[ -f "${DATA_ROOT}/app/web-dist/server/index.mjs" ]]; then
+    section "启动 Web 用户端与 Nginx 网关"
+    systemctl enable aid-web >/dev/null 2>&1 || true
+    if ! systemctl restart aid-web || ! wait_manual_web_healthy; then
+      systemctl stop aid-web >/dev/null 2>&1 || true
+      risk "Web 用户端启动失败，已停止循环重启；AID 后端与数据服务保持运行"
+      return 1
+    fi
+  else
+    warn "web-dist 无 SSR 产物，aid-web 服务暂不启动"
+  fi
+  write_nginx_site
+
+  if [[ "${AID_SKIP_UPDATER_RESTART:-0}" != "1" ]]; then
+    setup_updater manual
+    if systemctl list-unit-files 2>/dev/null | grep -q '^aid-updater\.service' \
+        && ! systemctl is-active --quiet aid-updater; then
+      manual_service_diagnostics aid-updater "在线升级器"
+      return 1
+    fi
+  fi
+  ok "AID 后端、Web、Nginx 与升级器已按顺序启动"
+}
+
 do_install_manual() {
   require_root
   local existingMode package targetVersion targetChannel
@@ -3978,6 +4214,11 @@ do_install_manual() {
   # 手动部署不自动安装 RocketMQ，启用时只连接外部实例，因此不计入本机内存基线。
   local mqPlan="no"
   check_hardware manual "${mqPlan}"
+
+  # 长时间源码构建结束后再次复检运行环境；全部通过才允许启动主程序。
+  section "启动前运行环境复检"
+  ensure_manual_host_dependencies
+  ok "JDK、Node、MySQL、Redis、Nginx 与可选 RocketMQ 前置检查全部通过"
 
   # 数据库连通性与初始化
   local dbHost dbPort dbUser dbPwd dbName tableCount
@@ -4002,17 +4243,8 @@ do_install_manual() {
   ensure_admin_entry_code manual
 
   place_artifacts "${package}"
-  write_systemd_units
-  systemctl enable aid >/dev/null 2>&1; systemctl restart aid
-  if [[ -f "${DATA_ROOT}/app/web-dist/server/index.mjs" ]]; then
-    systemctl enable aid-web >/dev/null 2>&1; systemctl restart aid-web
-  else
-    warn "web-dist 无 SSR 产物，aid-web 服务暂不启动"
-  fi
-  write_nginx_site
-  # 在线升级器随部署自动安装（systemd 服务），页面即可一键升级
-  setup_updater manual
-  wait_backend_healthy || die "部署未完成，按上方提示排查后重试"
+  start_manual_application_stack \
+    || die "AID 服务分阶段启动失败；失败服务已停止循环重启，前置数据服务保持运行"
   targetVersion="${RESOLVED_VERSION:-$(version_from_package "${package}")}"
   targetChannel="${REQUESTED_RELEASE_CHANNEL:-auto}"
   # 只有后端健康检查成功后才写入“已部署”状态。
@@ -4256,42 +4488,29 @@ do_restart() {
       export AID_DEPENDENCY_INSTALL_MODE="$(dependency_install_mode docker)"
       require_docker_runtime
       prepare_docker_runtime_images
-      check_external_rocketmq_connectivity docker
       disable_internal_mysql_for_external \
         || die "外部 MySQL 未准备完成，配置未生效"
+      if docker_profile_enabled mq; then
+        mkdir -p "${DATA_ROOT}/rocketmq/broker-data" "${DATA_ROOT}/rocketmq/broker-logs" "${DATA_ROOT}/rocketmq/namesrv-logs"
+        chown -R 3000:3000 "${DATA_ROOT}/rocketmq" 2>/dev/null || true
+      fi
+      prepare_docker_runtime_dependencies \
+        || die "前置服务检查失败，AID 主程序未重启；请按上方组件日志处理后重试"
       disable_unused_docker_services
       # 每次重启都从唯一配置真源重建升级器配置，确保数据库凭证、配置路径等
       # 与业务容器一致；随后显式重启升级器，不能依赖旧进程内存中的配置。
       if [[ "${AID_SKIP_UPDATER_RESTART:-0}" != "1" && -f "${DATA_ROOT}/app/updater/aid-updater" ]]; then
         write_updater_config docker
       fi
-      # .env 由用户维护，up -d 会应用其中的变更（环境/端口/内存等按需重建容器）
-      log "重启容器编排（.env 配置变更同时生效）..."
-      validate_https_runtime
-      compose_cmd up -d
-      wait_internal_rocketmq_ready
-      compose_cmd restart aid-server aid-web nginx 2>/dev/null || true
-      if docker_profile_enabled https; then
-        compose_cmd restart nginx-https 2>/dev/null || true
-      else
-        # Compose 不会自动删除已退出当前 Profile 的旧服务，关闭 HTTPS 时显式释放443。
-        docker rm -f aid-nginx-https >/dev/null 2>&1 || true
-      fi
-      wait_https_healthy
-      [[ "${AID_SKIP_UPDATER_RESTART:-0}" == "1" ]] || compose_cmd restart aid-updater 2>/dev/null || true
+      start_docker_application_stack \
+        || die "AID 服务分阶段重启失败；失败容器已停止循环重启，前置数据服务保持运行"
       ;;
     manual)
       ensure_conf_file
       export AID_DEPENDENCY_INSTALL_MODE="$(dependency_install_mode manual)"
       ensure_manual_host_dependencies
-      if [[ "${AID_SKIP_UPDATER_RESTART:-0}" != "1" && -f "${DATA_ROOT}/app/updater/aid-updater" ]]; then
-        write_updater_config manual
-      fi
-      write_systemd_units
-      systemctl restart aid
-      systemctl restart aid-web 2>/dev/null || true
-      write_nginx_site
-      [[ "${AID_SKIP_UPDATER_RESTART:-0}" == "1" ]] || systemctl restart aid-updater 2>/dev/null || true
+      start_manual_application_stack \
+        || die "AID 服务分阶段重启失败；失败服务已停止循环重启，前置数据服务保持运行"
       ;;
     *) die "尚未部署" ;;
   esac
