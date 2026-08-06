@@ -1975,7 +1975,7 @@ bind 127.0.0.1
 protected-mode yes
 port ${redisPort}
 daemonize no
-supervised systemd
+supervised no
 pidfile ${redisRun}/redis.pid
 dir ${redisData}
 dbfilename dump.rdb
@@ -2000,23 +2000,62 @@ Description=AID managed Redis ${REDIS_VERSION}
 After=network.target
 
 [Service]
-Type=notify
+Type=simple
 User=aidredis
 Group=aidredis
-ExecStart=${REDIS_HOME}/src/redis-server ${redisConf} --supervised systemd
+ExecStart=${REDIS_HOME}/src/redis-server ${redisConf}
 Restart=on-failure
 RestartSec=5
 LimitNOFILE=65535
+TimeoutStartSec=60
 TimeoutStopSec=60
 
 [Install]
 WantedBy=multi-user.target
 EOF
   systemctl daemon-reload
-  systemctl enable --now "${REDIS_MANAGED_SERVICE}" >/dev/null 2>&1 || die "受管 Redis 启动失败"
+  systemctl reset-failed "${REDIS_MANAGED_SERVICE}" >/dev/null 2>&1 || true
+  if ! systemctl enable "${REDIS_MANAGED_SERVICE}" >/dev/null 2>&1 \
+      || ! systemctl restart "${REDIS_MANAGED_SERVICE}" >/dev/null 2>&1; then
+    manual_service_diagnostics "${REDIS_MANAGED_SERVICE}" "受管 Redis"
+    die "受管 Redis 启动失败，诊断日志已输出"
+  fi
+  wait_managed_redis_ready "${redisPort}" "${redisUser}" "${redisPwd}" \
+    || die "受管 Redis 未就绪，诊断日志已输出"
   command -v redis-server >/dev/null 2>&1 || ln -s "${REDIS_HOME}/src/redis-server" /usr/local/bin/redis-server
   command -v redis-cli >/dev/null 2>&1 || ln -s "${REDIS_HOME}/src/redis-cli" /usr/local/bin/redis-cli
   ok "Redis ${REDIS_VERSION} 已安装为独立服务 ${REDIS_MANAGED_SERVICE}"
+}
+
+managed_redis_ping() { # managed_redis_ping <端口> <用户名> <密码>
+  local redisPort="$1" redisUser="$2" redisPwd="$3" response=""
+  [[ -x "${REDIS_HOME}/src/redis-cli" ]] || return 1
+  if [[ -n "${redisUser}" && "${redisUser}" != "default" ]]; then
+    response="$(REDISCLI_AUTH="${redisPwd}" "${REDIS_HOME}/src/redis-cli" --no-auth-warning \
+      -h 127.0.0.1 -p "${redisPort}" --user "${redisUser}" PING 2>/dev/null || true)"
+  else
+    response="$(REDISCLI_AUTH="${redisPwd}" "${REDIS_HOME}/src/redis-cli" --no-auth-warning \
+      -h 127.0.0.1 -p "${redisPort}" PING 2>/dev/null || true)"
+  fi
+  [[ "${response}" == "PONG" ]]
+}
+
+wait_managed_redis_ready() { # wait_managed_redis_ready <端口> <用户名> <密码>
+  local redisPort="$1" redisUser="$2" redisPwd="$3" deadline
+  deadline=$(( $(date +%s) + 60 ))
+  while [[ $(date +%s) -lt ${deadline} ]]; do
+    if managed_redis_ping "${redisPort}" "${redisUser}" "${redisPwd}"; then
+      ok "受管 Redis 已通过认证与 PING 健康检查"
+      return 0
+    fi
+    if ! systemctl is-active --quiet "${REDIS_MANAGED_SERVICE}"; then
+      manual_service_diagnostics "${REDIS_MANAGED_SERVICE}" "受管 Redis"
+      return 1
+    fi
+    sleep 2
+  done
+  manual_service_diagnostics "${REDIS_MANAGED_SERVICE}" "受管 Redis（等待60秒超时）"
+  return 1
 }
 
 ensure_manual_host_dependencies() {
