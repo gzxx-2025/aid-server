@@ -655,7 +655,7 @@ docker_maven_build() {
     'export JAVA_HOME=/opt/aid-jdk; export PATH="$JAVA_HOME/bin:$PATH"; \
      java -version 2>&1 | head -n 1 | grep -F "17.0.20" >/dev/null \
        || { echo "[失败] Maven未使用OpenJDK 17.0.20" >&2; exit 1; }; \
-     exec mvn -s /tmp/settings.xml -Dmaven.repo.local=/cache/m2 clean package -DskipTests'
+     exec mvn --batch-mode --no-transfer-progress -s /tmp/settings.xml -Dmaven.repo.local=/cache/m2 clean package -DskipTests'
 }
 
 read_project_npm_version() {
@@ -761,10 +761,10 @@ build_with_host() {
   require_local_build_tools
   log "[构建][服务端][开始] 隔离 Temurin OpenJDK $JDK_VERSION + Maven，国内主源: $MAVEN_MIRROR_URL"
   if ! (cd "$SERVER_DIR" && JAVA_HOME="$JDK_HOME" PATH="$JDK_HOME/bin:$PATH" \
-      mvn -s "$WORK_DIR/maven-settings.xml" -Dmaven.repo.local="$CACHE_DIR/m2" clean package -DskipTests); then
+      mvn --batch-mode --no-transfer-progress -s "$WORK_DIR/maven-settings.xml" -Dmaven.repo.local="$CACHE_DIR/m2" clean package -DskipTests); then
     warn "Maven 从首选仓库构建失败，切换备用仓库: $MAVEN_MIRROR_FALLBACK_URL"
     (cd "$SERVER_DIR" && JAVA_HOME="$JDK_HOME" PATH="$JDK_HOME/bin:$PATH" \
-      mvn -s "$WORK_DIR/maven-settings-fallback.xml" -Dmaven.repo.local="$CACHE_DIR/m2" clean package -DskipTests)
+      mvn --batch-mode --no-transfer-progress -s "$WORK_DIR/maven-settings-fallback.xml" -Dmaven.repo.local="$CACHE_DIR/m2" clean package -DskipTests)
   fi
   log '[构建][服务端][完成] aid-admin.jar 构建成功'
   log "[构建][后台管理端][开始] 使用服务器本机 Node.js + npm@$ADMIN_NPM_VERSION"

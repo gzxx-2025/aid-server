@@ -3244,9 +3244,11 @@ bootstrap_source_builder() {
     warn "宿主机未安装 Git，将使用隔离的 ${SOURCE_GIT_IMAGE} 容器拉取源码，不会修改系统软件"
   fi
   tmpDir="$(mktemp -d)"
-  for sourceRef in "v${RESOLVED_VERSION}" master; do
-    [[ "${sourceRef}" == "master" ]] \
-      && warn "目标版本尚未内置源码构建器，改从公开 master 获取构建工具；业务源码仍固定使用 v${RESOLVED_VERSION} 标签"
+  # 安装器本身从公开 master 获取最新修复，源码构建器也应遵循同一策略；
+  # 三端业务源码仍由构建器严格拉取版本标签，不会混入 master 业务代码。
+  for sourceRef in master "v${RESOLVED_VERSION}"; do
+    [[ "${sourceRef}" != "master" ]] \
+      && warn "公开 master 构建工具不可用，回退版本内置构建器；业务源码仍固定使用 v${RESOLVED_VERSION} 标签"
     remoteRef="refs/tags/${sourceRef}"
     [[ "${sourceRef}" == "master" ]] && remoteRef="refs/heads/master"
     for base in https://gitee.com/gzxx-2025 https://github.com/gzxx-2025; do
@@ -3293,6 +3295,18 @@ bootstrap_source_builder() {
   die "版本 v${RESOLVED_VERSION} 缺少源码构建器，或 Gitee/GitHub 均不可访问"
 }
 
+source_build_failure_diagnostics() { # source_build_failure_diagnostics <构建日志>
+  local buildLog="$1"
+  err "三端源码构建未完成，下面是构建日志最后160行："
+  if [[ -s "${buildLog}" ]]; then
+    # Maven 下载进度使用回车刷新；先展开回车再截取，避免一条超长进度行淹没真正错误。
+    tail -n 240 "${buildLog}" 2>/dev/null | tr '\r' '\n' | tail -n 160 >&2 || true
+  else
+    echo "  构建日志不存在或为空: ${buildLog}" >&2
+  fi
+  echo "  完整构建日志: ${buildLog}" >&2
+}
+
 ensure_source_package() {
   mkdir -p "${DATA_ROOT}/packages"
   RESOLVED_PACKAGE_PATH="${DATA_ROOT}/packages/aid-v${RESOLVED_VERSION}.tar.gz"
@@ -3337,6 +3351,7 @@ ensure_source_package() {
       --work-dir "${DATA_ROOT}/source-build/v${RESOLVED_VERSION}" 2>&1 | tee -a "${buildLog}"
   buildStatuses=( "${PIPESTATUS[@]}" )
   if (( buildStatuses[0] != 0 )); then
+    source_build_failure_diagnostics "${buildLog}"
     die "三端源码构建失败；现有部署未被修改，请查看日志 ${buildLog}"
   fi
   if (( buildStatuses[1] != 0 )); then
