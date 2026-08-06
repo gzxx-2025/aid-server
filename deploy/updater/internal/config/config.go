@@ -21,7 +21,7 @@ type Install struct {
 	ServiceManager string `json:"serviceManager"`
 	// BackendService 服务标识：systemd 单元名或 docker 容器名
 	BackendService string `json:"backendService"`
-	// RestartServices 升级完成后需要依次重启的附属服务（如用户端 SSR、docker 部署的 nginx），
+	// RestartServices 升级完成后需要依次重启的附属服务（如 Docker 静态 Web 容器、nginx），
 	// 语义与 BackendService 一致（systemd 单元名或 docker 容器名），可为空
 	RestartServices []string `json:"restartServices"`
 	// HealthCheckURL 服务端健康检查地址

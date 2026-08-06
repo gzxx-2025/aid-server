@@ -142,16 +142,46 @@ func (r *Runner) restartWithDeploymentConfiguration(state *config.DeploymentStat
 			}
 		}
 	} else {
-		cmd := exec.Command("bash", r.cfg.Deployment.ManagerScript, "restart")
-		// 配置任务由升级器自身执行；管理脚本只重启业务服务，不能在任务完成和
-		// 回滚状态写入前杀掉当前升级器进程。
-		cmd.Env = append(os.Environ(), "AID_SKIP_UPDATER_RESTART=1")
-		if output, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("重启systemd服务失败: %v, 输出: %s", err, strings.TrimSpace(string(output)))
+		if err := restartManualApplicationWithManager(r.cfg); err != nil {
+			return err
 		}
 	}
 	return sysctl.WaitHealthy(r.cfg.Install.HealthCheckURL,
 		time.Duration(r.cfg.Install.HealthCheckTimeoutSeconds)*time.Second)
+}
+
+var runManualManagerRestartCommand = func(managerScript string, env []string) ([]byte, error) {
+	cmd := exec.Command("bash", managerScript, "restart")
+	cmd.Env = env
+	return cmd.CombinedOutput()
+}
+
+// restartManualApplicationWithManager 必须调用当前已安装的新版管理脚本。
+// 它会迁移旧 aid-web.service、重写 Nginx 静态站点并执行完整健康检查；
+// 当前升级器仍在处理任务，因此必须禁止管理脚本重启升级器自身。
+func restartManualApplicationWithManager(cfg *config.Config) error {
+	managerScript := strings.TrimSpace(cfg.Deployment.ManagerScript)
+	if managerScript == "" {
+		return fmt.Errorf("部署管理脚本路径为空")
+	}
+	env := environmentWithOverride(os.Environ(), "AID_SKIP_UPDATER_RESTART", "1")
+	output, err := runManualManagerRestartCommand(managerScript, env)
+	if err != nil {
+		return fmt.Errorf("重启systemd服务失败: %v, 输出: %s", err, strings.TrimSpace(string(output)))
+	}
+	return nil
+}
+
+func environmentWithOverride(base []string, key, value string) []string {
+	prefix := key + "="
+	result := make([]string, 0, len(base)+1)
+	for _, item := range base {
+		if strings.HasPrefix(item, prefix) {
+			continue
+		}
+		result = append(result, item)
+	}
+	return append(result, prefix+value)
 }
 
 // prepareDockerServices 在 Compose 启动前处理可选服务。外部 MySQL 必须先通过

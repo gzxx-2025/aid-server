@@ -47,7 +47,7 @@ var dockerDeploymentKeys = map[string]bool{
 	"DATA_ROOT": true, "MYSQL_ROOT_PASSWORD": true, "MYSQL_PORT": true,
 	"MYSQL_BUFFER_POOL": true, "MYSQL_MAX_CONNECTIONS": true,
 	"REDIS_MAXMEMORY": true, "REDIS_MAXMEMORY_POLICY": true,
-	"WEB_NODE_OPTIONS": true, "COMPOSE_PROFILES": true,
+	"COMPOSE_PROFILES": true,
 	"MQ_NAMESRV_JAVA_OPTS": true, "MQ_BROKER_JAVA_OPTS": true,
 }
 

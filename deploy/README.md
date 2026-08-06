@@ -170,7 +170,7 @@ MySQL 首次启动自动创建 `aid_test` 库并导入 `sql/` 初始化脚本（
 | 后端 JVM | ~2.5G | 堆 1-2G + 元空间/线程栈/堆外 ~0.5G |
 | MySQL | ~1.5G | 缓冲池 1G + 连接与内部缓存 |
 | Redis | ~0.6G | maxmemory 512m + 进程开销 |
-| 用户端 SSR（Node） | ~0.4G | Nuxt 渲染进程 |
+| 用户端静态站点（Nginx） | ~0.05G | Nuxt generate 产物，不运行 Node SSR 进程 |
 | Nginx + 系统预留 | ~1G | 内核/页缓存/守护进程 |
 | RocketMQ（启用时） | +2G | NameServer 256m + Broker 堆 1G + 堆外与页缓存 ~0.8G |
 
@@ -182,7 +182,7 @@ MySQL 首次启动自动创建 `aid_test` 库并导入 `sql/` 初始化脚本（
 
 源码构建按部署方式强制隔离，不以“服务器上是否恰好安装 Docker”自动判断：Docker 部署与 Docker 升级固定传入 `AID_SOURCE_BUILD_MODE=docker`，只使用容器完成三端构建；手动 systemd 部署与升级固定传入 `AID_SOURCE_BUILD_MODE=host`，只使用宿主机的 Git、JDK、Node.js、Maven 和 Go，**不会探测、拉取或调用 Docker**。该变量由官方 `aid.sh` 和在线升级器自动设置，管理员无需手工配置；`auto` 仅保留给直接运行构建器的开发调试场景。
 
-Docker 构建固定使用 Node.js 22.22.0；后台管理端和 Web 用户端还必须在各自 `package.json` 的 `packageManager` 中固定完整 npm 版本，当前均为 npm 10.9.4。发布机与服务器源码构建都会通过引导 npm 执行项目声明的精确版本，再运行 `npm ci` 和生产构建，不依赖宿主机或 Node 镜像碰巧携带的 npm 版本；`package-lock.json` 与 `package.json` 不一致时会明确阻止发布。Java 构建与运行固定使用 Eclipse Temurin OpenJDK 17.0.20+8。JDK 按宿主机架构自动选择 x64 或 AArch64 压缩包，下载后核对 Adoptium 官方 SHA-256，不修改宿主机默认 Java。构建镜像与依赖缓存在 `/data/aid/build-cache`，后续升级会直接复用。
+Docker 构建固定使用 Node.js 22.22.0；后台管理端和 Web 用户端还必须在各自 `package.json` 的 `packageManager` 中固定完整 npm 版本，当前均为 npm 10.9.4。发布机与服务器源码构建都会通过引导 npm 执行项目声明的精确版本并运行 `npm ci`；后台管理端执行 `npm run build`，Web 用户端执行 `npm run generate` 生成静态站点，不依赖宿主机或 Node 镜像碰巧携带的 npm 版本。`package-lock.json` 与 `package.json` 不一致时会明确阻止发布。Java 构建与运行固定使用 Eclipse Temurin OpenJDK 17.0.20+8。JDK 按宿主机架构自动选择 x64 或 AArch64 压缩包，下载后核对 Adoptium 官方 SHA-256，不修改宿主机默认 Java。构建镜像与依赖缓存在 `/data/aid/build-cache`，后续升级会直接复用。
 
 `DEPENDENCY_REGION=auto` 会在目标服务器运行时按公网出口地区自动选择下载线路，地区服务不可用时再按网络可达性判断：国内依赖优先使用国内镜像，国际线路优先使用上游官方地址。Maven 在两种线路下均固定优先使用阿里云公共仓库，失败时自动用原始 Maven Central 重新构建；可通过 `AID_MAVEN_MIRROR_URL` 与 `AID_MAVEN_FALLBACK_URL` 分别覆盖。其他首选线路失败也会自动回退，且可明确设置为 `cn` 或 `global`。
 
@@ -197,7 +197,7 @@ Docker Hub 代理由正式配置项 `DOCKER_MIRRORS` 管理，默认候选为 `d
 ```text
 ├── backend/aid-admin.jar    # 服务端
 ├── admin-dist/              # 管理端静态产物（Nginx 托管）
-├── web-dist/                # 用户端 SSR 产物（Node 运行 server/index.mjs）
+├── web-dist/                # 用户端静态产物（根目录必须包含 index.html 与 200.html）
 ├── updater/                 # 当前版本 Linux amd64/arm64 在线升级器
 ├── installer/               # 单文件自举需要的部署配置、编排与初始化基线
 ├── build-info.json          # 当前版本与构建来源
@@ -376,7 +376,6 @@ DB_PASSWORD=请填写真实强密码
 | `MYSQL_BUFFER_POOL` | `1G` | 物理内存的 40%~50% |
 | `MYSQL_MAX_CONNECTIONS` | `500` | 一般无需调整 |
 | `REDIS_MAXMEMORY` | `512mb` | 按缓存量调节；策略默认 `noeviction`（系统用 Redis 存分布式锁，禁止静默淘汰） |
-| `WEB_NODE_OPTIONS` | 空 | SSR 内存不足时 `--max-old-space-size=1024` |
 | `MQ_NAMESRV_JAVA_OPTS` | `-Xms256m -Xmx256m` | NameServer 很轻，一般不调 |
 | `MQ_BROKER_JAVA_OPTS` | `-Xms1g -Xmx1g -Xmn512m` | 消息量大时 `-Xms2g -Xmx2g -Xmn1g` 以上（镜像默认 8G 堆已被覆盖，小服务器可直接启动） |
 
@@ -410,7 +409,7 @@ sudo aid restart
 | `docker compose ps` 某容器反复重启 | `docker logs --tail 100 <容器名>` | 按日志报错处理；内存不足（exit 137）用菜单 9 调低内存参数 |
 | aid-mysql 启动失败 | `docker logs aid-mysql` | 首次导入 SQL 报错时：删除 `/data/aid/mysql-data` 后重跑首次部署（会清空数据库，仅限首次部署） |
 | aid-server unhealthy | `docker logs --tail 100 aid-server` | 常见为数据库密码不一致（配置改过但数据目录是旧密码初始化的）——首次部署期可删数据目录重来 |
-| aid-web unhealthy | `docker logs aid-web` | web-dist 未部署（保活等待态）属正常提示；已部署则看 Node 报错 |
+| aid-web unhealthy | `docker logs aid-web` | 检查 `/data/aid/app/web-dist/index.html`、`200.html` 是否存在，以及静态 Nginx 配置是否有效 |
 | 页面 502 | Nginx 到后端/用户端不通 | 状态确认 aid-server / aid-web healthy 后 `docker restart aid-nginx` |
 | 端口冲突（启动即失败） | `ss -tlnp \| grep <端口>` | 菜单 9 修改端口配置后重启 |
 | 磁盘写满 | `df -h`、`du -sh /data/aid/uploadPath` | 媒体文件建议配置 OSS/COS 对象存储；清理 `/data/aid/backups` 过期备份 |
@@ -429,7 +428,7 @@ sudo aid restart
 | Maven | 3.9.9 | 下载到隔离缓存，用于服务端源码构建 |
 | MySQL | 5.7.44（受管安装）/ 5.7.x（已有或外部） | 业务数据库（本机或远程均可） |
 | Redis | 8.0.5（受管安装）/ 6.x+（已有或外部） | 缓存与分布式锁 |
-| Node.js | 22.22.0 | 后台/Web 构建与用户端 SSR 运行 |
+| Node.js | 22.22.0 | 仅用于后台/Web 源码构建；Web 运行时由 Nginx 托管静态产物 |
 | npm | 由各端 `packageManager` 精确锁定（当前 10.9.4） | 后台管理端与 Web 用户端源码构建；不使用宿主机的漂移版本 |
 | Go | 1.22.12 | 下载到隔离缓存，用于在线升级器源码构建 |
 | Nginx | 1.30.4+ | 静态托管与反向代理；缺失时源码安装隔离的 1.30.4 |
@@ -454,7 +453,7 @@ if command -v curl >/dev/null 2>&1; then curl -fL --retry 3 -o aid-install.sh ht
 
 手动部署始终使用宿主机隔离工具链，不因服务器碰巧存在 Docker 而改变构建方式。JDK、Nginx、Redis、Node.js、Maven、Go 与 MySQL 归档会从 AID 国内依赖镜像池或各组件官方地址完整下载，只有固定摘要校验通过才会解压或编译；中断后保留 `.part` 文件，重试时支持续传，已完成且版本匹配则直接跳过。Java 固定使用 Oracle JDK 17.0.8，Web 固定使用 Node.js 22.22.0。安装器会在当前进程立即导出 `JAVA_HOME/PATH`，同时持久化 `/etc/profile.d/aid-java.sh`；当前登录终端若要直接执行 `java`，重新登录或运行 `source /etc/profile.d/aid-java.sh`。脚本会先识别宿主机 glibc：glibc 2.28+ 使用 Node.js 官方构建；CentOS 7 等 x64/glibc 2.17 系统自动改用 Node.js `unofficial-builds` 社区兼容构建及 Gitee 国内字节镜像，并强制核对其发布的固定 SHA-256，不升级或替换系统 glibc。AArch64 的旧 glibc 系统没有对应兼容构建，脚本会明确阻止安装并提示升级操作系统或改用 Docker。配置调整后执行 `sudo aid restart` 只会重新校验现有版本和连通性，符合要求的组件全部跳过，不会重复安装或初始化。
 
-脚本自动完成：依赖检测与按需安装 → 三仓同标签源码构建 → 配置文件校验 → 硬件校验 → 数据库连通性校验 → 空库自动导入基线（已有表跳过）→ 本地构建包摆位到 `/data/aid/app` → 注册 `aid` + `aid-web` 双 systemd 服务（环境变量含 `LOG_PATH=/data/aid/logs`，日志统一落数据目录）→ 生成 Nginx 站点 → 自动安装升级器 → 健康等待。
+脚本自动完成：依赖检测与按需安装 → 三仓同标签源码构建（后台 `build`、Web `generate`）→ 配置文件校验 → 硬件校验 → 数据库连通性校验 → 空库自动导入基线（已有表跳过）→ 本地构建包摆位到 `/data/aid/app` → 注册后端 `aid` systemd 服务（环境变量含 `LOG_PATH=/data/aid/logs`，日志统一落数据目录）→ 由 Nginx 直接托管 `web-dist` 静态站点 → 自动安装升级器 → 健康等待。升级旧部署时，脚本只会在确认 unit 带有当前 AID 根目录标记后安全停用并移除旧 `aid-web.service`，不会删除其他同名服务。
 
 全新服务器会安装隔离的 Nginx 1.30.4，主配置在 `/data/aid/runtime/nginx-1.30.4/conf/nginx.conf`，AID 站点在 `/data/aid/config/nginx/conf.d/aid.conf`，由 `aid-nginx.service` 管理。已有 Nginx 1.30.4+ 会直接复用：标准系统安装写入 `/etc/nginx/conf.d/aid.conf`，服务器面板安装写入 `/www/server/panel/vhost/nginx/aid.conf`。脚本写入前会备份现有同名文件，执行配置校验成功后才重载；校验失败自动恢复旧文件。正在运行的旧版 Nginx 不会被静默覆盖。
 

@@ -25,9 +25,10 @@ assert_trace() {
   }
 }
 
-mkdir -p "${DATA_ROOT}/app/admin-dist" "${DATA_ROOT}/app/web-dist/server"
+mkdir -p "${DATA_ROOT}/app/admin-dist" "${DATA_ROOT}/app/web-dist"
 printf 'jar\n' > "${DATA_ROOT}/app/aid-admin.jar"
-touch "${DATA_ROOT}/app/admin-dist/index.html" "${DATA_ROOT}/app/web-dist/server/index.mjs"
+touch "${DATA_ROOT}/app/admin-dist/index.html" "${DATA_ROOT}/app/web-dist/index.html" \
+  "${DATA_ROOT}/app/web-dist/200.html"
 
 docker_profile_enabled() { [[ ",${MOCK_PROFILES:-}," == *",$1,"* ]]; }
 docker() {
@@ -70,7 +71,6 @@ deployment_application_ready docker
 systemctl() {
   case "$*" in
     'is-active --quiet aid') return 0 ;;
-    'is-active --quiet aid-web') return 0 ;;
     'is-active --quiet aid-nginx.service') return 0 ;;
     'list-unit-files') return 0 ;;
     'is-active --quiet aid-updater') return 0 ;;

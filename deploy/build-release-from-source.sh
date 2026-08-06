@@ -236,7 +236,6 @@ docker_image_digest() {
     node:22.22.0-bookworm-slim) echo 'sha256:dd9d21971ec4395903fa6143c2b9267d048ae01ca6d3ea96f16cb30df6187d94' ;;
     golang:1.22.12-bookworm) echo 'sha256:3d699e4d15d0f8f13c9195c0632a16702b8cbdece2955af1c23b37ae5d55a253' ;;
     debian:bookworm-slim) echo 'sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818' ;;
-    node:22.22.0-alpine) echo 'sha256:e4bf2a82ad0a4037d28035ae71529873c069b13eb0455466ae0bc13363826e34' ;;
     nginx:1.25-alpine) echo 'sha256:516475cc129da42866742567714ddc681e5eed7b9ee0b9e9c015e464b4221a00' ;;
     docker:27-cli) echo 'sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c' ;;
     *) return 1 ;;
@@ -672,8 +671,7 @@ EOF
 prepare_runtime_images() {
   [ "$USE_DOCKER" = yes ] || return 0
   prepare_jdk_runtime_image
-  ensure_docker_image 'node:22.22.0-alpine' 'Web运行时'
-  ensure_docker_image 'nginx:1.25-alpine' 'Nginx网关'
+  ensure_docker_image 'nginx:1.25-alpine' 'Web静态站点与Nginx网关'
   ensure_docker_image 'docker:27-cli' '升级器Docker客户端'
 }
 
@@ -709,7 +707,7 @@ read_project_npm_version() {
 }
 
 docker_npm_build() {
-  source_dir="$1"; cache_dir="$2"; label="$3"; npm_version="$4"; selected_registry="$NPM_REGISTRY"
+  source_dir="$1"; cache_dir="$2"; label="$3"; npm_version="$4"; npm_script="${5:-build}"; selected_registry="$NPM_REGISTRY"
   log "[构建][$label][依赖] npm@$npm_version ci，首选源: $NPM_REGISTRY"
   if ! docker run --rm --user "$uid_gid" -e NUXT_TELEMETRY_DISABLED=1 \
       -e "AID_NPM_VERSION=$npm_version" \
@@ -729,18 +727,18 @@ docker_npm_build() {
        npm exec --yes "--package=npm@$AID_NPM_VERSION" -- npm ci' \
       || die "$label npm@$npm_version ci 失败；如日志出现 EUSAGE/Missing，请同步提交 package.json 与 package-lock.json"
   fi
-  log "[构建][$label][编译] npm@$npm_version run build，使用源: $selected_registry"
+  log "[构建][$label][编译] npm@$npm_version run $npm_script，使用源: $selected_registry"
   docker run --rm --user "$uid_gid" -e NUXT_TELEMETRY_DISABLED=1 \
-    -e "AID_NPM_VERSION=$npm_version" \
+    -e "AID_NPM_VERSION=$npm_version" -e "AID_NPM_SCRIPT=$npm_script" \
     -e "npm_config_registry=$selected_registry" -e npm_config_cache=/cache/npm \
     -v "$source_dir:/workspace" -v "$cache_dir:/cache/npm" \
     -w /workspace "$NODE_IMAGE" sh -lc \
-    'exec npm exec --yes "--package=npm@$AID_NPM_VERSION" -- npm run build'
+    'exec npm exec --yes "--package=npm@$AID_NPM_VERSION" -- npm run "$AID_NPM_SCRIPT"'
   log "[构建][$label][完成] 生产构建成功"
 }
 
 host_npm_build() {
-  source_dir="$1"; cache_dir="$2"; label="$3"; npm_version="$4"; selected_registry="$NPM_REGISTRY"
+  source_dir="$1"; cache_dir="$2"; label="$3"; npm_version="$4"; npm_script="${5:-build}"; selected_registry="$NPM_REGISTRY"
   log "[构建][$label][依赖] npm@$npm_version ci，首选源: $NPM_REGISTRY"
   if ! (cd "$source_dir" && npm_config_registry="$NPM_REGISTRY" npm_config_cache="$cache_dir" \
       npm exec --yes "--package=npm@$npm_version" -- npm ci); then
@@ -750,9 +748,9 @@ host_npm_build() {
       npm exec --yes "--package=npm@$npm_version" -- npm ci) \
       || die "$label npm@$npm_version ci 失败；如日志出现 EUSAGE/Missing，请同步提交 package.json 与 package-lock.json"
   fi
-  log "[构建][$label][编译] npm@$npm_version run build，使用源: $selected_registry"
+  log "[构建][$label][编译] npm@$npm_version run $npm_script，使用源: $selected_registry"
   (cd "$source_dir" && NUXT_TELEMETRY_DISABLED=1 npm_config_registry="$selected_registry" \
-    npm_config_cache="$cache_dir" npm exec --yes "--package=npm@$npm_version" -- npm run build)
+    npm_config_cache="$cache_dir" npm exec --yes "--package=npm@$npm_version" -- npm run "$npm_script")
   log "[构建][$label][完成] 生产构建成功"
 }
 
@@ -781,7 +779,7 @@ build_with_docker() {
   docker_npm_build "$ADMIN_DIR" "$CACHE_DIR/npm-admin" '后台管理端' "$ADMIN_NPM_VERSION"
 
   log "[构建][Web用户端][开始] Node.js 22.22.0 + npm@$WEB_NPM_VERSION"
-  docker_npm_build "$WEB_DIR" "$CACHE_DIR/npm-web" 'Web用户端' "$WEB_NPM_VERSION"
+  docker_npm_build "$WEB_DIR" "$CACHE_DIR/npm-web" 'Web用户端' "$WEB_NPM_VERSION" generate
 
   for arch in amd64 arm64; do
     log "编译升级器 linux/$arch"
@@ -808,7 +806,7 @@ build_with_host() {
   log "[构建][后台管理端][开始] 使用服务器本机 Node.js + npm@$ADMIN_NPM_VERSION"
   host_npm_build "$ADMIN_DIR" "$CACHE_DIR/npm-admin" '后台管理端' "$ADMIN_NPM_VERSION"
   log "[构建][Web用户端][开始] 使用服务器本机 Node.js + npm@$WEB_NPM_VERSION"
-  host_npm_build "$WEB_DIR" "$CACHE_DIR/npm-web" 'Web用户端' "$WEB_NPM_VERSION"
+  host_npm_build "$WEB_DIR" "$CACHE_DIR/npm-web" 'Web用户端' "$WEB_NPM_VERSION" generate
   for arch in amd64 arm64; do
     log "编译升级器 linux/$arch"
     (cd "$SERVER_DIR/deploy/updater" && GOOS=linux GOARCH="$arch" CGO_ENABLED=0 GOPROXY="$GO_PROXY" \
@@ -831,18 +829,21 @@ assemble_package() {
   backend_jar="$SERVER_DIR/aid-admin/target/aid-admin.jar"
   [ -f "$backend_jar" ] || die '服务端构建产物缺失: aid-admin/target/aid-admin.jar'
   [ -d "$ADMIN_DIR/dist" ] || die '后台管理端构建产物缺失: dist/'
-  if [ -f "$WEB_DIR/.output/server/index.mjs" ]; then
-    web_output="$WEB_DIR/.output"
-  elif [ -f "$WEB_DIR/dist/server/index.mjs" ]; then
-    web_output="$WEB_DIR/dist"
+  if [ -f "$WEB_DIR/dist/public/index.html" ] && [ -f "$WEB_DIR/dist/public/200.html" ]; then
+    web_output="$WEB_DIR/dist/public"
+  elif [ -f "$WEB_DIR/.output/public/index.html" ] && [ -f "$WEB_DIR/.output/public/200.html" ]; then
+    web_output="$WEB_DIR/.output/public"
   else
-    die 'Web 构建产物缺少 server/index.mjs'
+    die 'Web 静态生成产物缺少 index.html 或 200.html（期望 dist/public 或 .output/public）'
   fi
 
   mkdir -p "$STAGING_DIR/backend" "$STAGING_DIR/installer/sql" "$STAGING_DIR/sql"
   cp "$backend_jar" "$STAGING_DIR/backend/aid-admin.jar"
   cp -R "$ADMIN_DIR/dist" "$STAGING_DIR/admin-dist"
-  cp -R "$web_output" "$STAGING_DIR/web-dist"
+  mkdir -p "$STAGING_DIR/web-dist"
+  cp -R "$web_output"/. "$STAGING_DIR/web-dist/"
+  [ -f "$STAGING_DIR/web-dist/index.html" ] || die 'Web 静态产物装配失败：web-dist/index.html 不存在'
+  [ -f "$STAGING_DIR/web-dist/200.html" ] || die 'Web 静态产物装配失败：web-dist/200.html 不存在'
 
   for file in \
     deploy/README.md \

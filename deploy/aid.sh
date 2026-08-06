@@ -588,10 +588,10 @@ check_hardware() { # check_hardware <docker|manual> <mq:yes|no>
   # 最低/推荐配置（MB）：按部署内容累加
   local minCpu minMem recCpu recMem minDisk
   if [[ "${mode}" == "docker" ]]; then
-    # Docker 全栈：MySQL(~1.5G) + Redis(0.5G) + 后端JVM(~2.5G) + Node SSR(~0.4G) + Nginx + 系统(~1G)
+    # Docker 全栈：MySQL(~1.5G) + Redis(0.5G) + 后端JVM(~2.5G) + 静态 Web Nginx + 网关 Nginx + 系统(~1G)
     minCpu=2; minMem=$((4 * 1024 - 512)); recCpu=4; recMem=$((8 * 1024 - 512)); minDisk=40
   else
-    # 手动部署：中间件可能在本机也可能在别机，按"后端+SSR在本机"计算下限
+    # 手动部署：中间件可能在本机也可能在别机，按“后端+静态 Web/Nginx 在本机”计算下限
     minCpu=2; minMem=$((4 * 1024 - 512)); recCpu=4; recMem=$((8 * 1024 - 512)); minDisk=40
   fi
   if [[ "${withMq}" == "yes" ]]; then
@@ -973,7 +973,6 @@ docker_image_digest() { # docker_image_digest <标准镜像>
     node:22.22.0-bookworm-slim) echo 'sha256:dd9d21971ec4395903fa6143c2b9267d048ae01ca6d3ea96f16cb30df6187d94' ;;
     golang:1.22.12-bookworm) echo 'sha256:3d699e4d15d0f8f13c9195c0632a16702b8cbdece2955af1c23b37ae5d55a253' ;;
     debian:bookworm-slim) echo 'sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818' ;;
-    node:22.22.0-alpine) echo 'sha256:e4bf2a82ad0a4037d28035ae71529873c069b13eb0455466ae0bc13363826e34' ;;
     nginx:1.25-alpine) echo 'sha256:516475cc129da42866742567714ddc681e5eed7b9ee0b9e9c015e464b4221a00' ;;
     docker:27-cli) echo 'sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c' ;;
     mysql:5.7) echo 'sha256:4bc6bc963e6d8443453676cae56536f4b8156d78bae03c0145cbe47c2aad73bb' ;;
@@ -1134,8 +1133,7 @@ prepare_source_build_images() { # prepare_source_build_images <docker|host>
 
 prepare_docker_runtime_images() {
   prepare_jdk_runtime_image
-  ensure_docker_image "node:22.22.0-alpine" "Web运行时"
-  ensure_docker_image "nginx:1.25-alpine" "Nginx网关"
+  ensure_docker_image "nginx:1.25-alpine" "Web静态站点与Nginx网关"
   ensure_docker_image "docker:27-cli" "升级器Docker客户端"
   # 内置 MySQL 使用该镜像；外部 MySQL 也需要它作为一次性5.7兼容客户端。
   ensure_docker_image "mysql:5.7" "MySQL5.7"
@@ -2436,6 +2434,8 @@ updater_runtime_ready() { # updater_runtime_ready <docker|manual>
 
 deployment_application_ready() { # deployment_application_ready <docker|manual>
   local mode="$1" container
+  [[ -f "${DATA_ROOT}/app/web-dist/index.html" \
+     && -f "${DATA_ROOT}/app/web-dist/200.html" ]] || return 1
   case "${mode}" in
     docker)
       for container in aid-server aid-web aid-nginx; do
@@ -2458,9 +2458,8 @@ deployment_application_ready() { # deployment_application_ready <docker|manual>
       ;;
     manual)
       systemctl is-active --quiet aid || return 1
-      if [[ -f "${DATA_ROOT}/app/web-dist/server/index.mjs" ]]; then
-        systemctl is-active --quiet aid-web || return 1
-      fi
+      [[ -f "${DATA_ROOT}/app/web-dist/index.html" \
+         && -f "${DATA_ROOT}/app/web-dist/200.html" ]] || return 1
       select_existing_nginx_runtime >/dev/null 2>&1 || return 1
       nginx_runtime_active || return 1
       updater_runtime_ready manual || return 1
@@ -2472,7 +2471,8 @@ deployment_application_ready() { # deployment_application_ready <docker|manual>
 deployment_artifacts_ready() {
   [[ -s "${DATA_ROOT}/app/aid-admin.jar" \
      && -f "${DATA_ROOT}/app/admin-dist/index.html" \
-     && -f "${DATA_ROOT}/app/web-dist/server/index.mjs" ]]
+     && -f "${DATA_ROOT}/app/web-dist/index.html" \
+     && -f "${DATA_ROOT}/app/web-dist/200.html" ]]
 }
 
 # ----------------------------------------------------------------------------
@@ -3480,7 +3480,8 @@ validate_release_package() { # validate_release_package <包> <是否要求安�
     esac
   done < "${listFile}"
   grep -Eq '(^|/)backend/aid-admin\.jar$' "${listFile}" || { rm -f "${listFile}"; die "发布包缺少后端程序"; }
-  grep -Eq '(^|/)web-dist/server/index\.mjs$' "${listFile}" || { rm -f "${listFile}"; die "发布包缺少 Web SSR 产物"; }
+  grep -Eq '(^|/)web-dist/index\.html$' "${listFile}" || { rm -f "${listFile}"; die "发布包缺少 Web 静态入口"; }
+  grep -Eq '(^|/)web-dist/200\.html$' "${listFile}" || { rm -f "${listFile}"; die "发布包缺少 Web SPA 通用入口"; }
   grep -Eq '(^|/)build-info\.json$' "${listFile}" || { rm -f "${listFile}"; die "发布包缺少 build-info.json"; }
   if grep -Eq '(^|/)installer/deploy/docker/\.env$' "${listFile}"; then
     rm -f "${listFile}"
@@ -3497,6 +3498,7 @@ validate_release_package() { # validate_release_package <包> <是否要求安�
     for entry in installer/deploy/aid.sh installer/deploy/aid-deploy.conf.example \
         installer/deploy/docker/.env.example \
         installer/deploy/docker/docker-compose.yml installer/deploy/docker/nginx/aid-https.conf.template \
+        installer/deploy/docker/nginx/web-static.conf \
         installer/deploy/docker/rocketmq/broker-entrypoint.sh \
         installer/sql/aid-init.sql; do
       grep -Eq "(^|/)${entry}$" "${listFile}" \
@@ -4043,7 +4045,6 @@ BACKEND_PORT=8080
 #MYSQL_MAX_CONNECTIONS=500
 #REDIS_MAXMEMORY=1gb
 #REDIS_MAXMEMORY_POLICY=noeviction
-#WEB_NODE_OPTIONS=--max-old-space-size=1024
 COMPOSE_PROFILES=mysql,redis
 ROCKETMQ_ENABLED=false
 ROCKETMQ_NAMESERVER=rocketmq-nameserver:9876
@@ -4681,6 +4682,12 @@ place_artifacts() { # place_artifacts <包路径>
       warn "包内不含 ${dist}（对应端将不可用）"
     fi
   done
+  [[ -f "${DATA_ROOT}/app/admin-dist/index.html" ]] \
+    || die "管理端静态入口缺失: ${DATA_ROOT}/app/admin-dist/index.html"
+  [[ -f "${DATA_ROOT}/app/web-dist/index.html" ]] \
+    || die "Web 用户端静态入口缺失: ${DATA_ROOT}/app/web-dist/index.html"
+  [[ -f "${DATA_ROOT}/app/web-dist/200.html" ]] \
+    || die "Web 用户端 SPA 通用入口缺失: ${DATA_ROOT}/app/web-dist/200.html"
   # 升级器二进制：按本机架构从包内 updater/ 选取（在线升级能力的执行代理）
   place_updater_binary "${pkgRoot}"
   # 增量 SQL 暂存（升级场景由 do_update 决定如何执行）
@@ -4825,7 +4832,8 @@ write_updater_config() { # write_updater_config <docker|manual>
     write_deployment_descriptor docker "${configPath}"
   else
     serviceManager="systemd"; backendService="aid"
-    restartServices='["aid-web"]'
+    # 手动部署的 Web 为 Nginx 直读静态目录，替换产物后无需重启不存在的 aid-web 服务。
+    restartServices='[]'
     healthUrl="http://127.0.0.1:$(conf_get BACKEND_PORT 8080)"
     execContainer=""; clientImage=""; dockerNetwork=""
     dbHost="$(conf_get DB_HOST 127.0.0.1)"; dbPort="$(conf_get DB_PORT 3306)"
@@ -5514,6 +5522,9 @@ stop_unhealthy_docker_application_containers() {
 start_docker_application_stack() {
   validate_https_runtime
 
+  [[ -f "${DATA_ROOT}/app/web-dist/index.html" && -f "${DATA_ROOT}/app/web-dist/200.html" ]] \
+    || { err "Web 静态入口不完整: ${DATA_ROOT}/app/web-dist/index.html 或 200.html 缺失"; return 1; }
+
   section "启动 AID 后端并执行健康检查"
   if ! compose_cmd up -d aid-server || ! compose_cmd restart aid-server; then
     docker_container_diagnostics aid-server "AID 后端"
@@ -5573,7 +5584,7 @@ start_docker_application_stack() {
       return 1
     fi
   fi
-  ok "AID 后端、Web、Nginx 与升级器已按顺序启动"
+  ok "AID 后端、Web 静态站点、Nginx 与升级器已按顺序启动"
 }
 
 valid_ipv4() { # valid_ipv4 <IPv4>
@@ -5894,14 +5905,28 @@ do_install_docker() {
 # ----------------------------------------------------------------------------
 # 首次部署：手动（systemd）
 # ----------------------------------------------------------------------------
+remove_legacy_manual_web_unit() {
+  local unitFile="${AID_SYSTEMD_UNIT_DIR}/aid-web.service"
+  [[ -f "${unitFile}" && ! -L "${unitFile}" ]] || return 0
+  if grep -Fxq '# AID_MANAGED_UNIT=1' "${unitFile}" 2>/dev/null \
+      && grep -Fxq "# AID_DATA_ROOT=${DATA_ROOT}" "${unitFile}" 2>/dev/null; then
+    systemctl disable --now aid-web >/dev/null 2>&1 || true
+    rm -f -- "${unitFile}" || die "移除旧版 Web SSR 服务失败: ${unitFile}"
+    ok "旧版 aid-web.service 已停用，用户端改由 Nginx 托管静态文件"
+  else
+    warn "检测到非当前 AID 管理的 aid-web.service，已保留: ${unitFile}"
+  fi
+}
+
 write_systemd_units() {
-  local javaBin nodeBin
+  local javaBin aidUnit
   [[ -x "${JDK_HOME}/bin/java" ]] \
     && "${JDK_HOME}/bin/java" -version 2>&1 | head -n 1 | grep -Fq "${MANUAL_JDK_VERSION}" \
     || prepare_manual_jdk
   javaBin="${JDK_HOME}/bin/java"
-  nodeBin="$(command -v node)"
-  cat > /etc/systemd/system/aid.service <<EOF
+  mkdir -p "${AID_SYSTEMD_UNIT_DIR}"
+  aidUnit="${AID_SYSTEMD_UNIT_DIR}/aid.service"
+  cat > "${aidUnit}" <<EOF
 # AID_MANAGED_UNIT=1
 # AID_DATA_ROOT=${DATA_ROOT}
 [Unit]
@@ -5924,28 +5949,9 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 EOF
-  chmod 600 /etc/systemd/system/aid.service
+  chmod 600 "${aidUnit}"
 
-  cat > /etc/systemd/system/aid-web.service <<EOF
-# AID_MANAGED_UNIT=1
-# AID_DATA_ROOT=${DATA_ROOT}
-[Unit]
-Description=AID Web (Nuxt SSR)
-After=network-online.target aid.service
-
-[Service]
-Type=simple
-WorkingDirectory=${DATA_ROOT}/app/web-dist
-Environment=NITRO_PORT=3000
-Environment=NITRO_HOST=127.0.0.1
-Environment=NUXT_PROXY_TARGET=http://127.0.0.1:$(conf_get BACKEND_PORT 8080)
-ExecStart=${nodeBin} server/index.mjs
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF
+  remove_legacy_manual_web_unit
   systemctl daemon-reload
 }
 
@@ -5957,16 +5963,12 @@ write_nginx_site() {
   content="# AID 站点：${httpPort}=C端用户端，${adminPort}=后台管理端（根路径托管）
 # AID_MANAGED_NGINX=1
 # AID_DATA_ROOT=${DATA_ROOT}
-# 仅在请求确实携带 Upgrade 头时才发送 Connection: upgrade，普通请求保持 keep-alive
-map \$http_upgrade \$connection_upgrade {
-    default upgrade;
-    ''      '';
-}
-
 server {
     listen ${httpPort};
     server_name _;
     client_max_body_size 1024m;
+    root ${DATA_ROOT}/app/web-dist;
+    index index.html;
     location = /healthz { access_log off; return 200 \"ok\"; }
     location /aid/ {
         proxy_pass http://127.0.0.1:${backendPort}/;
@@ -5980,13 +5982,7 @@ server {
         proxy_pass http://127.0.0.1:${backendPort}/profile/;
     }
     location / {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection \$connection_upgrade;
+        try_files \$uri \$uri/ /200.html;
     }
 }
 
@@ -6030,6 +6026,8 @@ server {
     ssl_certificate ${certPath};
     ssl_certificate_key ${keyPath};
     client_max_body_size 1024m;
+    root ${DATA_ROOT}/app/web-dist;
+    index index.html;
     location = /healthz { access_log off; return 200 \"ok\"; }
     location /aid/ {
         proxy_pass http://127.0.0.1:${backendPort}/;
@@ -6045,14 +6043,7 @@ server {
         proxy_set_header X-Forwarded-Proto https;
     }
     location / {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto https;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection \$connection_upgrade;
+        try_files \$uri \$uri/ /200.html;
     }
 }
 
@@ -6118,18 +6109,22 @@ manual_service_diagnostics() { # manual_service_diagnostics <systemd服务> <组
   journalctl -u "${service}" --no-pager -n 120 2>&1 || true
 }
 
-wait_manual_web_healthy() {
-  local deadline=$(( $(date +%s) + 120 ))
+wait_manual_static_web_healthy() {
+  local httpPort deadline
+  httpPort="$(conf_get HTTP_PORT 80)"
+  [[ -f "${DATA_ROOT}/app/web-dist/index.html" && -f "${DATA_ROOT}/app/web-dist/200.html" ]] \
+    || { err "Web 静态入口不完整: ${DATA_ROOT}/app/web-dist/index.html 或 200.html 缺失"; return 1; }
+  deadline=$(( $(date +%s) + 30 ))
   while [[ $(date +%s) -lt ${deadline} ]]; do
-    curl -sf -o /dev/null http://127.0.0.1:3000/ 2>/dev/null \
-      && { ok "Web 用户端已就绪"; return 0; }
-    if ! systemctl is-active --quiet aid-web; then
-      manual_service_diagnostics aid-web "Web 用户端"
-      return 1
+    if nginx_runtime_active \
+        && curl -sf -o /dev/null "http://127.0.0.1:${httpPort}/" 2>/dev/null; then
+      ok "Web 用户端静态站点已就绪"
+      return 0
     fi
-    sleep 3
+    sleep 2
   done
-  manual_service_diagnostics aid-web "Web 用户端（等待120s超时）"
+  err "Web 用户端静态站点未就绪，请检查 Nginx 配置与 ${DATA_ROOT}/app/web-dist/index.html、200.html"
+  [[ -n "${NGINX_BIN:-}" && -x "${NGINX_BIN}" ]] && "${NGINX_BIN}" -t 2>&1 || true
   return 1
 }
 
@@ -6149,18 +6144,11 @@ start_manual_application_stack() {
     return 1
   fi
 
-  if [[ -f "${DATA_ROOT}/app/web-dist/server/index.mjs" ]]; then
-    section "启动 Web 用户端与 Nginx 网关"
-    systemctl enable aid-web >/dev/null 2>&1 || true
-    if ! systemctl restart aid-web || ! wait_manual_web_healthy; then
-      systemctl stop aid-web >/dev/null 2>&1 || true
-      risk "Web 用户端启动失败，已停止循环重启；AID 后端与数据服务保持运行"
-      return 1
-    fi
-  else
-    warn "web-dist 无 SSR 产物，aid-web 服务暂不启动"
-  fi
+  [[ -f "${DATA_ROOT}/app/web-dist/index.html" && -f "${DATA_ROOT}/app/web-dist/200.html" ]] \
+    || { err "Web 静态入口不完整: ${DATA_ROOT}/app/web-dist/index.html 或 200.html 缺失"; return 1; }
+  section "启用 Web 用户端静态站点与 Nginx 网关"
   write_nginx_site
+  wait_manual_static_web_healthy || return 1
 
   if [[ "${AID_SKIP_UPDATER_RESTART:-0}" != "1" ]]; then
     setup_updater manual
@@ -6170,7 +6158,7 @@ start_manual_application_stack() {
       return 1
     fi
   fi
-  ok "AID 后端、Web、Nginx 与升级器已按顺序启动"
+  ok "AID 后端、Web 静态站点、Nginx 与升级器已按顺序启动"
 }
 
 do_install_manual() {
@@ -7482,7 +7470,12 @@ do_status() {
     docker) compose_cmd ps ;;
     manual)
       systemctl --no-pager --lines 0 status aid 2>/dev/null | head -n 5 || true
-      systemctl --no-pager --lines 0 status aid-web 2>/dev/null | head -n 5 || true
+      if select_existing_nginx_runtime >/dev/null 2>&1; then
+        if nginx_runtime_active; then ok "Web 静态站点由 Nginx 托管且运行中"
+        else warn "Web 静态站点文件存在，但 Nginx 未运行"; fi
+      else
+        warn "未检测到托管 Web 静态站点的 Nginx"
+      fi
       systemctl --no-pager --lines 0 status aid-updater 2>/dev/null | head -n 5 || true
       ;;
     *) warn "尚未部署" ;;
@@ -7498,7 +7491,7 @@ do_logs() {
   echo "查看日志（Ctrl+C 退出跟踪）："
   echo "  1) 后端实时日志"
   echo "  2) 后端错误日志文件"
-  echo "  3) 用户端（SSR）日志"
+  echo "  3) 用户端静态站点（Nginx）日志"
   echo "  4) MySQL 日志"
   echo "  5) 升级器日志"
   choice="$(ask '选择' '1')"
@@ -7509,7 +7502,11 @@ do_logs() {
     2) tail -n 200 -f "${DATA_ROOT}/logs/sys-error.log" 2>/dev/null || warn "错误日志文件不存在: ${DATA_ROOT}/logs/sys-error.log" ;;
     3)
       if [[ "${mode}" == "docker" ]]; then docker logs -f --tail 200 aid-web
-      else journalctl -u aid-web -f -n 200; fi ;;
+      elif select_existing_nginx_runtime >/dev/null 2>&1 && [[ -n "${NGINX_SERVICE:-}" ]]; then
+        journalctl -u "${NGINX_SERVICE}" -f -n 200
+      else
+        warn "未检测到 Nginx systemd 服务，请查看 Nginx access/error 日志"
+      fi ;;
     4)
       if [[ "${mode}" == "docker" ]]; then
         if docker_profile_enabled mysql; then

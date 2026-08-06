@@ -179,31 +179,21 @@ services:
         condition: service_started
         required: false
 
-  # 用户端（Nuxt SSR，Node 运行 web-dist 下的 server/index.mjs）
+  # 用户端（Nuxt generate 静态产物；保留 aid-web 服务名兼容在线升级器）
   aid-web:
-    image: node:22.22.0-alpine
+    image: nginx:1.25-alpine
     container_name: aid-web
     labels:
       com.aid.managed: "true"
       com.aid.data_root: "${DATA_ROOT:-/data/aid}"
     restart: unless-stopped
     logging: *default-logging
-    working_dir: /app
-    # 产物未部署时保活等待（避免 crash loop），部署后 docker restart aid-web 即生效
-    command: sh -c "if [ -f server/index.mjs ]; then exec node server/index.mjs; else echo 'web-dist 为空：用户端产物未部署，容器保活等待'; exec sleep infinity; fi"
-    environment:
-      TZ: Asia/Shanghai
-      NITRO_PORT: "3000"
-      NITRO_HOST: 0.0.0.0
-      # Node 内存等运行参数（如 --max-old-space-size=1024）
-      NODE_OPTIONS: ${WEB_NODE_OPTIONS:-}
-      # SSR 阶段的 API 请求经 Nitro 代理转发到后端
-      NUXT_PROXY_TARGET: http://aid-server:8080
     volumes:
-      - ${DATA_ROOT:-/data/aid}/app/web-dist:/app
+      - ./nginx/web-static.conf:/etc/nginx/conf.d/default.conf:ro
+      - ${DATA_ROOT:-/data/aid}/app/web-dist:/usr/share/nginx/html:ro
     healthcheck:
-      # 产物未部署（保活等待态）时如实显示 unhealthy，便于 docker compose ps 一眼定位
-      test: ["CMD-SHELL", "wget -q -T 3 -O /dev/null http://127.0.0.1:3000/ || exit 1"]
+      # 同时验证 Nginx 存活与静态入口文件可访问。
+      test: ["CMD-SHELL", "test -f /usr/share/nginx/html/index.html && test -f /usr/share/nginx/html/200.html && wget -q -T 3 -O /dev/null http://127.0.0.1:80/ || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5

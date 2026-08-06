@@ -14,9 +14,10 @@ TRACE_FILE="${TMP_ROOT}/trace.txt"
 ENV_FILE="${TMP_ROOT}/docker.env"
 UPDATER_DATA_DIR="${TMP_ROOT}/updater-data"
 mkdir -p "${UPDATER_DATA_DIR}"
-mkdir -p "${DATA_ROOT}/app/updater" "${DATA_ROOT}/app/web-dist/server"
-touch "${DATA_ROOT}/app/updater/aid-updater" "${DATA_ROOT}/app/web-dist/server/index.mjs"
-chmod 0755 "${DATA_ROOT}/app/updater/aid-updater"
+mkdir -p "${DATA_ROOT}/app/updater" "${DATA_ROOT}/app/web-dist"
+updater_fixture="$(type -P true)"
+cp "${updater_fixture}" "${DATA_ROOT}/app/updater/aid-updater"
+touch "${DATA_ROOT}/app/web-dist/index.html" "${DATA_ROOT}/app/web-dist/200.html"
 
 trace() { printf '%s\n' "$*" >> "${TRACE_FILE}"; }
 reset_trace() { : > "${TRACE_FILE}"; }
@@ -105,7 +106,7 @@ assert_trace $'validate-https\ncompose:up -d aid-server\ncompose:restart aid-ser
 write_systemd_units() { trace units; }
 write_nginx_site() { trace nginx; }
 setup_updater() { trace updater; }
-wait_manual_web_healthy() { trace web-http; }
+wait_manual_static_web_healthy() { trace web-http; }
 manual_service_diagnostics() { trace "diagnostics:$1"; }
 journalctl() { :; }
 systemctl() {
@@ -119,7 +120,7 @@ systemctl() {
 reset_trace
 wait_backend_healthy() { trace backend-http; return 0; }
 start_manual_application_stack
-assert_trace $'units\nsystemctl:enable aid\nsystemctl:restart aid\nbackend-http\nsystemctl:enable aid-web\nsystemctl:restart aid-web\nweb-http\nnginx\nupdater'
+assert_trace $'units\nsystemctl:enable aid\nsystemctl:restart aid\nbackend-http\nnginx\nweb-http\nupdater'
 
 # 手动后端失败时也必须停止服务，并禁止继续启动 Web。
 reset_trace

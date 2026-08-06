@@ -3,9 +3,11 @@ package task
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"aid-updater/internal/config"
+	"aid-updater/internal/sysctl"
 )
 
 func TestRefreshDeploymentAssetsPreservesDockerEnv(t *testing.T) {
@@ -57,5 +59,44 @@ func TestRefreshDeploymentAssetsPreservesDockerEnv(t *testing.T) {
 	}
 	if string(compose) != "services: {}\n" {
 		t.Fatalf("compose file was not refreshed: %q", compose)
+	}
+}
+
+func TestRefreshedManualAssetsUseManagerInsteadOfLegacyWebService(t *testing.T) {
+	original := runManualManagerRestartCommand
+	defer func() { runManualManagerRestartCommand = original }()
+
+	var actualScript string
+	var actualEnv []string
+	runManualManagerRestartCommand = func(managerScript string, env []string) ([]byte, error) {
+		actualScript = managerScript
+		actualEnv = append([]string(nil), env...)
+		return []byte("ok"), nil
+	}
+	cfg := &config.Config{
+		Install: config.Install{
+			ServiceManager:  sysctl.ManagerSystemd,
+			RestartServices: []string{"aid-web"},
+		},
+		Deployment: config.Deployment{ManagerScript: "/data/aid/installer/deploy/aid.sh"},
+	}
+	runner := &Runner{cfg: cfg}
+	if err := runner.activateRefreshedDeploymentAssets(); err != nil {
+		t.Fatal(err)
+	}
+	if actualScript != cfg.Deployment.ManagerScript {
+		t.Fatalf("unexpected manager script: %s", actualScript)
+	}
+	skipCount := 0
+	for _, item := range actualEnv {
+		if strings.HasPrefix(item, "AID_SKIP_UPDATER_RESTART=") {
+			skipCount++
+			if item != "AID_SKIP_UPDATER_RESTART=1" {
+				t.Fatalf("unexpected updater restart guard: %s", item)
+			}
+		}
+	}
+	if skipCount != 1 {
+		t.Fatalf("manager restart must contain exactly one updater guard, got %d", skipCount)
 	}
 }

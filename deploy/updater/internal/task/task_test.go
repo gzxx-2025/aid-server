@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"aid-updater/internal/config"
 )
 
 func TestParseRejectsUnsafeTaskID(t *testing.T) {
@@ -15,6 +17,38 @@ func TestParseRejectsUnsafeTaskID(t *testing.T) {
 	}
 	if _, err := Parse(path); err == nil {
 		t.Fatal("expected unsafe task id to be rejected")
+	}
+}
+
+func TestValidateFrontendArtifactsRequiresStaticIndexes(t *testing.T) {
+	root := t.TempDir()
+	cfg := &config.Config{Install: config.Install{
+		AdminDist: "/data/aid/app/admin-dist",
+		WebDist:   "/data/aid/app/web-dist",
+	}}
+	if err := os.MkdirAll(filepath.Join(root, pkgAdminDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, pkgWebDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, pkgAdminDir, "index.html"), []byte("admin"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateFrontendArtifacts(root, cfg); err == nil {
+		t.Fatal("expected missing Web static index to be rejected")
+	}
+	if err := os.WriteFile(filepath.Join(root, pkgWebDir, "index.html"), []byte("web"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateFrontendArtifacts(root, cfg); err == nil {
+		t.Fatal("expected missing Web SPA entry to be rejected")
+	}
+	if err := os.WriteFile(filepath.Join(root, pkgWebDir, "200.html"), []byte("web-spa"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateFrontendArtifacts(root, cfg); err != nil {
+		t.Fatalf("expected complete static artifacts, got %v", err)
 	}
 }
 

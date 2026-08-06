@@ -91,6 +91,9 @@ func (r *Runner) runApply(t *Task, isRollback bool) error {
 	if err != nil {
 		return err
 	}
+	if err := validateFrontendArtifacts(packageRoot, r.cfg); err != nil {
+		return err
+	}
 
 	// 3. 数据库前置校验：需要执行 SQL 但未启用数据库配置时，提前失败（此时尚未停服，无损）
 	sqlDir := filepath.Join(packageRoot, pkgSQLDir)
@@ -196,7 +199,7 @@ func (r *Runner) runApply(t *Task, isRollback bool) error {
 		return r.restoreAndReport(snapshot, fmt.Errorf("新版本健康检查失败: %w", err), recoveryPath, databaseDirty)
 	}
 
-	// 8. 重启附属服务使新产物生效：用户端 SSR、docker 部署的 nginx 等
+	// 8. 重启附属服务使新产物生效：Docker 静态 Web 容器、网关 Nginx 等
 	//    核心服务已健康后先提交恢复记录，避免清理失败导致下次启动误回滚。
 	if err := markRecoveryCompleted(recoveryPath); err != nil {
 		if stopErr := sysctl.StopService(r.cfg.Install.ServiceManager, r.cfg.Install.BackendService); stopErr != nil {
@@ -214,8 +217,8 @@ func (r *Runner) runApply(t *Task, isRollback bool) error {
 		} else {
 			auxErr = fmt.Errorf("核心升级完成，但部署模板刷新失败: %w", refreshErr)
 		}
-	} else if deploymentAssetsRefreshed && r.cfg.Install.ServiceManager == sysctl.ManagerDocker {
-		auxErr = r.reconcileDockerApplicationServices()
+	} else if deploymentAssetsRefreshed {
+		auxErr = r.activateRefreshedDeploymentAssets()
 	} else {
 		auxErr = restartAuxServices(r.cfg)
 	}
@@ -224,6 +227,36 @@ func (r *Runner) runApply(t *Task, isRollback bool) error {
 	}
 	if auxErr != nil {
 		return auxErr
+	}
+	return nil
+}
+
+// activateRefreshedDeploymentAssets 让刚刷新的部署模板立即生效。手动模式必须
+// 交给新版 aid.sh 完成旧 SSR → 静态站点迁移，不能读取旧配置里的 aid-web 重启项。
+func (r *Runner) activateRefreshedDeploymentAssets() error {
+	switch r.cfg.Install.ServiceManager {
+	case sysctl.ManagerDocker:
+		return r.reconcileDockerApplicationServices()
+	case sysctl.ManagerSystemd:
+		return restartManualApplicationWithManager(r.cfg)
+	default:
+		return restartAuxServices(r.cfg)
+	}
+}
+
+// validateFrontendArtifacts 在备份、停服前确认两端入口齐全，避免不完整发布包
+// 替换线上目录。Web 当前契约是 generate 后的纯静态 index.html + 200.html。
+func validateFrontendArtifacts(packageRoot string, cfg *config.Config) error {
+	if cfg.Install.AdminDist != "" && !fileExists(filepath.Join(packageRoot, pkgAdminDir, "index.html")) {
+		return fmt.Errorf("升级包缺少管理端静态入口")
+	}
+	if cfg.Install.WebDist != "" {
+		if !fileExists(filepath.Join(packageRoot, pkgWebDir, "index.html")) {
+			return fmt.Errorf("升级包缺少Web静态入口")
+		}
+		if !fileExists(filepath.Join(packageRoot, pkgWebDir, "200.html")) {
+			return fmt.Errorf("升级包缺少Web SPA通用入口")
+		}
 	}
 	return nil
 }

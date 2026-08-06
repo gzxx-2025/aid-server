@@ -15,7 +15,7 @@
     "webDist": "/data/aid/app/web-dist",
     "serviceManager": "systemd",
     "backendService": "aid",
-    "restartServices": ["aid-web"],
+    "restartServices": [],
     "healthCheckUrl": "http://127.0.0.1:8080",
     "healthCheckTimeoutSeconds": 180
   },

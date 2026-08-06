@@ -205,7 +205,7 @@ func (r *Runner) restoreAndReport(s *backup.Snapshot, cause error, recoveryPath 
 	if startErr := startBackend(r.cfg); startErr != nil {
 		return fmt.Errorf("升级失败(%v)，已还原备份但服务启动失败(%v)，请人工检查", cause, startErr)
 	}
-	// 前端产物已还原为旧版本，附属服务（用户端 SSR / nginx）同样需要重启生效
+	// 前端静态产物已还原为旧版本，Docker 静态 Web 容器 / nginx 同样需要重启生效
 	if err := restartAuxServices(r.cfg); err != nil {
 		log.Printf("自动回滚后重启附属服务失败: %v", err)
 	}

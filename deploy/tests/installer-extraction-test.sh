@@ -13,12 +13,13 @@ source "${ROOT_DIR}/deploy/aid.sh"
 install_management_command() { :; }
 
 STAGING_DIR="${TMP_ROOT}/staging"
-mkdir -p "${STAGING_DIR}/backend" "${STAGING_DIR}/web-dist/server" \
+mkdir -p "${STAGING_DIR}/backend" "${STAGING_DIR}/web-dist" \
   "${STAGING_DIR}/updater" "${STAGING_DIR}/installer/deploy/docker/nginx" \
   "${STAGING_DIR}/installer/deploy/docker/rocketmq" "${STAGING_DIR}/installer/sql"
 
 printf 'jar' > "${STAGING_DIR}/backend/aid-admin.jar"
-printf 'export default {}\n' > "${STAGING_DIR}/web-dist/server/index.mjs"
+printf '<!doctype html>\n' > "${STAGING_DIR}/web-dist/index.html"
+printf '<!doctype html>\n' > "${STAGING_DIR}/web-dist/200.html"
 printf '{"builtBy":"remote-source-build"}\n' > "${STAGING_DIR}/build-info.json"
 printf 'updater' > "${STAGING_DIR}/updater/aid-updater_linux_amd64"
 printf 'updater' > "${STAGING_DIR}/updater/aid-updater_linux_arm64"
@@ -32,6 +33,7 @@ printf 'DB_HOST=127.0.0.1\n' > "${STAGING_DIR}/installer/deploy/aid-deploy.conf.
 printf 'COMPOSE_PROFILES=redis\n' > "${STAGING_DIR}/installer/deploy/docker/.env.example"
 printf 'services: {}\n' > "${STAGING_DIR}/installer/deploy/docker/docker-compose.yml"
 printf 'server {}\n' > "${STAGING_DIR}/installer/deploy/docker/nginx/aid-https.conf.template"
+printf 'location / { try_files $uri $uri/ /200.html; }\n' > "${STAGING_DIR}/installer/deploy/docker/nginx/web-static.conf"
 printf '#!/usr/bin/env bash\n' > "${STAGING_DIR}/installer/deploy/docker/rocketmq/broker-entrypoint.sh"
 printf 'SELECT 1;\n' > "${STAGING_DIR}/installer/sql/aid-init.sql"
 chmod +x "${STAGING_DIR}/installer/deploy/aid.sh"
@@ -49,6 +51,7 @@ assert_installer_ready() {
   [[ -f "${INSTALLER_ROOT}/deploy/aid.sh" ]]
   [[ -f "${INSTALLER_ROOT}/deploy/aid-deploy.conf.example" ]]
   [[ -f "${INSTALLER_ROOT}/deploy/docker/docker-compose.yml" ]]
+  [[ -f "${INSTALLER_ROOT}/deploy/docker/nginx/web-static.conf" ]]
   [[ -f "${INSTALLER_ROOT}/sql/aid-init.sql" ]]
   [[ "$(cat "${INSTALLER_ROOT}/deploy/docker/.env")" == 'preserve-me' ]]
 }
