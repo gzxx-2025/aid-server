@@ -58,8 +58,9 @@ services:
       # 首次启动自动导入：基线 aid-init.sql + 全部增量脚本（按文件名顺序）
       - ../../sql:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      # 密码取容器内环境变量（运行时展开），不嵌入 compose 插值，特殊字符安全
-      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_ROOT_PASSWORD\" mysqladmin ping -h 127.0.0.1 --silent"]
+      # 凭证迁移与部署管理查询统一经 socket 访问 root@localhost，避免 TCP 的
+      # root@127.0.0.1 账户匹配差异将健康实例误判为未初始化。
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_ROOT_PASSWORD\" mysqladmin ping --protocol=socket -uroot --silent"]
       interval: 10s
       timeout: 5s
       retries: 10

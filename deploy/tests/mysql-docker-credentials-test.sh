@@ -29,7 +29,7 @@ docker() {
   case "$1" in
     inspect) printf 'running\n'; return 0 ;;
     exec)
-      if [[ "$*" == *"-uroot"* ]]; then
+      if [[ "$*" == *"-uroot"* || "$*" == *"--user root"* ]]; then
         if [[ "$*" == *"CREATE DATABASE"* ]]; then
           [[ "${MYSQL_PWD-}" == "$(cat "${stateFile}")" ]] || return 1
           printf 'root-new\n' > "${stateFile}"
@@ -57,5 +57,16 @@ grep -Fq 'root-new|exec -i -e MYSQL_PWD aid-mysql mysql' "${callLog}" \
   || { echo 'FAIL: current Docker root credential was not verified after migration' >&2; exit 1; }
 grep -Fq 'db-new|exec -i -e MYSQL_PWD aid-mysql mysql' "${callLog}" \
   || { echo 'FAIL: current Docker business credential was not verified after migration' >&2; exit 1; }
+
+# 内置管理查询必须和凭证迁移一样走 socket。MySQL 会按 root@host 匹配账号，
+# 不能在迁移 root@localhost 后又用 root@127.0.0.1 查询而造成假性初始化超时。
+: > "${callLog}"
+docker_mysql_tool mysql --batch --skip-column-names --execute 'SELECT 1' >/dev/null
+grep -Fq 'root-new|exec -i -e MYSQL_PWD aid-mysql mysql --protocol=socket --user root' "${callLog}" \
+  || { echo 'FAIL: internal Docker MySQL tool did not use the verified socket root credential' >&2; exit 1; }
+if grep -Fq -- '--host 127.0.0.1' "${callLog}"; then
+  echo 'FAIL: internal Docker MySQL tool still uses root@127.0.0.1 over TCP' >&2
+  exit 1
+fi
 
 echo 'Docker MySQL credential reconciliation tests passed'

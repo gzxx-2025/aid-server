@@ -4597,9 +4597,11 @@ docker_mysql_tool() { # docker_mysql_tool <mysql|mysqldump> [参数...]
   local tool="$1" AID_DEPENDENCY_INSTALL_MODE
   shift
   if docker_profile_enabled mysql; then
+    # 内置 MySQL 的 root 账号以 socket 方式完成凭证迁移和校验。后续管理查询
+    # 必须走同一入口，不能改用 TCP 触发另一个 root@host 账号而误报初始化失败。
     MYSQL_PWD="$(env_get MYSQL_ROOT_PASSWORD '')" \
       docker exec -i -e MYSQL_PWD aid-mysql "${tool}" \
-        --host 127.0.0.1 --port 3306 --user root "$@"
+        --protocol=socket --user root "$@"
   else
     AID_DEPENDENCY_INSTALL_MODE="$(dependency_install_mode docker)"
     ensure_docker_image "mysql:5.7" "MySQL5.7客户端"
@@ -4694,6 +4696,32 @@ docker_managed_mysql_business_exec() { # <password> <database> <user> [mysql参�
     --database="${database}" --user="${user}" "$@"
 }
 
+wait_docker_managed_mysql_bootstrap_complete() {
+  local rootPwd deadline skipNetworking="" status=""
+  rootPwd="$(env_get MYSQL_ROOT_PASSWORD '')"
+  [[ -n "${rootPwd}" ]] || { err "内置 MySQL root 凭证不能为空"; return 1; }
+  deadline=$(( $(date +%s) + 180 ))
+  log "等待内置 MySQL 完成首次初始化..."
+  while [[ $(date +%s) -lt ${deadline} ]]; do
+    # mysql:5.7 entrypoint 首次导入期间会以 --skip-networking 临时启动 mysqld。
+    # 该阶段 socket 已可连接但 /docker-entrypoint-initdb.d 尚未执行完，不能并发改账号或补导 SQL。
+    skipNetworking="$(docker_managed_mysql_root_exec "${rootPwd}" --batch --skip-column-names \
+      --execute 'SELECT @@skip_networking' 2>/dev/null | tail -n 1 || true)"
+    case "${skipNetworking}" in
+      0|OFF|off) ok "内置 MySQL 首次初始化已完成"; return 0 ;;
+    esac
+    status="$(docker inspect --format '{{.State.Status}}' aid-mysql 2>/dev/null || true)"
+    if [[ "${status}" == "exited" || "${status}" == "dead" ]]; then
+      docker_container_diagnostics aid-mysql "内置 MySQL 5.7"
+      return 1
+    fi
+    sleep 3
+  done
+  err "内置 MySQL 在180秒内未完成首次初始化"
+  docker_container_diagnostics aid-mysql "内置 MySQL 5.7"
+  return 1
+}
+
 # MySQL 镜像只会在空数据目录首次应用 MYSQL_* 环境变量。这里在每次启动时把
 # 已存在数据目录中的账号重新同步到正式 .env，确保修改配置后不会出现容器健康、
 # 但业务账号仍使用旧密码的分裂状态。
@@ -4745,19 +4773,29 @@ reconcile_docker_managed_mysql_credentials() { # reconcile_docker_managed_mysql_
 
 # 确保 MySQL 就绪。外部模式只做连接及 5.7 版本校验，绝不拉起 aid-mysql。
 ensure_mysql_ready() {
-  local mode AID_DEPENDENCY_INSTALL_MODE previousRootPwd=""; mode="${1:-$(detect_mode)}"
+  local mode AID_DEPENDENCY_INSTALL_MODE previousRootPwd="" freshData="0"; mode="${1:-$(detect_mode)}"
   if [[ "${mode}" != "docker" ]]; then return 0; fi
   AID_DEPENDENCY_INSTALL_MODE="$(dependency_install_mode docker)"
   ensure_docker_image "mysql:5.7" "MySQL5.7"
   if docker_profile_enabled mysql; then
     log "启动并检查内置 MySQL 5.7..."
     previousRootPwd="$(docker_container_env_value aid-mysql MYSQL_ROOT_PASSWORD || true)"
+    # MySQL 官方镜像首次初始化会在临时实例中导入 /docker-entrypoint-initdb.d。
+    # 空数据目录先等待 Compose 健康检查完成，再执行账号同步，避免与初始化 SQL 并发。
+    [[ -d "${DATA_ROOT}/mysql-data/mysql" ]] || freshData="1"
     if ! compose_cmd up -d mysql; then
       docker_container_diagnostics aid-mysql "内置 MySQL 5.7"
       return 1
     fi
-    reconcile_docker_managed_mysql_credentials "${previousRootPwd}" || return 1
-    wait_docker_container_healthy aid-mysql "内置 MySQL 5.7" 120 || return 1
+    if [[ "${freshData}" == "1" ]]; then
+      wait_docker_managed_mysql_bootstrap_complete || return 1
+      wait_docker_container_healthy aid-mysql "内置 MySQL 5.7" 120 || return 1
+      reconcile_docker_managed_mysql_credentials "${previousRootPwd}" || return 1
+    else
+      # 已有数据目录可能保留旧 root 密码，需先通过 socket 用旧凭证迁移，再检查健康。
+      reconcile_docker_managed_mysql_credentials "${previousRootPwd}" || return 1
+      wait_docker_container_healthy aid-mysql "内置 MySQL 5.7" 120 || return 1
+    fi
   else
     local version
     log "检查外部 MySQL: $(env_get DB_HOST):$(env_get DB_PORT 3306)"
@@ -4842,17 +4880,71 @@ ensure_redis_ready() { # Docker：内置 Redis 启动探活；外部 Redis 校�
   ok "外部 Redis ${redisVersion} 认证、网络与版本校验通过"
 }
 
+docker_managed_mysql_table_count() { # docker_managed_mysql_table_count <SQL>
+  local query="$1" database user password
+  database="$(env_get DB_NAME aid)"
+  user="$(env_get DB_USERNAME aid)"
+  password="$(env_get DB_PASSWORD '')"
+  docker_managed_mysql_business_exec "${password}" "${database}" "${user}" \
+    --batch --skip-column-names --execute "${query}" 2>/dev/null | tail -n 1
+}
+
+initialize_docker_managed_mysql_schema() {
+  local dbName initSql rootPwd
+  dbName="$(env_get DB_NAME aid)"
+  rootPwd="$(env_get MYSQL_ROOT_PASSWORD '')"
+  initSql="${REPO_DIR}/sql/aid-init.sql"
+  [[ -f "${initSql}" ]] || { err "未找到数据库基线脚本: ${initSql}"; return 1; }
+  [[ -n "${rootPwd}" ]] || { err "内置 MySQL root 凭证不能为空"; return 1; }
+
+  # Compose 首次初始化异常中断时，数据目录会阻止官方 entrypoint 再次自动导入。
+  # 仅在目标库确认为空时补导入基线；任何已有表的库均拒绝覆盖，避免损坏业务数据。
+  log "AID 数据库为空，导入基线 aid-init.sql..."
+  docker_managed_mysql_root_exec "${rootPwd}" --default-character-set=utf8mb4 "${dbName}" < "${initSql}" \
+    || { err "AID 数据库基线导入失败"; return 1; }
+  return 0
+}
+
 wait_docker_database_schema_ready() {
-  local dbName deadline coreTableCount=""
+  local dbName deadline tableCount="" coreTableCount="" importAttempted="0"
   dbName="$(env_get DB_NAME aid)"
   deadline=$(( $(date +%s) + 300 ))
   log "等待 AID 数据库初始化与核心表校验..."
   while [[ $(date +%s) -lt ${deadline} ]]; do
-    coreTableCount="$(docker_mysql_tool mysql --batch --skip-column-names \
-      --execute "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='${dbName}' AND table_name IN ('aid_config','sys_user')" \
-      2>/dev/null | tail -n 1 || true)"
+    if docker_profile_enabled mysql; then
+      # 使用已由 reconcile 校验过的业务账号检查业务库，避免 root@127.0.0.1
+      # 与 root@localhost 的账户匹配差异造成错误的“初始化超时”。
+      tableCount="$(docker_managed_mysql_table_count \
+        "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='${dbName}'" || true)"
+      coreTableCount="$(docker_managed_mysql_table_count \
+        "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='${dbName}' AND table_name IN ('aid_config','sys_user')" || true)"
+    else
+      tableCount="$(docker_mysql_tool mysql --batch --skip-column-names \
+        --execute "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='${dbName}'" \
+        2>/dev/null | tail -n 1 || true)"
+      coreTableCount="$(docker_mysql_tool mysql --batch --skip-column-names \
+        --execute "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='${dbName}' AND table_name IN ('aid_config','sys_user')" \
+        2>/dev/null | tail -n 1 || true)"
+    fi
     [[ "${coreTableCount}" == "2" ]] \
       && { ok "AID 数据库初始化完成，核心表校验通过"; return 0; }
+
+    if [[ "${tableCount}" =~ ^[0-9]+$ ]]; then
+      if docker_profile_enabled mysql && [[ "${tableCount}" == "0" && "${importAttempted}" == "0" ]]; then
+        initialize_docker_managed_mysql_schema || return 1
+        importAttempted="1"
+        continue
+      fi
+      if [[ "${tableCount}" == "0" && "${importAttempted}" == "1" ]]; then
+        err "AID 数据库基线导入后仍缺少核心表"
+      elif docker_profile_enabled mysql; then
+        err "AID 数据库已有 ${tableCount} 张表但核心表不完整，拒绝重复导入"
+      else
+        err "外部数据库已有 ${tableCount} 张表但核心表不完整"
+      fi
+      docker_profile_enabled mysql && docker_container_diagnostics aid-mysql "内置 MySQL 5.7"
+      return 1
+    fi
     sleep 3
   done
   err "AID 数据库在300秒内未完成初始化，核心表数量: ${coreTableCount:-不可读取}"
