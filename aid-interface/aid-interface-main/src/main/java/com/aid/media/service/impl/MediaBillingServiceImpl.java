@@ -16,6 +16,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.aid.aid.domain.media.AidMediaTask;
 import com.aid.aid.mapper.AidMediaTaskMapper;
+import com.aid.billing.enums.BillingConstants;
 import com.aid.billing.service.BillingRecordMetadataService;
 import com.aid.billing.service.IAccountUpdateService;
 import com.aid.common.core.redis.RedisCache;
@@ -83,7 +84,7 @@ public class MediaBillingServiceImpl implements IMediaBillingService {
 
         BigDecimal frozenAmount = modelConfig.getCostCredits() == null
             ? BigDecimal.ZERO
-            : modelConfig.getCostCredits();
+            : BillingConstants.normalizeAccountAmount(modelConfig.getCostCredits());
 
         // 冻结金额为 0 时直接标记成功。
         if (frozenAmount.compareTo(BigDecimal.ZERO) <= 0) {

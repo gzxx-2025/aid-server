@@ -88,19 +88,19 @@ public class CreditConsumeQueryServiceImpl implements ICreditConsumeQueryService
         vo.setCreateTime(agg.getCreateTime());
 
         // 净增减（带符号）：负数=净消耗
-        BigDecimal change = scale2(agg.getChangeAmount());
+        BigDecimal change = scale4(agg.getChangeAmount());
         vo.setChangeAmount(change);
         // 实际消耗 = -净额（净额为正时按 0）
         BigDecimal consumed = change.signum() < 0 ? change.negate() : BigDecimal.ZERO;
-        vo.setConsumedAmount(scale2(consumed));
+        vo.setConsumedAmount(scale4(consumed));
         // 最初冻结/预扣
-        vo.setFrozenAmount(scale2(agg.getFrozenAmount()));
+        vo.setFrozenAmount(scale4(agg.getFrozenAmount()));
         // 退款
-        BigDecimal refund = scale2(agg.getRefundAmount());
+        BigDecimal refund = scale4(agg.getRefundAmount());
         vo.setRefundAmount(refund);
         vo.setHasRefund(refund.signum() > 0);
         // 超额补扣
-        vo.setExtraAmount(scale2(agg.getExtraAmount()));
+        vo.setExtraAmount(scale4(agg.getExtraAmount()));
         return vo;
     }
 
@@ -180,13 +180,13 @@ public class CreditConsumeQueryServiceImpl implements ICreditConsumeQueryService
         return bizType;
     }
 
-    /** 金额规整为 2 位小数；null 视为 0 */
-    private BigDecimal scale2(BigDecimal v)
+    /** 账户金额规整为 4 位小数；null 视为 0 */
+    private BigDecimal scale4(BigDecimal v)
     {
         if (Objects.isNull(v))
         {
             return BigDecimal.ZERO;
         }
-        return v.setScale(2, RoundingMode.HALF_UP);
+        return v.setScale(4, RoundingMode.HALF_UP);
     }
 }

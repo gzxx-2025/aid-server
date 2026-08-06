@@ -61,6 +61,7 @@ public class EpisodeExportController extends BaseController {
      * episodeEditorId 与 projectId+episodeId 二选一：首次导出只传 projectId+episodeId，
      * 后端自动创建剪辑记录并回传 episodeEditorId；再次导出可直接传 episodeEditorId。
      * 每组 videoDurations / audioDurations 必须与对应 URL 列表等长且每项大于 0（决定对齐与扣费）。
+     * 任一分组或工程存在字幕时整批只用前端字幕；整批全空时按 storyboardId 查询服务端分镜台词。
      * 上一次导出仍在受理或合成中时幂等返回原任务（exportStatus=1），不重复提交、不重复扣费。
      *
      * @param request 导出入参（episodeEditorId 或 projectId+episodeId + 分组URL数据 + 可选整片BGM/分辨率/timelineJson）

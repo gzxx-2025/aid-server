@@ -49,4 +49,17 @@ class TencentAsrSpeechRecognitionClientTest {
         assertEquals("第一段。", result.getCues().get(0).getText());
         assertEquals(1.8D, result.getCues().get(1).getStartSeconds());
     }
+
+    @Test
+    void shouldReturnEmptyCuesWhenTencentRecognizesNoSpeech() {
+        JSONObject data = new JSONObject();
+        data.put("TaskId", 2);
+        data.put("AudioDuration", 14.09D);
+        data.put("Result", "");
+
+        SpeechRecognitionResult result = client.normalizeResult(data);
+
+        assertEquals(14.09D, result.getDurationSeconds());
+        assertEquals(0, result.getCues().size());
+    }
 }

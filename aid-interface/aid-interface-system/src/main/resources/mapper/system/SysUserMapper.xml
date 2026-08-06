@@ -146,11 +146,11 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 	</select>
 
 	<select id="checkPhoneUnique" parameterType="String" resultMap="SysUserResult">
-		select user_id, phonenumber from sys_user where phonenumber = #{phonenumber} and del_flag = '0' limit 1
+		select user_id, phonenumber from sys_user where phonenumber = #{phonenumber} limit 1
 	</select>
 
 	<select id="checkEmailUnique" parameterType="String" resultMap="SysUserResult">
-		select user_id, email from sys_user where email = #{email} and del_flag = '0' limit 1
+		select user_id, email from sys_user where email = #{email} limit 1
 	</select>
 
 	<!-- email/phonenumber 始终落库：有值写值，无值写 NULL（禁止依赖 DEFAULT ''，避免唯一索引撞空串） -->

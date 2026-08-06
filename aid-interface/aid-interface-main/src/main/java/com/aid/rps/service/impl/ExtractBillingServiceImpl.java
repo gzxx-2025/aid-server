@@ -28,6 +28,7 @@ import com.aid.aid.mapper.AidMediaTaskMapper;
 import com.aid.aid.service.IAidExtractTaskBillingSnapshotService;
 import com.aid.aid.service.IAidExtractTaskService;
 import com.aid.billing.dto.BillingCalcResult;
+import com.aid.billing.enums.BillingConstants;
 import com.aid.billing.enums.BillingMode;
 import com.aid.billing.enums.MeterType;
 import com.aid.billing.model.BillingSnapshot;
@@ -143,6 +144,8 @@ public class ExtractBillingServiceImpl implements IExtractBillingService
     @Override
     public void prepareBilling(Long taskId, Long userId, BigDecimal frozenAmount, String billingSnapshotJson)
     {
+        frozenAmount = Objects.isNull(frozenAmount)
+                ? null : BillingConstants.normalizeAccountAmount(frozenAmount);
         // 幂等检查
         AidExtractTask task = extractTaskService.selectAidExtractTaskById(taskId);
         if (task == null)
@@ -330,7 +333,9 @@ public class ExtractBillingServiceImpl implements IExtractBillingService
                     taskId, expectedTerminalStatus, dispatchMode);
             throw new ServiceException("状态不支持");
         }
-        BigDecimal frozen = frozenAmount == null ? BigDecimal.ZERO : frozenAmount;
+        BigDecimal frozen = frozenAmount == null
+                ? BillingConstants.normalizeAccountAmount(BigDecimal.ZERO)
+                : BillingConstants.normalizeAccountAmount(frozenAmount);
         String traceId = IdUtil.fastSimpleUUID();
         AidExtractTask[] metadataTask = new AidExtractTask[1];
         ResumeBillingContext preparedContext;
@@ -1453,9 +1458,27 @@ public class ExtractBillingServiceImpl implements IExtractBillingService
             }
         }
 
+        // 账户账本统一保留四位小数，退款必须基于同一精度计算，确保结算额与退款额之和等于预冻结额。
+        actualAmount = Objects.isNull(actualAmount)
+                ? frozenAmount : BillingConstants.normalizeAccountAmount(actualAmount);
+
         // 结算冻结金额（settle 从 frozenBalance 扣减，金额不超过 frozenAmount）
         BigDecimal settleAmount = actualAmount.compareTo(frozenAmount) > 0 ? frozenAmount : actualAmount;
         accountUpdateService.settle(userId, settleAmount, task.getBillingTraceId(), "settle", "资产提取任务结算");
+
+        // 补偿重试可能遇到历史两位小数消费流水；此时以已经落账的消费额为准计算剩余退款。
+        if (actualAmount.compareTo(frozenAmount) < 0)
+        {
+            BigDecimal consumedAmount = accountUpdateService.resolveConsumedAmount(
+                    task.getBillingTraceId(), actualAmount);
+            if (consumedAmount.compareTo(actualAmount) != 0)
+            {
+                log.info("提取结算采用历史已落账消费额, taskId={}, calculated={}, consumed={}",
+                        taskId, actualAmount, consumedAmount);
+            }
+            actualAmount = consumedAmount.min(frozenAmount);
+            settleAmount = actualAmount;
+        }
 
         // TOKEN 补扣：仅 meterType=TOKEN 且 actual > frozenAmount 时从可用余额补扣差额
         // 非 TOKEN 口径 actual > frozenAmount 时封顶到 frozenAmount（只退不补）
@@ -1489,6 +1512,10 @@ public class ExtractBillingServiceImpl implements IExtractBillingService
 
         // 差额退回（仅 actual < frozen 时）
         BigDecimal refundAmount = frozenAmount.subtract(actualAmount);
+        String amountAuditSource = StrUtil.isNotBlank(settledSnapshotJson)
+                ? settledSnapshotJson : settleSnapshotJson;
+        settledSnapshotJson = appendAmountAudit(amountAuditSource, actualAmount,
+                refundAmount.max(BigDecimal.ZERO));
         if (refundAmount.compareTo(BigDecimal.ZERO) > 0)
         {
             // 调差额退回专用接口（changeType=settle_unfreeze），独立幂等键，
@@ -2050,6 +2077,27 @@ public class ExtractBillingServiceImpl implements IExtractBillingService
         snapshot.setExtraChargeActual(extraCharged);
         snapshot.setPartialExtraCharge(partialExtra);
         snapshot.setActualAmount(actualAmount);
+        return JSONUtil.toJsonStr(snapshot);
+    }
+
+    private String appendAmountAudit(String snapshotJson, BigDecimal actualAmount,
+                                     BigDecimal refundAmount)
+    {
+        if (StrUtil.isBlank(snapshotJson))
+        {
+            return null;
+        }
+        JSONObject root = JSONUtil.parseObj(snapshotJson);
+        if (Objects.equals(BILLING_BATCH_TYPE_MULTI_MODEL_EXTRACT, root.getStr("batchType")))
+        {
+            root.set("actualAmount", actualAmount);
+            root.set("refundAmount", refundAmount);
+            return root.toString();
+        }
+
+        BillingSnapshot snapshot = JSONUtil.toBean(snapshotJson, BillingSnapshot.class);
+        snapshot.setActualAmount(actualAmount);
+        snapshot.setRefundAmount(refundAmount);
         return JSONUtil.toJsonStr(snapshot);
     }
 

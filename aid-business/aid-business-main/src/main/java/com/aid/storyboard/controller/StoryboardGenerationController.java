@@ -616,7 +616,7 @@ public class StoryboardGenerationController extends BaseController {
     /**
      * 用户自行上传分镜媒体（图片 / 视频）。
      *
-     * @param request 入参（projectId / episodeId / storyboardId / imageUrl / mediaType）
+     * @param request 入参（projectId / episodeId / storyboardId / imageUrl / mediaType / videoDuration）
      * @return data: {@link GenRecordVO} 新增记录（含拼好域名的 fileUrl）
      */
     @PostMapping("/upload")

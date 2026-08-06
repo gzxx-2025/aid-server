@@ -183,8 +183,9 @@ public class TencentAsrSpeechRecognitionClient implements SpeechRecognitionClien
             cues = normalizePlainResult(data.getString("Result"));
         }
         if (CollectionUtil.isEmpty(cues)) {
-            log.error("腾讯云语音识别成功但无字幕时间戳, taskId={}", data.getString("TaskId"));
-            throw new ServiceException("字幕结果为空");
+            log.warn("腾讯云语音识别成功但未识别到人声, taskId={}, audioDuration={}, resultLength={}",
+                    data.getString("TaskId"), data.getDouble("AudioDuration"),
+                    StrUtil.length(data.getString("Result")));
         }
         result.setCues(cues);
         return result;

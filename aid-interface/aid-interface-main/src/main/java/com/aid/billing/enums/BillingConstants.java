@@ -1,11 +1,15 @@
 package com.aid.billing.enums;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 
 /**
  * 计费模块常量
  */
 public final class BillingConstants {
+
+    /** 账户余额、冻结金额、消费与退款流水统一保留的小数位数。 */
+    public static final int ACCOUNT_AMOUNT_SCALE = 4;
 
     private BillingConstants() {
     }
@@ -28,6 +32,16 @@ public final class BillingConstants {
 
     /** 开源默认口径：1 元官方原价换算为 100 积分。 */
     public static final BigDecimal DEFAULT_MODEL_PRICE_MULTIPLIER = new BigDecimal("100");
+
+    /**
+     * 将进入账户账本的金额统一规整为四位小数。
+     *
+     * @param amount 原始金额
+     * @return 四舍五入后的账户金额；原值为空时返回空
+     */
+    public static BigDecimal normalizeAccountAmount(BigDecimal amount) {
+        return amount == null ? null : amount.setScale(ACCOUNT_AMOUNT_SCALE, RoundingMode.HALF_UP);
+    }
 
     // 文本模型默认字符转Token比例：约2个中文字符算1个Token（结算降级路径使用）
     public static final int DEFAULT_CHAR_TO_TOKEN_RATIO = 2;

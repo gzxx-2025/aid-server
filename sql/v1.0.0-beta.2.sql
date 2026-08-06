@@ -265,3 +265,26 @@ WHERE NOT EXISTS (
 );
 
 COMMIT;
+
+-- 账户账本统一保留四位小数；增加总精度以保持原有整数位容量。
+ALTER TABLE `aid_user_profile`
+    MODIFY COLUMN `balance` DECIMAL(14, 4) NOT NULL DEFAULT 0.0000 COMMENT '账户余额 (元)',
+    MODIFY COLUMN `frozen_balance` DECIMAL(14, 4) NOT NULL DEFAULT 0.0000 COMMENT '冻结余额 (元)',
+    MODIFY COLUMN `total_recharge` DECIMAL(14, 4) NOT NULL DEFAULT 0.0000 COMMENT '累计充值金额',
+    MODIFY COLUMN `total_consumption` DECIMAL(14, 4) NOT NULL DEFAULT 0.0000 COMMENT '累计消费金额';
+
+ALTER TABLE `aid_balance_log`
+    MODIFY COLUMN `amount` DECIMAL(14, 4) NOT NULL COMMENT '变动金额 (正数增加, 负数减少)',
+    MODIFY COLUMN `before_balance` DECIMAL(14, 4) NOT NULL COMMENT '变动前余额',
+    MODIFY COLUMN `after_balance` DECIMAL(14, 4) NOT NULL COMMENT '变动后余额';
+
+ALTER TABLE `aid_extract_task`
+    MODIFY COLUMN `frozen_amount` DECIMAL(12, 4) NULL DEFAULT NULL COMMENT '预冻结金额（元）',
+    MODIFY COLUMN `actual_cost` DECIMAL(14, 4) NULL DEFAULT NULL COMMENT '实际扣费金额（结算后更新）';
+
+ALTER TABLE `aid_media_task`
+    MODIFY COLUMN `frozen_amount` DECIMAL(12, 4) NULL DEFAULT NULL COMMENT '预冻结金额（元）',
+    MODIFY COLUMN `actual_cost` DECIMAL(12, 4) NULL DEFAULT NULL COMMENT '实际扣费金额(元)';
+
+ALTER TABLE `aid_gen_record`
+    MODIFY COLUMN `cost_credits` DECIMAL(12, 4) NULL DEFAULT 0.0000 COMMENT '消耗积分';

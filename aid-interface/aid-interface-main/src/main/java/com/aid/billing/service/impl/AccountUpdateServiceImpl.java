@@ -28,6 +28,7 @@ import com.aid.aid.domain.AidUserProfile;
 import com.aid.aid.mapper.AidUserProfileMapper;
 import com.aid.aid.service.IAidBalanceLogService;
 import com.aid.aid.service.IAidUserProfileService;
+import com.aid.billing.enums.BillingConstants;
 import com.aid.billing.service.IAccountUpdateService;
 import com.aid.common.error.TaskErrorCode;
 import com.aid.common.core.redis.RedisCache;
@@ -37,6 +38,7 @@ import com.aid.notify.wechat.config.WechatNotifyConfig;
 import com.aid.notify.wechat.service.IWechatNotifyConfigService;
 import com.aid.notify.wechat.service.IWechatNotifyService;
 
+import cn.hutool.core.collection.CollectionUtil;
 import cn.hutool.core.util.StrUtil;
 import lombok.extern.slf4j.Slf4j;
 
@@ -145,6 +147,7 @@ public class AccountUpdateServiceImpl implements IAccountUpdateService
     public void freeze(Long userId, BigDecimal amount, String traceId, String bizType, String bizName,
                        String modelCode)
     {
+        BigDecimal normalizedAmount = BillingConstants.normalizeAccountAmount(amount);
         AtomicBoolean notifyLowBalance = new AtomicBoolean(false);
         executeWithUserLock(userId, () -> {
             newTx().executeWithoutResult(s -> {
@@ -159,27 +162,28 @@ public class AccountUpdateServiceImpl implements IAccountUpdateService
                 BigDecimal balance = profile.getBalance() == null ? BigDecimal.ZERO : profile.getBalance();
 
                 // 余额校验必须在锁内事务中做，防止并发超额冻结
-                if (balance.compareTo(amount) < 0)
+                if (balance.compareTo(normalizedAmount) < 0)
                 {
-                    log.info("冻结余额不足, userId={}, balance={}, amount={}", userId, balance, amount);
+                    log.info("冻结余额不足, userId={}, balance={}, amount={}", userId, balance, normalizedAmount);
                     throw userBalanceNotEnoughException();
                 }
 
                 // 条件扣减：balance -= amount AND frozen += amount，WHERE balance >= amount
-                int affected = casBalanceFrozen(userId, amount.negate(), amount, amount, null);
+                int affected = casBalanceFrozen(userId, normalizedAmount.negate(), normalizedAmount,
+                        normalizedAmount, null);
                 if (affected == 0)
                 {
                     // 并发窗口：另一事务在读-写之间已扣掉余额
-                    log.warn("冻结并发冲突，触发重试, userId={}, amount={}", userId, amount);
+                    log.warn("冻结并发冲突，触发重试, userId={}, amount={}", userId, normalizedAmount);
                     throw new ServiceException("系统繁忙");
                 }
-                BigDecimal afterBalance = balance.subtract(amount);
+                BigDecimal afterBalance = balance.subtract(normalizedAmount);
                 notifyLowBalance.set(isBelowBalanceReminderThreshold(afterBalance));
-                saveBalanceLog(userId, "freeze", amount.negate(), balance, afterBalance, traceId,
+                saveBalanceLog(userId, "freeze", normalizedAmount.negate(), balance, afterBalance, traceId,
                         bizType, bizName, modelCode);
             });
         });
-        notifyLowBalanceIfNeeded(notifyLowBalance.get(), userId, bizType, bizName, amount);
+        notifyLowBalanceIfNeeded(notifyLowBalance.get(), userId, bizType, bizName, normalizedAmount);
     }
 
     @Override
@@ -191,6 +195,7 @@ public class AccountUpdateServiceImpl implements IAccountUpdateService
     @Override
     public void settle(Long userId, BigDecimal amount, String traceId, String bizType, String bizName)
     {
+        BigDecimal normalizedAmount = BillingConstants.normalizeAccountAmount(amount);
         executeWithUserLock(userId, () -> {
             newTx().executeWithoutResult(s -> {
                 // 幂等：同一 traceId + changeType 已执行则跳过
@@ -204,20 +209,43 @@ public class AccountUpdateServiceImpl implements IAccountUpdateService
                 BigDecimal balance = profile.getBalance() == null ? BigDecimal.ZERO : profile.getBalance();
 
                 // 条件扣减冻结余额（frozen -= amount AND frozen >= amount），totalConsumption += amount
-                int affected = casBalanceFrozen(userId, null, amount.negate(), amount, amount);
+                int affected = casBalanceFrozen(userId, null, normalizedAmount.negate(),
+                        normalizedAmount, normalizedAmount);
                 if (affected == 0)
                 {
-                    log.warn("结算并发冲突或冻结不足, userId={}, amount={}", userId, amount);
+                    log.warn("结算并发冲突或冻结不足, userId={}, amount={}", userId, normalizedAmount);
                     throw new ServiceException("系统繁忙");
                 }
-                saveBalanceLog(userId, "consume", amount.negate(), balance, balance, traceId, bizType, bizName);
+                saveBalanceLog(userId, "consume", normalizedAmount.negate(), balance, balance,
+                        traceId, bizType, bizName);
             });
         });
     }
 
     @Override
+    public BigDecimal resolveConsumedAmount(String traceId, BigDecimal fallbackAmount)
+    {
+        // 查询字段精简：补偿核账只读取消费金额，后续新增流水字段时不要在此扩大查询列。
+        List<AidBalanceLog> logs = aidBalanceLogService.list(
+                Wrappers.<AidBalanceLog>lambdaQuery()
+                        .eq(AidBalanceLog::getRelatedId, traceId)
+                        .eq(AidBalanceLog::getChangeType, "consume")
+                        .select(AidBalanceLog::getAmount)
+        );
+        if (CollectionUtil.isEmpty(logs))
+        {
+            return BillingConstants.normalizeAccountAmount(fallbackAmount);
+        }
+        BigDecimal consumedAmount = logs.stream()
+                .map(log -> Objects.isNull(log.getAmount()) ? BigDecimal.ZERO : log.getAmount().abs())
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        return BillingConstants.normalizeAccountAmount(consumedAmount);
+    }
+
+    @Override
     public void refund(Long userId, BigDecimal amount, String traceId, String bizType, String bizName)
     {
+        BigDecimal normalizedAmount = BillingConstants.normalizeAccountAmount(amount);
         executeWithUserLock(userId, () -> {
             newTx().executeWithoutResult(s -> {
                 // 幂等：同一 traceId + changeType 已执行则跳过
@@ -231,14 +259,16 @@ public class AccountUpdateServiceImpl implements IAccountUpdateService
                 BigDecimal balance = profile.getBalance() == null ? BigDecimal.ZERO : profile.getBalance();
 
                 // 条件扣减冻结（frozen -= amount AND frozen >= amount），balance += amount
-                int affected = casBalanceFrozen(userId, amount, amount.negate(), amount, null);
+                int affected = casBalanceFrozen(userId, normalizedAmount, normalizedAmount.negate(),
+                        normalizedAmount, null);
                 if (affected == 0)
                 {
-                    log.warn("退回并发冲突或冻结不足, userId={}, amount={}", userId, amount);
+                    log.warn("退回并发冲突或冻结不足, userId={}, amount={}", userId, normalizedAmount);
                     throw new ServiceException("系统繁忙");
                 }
-                BigDecimal afterBalance = balance.add(amount);
-                saveBalanceLog(userId, "unfreeze", amount, balance, afterBalance, traceId, bizType, bizName);
+                BigDecimal afterBalance = balance.add(normalizedAmount);
+                saveBalanceLog(userId, "unfreeze", normalizedAmount, balance, afterBalance,
+                        traceId, bizType, bizName);
             });
         });
     }
@@ -250,6 +280,7 @@ public class AccountUpdateServiceImpl implements IAccountUpdateService
     @Override
     public void settleRefundFromFrozen(Long userId, BigDecimal amount, String traceId, String bizType, String bizName)
     {
+        BigDecimal normalizedAmount = BillingConstants.normalizeAccountAmount(amount);
         executeWithUserLock(userId, () -> {
             newTx().executeWithoutResult(s -> {
                 // 幂等：同一 traceId + changeType 已执行则跳过
@@ -263,15 +294,17 @@ public class AccountUpdateServiceImpl implements IAccountUpdateService
                 BigDecimal balance = profile.getBalance() == null ? BigDecimal.ZERO : profile.getBalance();
 
                 // 条件扣减冻结：frozen -= amount AND frozen >= amount，balance += amount
-                int affected = casBalanceFrozen(userId, amount, amount.negate(), amount, null);
+                int affected = casBalanceFrozen(userId, normalizedAmount, normalizedAmount.negate(),
+                        normalizedAmount, null);
                 if (affected == 0)
                 {
                     log.warn("结算差额退回（冻结）并发冲突或冻结不足, userId={}, amount={}, traceId={}",
-                            userId, amount, traceId);
+                            userId, normalizedAmount, traceId);
                     throw new ServiceException("系统繁忙");
                 }
-                BigDecimal afterBalance = balance.add(amount);
-                saveBalanceLog(userId, "settle_unfreeze", amount, balance, afterBalance, traceId, bizType, bizName);
+                BigDecimal afterBalance = balance.add(normalizedAmount);
+                saveBalanceLog(userId, "settle_unfreeze", normalizedAmount, balance, afterBalance,
+                        traceId, bizType, bizName);
             });
         });
     }
@@ -279,6 +312,7 @@ public class AccountUpdateServiceImpl implements IAccountUpdateService
     @Override
     public void settleRefund(Long userId, BigDecimal amount, String traceId, String bizType, String bizName)
     {
+        BigDecimal normalizedAmount = BillingConstants.normalizeAccountAmount(amount);
         executeWithUserLock(userId, () -> {
             newTx().executeWithoutResult(s -> {
                 // 幂等：同一 traceId + changeType 已执行则跳过
@@ -292,14 +326,17 @@ public class AccountUpdateServiceImpl implements IAccountUpdateService
                 BigDecimal balance = profile.getBalance() == null ? BigDecimal.ZERO : profile.getBalance();
 
                 // 条件扣减 totalConsumption（totalConsumption -= amount AND totalConsumption >= amount），balance += amount
-                int affected = casBalanceFrozen(userId, amount, null, null, amount.negate());
+                int affected = casBalanceFrozen(userId, normalizedAmount, null, null,
+                        normalizedAmount.negate());
                 if (affected == 0)
                 {
-                    log.warn("settleRefund 并发冲突或消费累计不足, userId={}, amount={}", userId, amount);
+                    log.warn("settleRefund 并发冲突或消费累计不足, userId={}, amount={}",
+                            userId, normalizedAmount);
                     throw new ServiceException("系统繁忙");
                 }
-                BigDecimal afterBalance = balance.add(amount);
-                saveBalanceLog(userId, "settle_refund", amount, balance, afterBalance, traceId, bizType, bizName);
+                BigDecimal afterBalance = balance.add(normalizedAmount);
+                saveBalanceLog(userId, "settle_refund", normalizedAmount, balance, afterBalance,
+                        traceId, bizType, bizName);
             });
         });
     }
@@ -307,6 +344,7 @@ public class AccountUpdateServiceImpl implements IAccountUpdateService
     @Override
     public void directConsume(Long userId, BigDecimal amount, String traceId, String bizType, String bizName)
     {
+        BigDecimal normalizedAmount = BillingConstants.normalizeAccountAmount(amount);
         AtomicBoolean notifyLowBalance = new AtomicBoolean(false);
         executeWithUserLock(userId, () -> {
             newTx().executeWithoutResult(s -> {
@@ -321,30 +359,34 @@ public class AccountUpdateServiceImpl implements IAccountUpdateService
                 BigDecimal balance = profile.getBalance() == null ? BigDecimal.ZERO : profile.getBalance();
 
                 // 余额校验必须在锁内事务中做
-                if (balance.compareTo(amount) < 0)
+                if (balance.compareTo(normalizedAmount) < 0)
                 {
-                    log.info("直接消费余额不足, userId={}, balance={}, amount={}", userId, balance, amount);
+                    log.info("直接消费余额不足, userId={}, balance={}, amount={}",
+                            userId, balance, normalizedAmount);
                     throw userBalanceNotEnoughException();
                 }
 
                 // 条件扣减 balance（balance -= amount AND balance >= amount），totalConsumption += amount
-                int affected = casBalanceFrozen(userId, amount.negate(), null, amount, amount);
+                int affected = casBalanceFrozen(userId, normalizedAmount.negate(), null,
+                        normalizedAmount, normalizedAmount);
                 if (affected == 0)
                 {
-                    log.warn("直接消费并发冲突, userId={}, amount={}", userId, amount);
+                    log.warn("直接消费并发冲突, userId={}, amount={}", userId, normalizedAmount);
                     throw new ServiceException("系统繁忙");
                 }
-                BigDecimal afterBalance = balance.subtract(amount);
+                BigDecimal afterBalance = balance.subtract(normalizedAmount);
                 notifyLowBalance.set(isBelowBalanceReminderThreshold(afterBalance));
-                saveBalanceLog(userId, "consume", amount.negate(), balance, afterBalance, traceId, bizType, bizName);
+                saveBalanceLog(userId, "consume", normalizedAmount.negate(), balance, afterBalance,
+                        traceId, bizType, bizName);
             });
         });
-        notifyLowBalanceIfNeeded(notifyLowBalance.get(), userId, bizType, bizName, amount);
+        notifyLowBalanceIfNeeded(notifyLowBalance.get(), userId, bizType, bizName, normalizedAmount);
     }
 
     @Override
     public void recharge(Long userId, BigDecimal amount, String traceId, String bizType, String bizName)
     {
+        BigDecimal normalizedAmount = BillingConstants.normalizeAccountAmount(amount);
         executeWithUserLock(userId, () -> {
             newTx().executeWithoutResult(s -> {
                 // 幂等：同一 traceId + changeType 已执行则跳过
@@ -358,15 +400,16 @@ public class AccountUpdateServiceImpl implements IAccountUpdateService
                 BigDecimal balance = profile.getBalance() == null ? BigDecimal.ZERO : profile.getBalance();
 
                 // 条件 delta 更新（balance += amount, totalRecharge += amount，无下限要求）
-                int affected = casRecharge(userId, amount);
+                int affected = casRecharge(userId, normalizedAmount);
                 if (affected == 0)
                 {
-                    log.warn("充值并发冲突, userId={}, amount={}", userId, amount);
+                    log.warn("充值并发冲突, userId={}, amount={}", userId, normalizedAmount);
                     throw new ServiceException("系统繁忙");
                 }
-                BigDecimal afterBalance = balance.add(amount);
-                enableBalanceReminderIfQualified(userId, amount);
-                saveBalanceLog(userId, "recharge", amount, balance, afterBalance, traceId, bizType, bizName);
+                BigDecimal afterBalance = balance.add(normalizedAmount);
+                enableBalanceReminderIfQualified(userId, normalizedAmount);
+                saveBalanceLog(userId, "recharge", normalizedAmount, balance, afterBalance,
+                        traceId, bizType, bizName);
             });
         });
     }
@@ -374,6 +417,7 @@ public class AccountUpdateServiceImpl implements IAccountUpdateService
     @Override
     public BigDecimal settleExtraCharge(Long userId, BigDecimal extra, String traceId, String bizType, String bizName)
     {
+        BigDecimal normalizedExtra = BillingConstants.normalizeAccountAmount(extra);
         // 用 AtomicReference 从锁内事务中带出累计补扣总额（含本次）
         java.util.concurrent.atomic.AtomicReference<BigDecimal> totalCharged = new java.util.concurrent.atomic.AtomicReference<>(BigDecimal.ZERO);
         AtomicBoolean notifyLowBalance = new AtomicBoolean(false);
@@ -381,11 +425,12 @@ public class AccountUpdateServiceImpl implements IAccountUpdateService
             newTx().executeWithoutResult(s -> {
                 // 查询同 traceId 已累计补扣金额，支持部分补扣后重试补齐
                 BigDecimal alreadyCharged = sumExtraCharged(traceId);
-                BigDecimal remaining = extra.subtract(alreadyCharged);
+                BigDecimal remaining = normalizedExtra.subtract(alreadyCharged);
                 if (remaining.compareTo(BigDecimal.ZERO) <= 0)
                 {
                     // 已全额补完，跳过
-                    log.info("补扣已全额完成，跳过, traceId={}, extra={}, alreadyCharged={}", traceId, extra, alreadyCharged);
+                    log.info("补扣已全额完成，跳过, traceId={}, extra={}, alreadyCharged={}",
+                            traceId, normalizedExtra, alreadyCharged);
                     totalCharged.set(alreadyCharged);
                     return;
                 }
@@ -416,11 +461,12 @@ public class AccountUpdateServiceImpl implements IAccountUpdateService
                 saveBalanceLog(userId, "settle_extra", actualExtra.negate(), balance, afterBalance, traceId, bizType, bizName);
                 // 返回累计总补扣额（历史 + 本次）
                 totalCharged.set(alreadyCharged.add(actualExtra));
-                log.info("补扣成功, traceId={}, 本次补扣={}, 累计补扣={}, 总需补扣={}", traceId, actualExtra, totalCharged.get(), extra);
+                log.info("补扣成功, traceId={}, 本次补扣={}, 累计补扣={}, 总需补扣={}",
+                        traceId, actualExtra, totalCharged.get(), normalizedExtra);
             });
         });
-        notifyLowBalanceIfNeeded(notifyLowBalance.get(), userId, bizType, bizName, extra);
-        return totalCharged.get();
+        notifyLowBalanceIfNeeded(notifyLowBalance.get(), userId, bizType, bizName, normalizedExtra);
+        return BillingConstants.normalizeAccountAmount(totalCharged.get());
     }
 
     /**
@@ -448,7 +494,8 @@ public class AccountUpdateServiceImpl implements IAccountUpdateService
     @Override
     public void adminAdjust(Long userId, BigDecimal delta, String traceId, String bizName)
     {
-        if (delta == null || delta.signum() == 0)
+        BigDecimal normalizedDelta = BillingConstants.normalizeAccountAmount(delta);
+        if (normalizedDelta == null || normalizedDelta.signum() == 0)
         {
             log.info("管理员调整金额为空或为零, userId={}", userId);
             throw new ServiceException("金额有误");
@@ -466,22 +513,25 @@ public class AccountUpdateServiceImpl implements IAccountUpdateService
                 BigDecimal balance = profile.getBalance() == null ? BigDecimal.ZERO : profile.getBalance();
 
                 // 扣减时锁内校验余额充足，防止扣成负数
-                if (delta.signum() < 0 && balance.compareTo(delta.abs()) < 0)
+                if (normalizedDelta.signum() < 0 && balance.compareTo(normalizedDelta.abs()) < 0)
                 {
-                    log.info("管理员扣减余额不足, userId={}, balance={}, delta={}", userId, balance, delta);
+                    log.info("管理员扣减余额不足, userId={}, balance={}, delta={}",
+                            userId, balance, normalizedDelta);
                     throw userBalanceNotEnoughException();
                 }
 
                 // 仅调整 balance（不动累计充值/消费），扣减时条件保护 balance >= |delta|
-                int affected = casBalanceFrozen(userId, delta, null, null, null);
+                int affected = casBalanceFrozen(userId, normalizedDelta, null, null, null);
                 if (affected == 0)
                 {
-                    log.warn("管理员调整并发冲突或余额不足, userId={}, delta={}", userId, delta);
+                    log.warn("管理员调整并发冲突或余额不足, userId={}, delta={}",
+                            userId, normalizedDelta);
                     throw new ServiceException("系统繁忙");
                 }
-                BigDecimal afterBalance = balance.add(delta);
+                BigDecimal afterBalance = balance.add(normalizedDelta);
                 // bizType 固定 admin_adjust，便于流水审计与前端筛选
-                saveBalanceLog(userId, "admin_adjust", delta, balance, afterBalance, traceId, "admin_adjust", bizName);
+                saveBalanceLog(userId, "admin_adjust", normalizedDelta, balance, afterBalance,
+                        traceId, "admin_adjust", bizName);
             });
         });
     }
@@ -493,9 +543,11 @@ public class AccountUpdateServiceImpl implements IAccountUpdateService
     @Override
     public void reward(Long userId, BigDecimal amount, String traceId, String bizType, String bizName)
     {
-        if (amount == null || amount.signum() <= 0)
+        BigDecimal normalizedAmount = BillingConstants.normalizeAccountAmount(amount);
+        if (normalizedAmount == null || normalizedAmount.signum() <= 0)
         {
-            log.info("奖励金额为空或非正数, userId={}, amount={}, traceId={}", userId, amount, traceId);
+            log.info("奖励金额为空或非正数, userId={}, amount={}, traceId={}",
+                    userId, normalizedAmount, traceId);
             throw new ServiceException("金额有误");
         }
         executeWithUserLock(userId, () -> {
@@ -511,14 +563,16 @@ public class AccountUpdateServiceImpl implements IAccountUpdateService
                 BigDecimal balance = profile.getBalance() == null ? BigDecimal.ZERO : profile.getBalance();
 
                 // 仅调整 balance（正向增加，不动累计充值/消费）
-                int affected = casBalanceFrozen(userId, amount, null, null, null);
+                int affected = casBalanceFrozen(userId, normalizedAmount, null, null, null);
                 if (affected == 0)
                 {
-                    log.warn("奖励入账并发冲突, userId={}, amount={}, traceId={}", userId, amount, traceId);
+                    log.warn("奖励入账并发冲突, userId={}, amount={}, traceId={}",
+                            userId, normalizedAmount, traceId);
                     throw new ServiceException("系统繁忙");
                 }
-                BigDecimal afterBalance = balance.add(amount);
-                saveBalanceLog(userId, "reward", amount, balance, afterBalance, traceId, bizType, bizName);
+                BigDecimal afterBalance = balance.add(normalizedAmount);
+                saveBalanceLog(userId, "reward", normalizedAmount, balance, afterBalance,
+                        traceId, bizType, bizName);
             });
         });
     }
@@ -532,16 +586,19 @@ public class AccountUpdateServiceImpl implements IAccountUpdateService
     @Override
     public void precheckBalance(Long userId, BigDecimal amount)
     {
+        BigDecimal normalizedAmount = BillingConstants.normalizeAccountAmount(amount);
         // 无预估金额（免计费/预估失败）不预检，交由后续 freeze 锁内兜底
-        if (Objects.isNull(userId) || Objects.isNull(amount) || amount.compareTo(BigDecimal.ZERO) <= 0)
+        if (Objects.isNull(userId) || Objects.isNull(normalizedAmount)
+                || normalizedAmount.compareTo(BigDecimal.ZERO) <= 0)
         {
             return;
         }
         AidUserProfile profile = getProfileInternal(userId);
         BigDecimal balance = profile.getBalance() == null ? BigDecimal.ZERO : profile.getBalance();
-        if (balance.compareTo(amount) < 0)
+        if (balance.compareTo(normalizedAmount) < 0)
         {
-            log.info("余额前置预检不足, userId={}, balance={}, required={}", userId, balance, amount);
+            log.info("余额前置预检不足, userId={}, balance={}, required={}",
+                    userId, balance, normalizedAmount);
             throw userBalanceNotEnoughException();
         }
     }
@@ -777,9 +834,9 @@ public class AccountUpdateServiceImpl implements IAccountUpdateService
         AidBalanceLog balanceLog = new AidBalanceLog();
         balanceLog.setUserId(userId);
         balanceLog.setChangeType(changeType);
-        balanceLog.setAmount(amount);
-        balanceLog.setBeforeBalance(beforeBalance);
-        balanceLog.setAfterBalance(afterBalance);
+        balanceLog.setAmount(BillingConstants.normalizeAccountAmount(amount));
+        balanceLog.setBeforeBalance(BillingConstants.normalizeAccountAmount(beforeBalance));
+        balanceLog.setAfterBalance(BillingConstants.normalizeAccountAmount(afterBalance));
         balanceLog.setRelatedId(traceId);
         balanceLog.setBizType(bizType);
         balanceLog.setBizName(bizName);

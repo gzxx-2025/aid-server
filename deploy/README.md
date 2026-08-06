@@ -132,7 +132,15 @@ sudo aid uninstall
 - `sudo aid uninstall --keep`：停止并删除 AID 容器/systemd 服务、Nginx 站点、升级器和管理入口，但保留 `DATA_ROOT` 下的数据库、上传文件、配置、备份及构建缓存。仍需输入 `y` 确认
 - `sudo aid uninstall --purge` 或 `sudo aid uninstall-all`：除上述内容外，永久删除 `DATA_ROOT`、内置 MySQL/Redis/RocketMQ 数据、升级器配置/数据、AID 自建镜像、受管系统账号及已识别的 AID 引导脚本；必须输入完整的 `DELETE-AID`，不接受普通 `y` 或 `AID_ASSUME_YES` 绕过
 
-彻底清除完成前会核验 `DATA_ROOT`、AID unit/容器、管理命令、升级器目录、受管账号、`aid/*` 镜像与引导脚本均无残留；核验失败会以非零退出且不会报告成功。卸载器只操作名称固定的 AID 容器、服务和站点，并在递归删除前拒绝 `/`、`/data`、`/home` 等高风险目录及软链接。它不会执行 Docker prune，不会卸载 Docker/JDK/Nginx/Git 等共享环境，也不会删除外部或用户原有的 MySQL、Redis、RocketMQ、OSS/COS 数据。需要删除外部数据时必须到对应服务单独确认处理。
+`sudo aid` 不依赖当前工作目录。若安装使用了自定义 `AID_DATA_ROOT`，管理命令会优先从自身的受管安装器路径、带根目录标记的 systemd unit 中恢复真实目录；发现多个候选目录时会拒绝猜测，并要求显式传入唯一的 `AID_DATA_ROOT` 后重试。
+
+彻底清除只会处理有**当前安装归属证据**的资源，并在结束前逐项核验：
+
+- Docker：容器和默认网络必须带 `com.aid.managed=true` 与相同 `com.aid.data_root` 标签；旧版本仅兼容固定 AID 容器名且 bind mount 位于当前 `DATA_ROOT` 的情况。Docker 守护进程不可用但检测到 Docker 部署痕迹时，卸载会在删除任何内容前停止。自建 `aid/*` 镜像只会从已确认属于当前安装的容器中记录后以普通 `docker image rm` 删除；仍被其他容器引用的镜像会保留，不会使用 `-f` 或 `docker system prune`。
+- 手动 systemd：只删除带 `AID_MANAGED_UNIT=1` 和当前根目录标记的 unit/Java profile；旧 unit 只接受精确指向当前 `app/`、`runtime/`、`config/` 或已验证升级器配置的引用。`aidmysql`/`aidredis` 账号只有 home 在当前手动数据目录且 shell 为 `nologin` 时才会删除。
+- Nginx 与升级器：Nginx 站点需要带当前根目录标记；安装前发现已有 `aid.conf` 时会记录并在卸载时恢复该原站点。`/etc/aid-updater`、`/var/lib/aid-updater` 只有存在当前根目录 marker，或旧版 `managerScript`、`backendJar` 精确指向本安装时才会回收。没有归属证据的同名文件、服务、账号和镜像都会保留并给出提示。
+
+递归删除前，脚本会拒绝 `/`、`/data`、`/home` 等高风险目录、软链接和没有 AID 受管证据的 `DATA_ROOT`。核验失败会以非零退出且不会报告成功。它不会卸载 Docker/JDK/Nginx/Git 等共享环境，也不会删除外部或用户原有的 MySQL、Redis、RocketMQ、OSS/COS 数据；需要删除外部数据时必须到对应服务单独确认处理。
 
 ## 本地开发环境（面向开发者）
 

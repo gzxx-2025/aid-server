@@ -329,15 +329,15 @@ public class CoreComposeServiceImpl implements CoreComposeService {
 
     /**
      * 字幕分屏钉位：把该段台词切成「一屏一句」，按各屏字数比例瓜分显示窗口，依次首尾相接显示。
-     * 显示窗口跟随人声——有配音时只在配音时段显示（画面长于配音的部分不再挂字幕），
-     * 无配音时铺满整段。
+     * 显示窗口跟随人声——有独立配音时只在配音时段显示（画面长于配音的部分不再挂字幕），
+     * 无独立配音且没有精确时间戳时按整段视频时长均匀排布，确保有台词的原声视频不会漏字幕。
      *
      * @param tracks        四轨道（就地追加字幕项）
      * @param subtitle      该段字幕文本
      * @param segStart      段在时间轴上的绝对起点（秒）
      * @param segDuration   段时长（秒）
      * @param voiceDuration 该段配音总时长（秒，0=无配音）
-     * @param maxChars      单屏最大字数
+     * @param maxChars      单屏正文优先最大字数
      */
     private void appendSubtitleItems(ComposeTracks tracks, String subtitle, double segStart,
                                      double segDuration, double voiceDuration, int maxChars) {
@@ -345,13 +345,7 @@ public class CoreComposeServiceImpl implements CoreComposeService {
         if (CollectionUtil.isEmpty(screens)) {
             return;
         }
-        if (voiceDuration <= EPS) {
-            // 没有独立配音时长也没有精确时间戳时，无法判断视频原声真实起止；跳过兜底字幕，避免整段常驻误导。
-            log.info("合成分组缺少精确字幕时间戳且无独立配音时长，跳过普通字幕, segStart={}, segDuration={}",
-                    segStart, segDuration);
-            return;
-        }
-        double window = Math.min(voiceDuration, segDuration);
+        double window = voiceDuration > EPS ? Math.min(voiceDuration, segDuration) : segDuration;
         if (window <= EPS) {
             return;
         }
@@ -383,7 +377,7 @@ public class CoreComposeServiceImpl implements CoreComposeService {
     }
 
     /**
-     * 按“人物：正文”逐行切屏；正文超长产生的每一屏都重新带上人物前缀，避免后续屏只剩裸台词。
+     * 按“人物：正文”的内部结构逐行切屏，最终画面只展示正文，不展示人物前缀。
      */
     private List<String> splitDisplaySubtitle(String subtitle, int maxChars) {
         String formatted = DialogueSubtitleFormatter.format(subtitle);
@@ -393,12 +387,10 @@ public class CoreComposeServiceImpl implements CoreComposeService {
         List<String> screens = new ArrayList<>();
         for (String line : formatted.split("\\R")) {
             int separator = line.indexOf('：');
-            String speaker = separator > 0 ? line.substring(0, separator).trim() : "旁白";
             String body = separator > 0 ? line.substring(separator + 1) : line;
-            int bodyLimit = Math.max(1,
-                    maxChars - SubtitleScreenSplitter.charCount(speaker) - 1);
-            for (String bodyScreen : SubtitleScreenSplitter.split(body, bodyLimit)) {
-                String display = DialogueSubtitleFormatter.formatCue(speaker, bodyScreen);
+            // 说话人仅用于内部识别匹配，成片字幕不再重复展示人物名称。
+            for (String bodyScreen : SubtitleScreenSplitter.split(body, maxChars)) {
+                String display = DialogueSubtitleFormatter.sanitizeSpokenText(bodyScreen);
                 if (StrUtil.isNotBlank(display)) {
                     screens.add(display);
                 }
@@ -428,10 +420,8 @@ public class CoreComposeServiceImpl implements CoreComposeService {
             if (StrUtil.isBlank(body)) {
                 continue;
             }
-            String speaker = StrUtil.blankToDefault(cue.getSpeaker(), "旁白").trim();
-            int bodyLimit = Math.max(1,
-                    maxChars - SubtitleScreenSplitter.charCount(speaker) - 1);
-            List<String> screens = SubtitleScreenSplitter.split(body, bodyLimit);
+            // ASR SentenceMaxLength 与本配置都按正文计数，最终画面只展示 7～12 字正文。
+            List<String> screens = SubtitleScreenSplitter.split(body, maxChars);
             if (CollectionUtil.isEmpty(screens)) {
                 continue;
             }
@@ -450,7 +440,7 @@ public class CoreComposeServiceImpl implements CoreComposeService {
                 }
                 ComposeTrackItem item = new ComposeTrackItem();
                 item.setType(ComposeTrackItemType.SUBTITLE);
-                item.setSubtitleText(DialogueSubtitleFormatter.formatCue(speaker, screen));
+                item.setSubtitleText(screen);
                 item.setStart(segStart + relativeStart + elapsed);
                 item.setDuration(duration);
                 tracks.getSubtitleItems().add(item);

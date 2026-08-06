@@ -10,9 +10,9 @@ import com.aid.aid.domain.vo.AdminBrandConfigVO;
 public interface IAdminBrandConfigService
 {
     /**
-     * 查询可公开展示的平台品牌图片配置。
+     * 查询可公开展示的后台平台品牌配置。
      *
-     * @return 平台品牌图片配置
+     * @return 后台平台品牌配置
      */
     AdminBrandConfigVO getPublicConfig();
 }

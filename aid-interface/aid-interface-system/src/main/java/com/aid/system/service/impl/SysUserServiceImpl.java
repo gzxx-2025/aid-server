@@ -33,7 +33,7 @@ import com.aid.core.service.ISysConfigService;
 import com.aid.system.service.ISysDeptService;
 import com.aid.core.service.ISysUserService;
 import com.aid.aid.domain.AidUserProfile;
-import com.aid.aid.mapper.AidUserProfileMapper;
+import com.aid.aid.service.IAidUserProfileService;
 
 /**
  * 用户 业务层处理
@@ -70,7 +70,7 @@ public class SysUserServiceImpl implements ISysUserService
     protected Validator validator;
 
     @Autowired
-    private AidUserProfileMapper userProfileMapper;
+    private IAidUserProfileService userProfileService;
 
     /**
      * 根据条件分页查询用户列表
@@ -294,12 +294,16 @@ public class SysUserServiceImpl implements ISysUserService
         normalizeContactFields(user);
         // 新增用户信息
         int rows = userMapper.insertUser(user);
+        if (rows <= 0)
+        {
+            return rows;
+        }
         // 新增用户岗位关联
         insertUserPost(user);
         // 新增用户与角色管理
         insertUserRole(user);
         // 初始化用户扩展信息（余额、会员）
-        initUserProfile(user.getUserId());
+        initUserProfile(user.getUserId(), user.getCreateBy());
         return rows;
     }
 
@@ -307,19 +311,29 @@ public class SysUserServiceImpl implements ISysUserService
      * 初始化用户扩展信息
      *
      * @param userId 用户ID
+     * @param creator 创建者
      */
-    private void initUserProfile(Long userId) {
+    private void initUserProfile(Long userId, String creator) {
         AidUserProfile userProfile = new AidUserProfile();
         userProfile.setUserId(userId);
         userProfile.setBalance(new java.math.BigDecimal("0.00"));
         userProfile.setFrozenBalance(new java.math.BigDecimal("0.00"));
+        userProfile.setIsReal("0");
         userProfile.setMemberLevel("normal");
         userProfile.setTotalRecharge(new java.math.BigDecimal("0.00"));
         userProfile.setTotalConsumption(new java.math.BigDecimal("0.00"));
+        userProfile.setWechatNotifyEnabled(0);
+        userProfile.setBalanceReminderAvailable(0);
+        userProfile.setPublishEnabled(1);
         userProfile.setDelFlag("0");
-        userProfile.setCreateBy("system");
+        userProfile.setCreateBy(StrUtil.isBlank(creator) ? "system" : creator);
         userProfile.setCreateTime(new Date());
-        userProfileMapper.insert(userProfile);
+        int rows = userProfileService.insertAidUserProfile(userProfile);
+        if (rows <= 0)
+        {
+            log.error("初始化用户扩展信息失败: userId={}", userId);
+            throw new ServiceException("账户初始化失败");
+        }
         log.info("初始化用户扩展信息成功: userId={}", userId);
     }
 
@@ -338,7 +352,7 @@ public class SysUserServiceImpl implements ISysUserService
         if (rows > 0)
         {
             // 初始化用户扩展信息（余额、会员）
-            initUserProfile(user.getUserId());
+            initUserProfile(user.getUserId(), user.getCreateBy());
         }
         return rows > 0;
     }

@@ -37,4 +37,10 @@ public class UploadStoryboardImageRequest {
      */
     @Pattern(regexp = "image|video", message = "媒体类型有误")
     private String mediaType = "image";
+
+    /**
+     * 视频时长（秒）。mediaType=video 时必填，由前端读取视频元数据后传入；
+     * 后端只校验是否传入，不下载视频重复探测。
+     */
+    private Integer videoDuration;
 }

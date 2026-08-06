@@ -42,6 +42,11 @@ ask() {
   printf '%s\n' "${MOCK_ASK_VALUE:-DELETE-AID}" >> "${ASK_TRACE_FILE}"
   echo "${MOCK_ASK_VALUE:-DELETE-AID}"
 }
+# 主流程中的 Docker 预检必须可控；真正的 Docker 删除仍由下方 stub 隔离。
+docker() {
+  [[ "${1:-}" == "info" ]] && return 0
+  return 1
+}
 select_existing_nginx_runtime() { return 1; }
 # Docker 与系统账号属于宿主能力，分别用受控状态变量模拟；真实删除由本测试禁止。
 remove_aid_docker_runtime() { :; }
@@ -67,20 +72,30 @@ prepare_sandbox() {
   rm -rf -- "${DATA_ROOT}" "${AID_SYSTEMD_UNIT_DIR}" "${AID_LOCAL_BIN_DIR}" \
     "${UPDATER_CONFIG_DIR}" "${UPDATER_DATA_DIR}" "${TMP_ROOT}/profile" \
     "${TMP_ROOT}/nginx" "${TMP_ROOT}/root"
-  mkdir -p "${DATA_ROOT}/installer/deploy" "${DATA_ROOT}/app/updater" "${DATA_ROOT}/runtime/bin" \
+  mkdir -p "${DATA_ROOT}/config" "${DATA_ROOT}/installer/deploy" "${DATA_ROOT}/app/updater" "${DATA_ROOT}/runtime/bin" \
     "${AID_SYSTEMD_UNIT_DIR}" "${AID_LOCAL_BIN_DIR}" "${UPDATER_CONFIG_DIR}" \
     "${UPDATER_DATA_DIR}" "${TMP_ROOT}/profile" "${TMP_ROOT}/nginx/conf.d" "${TMP_ROOT}/root"
   printf '#!/usr/bin/env bash\n# AID 统一部署管理脚本\n' > "${DATA_ROOT}/installer/deploy/aid.sh"
   chmod 700 "${DATA_ROOT}/installer/deploy/aid.sh"
+  cat > "${AID_ROOT_MARKER}" <<EOF
+AID_MANAGED_ROOT=1
+AID_DATA_ROOT=${DATA_ROOT}
+AID_MANAGER_SCRIPT=${MANAGED_SCRIPT}
+EOF
   printf 'updater-binary\n' > "${DATA_ROOT}/app/updater/aid-updater"
   touch "${DATA_ROOT}/runtime/bin/redis-server"
   cp "${DATA_ROOT}/app/updater/aid-updater" "${AID_LOCAL_BIN_DIR}/aid-updater"
   printf 'AID managed test command\n' > "${AID_LOCAL_BIN_DIR}/aid"
-  touch "${AID_SYSTEMD_UNIT_DIR}/aid.service" "${AID_SYSTEMD_UNIT_DIR}/aid-web.service" \
-    "${AID_SYSTEMD_UNIT_DIR}/aid-updater.service" "${AID_SYSTEMD_UNIT_DIR}/aid-mysql.service" \
-    "${AID_SYSTEMD_UNIT_DIR}/aid-redis.service" "${AID_SYSTEMD_UNIT_DIR}/aid-nginx.service"
-  touch "${JAVA_PROFILE_FILE}" "${UPDATER_CONFIG_DIR}/config.json" "${UPDATER_DATA_DIR}/health.json"
-  touch "${TMP_ROOT}/nginx/conf.d/aid.conf" "${TMP_ROOT}/nginx/conf.d/aid.conf.bak.1"
+  for unit in aid.service aid-web.service aid-updater.service aid-mysql.service aid-redis.service aid-nginx.service; do
+    printf '# AID_MANAGED_UNIT=1\n# AID_DATA_ROOT=%s\n' "${DATA_ROOT}" > "${AID_SYSTEMD_UNIT_DIR}/${unit}"
+  done
+  printf '# AID_MANAGED_JAVA_PROFILE=1\n# AID_DATA_ROOT=%s\n' "${DATA_ROOT}" > "${JAVA_PROFILE_FILE}"
+  printf 'AID_MANAGED_UPDATER=1\nAID_DATA_ROOT=%s\nAID_MANAGER_SCRIPT=%s\n' "${DATA_ROOT}" "${MANAGED_SCRIPT}" \
+    > "${UPDATER_CONFIG_DIR}/.aid-managed"
+  cp "${UPDATER_CONFIG_DIR}/.aid-managed" "${UPDATER_DATA_DIR}/.aid-managed"
+  touch "${UPDATER_CONFIG_DIR}/config.json" "${UPDATER_DATA_DIR}/health.json"
+  printf '# AID_MANAGED_NGINX=1\n# AID_DATA_ROOT=%s\n' "${DATA_ROOT}" > "${TMP_ROOT}/nginx/conf.d/aid.conf"
+  touch "${TMP_ROOT}/nginx/conf.d/aid.conf.bak.1"
   printf '# AID 统一部署管理脚本\n' > "${TMP_ROOT}/root/aid-install.sh"
   printf '# unrelated local script\n' > "${TMP_ROOT}/root/aid.sh"
   if [[ "${SYMLINK_TESTS_SUPPORTED}" == "1" ]]; then
@@ -104,11 +119,28 @@ assert_source_pattern() {
 # 菜单 13 必须直接走彻底卸载入口；uninstall-all 必须是独立的 purge 别名路由。
 assert_source_pattern '^[[:space:]]*13\)[[:space:]]*do_uninstall_all[[:space:]]*\|\|[[:space:]]*true[[:space:]]*;;' 'menu 13 -> do_uninstall_all'
 assert_source_pattern '^[[:space:]]*uninstall-all\)[[:space:]]*do_uninstall_all;[[:space:]]*exit[[:space:]]*\$\?[[:space:]]*;;' 'uninstall-all -> do_uninstall_all'
-assert_source_pattern 'env AID_SH_LIBRARY_MODE=0 AID_UNINSTALL_SAFE_REEXEC=1 bash' 'safe reexec route'
-assert_source_pattern '-type f -o -type l' 'Nginx backup symlink cleanup and verification'
+assert_source_pattern 'env AID_DATA_ROOT="\$3" AID_SH_LIBRARY_MODE=0 AID_UNINSTALL_SAFE_REEXEC=1 bash' 'safe reexec preserves DATA_ROOT'
+assert_source_pattern 'BACKUP_SHA256=' 'Nginx backup integrity state'
 if grep -Fq 'AID_UNINSTALL_SAFE_CONFIRMED' "${ROOT_DIR}/deploy/aid.sh"; then
   fail 'purge confirmation must not be bypassed through an environment flag'
 fi
+
+# CentOS 7 Bash 4.2 在 set -u 下会把声明后仍为空的数组视作未绑定。卸载路径
+# 必须使用 ${array[@]+...} 或独立计数器，不能直接展开/取空数组长度。
+if grep -Eq '\$\{#(AID_DATA_ROOT_CANDIDATES|AID_OWNED_DOCKER_IMAGE_IDS|AID_OWNED_SYSTEMD_SERVICES|AID_OWNED_MANUAL_ACCOUNTS|AID_OWNED_MANUAL_GROUPS)\[@\]\}' \
+    "${ROOT_DIR}/deploy/aid.sh"; then
+  fail 'uninstall ownership arrays contain a Bash 4.2-incompatible empty length expansion'
+fi
+AID_DATA_ROOT_CANDIDATES=(); AID_DATA_ROOT_CANDIDATE_COUNT=0
+AID_OWNED_DOCKER_IMAGE_IDS=(); AID_OWNED_DOCKER_IMAGE_COUNT=0
+AID_OWNED_SYSTEMD_SERVICES=(); AID_OWNED_SYSTEMD_SERVICE_COUNT=0
+AID_OWNED_MANUAL_ACCOUNTS=(); AID_OWNED_MANUAL_ACCOUNT_COUNT=0
+AID_OWNED_MANUAL_GROUPS=(); AID_OWNED_MANUAL_GROUP_COUNT=0
+aid_docker_images_present && fail 'empty Docker ownership array was reported as residual'
+aid_manual_accounts_present && fail 'empty manual ownership arrays were reported as residual'
+remove_aid_system_services
+savedNginxDirs="${AID_NGINX_SITE_DIRS}"; AID_NGINX_SITE_DIRS=""; remove_aid_nginx_site; AID_NGINX_SITE_DIRS="${savedNginxDirs}"
+savedBootstrapPaths="${AID_BOOTSTRAP_PATHS}"; AID_BOOTSTRAP_PATHS=""; remove_aid_bootstrap_scripts; AID_BOOTSTRAP_PATHS="${savedBootstrapPaths}"
 
 # 悬空软链接仍必须能识别为 AID 管理命令；指向其他位置的同名链接不会匹配。
 prepare_sandbox
@@ -183,7 +215,7 @@ assert_missing "${UPDATER_CONFIG_DIR}"
 assert_missing "${UPDATER_DATA_DIR}"
 assert_missing "${TMP_ROOT}/nginx/conf.d/aid.conf"
 if [[ "${SYMLINK_TESTS_SUPPORTED}" == "1" ]]; then
-  assert_missing "${TMP_ROOT}/nginx/conf.d/aid.conf.bak.link"
+  assert_exists "${TMP_ROOT}/nginx/conf.d/aid.conf.bak.link"
 fi
 assert_missing "${TMP_ROOT}/root/aid-install.sh"
 assert_exists "${TMP_ROOT}/root/aid.sh"
@@ -238,7 +270,12 @@ docker() {
       return 0
       ;;
     network:inspect)
-      printf '%s\n' "${DATA_ROOT}/installer/deploy/docker"
+      case "${4:-}" in
+        *com.aid.managed*) printf 'true\n' ;;
+        *com.aid.data_root*) printf '%s\n' "${DATA_ROOT}" ;;
+        *com.docker.compose.project.working_dir*) printf '%s\n' "${DATA_ROOT}/installer/deploy/docker" ;;
+        *) printf '%s\n' "${DATA_ROOT}/installer/deploy/docker" ;;
+      esac
       return 0
       ;;
     network:rm)

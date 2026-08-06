@@ -23,6 +23,7 @@ probe_bt_node() {
     *) return 1 ;;
   esac
 }
+resolve_dependency_region() { RESOLVED_DEPENDENCY_REGION=cn; }
 mapfile -t ranked < <(rank_bt_mirror_nodes "${node_a}" "${node_b}" "${node_c}" "${node_d}")
 [[ "${ranked[0]}" == "${node_c}" && "${ranked[1]}" == "${node_a}" \
     && "${ranked[2]}" == "${node_b}" && "${ranked[3]}" == "${node_d}" ]] \
@@ -35,6 +36,17 @@ if grep -F '节点测速:' "${ROOT_DIR}/deploy/aid.sh" | grep -Fvq 'AID 国内�
   echo 'FAIL: 用户可见测速日志必须使用 AID 品牌' >&2
   exit 1
 fi
+
+# 首次解析线路会打印测速诊断；bt_artifact_urls 的 stdout 仍必须只有 URL，
+# 否则 mapfile 会把日志误当作下载地址。
+BT_MIRRORS_RESOLVED=0
+BT_MIRROR_ORDER=""
+mapfile -t artifact_urls < <(bt_artifact_urls 'src/test-artifact.tar.gz')
+[[ "${#artifact_urls[@]}" -gt 0 ]] || { echo 'FAIL: 首次线路选择未生成下载 URL' >&2; exit 1; }
+for artifact_url in "${artifact_urls[@]}"; do
+  [[ "${artifact_url}" =~ ^https://[^[:space:]]+/src/test-artifact\.tar\.gz$ ]] \
+    || { printf 'FAIL: URL stdout 被诊断信息污染: %q\n' "${artifact_url}" >&2; exit 1; }
+done
 
 printf 'AID resumable download fixture\nsecond line\n' > "${TMP_ROOT}/source.bin"
 expected="$(sha256sum "${TMP_ROOT}/source.bin" | awk '{print $1}')"

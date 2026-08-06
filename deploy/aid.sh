@@ -19,9 +19,15 @@
 
 set -uo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT_PATH="$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(cd "$(dirname "${SCRIPT_PATH}")" && pwd)"
 REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+# AID_DATA_ROOT 是唯一允许显式覆盖数据根目录的环境变量。未提供时，优先从
+# 已受管安装痕迹恢复真实目录，避免自定义目录的 ``sudo aid uninstall`` 错删默认目录。
+AID_DATA_ROOT_EXPLICIT=0
+if [[ -n "${AID_DATA_ROOT+x}" && -n "${AID_DATA_ROOT:-}" ]]; then
+  AID_DATA_ROOT_EXPLICIT=1
+fi
 DATA_ROOT="${AID_DATA_ROOT:-/data/aid}"
 # These paths are overridable only for controlled tests and non-standard system
 # layouts. Production defaults remain the normal Linux locations.
@@ -31,6 +37,169 @@ AID_BOOTSTRAP_PATHS="${AID_BOOTSTRAP_PATHS:-/root/aid-install.sh:/root/aid.sh}"
 AID_BOOTSTRAP_MARKER="AID 统一部署管理脚本"
 AID_MANAGEMENT_COMMAND_WAS_MANAGED=0
 AID_UPDATER_COMMAND_WAS_MANAGED=0
+AID_OWNED_DOCKER_IMAGE_IDS=()
+AID_OWNED_DOCKER_IMAGE_COUNT=0
+AID_OWNED_SYSTEMD_SERVICES=()
+AID_OWNED_SYSTEMD_SERVICE_COUNT=0
+AID_OWNED_MANUAL_ACCOUNTS=()
+AID_OWNED_MANUAL_ACCOUNT_COUNT=0
+AID_OWNED_MANUAL_GROUPS=()
+AID_OWNED_MANUAL_GROUP_COUNT=0
+
+is_safe_aid_data_root_candidate() { # is_safe_aid_data_root_candidate <absolute path>
+  local candidate="$1" resolved=""
+  [[ "${candidate}" == /* && "${candidate}" != "/" ]] || return 1
+  case "${candidate}" in
+    /bin|/boot|/data|/dev|/etc|/home|/opt|/root|/run|/srv|/tmp|/usr|/var) return 1 ;;
+  esac
+  [[ "${candidate#/}" == */* ]] || return 1
+  [[ ! -L "${candidate}" ]] || return 1
+  if [[ -e "${candidate}" ]]; then
+    resolved="$(readlink -f -- "${candidate}" 2>/dev/null || true)"
+    [[ -n "${resolved}" && "${resolved}" == "${candidate}" ]] || return 1
+  fi
+  return 0
+}
+
+aid_script_data_root_candidate() { # aid_script_data_root_candidate <script path>
+  local path="$1" root=""
+  [[ "${path}" == */installer/deploy/aid.sh ]] || return 1
+  root="${path%/installer/deploy/aid.sh}"
+  is_safe_aid_data_root_candidate "${root}" || return 1
+  printf '%s\n' "${root}"
+}
+
+AID_DATA_ROOT_CANDIDATES=()
+AID_DATA_ROOT_CANDIDATE_COUNT=0
+add_aid_data_root_candidate() { # add_aid_data_root_candidate <candidate>
+  local candidate="$1" existing
+  is_safe_aid_data_root_candidate "${candidate}" || return 0
+  for existing in "${AID_DATA_ROOT_CANDIDATES[@]+"${AID_DATA_ROOT_CANDIDATES[@]}"}"; do
+    [[ "${existing}" == "${candidate}" ]] && return 0
+  done
+  AID_DATA_ROOT_CANDIDATES+=("${candidate}")
+  AID_DATA_ROOT_CANDIDATE_COUNT=$((AID_DATA_ROOT_CANDIDATE_COUNT + 1))
+}
+
+aid_root_candidate_has_strong_evidence() { # aid_root_candidate_has_strong_evidence <candidate>
+  local candidate="$1" marker="${candidate}/config/.aid-managed" state="${candidate}/config/install-state.conf"
+  local descriptor="${candidate}/config/deployment.json" manualConfig="${candidate}/aid-deploy.conf"
+  local dockerConfig="${candidate}/config/docker.env" managedScript="${candidate}/installer/deploy/aid.sh"
+  [[ -f "${marker}" && ! -L "${marker}" ]] \
+    && grep -Fxq 'AID_MANAGED_ROOT=1' "${marker}" 2>/dev/null \
+    && grep -Fxq "AID_DATA_ROOT=${candidate}" "${marker}" 2>/dev/null \
+    && grep -Fxq "AID_MANAGER_SCRIPT=${managedScript}" "${marker}" 2>/dev/null && return 0
+  [[ -f "${state}" && ! -L "${state}" ]] \
+    && grep -Fxq "DATA_ROOT=${candidate}" "${state}" 2>/dev/null \
+    && grep -Eq '^DEPLOY_MODE=(docker|manual)$' "${state}" 2>/dev/null && return 0
+  [[ -f "${descriptor}" && ! -L "${descriptor}" ]] \
+    && grep -Fq "\"dataRoot\": \"${candidate}\"" "${descriptor}" 2>/dev/null \
+    && grep -Eq '"mode"[[:space:]]*:[[:space:]]*"(docker|manual|systemd)"' "${descriptor}" 2>/dev/null && return 0
+  [[ -f "${manualConfig}" && ! -L "${manualConfig}" ]] \
+    && grep -Fq '# AID 手动部署配置（唯一配置真源' "${manualConfig}" 2>/dev/null \
+    && grep -Fxq "DATA_ROOT=${candidate}" "${manualConfig}" 2>/dev/null && return 0
+  [[ -f "${dockerConfig}" && ! -L "${dockerConfig}" ]] \
+    && grep -Fq '# AID Docker 部署配置（唯一配置真源）' "${dockerConfig}" 2>/dev/null \
+    && grep -Fxq "DATA_ROOT=${candidate}" "${dockerConfig}" 2>/dev/null && return 0
+  [[ -f "${managedScript}" && ! -L "${managedScript}" ]] \
+    && grep -Fq -- "${AID_BOOTSTRAP_MARKER}" "${managedScript}" 2>/dev/null
+}
+
+aid_legacy_docker_mount_root_candidate() { # aid_legacy_docker_mount_root_candidate <bind source>
+  local source="$1" suffix root
+  for suffix in /app /config /installer /mysql-data /redis-data /rocketmq /uploads /logs; do
+    [[ "${source}" == *"${suffix}" ]] || continue
+    root="${source%${suffix}}"
+    is_safe_aid_data_root_candidate "${root}" || continue
+    aid_root_candidate_has_strong_evidence "${root}" || continue
+    printf '%s\n' "${root}"
+    return 0
+  done
+  return 1
+}
+
+infer_aid_data_root_from_docker() {
+  local container marker root mount candidate
+  command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 || return 0
+  while IFS= read -r container; do
+    [[ -n "${container}" ]] || continue
+    marker="$(docker inspect --format '{{index .Config.Labels "com.aid.managed"}}' "${container}" 2>/dev/null || true)"
+    root="$(docker inspect --format '{{index .Config.Labels "com.aid.data_root"}}' "${container}" 2>/dev/null || true)"
+    if [[ "${marker}" == "true" && -n "${root}" ]]; then
+      add_aid_data_root_candidate "${root}"
+      continue
+    fi
+    case "${container}" in
+      aid-nginx-https|aid-nginx|aid-web|aid-server|aid-updater|aid-rocketmq-broker|aid-rocketmq-nameserver|aid-redis|aid-mysql) ;;
+      *) continue ;;
+    esac
+    while IFS= read -r mount; do
+      candidate="$(aid_legacy_docker_mount_root_candidate "${mount}" 2>/dev/null || true)"
+      [[ -z "${candidate}" ]] || add_aid_data_root_candidate "${candidate}"
+    done < <(docker inspect --format '{{range .Mounts}}{{if eq .Type "bind"}}{{.Source}}{{"\n"}}{{end}}{{end}}' "${container}" 2>/dev/null || true)
+  done < <(docker ps -a --format '{{.Names}}' 2>/dev/null || true)
+}
+
+infer_aid_data_root() {
+  local candidate="" linkTarget="" unitPath="" markerRoot="" workingDir="" legacyRoot="" existing
+  AID_DATA_ROOT_CANDIDATES=()
+  AID_DATA_ROOT_CANDIDATE_COUNT=0
+
+  candidate="$(aid_script_data_root_candidate "${SCRIPT_PATH}" 2>/dev/null || true)"
+  [[ -z "${candidate}" ]] || add_aid_data_root_candidate "${candidate}"
+
+  # 受管管理命令只能是指向安装器目录的软链接；不会把普通 /usr/local/bin/aid 当成 AID。
+  if [[ -L "${AID_LOCAL_BIN_DIR}/aid" ]]; then
+    linkTarget="$(readlink -f -- "${AID_LOCAL_BIN_DIR}/aid" 2>/dev/null || true)"
+    candidate="$(aid_script_data_root_candidate "${linkTarget}" 2>/dev/null || true)"
+    [[ -z "${candidate}" ]] || add_aid_data_root_candidate "${candidate}"
+  fi
+
+  # 新 unit 有明确 marker；旧 unit 仅接受 AID 后端工作目录及其产物的精确组合。
+  for unitPath in "${AID_SYSTEMD_UNIT_DIR}/aid.service" "${AID_SYSTEMD_UNIT_DIR}/aid-web.service" \
+      "${AID_SYSTEMD_UNIT_DIR}/aid-updater.service" "${AID_SYSTEMD_UNIT_DIR}/aid-mysql.service" \
+      "${AID_SYSTEMD_UNIT_DIR}/aid-redis.service" "${AID_SYSTEMD_UNIT_DIR}/aid-nginx.service"; do
+    [[ -f "${unitPath}" && ! -L "${unitPath}" ]] || continue
+    markerRoot="$(sed -nE 's|^# AID_DATA_ROOT=(/[^[:space:]]+)$|\1|p' "${unitPath}" | head -n 1)"
+    if grep -Fxq '# AID_MANAGED_UNIT=1' "${unitPath}" 2>/dev/null && [[ -n "${markerRoot}" ]]; then
+      add_aid_data_root_candidate "${markerRoot}"
+      continue
+    fi
+    workingDir="$(sed -nE 's#^WorkingDirectory=(/.*)/app$#\1#p' "${unitPath}" | head -n 1)"
+    [[ -n "${workingDir}" ]] || continue
+    legacyRoot="${workingDir}"
+    if grep -Fq "WorkingDirectory=${legacyRoot}/app" "${unitPath}" 2>/dev/null \
+        && { grep -Fq "${legacyRoot}/app/aid-admin.jar" "${unitPath}" 2>/dev/null \
+          || grep -Fq "EnvironmentFile=${legacyRoot}/aid-deploy.conf" "${unitPath}" 2>/dev/null; }; then
+      add_aid_data_root_candidate "${legacyRoot}"
+    fi
+  done
+
+  # 没有脚本、管理链接或 unit 候选时，才只读检查 Docker。新版使用归属标签；
+  # 无标签旧容器必须是固定名称，并由 bind mount 反推到带强 AID 证据的根目录。
+  [[ "${AID_DATA_ROOT_CANDIDATE_COUNT}" -gt 0 ]] || infer_aid_data_root_from_docker
+
+  if [[ "${AID_DATA_ROOT_CANDIDATE_COUNT}" -eq 1 ]]; then
+    printf '%s\n' "${AID_DATA_ROOT_CANDIDATES[0]}"
+    return 0
+  fi
+  if [[ "${AID_DATA_ROOT_CANDIDATE_COUNT}" -gt 1 ]]; then
+    printf '[失败] 检测到多个 AID 数据目录，拒绝选择：\n' >&2
+    for existing in "${AID_DATA_ROOT_CANDIDATES[@]+"${AID_DATA_ROOT_CANDIDATES[@]}"}"; do printf '  - %s\n' "${existing}" >&2; done
+    printf '请显式指定唯一目录，例如：sudo AID_DATA_ROOT=/实际目录 aid uninstall --purge\n' >&2
+    return 2
+  fi
+  return 1
+}
+
+if [[ "${AID_DATA_ROOT_EXPLICIT}" == "0" ]]; then
+  if inferredDataRoot="$(infer_aid_data_root)"; then
+    DATA_ROOT="${inferredDataRoot}"
+  else
+    inferStatus=$?
+    [[ "${inferStatus}" -eq 2 ]] && exit 1
+  fi
+fi
 # 数据根目录必须是绝对路径：conf/systemd/compose 挂载全部依赖它可寻址
 case "${DATA_ROOT}" in
   /*) ;;
@@ -38,7 +207,9 @@ case "${DATA_ROOT}" in
 esac
 COMPOSE_DIR="${SCRIPT_DIR}/docker"
 CONFIG_ROOT="${DATA_ROOT}/config"
+AID_ROOT_MARKER="${CONFIG_ROOT}/.aid-managed"
 AID_NGINX_SITE_DIRS="${AID_NGINX_SITE_DIRS:-${CONFIG_ROOT}/nginx/conf.d:/etc/nginx/conf.d:/www/server/panel/vhost/nginx}"
+AID_NGINX_STATE_FILE="${CONFIG_ROOT}/nginx/managed-site.state"
 DEPLOYMENT_DESCRIPTOR="${CONFIG_ROOT}/deployment.json"
 STATE_FILE="${CONFIG_ROOT}/install-state.conf"
 DEFAULT_MANUAL_CONFIG="${DATA_ROOT}/aid-deploy.conf"
@@ -238,6 +409,19 @@ env_set() { # env_set <key> <value>（仅用于自动生成缺失密钥，其余
   fi
 }
 
+write_aid_root_marker() {
+  local tmp
+  mkdir -p "${CONFIG_ROOT}"
+  tmp="$(mktemp "${CONFIG_ROOT}/.aid-managed.XXXXXX")" || die "无法写入 AID 受管标记"
+  cat > "${tmp}" <<EOF
+AID_MANAGED_ROOT=1
+AID_DATA_ROOT=${DATA_ROOT}
+AID_MANAGER_SCRIPT=${MANAGED_SCRIPT}
+EOF
+  chmod 600 "${tmp}"
+  mv -f -- "${tmp}" "${AID_ROOT_MARKER}"
+}
+
 write_deployment_descriptor() { # write_deployment_descriptor <docker|manual> <配置绝对路径>
   local mode="$1" configPath="$2" tmp
   [[ "${configPath}" == /* ]] || die "部署配置路径必须是绝对路径"
@@ -246,11 +430,13 @@ write_deployment_descriptor() { # write_deployment_descriptor <docker|manual> <�
   cat > "${tmp}" <<EOF
 {
   "mode": "${mode}",
+  "dataRoot": "${DATA_ROOT}",
   "configPath": "${configPath}"
 }
 EOF
   chmod 600 "${tmp}"
   mv -f "${tmp}" "${DEPLOYMENT_DESCRIPTOR}"
+  write_aid_root_marker
 }
 
 config_sha256() { sha256_file "$1" 2>/dev/null || true; }
@@ -1155,6 +1341,8 @@ http {
 }
 EOF
   cat > "/etc/systemd/system/${NGINX_MANAGED_SERVICE}" <<EOF
+# AID_MANAGED_UNIT=1
+# AID_DATA_ROOT=${DATA_ROOT}
 [Unit]
 Description=AID managed Nginx ${NGINX_VERSION}
 After=network-online.target
@@ -1757,6 +1945,8 @@ EOF
       || die "MySQL 5.7 数据目录初始化失败"
   fi
   cat > "/etc/systemd/system/${MYSQL_MANAGED_SERVICE}" <<EOF
+# AID_MANAGED_UNIT=1
+# AID_DATA_ROOT=${DATA_ROOT}
 [Unit]
 Description=AID managed MySQL 5.7
 After=network.target
@@ -2032,6 +2222,8 @@ EOF
   chmod 640 "${redisConf}"
   chown root:aidredis "${redisConf}"
   cat > "/etc/systemd/system/${REDIS_MANAGED_SERVICE}" <<EOF
+# AID_MANAGED_UNIT=1
+# AID_DATA_ROOT=${DATA_ROOT}
 [Unit]
 Description=AID managed Redis ${REDIS_VERSION}
 After=network.target
@@ -2565,7 +2757,8 @@ resolve_bt_mirror_order() {
 
 bt_artifact_urls() { # bt_artifact_urls <AID依赖镜像节点内相对路径>
   local path="${1#/}" node
-  resolve_bt_mirror_order
+  # resolve 会输出测速/缓存诊断；URL 生产函数的 stdout 必须保持纯净，供 mapfile 安全捕获。
+  resolve_bt_mirror_order >&2
   while IFS= read -r node; do
     [[ -n "${node}" ]] && printf '%s/%s\n' "${node}" "${path}"
   done <<< "${BT_MIRROR_ORDER}"
@@ -2803,6 +2996,8 @@ prepare_manual_jdk() {
   mkdir -p "$(dirname "${JAVA_PROFILE_FILE}")"
   cat > "${JAVA_PROFILE_FILE}" <<EOF
 # AID 非 Docker 运行环境；重新登录或执行 source ${JAVA_PROFILE_FILE} 后对交互终端生效。
+# AID_MANAGED_JAVA_PROFILE=1
+# AID_DATA_ROOT=${DATA_ROOT}
 export JAVA_HOME="${JDK_HOME}"
 export PATH="\${JAVA_HOME}/bin:\${PATH}"
 EOF
@@ -3789,8 +3984,13 @@ confirm_first_install() { # confirm_first_install <docker|manual>
     echo "  用户端口 : $(env_get HTTP_PORT 80)"
     echo "  管理端口 : $(env_get ADMIN_PORT 8089)"
     echo "  后端端口 : $(env_get BACKEND_PORT 8080)"
+    warn "Docker 部署会拉取所需镜像、创建 AID 容器并占用以上端口；不会自动开放防火墙或修改域名解析"
+  else
+    echo "  用户端口 : $(conf_get HTTP_PORT 80)"
+    echo "  管理端口 : $(conf_get ADMIN_PORT 8089)"
+    echo "  后端端口 : $(conf_get BACKEND_PORT 8080)"
+    warn "非 Docker 部署会按配置检查或准备宿主机依赖、写入 AID systemd/Nginx 配置并占用以上端口；不会自动开放防火墙或修改域名解析"
   fi
-  warn "安装会拉取 Docker 镜像、创建服务并占用以上端口；不会自动开放防火墙或修改域名解析"
   risk "后台初始账号为 admin / admin123，首次登录后必须立即修改密码"
   warn "官方媒体资产包体积较大且存储目标因人而异，本步骤不会静默下载或写入 OSS/COS"
   unmanagedEntry="$(first_install_unmanaged_entry "${mode}" || true)"
@@ -4585,6 +4785,21 @@ UPDATER_CONFIG_DIR="${AID_UPDATER_CONFIG_DIR:-/etc/aid-updater}"
 UPDATER_CONFIG_FILE="${UPDATER_CONFIG_DIR}/config.json"
 UPDATER_DATA_DIR="${AID_UPDATER_DATA_DIR:-/var/lib/aid-updater}"
 
+write_aid_updater_markers() {
+  local directory marker tmp
+  for directory in "${UPDATER_CONFIG_DIR}" "${UPDATER_DATA_DIR}"; do
+    marker="${directory}/.aid-managed"
+    tmp="$(mktemp "${directory}/.aid-managed.XXXXXX")" || die "无法写入升级器受管标记: ${directory}"
+    cat > "${tmp}" <<EOF
+AID_MANAGED_UPDATER=1
+AID_DATA_ROOT=${DATA_ROOT}
+AID_MANAGER_SCRIPT=${MANAGED_SCRIPT}
+EOF
+    chmod 600 "${tmp}"
+    mv -f -- "${tmp}" "${marker}"
+  done
+}
+
 write_updater_config() { # write_updater_config <docker|manual>
   local mode="$1" serviceManager backendService restartServices healthUrl execContainer clientImage dockerNetwork dbHost dbPort dbUser dbPwd dbName configPath defaultConfigPath
   mkdir -p "${UPDATER_CONFIG_DIR}" "${UPDATER_DATA_DIR}/inbox" "${UPDATER_DATA_DIR}/work" "${UPDATER_DATA_DIR}/backups"
@@ -4661,9 +4876,10 @@ write_updater_config() { # write_updater_config <docker|manual>
     "composeFile": "${INSTALLER_ROOT}/deploy/docker/docker-compose.yml",
     "managerScript": "${MANAGED_SCRIPT}"
   }
-}
+  }
 EOF
   chmod 600 "${UPDATER_CONFIG_FILE}"
+  write_aid_updater_markers
 }
 
 # 安装/修复升级器（幂等；两种部署方式通用）
@@ -4689,7 +4905,9 @@ setup_updater() { # setup_updater <docker|manual>
     fi
   else
     install -m 0755 "${DATA_ROOT}/app/updater/aid-updater" /usr/local/bin/aid-updater
-    cat > /etc/systemd/system/aid-updater.service <<'EOF'
+    cat > /etc/systemd/system/aid-updater.service <<EOF
+# AID_MANAGED_UNIT=1
+# AID_DATA_ROOT=${DATA_ROOT}
 [Unit]
 Description=AID Updater - AID platform upgrade agent
 After=network-online.target
@@ -5684,6 +5902,8 @@ write_systemd_units() {
   javaBin="${JDK_HOME}/bin/java"
   nodeBin="$(command -v node)"
   cat > /etc/systemd/system/aid.service <<EOF
+# AID_MANAGED_UNIT=1
+# AID_DATA_ROOT=${DATA_ROOT}
 [Unit]
 Description=AID Server
 After=network-online.target
@@ -5707,6 +5927,8 @@ EOF
   chmod 600 /etc/systemd/system/aid.service
 
   cat > /etc/systemd/system/aid-web.service <<EOF
+# AID_MANAGED_UNIT=1
+# AID_DATA_ROOT=${DATA_ROOT}
 [Unit]
 Description=AID Web (Nuxt SSR)
 After=network-online.target aid.service
@@ -5733,6 +5955,8 @@ write_nginx_site() {
   adminPort="$(conf_get ADMIN_PORT 8089)"
   backendPort="$(conf_get BACKEND_PORT 8080)"
   content="# AID 站点：${httpPort}=C端用户端，${adminPort}=后台管理端（根路径托管）
+# AID_MANAGED_NGINX=1
+# AID_DATA_ROOT=${DATA_ROOT}
 # 仅在请求确实携带 Upgrade 头时才发送 Connection: upgrade，普通请求保持 keep-alive
 map \$http_upgrade \$connection_upgrade {
     default upgrade;
@@ -5861,13 +6085,20 @@ server {
     mkdir -p "${NGINX_SITE_DIR}"
     siteFile="${NGINX_SITE_DIR}/aid.conf"
     backupPath=""
-    if [[ -f "${siteFile}" ]]; then
-      backupPath="${siteFile}.bak.$(date +%s)"
-      cp "${siteFile}" "${backupPath}"
+    if [[ -f "${siteFile}" ]] && ! aid_nginx_site_belongs_to_current_install "${siteFile}"; then
+      backupPath="${siteFile}.aid-before-install.$(date +%s)"
+      cp -p -- "${siteFile}" "${backupPath}" || die "备份已有 Nginx 站点失败: ${siteFile}"
+      write_aid_nginx_backup_state "${siteFile}" "${backupPath}"
     fi
     echo "${content}" > "${siteFile}"
     if ! "${NGINX_BIN}" -t >/dev/null 2>&1; then
-      if [[ -n "${backupPath}" ]]; then cp "${backupPath}" "${siteFile}"; else rm -f "${siteFile}"; fi
+      if [[ -n "${backupPath}" ]]; then
+        cp -- "${backupPath}" "${siteFile}" || die "恢复原 Nginx 配置失败: ${siteFile}"
+        rm -f -- "${backupPath}" "${AID_NGINX_STATE_FILE}" \
+          || die "清理 Nginx 安装失败状态失败，请检查: ${AID_NGINX_STATE_FILE}"
+      else
+        rm -f -- "${siteFile}" || die "清理无效 Nginx 配置失败: ${siteFile}"
+      fi
       die "Nginx 配置校验失败，已恢复原站点配置"
     fi
     reload_nginx_runtime || die "Nginx 重载失败，请检查 ${NGINX_SERVICE:-${NGINX_BIN}}"
@@ -6333,31 +6564,120 @@ do_mysql_info() {
   print_mysql_access_guidance "${mode}" "${publicIp}" "${configFile}"
 }
 
-remove_aid_docker_runtime() { # remove_aid_docker_runtime <keep|purge>
-  local cleanupMode="$1" container network repository imageId networks=""
-  local -a containers=(
-    aid-nginx-https aid-nginx aid-web aid-server aid-updater
-    aid-rocketmq-broker aid-rocketmq-nameserver aid-redis aid-mysql
-  )
-  command -v docker >/dev/null 2>&1 || return 0
+aid_systemd_unit_names() {
+  printf '%s\n' aid.service aid-web.service aid-updater.service aid-mysql.service aid-redis.service aid-nginx.service
+}
 
-  # 删除容器前记录它们连接的网络，并额外扫描所有 Compose 网络。这样即使
-  # 容器已经被人工删除，也能清除工作目录明确属于当前 AID 的遗留网络。
-  # 不使用 docker system/network prune，绝不触及没有 AID working_dir 标签的网络。
+aid_docker_known_container() { # aid_docker_known_container <container>
+  case "$1" in
+    aid-nginx-https|aid-nginx|aid-web|aid-server|aid-updater|aid-rocketmq-broker|aid-rocketmq-nameserver|aid-redis|aid-mysql) return 0 ;;
+  esac
+  return 1
+}
+
+aid_docker_daemon_available() {
+  command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1
+}
+
+aid_docker_deployment_evidence_present() {
+  local stateMode="$(state_get DEPLOY_MODE '')" container network
+  [[ "${stateMode}" == "docker" ]] \
+    && grep -Fxq "DATA_ROOT=${DATA_ROOT}" "${STATE_FILE}" 2>/dev/null && return 0
+  [[ -f "${DEPLOYMENT_DESCRIPTOR}" && ! -L "${DEPLOYMENT_DESCRIPTOR}" ]] \
+    && grep -Fq '"mode": "docker"' "${DEPLOYMENT_DESCRIPTOR}" 2>/dev/null \
+    && grep -Fq "\"dataRoot\": \"${DATA_ROOT}\"" "${DEPLOYMENT_DESCRIPTOR}" 2>/dev/null && return 0
+  [[ -f "${ENV_FILE}" && ! -L "${ENV_FILE}" ]] \
+    && grep -Fq '# AID Docker 部署配置（唯一配置真源）' "${ENV_FILE}" 2>/dev/null \
+    && grep -Fxq "DATA_ROOT=${DATA_ROOT}" "${ENV_FILE}" 2>/dev/null && return 0
+  aid_docker_daemon_available || return 1
+  while IFS= read -r container; do
+    docker inspect "${container}" >/dev/null 2>&1 || continue
+    aid_docker_container_belongs_to_current_install "${container}" && return 0
+  done < <(aid_docker_candidate_container_list)
+  while IFS= read -r network; do
+    [[ -n "${network}" ]] || continue
+    aid_docker_network_belongs_to_current_install "${network}" && return 0
+  done < <(docker network ls --format '{{.Name}}' 2>/dev/null || true)
+  return 1
+}
+
+require_docker_for_uninstall_if_needed() { # require_docker_for_uninstall_if_needed <detected mode>
+  local mode="$1"
+  if [[ "${mode}" == "docker" ]] || aid_docker_deployment_evidence_present; then
+    aid_docker_daemon_available \
+      || die "检测到 Docker 部署痕迹，但 Docker 守护进程不可用；请启动 Docker 后重试，当前不会删除任何 AID 内容"
+  fi
+}
+
+aid_docker_container_belongs_to_current_install() { # aid_docker_container_belongs_to_current_install <container>
+  local container="$1" marker="" root="" mount=""
+  marker="$(docker inspect --format '{{index .Config.Labels "com.aid.managed"}}' "${container}" 2>/dev/null || true)"
+  root="$(docker inspect --format '{{index .Config.Labels "com.aid.data_root"}}' "${container}" 2>/dev/null || true)"
+  if [[ -n "${marker}" || -n "${root}" ]]; then
+    [[ "${marker}" == "true" && "${root}" == "${DATA_ROOT}" ]]
+    return
+  fi
+  # 旧版没有标签时，只接受固定名称且至少一个 bind mount 在当前 DATA_ROOT 内。
+  aid_docker_known_container "${container}" || return 1
+  while IFS= read -r mount; do
+    case "${mount}" in
+      "${DATA_ROOT}"|"${DATA_ROOT}/"*) return 0 ;;
+    esac
+  done < <(docker inspect --format '{{range .Mounts}}{{if eq .Type "bind"}}{{.Source}}{{"\n"}}{{end}}{{end}}' "${container}" 2>/dev/null || true)
+  return 1
+}
+
+aid_docker_image_repository() { # aid_docker_image_repository <image ref>
+  local reference="$1" tail=""
+  reference="${reference%@*}"
+  tail="${reference##*/}"
+  [[ "${tail}" != *:* ]] || reference="${reference%:*}"
+  printf '%s\n' "${reference}"
+}
+
+remember_owned_aid_docker_image() { # remember_owned_aid_docker_image <image id> <image ref>
+  local imageId="$1" reference="$2" repository existing
+  [[ -n "${imageId}" ]] || return 0
+  repository="$(aid_docker_image_repository "${reference}")"
+  [[ "${repository}" == aid/* ]] || return 0
+  for existing in "${AID_OWNED_DOCKER_IMAGE_IDS[@]+"${AID_OWNED_DOCKER_IMAGE_IDS[@]}"}"; do
+    [[ "${existing%%|*}" == "${imageId}" ]] && return 0
+  done
+  AID_OWNED_DOCKER_IMAGE_IDS+=("${imageId}|${repository}")
+  AID_OWNED_DOCKER_IMAGE_COUNT=$((AID_OWNED_DOCKER_IMAGE_COUNT + 1))
+}
+
+remove_aid_docker_runtime() { # remove_aid_docker_runtime <keep|purge>
+  local cleanupMode="$1" container network imageInfo imageId imageRef entry repository networks="" referencingContainers=""
+  local -a containers=()
+  local -a unresolvedImages=()
+  aid_docker_daemon_available || return 0
+  AID_OWNED_DOCKER_IMAGE_IDS=()
+  AID_OWNED_DOCKER_IMAGE_COUNT=0
+  while IFS= read -r container; do
+    [[ -n "${container}" ]] && containers+=("${container}")
+  done < <(aid_docker_candidate_container_list)
   networks="$(
     {
-      for container in "${containers[@]}"; do
-        docker inspect --format '{{range $name, $value := .NetworkSettings.Networks}}{{$name}}{{"\n"}}{{end}}' \
-          "${container}" 2>/dev/null || true
+      for container in "${containers[@]+"${containers[@]}"}"; do
+        docker inspect "${container}" >/dev/null 2>&1 || continue
+        if aid_docker_container_belongs_to_current_install "${container}"; then
+          docker inspect --format '{{range $name, $value := .NetworkSettings.Networks}}{{$name}}{{"\n"}}{{end}}' "${container}" 2>/dev/null || true
+        elif aid_docker_known_container "${container}"; then
+          warn "保留非当前 AID 安装的同名 Docker 容器: ${container}"
+        fi
       done
       docker network ls --format '{{.Name}}' 2>/dev/null || true
     } | sort -u
   )"
-  for container in "${containers[@]}"; do
-    if docker inspect "${container}" >/dev/null 2>&1; then
-      docker rm -f "${container}" >/dev/null
-      log "已删除容器: ${container}"
-    fi
+  for container in "${containers[@]+"${containers[@]}"}"; do
+    docker inspect "${container}" >/dev/null 2>&1 || continue
+    aid_docker_container_belongs_to_current_install "${container}" || continue
+    imageInfo="$(docker inspect --format '{{.Image}}|{{.Config.Image}}' "${container}" 2>/dev/null || true)"
+    imageId="${imageInfo%%|*}"; imageRef="${imageInfo#*|}"
+    remember_owned_aid_docker_image "${imageId}" "${imageRef}"
+    docker rm -f "${container}" >/dev/null || die "删除受管 Docker 容器失败: ${container}"
+    log "已删除受管 Docker 容器: ${container}"
   done
   while IFS= read -r network; do
     [[ -n "${network}" ]] || continue
@@ -6368,65 +6688,91 @@ remove_aid_docker_runtime() { # remove_aid_docker_runtime <keep|purge>
       warn "无法删除 AID Compose 网络，稍后会作为卸载残留报错: ${network}"
     fi
   done <<< "${networks}"
-
   [[ "${cleanupMode}" == "purge" ]] || return 0
-  # 只删除仓库名以 aid/ 开头的本项目自建镜像；MySQL/Redis/Nginx/Node
-  # 等公共镜像可能被其他项目复用，卸载器始终保留。
-  while read -r repository imageId; do
-    [[ "${repository}" == aid/* && -n "${imageId}" ]] || continue
-    docker image rm -f "${imageId}" >/dev/null 2>&1 || true
-  done < <(docker image ls --format '{{.Repository}} {{.ID}}' 2>/dev/null)
+  # 仅删除刚从“已确认属于当前根”的容器记录到的 aid/* 镜像；不用 -f。
+  for entry in "${AID_OWNED_DOCKER_IMAGE_IDS[@]+"${AID_OWNED_DOCKER_IMAGE_IDS[@]}"}"; do
+    imageId="${entry%%|*}"; repository="${entry#*|}"
+    if docker image rm "${imageId}" >/dev/null 2>&1; then
+      log "已删除当前 AID 自建镜像: ${repository} (${imageId})"
+    else
+      referencingContainers="$(docker ps -a --filter "ancestor=${imageId}" --format '{{.ID}}' 2>/dev/null || true)"
+      if [[ -n "${referencingContainers}" ]]; then
+        warn "镜像仍被其他容器引用，已安全保留: ${repository} (${imageId})"
+      else
+        warn "当前 AID 自建镜像删除失败，需要人工核验: ${repository} (${imageId})"
+        unresolvedImages+=("${entry}")
+      fi
+    fi
+  done
+  AID_OWNED_DOCKER_IMAGE_IDS=()
+  AID_OWNED_DOCKER_IMAGE_COUNT=0
+  for entry in "${unresolvedImages[@]+"${unresolvedImages[@]}"}"; do
+    AID_OWNED_DOCKER_IMAGE_IDS+=("${entry}")
+    AID_OWNED_DOCKER_IMAGE_COUNT=$((AID_OWNED_DOCKER_IMAGE_COUNT + 1))
+  done
 }
 
 aid_docker_network_belongs_to_current_install() { # aid_docker_network_belongs_to_current_install <network>
-  local network="$1" workdir=""
-  workdir="$(docker network inspect --format '{{index .Labels "com.docker.compose.project.working_dir"}}' \
-    "${network}" 2>/dev/null || true)"
-  case "${workdir}" in
-    "${DATA_ROOT}/installer/deploy/docker"|"${DATA_ROOT}/installer/deploy/docker/"*) return 0 ;;
-  esac
-  return 1
-}
-
-aid_systemd_unit_names() {
-  printf '%s\n' aid.service aid-web.service aid-updater.service aid-mysql.service aid-redis.service aid-nginx.service
+  local network="$1" marker="" root="" workdir=""
+  marker="$(docker network inspect --format '{{index .Labels "com.aid.managed"}}' "${network}" 2>/dev/null || true)"
+  root="$(docker network inspect --format '{{index .Labels "com.aid.data_root"}}' "${network}" 2>/dev/null || true)"
+  if [[ -n "${marker}" || -n "${root}" ]]; then
+    [[ "${marker}" == "true" && "${root}" == "${DATA_ROOT}" ]]
+    return
+  fi
+  workdir="$(docker network inspect --format '{{index .Labels "com.docker.compose.project.working_dir"}}' "${network}" 2>/dev/null || true)"
+  [[ "${workdir}" == "${DATA_ROOT}/installer/deploy/docker" ]]
 }
 
 aid_docker_containers_present() {
   local container
-  command -v docker >/dev/null 2>&1 || return 1
+  if ! aid_docker_daemon_available; then
+    if aid_docker_deployment_evidence_present; then err "Docker 守护进程不可用，无法核验 AID Docker 容器残留"; return 0; fi
+    return 1
+  fi
   while IFS= read -r container; do
     docker inspect "${container}" >/dev/null 2>&1 || continue
-    err "卸载残留容器: ${container}"
+    aid_docker_container_belongs_to_current_install "${container}" || continue
+    err "卸载残留当前 AID Docker 容器: ${container}"
     return 0
-  done <<'EOF'
-aid-nginx-https
-aid-nginx
-aid-web
-aid-server
-aid-updater
-aid-rocketmq-broker
-aid-rocketmq-nameserver
-aid-redis
-aid-mysql
-EOF
+  done < <(aid_docker_candidate_container_list)
   return 1
 }
 
+aid_docker_known_container_list() {
+  printf '%s\n' aid-nginx-https aid-nginx aid-web aid-server aid-updater aid-rocketmq-broker aid-rocketmq-nameserver aid-redis aid-mysql
+}
+
+aid_docker_candidate_container_list() {
+  # 新版按标签识别，不依赖固定容器名；固定名仅用于兼容无标签旧部署。
+  {
+    docker ps -a --format '{{.Names}}' 2>/dev/null || true
+    aid_docker_known_container_list
+  } | awk 'NF && !seen[$0]++'
+}
+
 aid_docker_images_present() {
-  local repository imageId
-  command -v docker >/dev/null 2>&1 || return 1
-  while read -r repository imageId; do
-    [[ "${repository}" == aid/* && -n "${imageId}" ]] || continue
-    err "卸载残留 AID 自建镜像: ${repository} (${imageId})"
+  local entry imageId repository
+  if ! aid_docker_daemon_available; then
+    [[ "${AID_OWNED_DOCKER_IMAGE_COUNT}" -eq 0 ]] && return 1
+    err "Docker 守护进程不可用，无法核验当前 AID 镜像残留"
     return 0
-  done < <(docker image ls --format '{{.Repository}} {{.ID}}' 2>/dev/null)
+  fi
+  for entry in "${AID_OWNED_DOCKER_IMAGE_IDS[@]+"${AID_OWNED_DOCKER_IMAGE_IDS[@]}"}"; do
+    imageId="${entry%%|*}"; repository="${entry#*|}"
+    docker image inspect "${imageId}" >/dev/null 2>&1 || continue
+    err "卸载残留当前 AID 自建镜像: ${repository} (${imageId})"
+    return 0
+  done
   return 1
 }
 
 aid_docker_networks_present() {
   local network
-  command -v docker >/dev/null 2>&1 || return 1
+  if ! aid_docker_daemon_available; then
+    if aid_docker_deployment_evidence_present; then err "Docker 守护进程不可用，无法核验 AID Compose 网络残留"; return 0; fi
+    return 1
+  fi
   while IFS= read -r network; do
     [[ -n "${network}" ]] || continue
     aid_docker_network_belongs_to_current_install "${network}" || continue
@@ -6436,101 +6782,26 @@ aid_docker_networks_present() {
   return 1
 }
 
-aid_systemd_residuals_present() {
-  local unitDir="$1" unit
-  while IFS= read -r unit; do
-    if [[ -e "${unitDir}/${unit}" || -L "${unitDir}/${unit}" ]]; then
-      err "卸载残留 systemd unit: ${unitDir}/${unit}"
-      return 0
-    fi
-  done < <(aid_systemd_unit_names)
-  if [[ -e "${JAVA_PROFILE_FILE}" || -L "${JAVA_PROFILE_FILE}" ]]; then
-    err "卸载残留 AID Java 环境文件: ${JAVA_PROFILE_FILE}"
-    return 0
-  fi
-  # 只有系统标准 unit 目录才查询 systemd 运行态；测试注入目录不触及宿主服务。
-  if [[ "${unitDir}" == "/etc/systemd/system" ]] && command -v systemctl >/dev/null 2>&1; then
-    while IFS= read -r unit; do
-      systemctl is-active --quiet "${unit}" && {
-        err "卸载残留运行中的 systemd 服务: ${unit}"
-        return 0
-      }
-    done < <(aid_systemd_unit_names)
-  fi
-  return 1
-}
-
-remove_aid_system_services() {
-  local unitDir="${AID_SYSTEMD_UNIT_DIR}" unit
-  local -a services=()
-  while IFS= read -r unit; do services+=("${unit}"); done < <(aid_systemd_unit_names)
-  if [[ "${unitDir}" == "/etc/systemd/system" ]] && command -v systemctl >/dev/null 2>&1; then
-    systemctl disable --now "${services[@]}" >/dev/null 2>&1 || true
-  fi
-  for unit in "${services[@]}"; do
-    rm -f -- "${unitDir}/${unit}"
-  done
-  rm -f -- "${JAVA_PROFILE_FILE}"
-  if [[ "${unitDir}" == "/etc/systemd/system" ]] && command -v systemctl >/dev/null 2>&1; then
-    systemctl daemon-reload >/dev/null 2>&1 || true
-    systemctl reset-failed >/dev/null 2>&1 || true
-  fi
-}
-
-remove_aid_nginx_site() {
-  local dir
-  local -a dirs=()
-  IFS=':' read -r -a dirs <<< "${AID_NGINX_SITE_DIRS}"
-  for dir in "${dirs[@]}"; do
-    [[ -n "${dir}" ]] || continue
-    [[ -d "${dir}" ]] || continue
-    rm -f -- "${dir}/aid.conf"
-    # 仅在已限定的 AID Nginx 目录中删除精确命名的普通文件或符号链接；
-    # find 默认不跟随链接，不会触及链接目标。
-    find "${dir}" -maxdepth 1 \( -type f -o -type l \) -name 'aid.conf.bak.*' -delete 2>/dev/null || true
-  done
-  if select_existing_nginx_runtime >/dev/null 2>&1 && "${NGINX_BIN}" -t >/dev/null 2>&1; then
-    reload_nginx_runtime >/dev/null 2>&1 || true
-  fi
-}
-
-aid_nginx_site_residuals_present() {
-  local dir backup
-  local -a dirs=()
-  IFS=':' read -r -a dirs <<< "${AID_NGINX_SITE_DIRS}"
-  for dir in "${dirs[@]}"; do
-    [[ -n "${dir}" && -d "${dir}" ]] || continue
-    if [[ -e "${dir}/aid.conf" || -L "${dir}/aid.conf" ]]; then
-      err "卸载残留 AID Nginx 配置: ${dir}/aid.conf"
-      return 0
-    fi
-    backup="$(find "${dir}" -maxdepth 1 \( -type f -o -type l \) -name 'aid.conf.bak.*' -print -quit 2>/dev/null || true)"
-    if [[ -n "${backup}" ]]; then
-      err "卸载残留 AID Nginx 配置备份: ${backup}"
-      return 0
-    fi
-  done
-  return 1
-}
 
 normalize_aid_absolute_path() { # normalize_aid_absolute_path <absolute path>
-  local input="$1" part lastIndex
+  local input="$1" part lastIndex normalizedCount=0
   local -a parts=() normalized=()
   [[ "${input}" == /* ]] || return 1
   IFS='/' read -r -a parts <<< "${input}"
-  for part in "${parts[@]}"; do
+  for part in "${parts[@]+"${parts[@]}"}"; do
     case "${part}" in
       ''|.) ;;
       ..)
-        if [[ "${#normalized[@]}" -gt 0 ]]; then
-          lastIndex=$((${#normalized[@]} - 1))
+        if [[ "${normalizedCount}" -gt 0 ]]; then
+          lastIndex=$((normalizedCount - 1))
           unset "normalized[${lastIndex}]"
+          normalizedCount=$((normalizedCount - 1))
         fi
         ;;
-      *) normalized+=("${part}") ;;
+      *) normalized+=("${part}"); normalizedCount=$((normalizedCount + 1)) ;;
     esac
   done
-  if [[ "${#normalized[@]}" -eq 0 ]]; then
+  if [[ "${normalizedCount}" -eq 0 ]]; then
     printf '/\n'
   else
     local IFS='/'
@@ -6610,12 +6881,12 @@ remove_aid_command_links() {
   path="${AID_LOCAL_BIN_DIR}/aid"
   if is_aid_management_command "${path}"; then
     AID_MANAGEMENT_COMMAND_WAS_MANAGED=1
-    rm -f -- "${path}"
+    rm -f -- "${path}" || die "删除 AID 管理命令失败: ${path}"
   fi
   path="${AID_LOCAL_BIN_DIR}/aid-updater"
   if is_aid_updater_command "${path}"; then
     AID_UPDATER_COMMAND_WAS_MANAGED=1
-    rm -f -- "${path}"
+    rm -f -- "${path}" || die "删除 AID 升级器入口失败: ${path}"
   fi
 
   # 手动部署可能创建指向 DATA_ROOT 隔离工具链的命令链接。只删除目标
@@ -6624,7 +6895,9 @@ remove_aid_command_links() {
     path="${AID_LOCAL_BIN_DIR}/${link}"
     [[ -L "${path}" ]] || continue
     target="$(resolve_aid_symlink_target "${path}" 2>/dev/null || true)"
-    case "${target}" in "${DATA_ROOT}/runtime/"*) rm -f -- "${path}" ;; esac
+    case "${target}" in
+      "${DATA_ROOT}/runtime/"*) rm -f -- "${path}" || die "删除 AID 工具入口失败: ${path}" ;;
+    esac
   done
 }
 
@@ -6635,52 +6908,6 @@ validate_aid_updater_runtime_dir() { # validate_aid_updater_runtime_dir <path>
   esac
   [[ "${AID_UNINSTALL_TEST_MODE:-0}" == "1" && -n "${testRoot}" && "${path}" == "${testRoot}"/* && ! -L "${path}" ]] \
     || die "拒绝清理非标准升级器目录: ${path}"
-}
-
-remove_aid_updater_runtime() { # remove_aid_updater_runtime <keep|purge>
-  local cleanupMode="$1"
-  validate_aid_updater_runtime_dir "${UPDATER_CONFIG_DIR}"
-  rm -rf -- "${UPDATER_CONFIG_DIR}"
-  if [[ "${cleanupMode}" == "purge" ]]; then
-    validate_aid_updater_runtime_dir "${UPDATER_DATA_DIR}"
-    rm -rf -- "${UPDATER_DATA_DIR}"
-  fi
-  return 0
-}
-
-validate_aid_purge_root() {
-  local resolved=""
-  [[ "${DATA_ROOT}" == /* ]] || die "拒绝清理非绝对数据目录: ${DATA_ROOT}"
-  case "${DATA_ROOT}" in
-    /|/bin|/boot|/data|/dev|/etc|/home|/opt|/root|/run|/srv|/tmp|/usr|/var)
-      die "拒绝清理高风险目录: ${DATA_ROOT}" ;;
-  esac
-  [[ "${DATA_ROOT#/}" == */* ]] || die "数据目录层级过浅，拒绝清理: ${DATA_ROOT}"
-  [[ ! -L "${DATA_ROOT}" ]] || die "数据目录是软链接，拒绝清理: ${DATA_ROOT}"
-  if [[ -e "${DATA_ROOT}" ]]; then
-    resolved="$(readlink -f -- "${DATA_ROOT}" 2>/dev/null || true)"
-    [[ "${resolved}" == "${DATA_ROOT}" ]] || die "数据目录解析异常，拒绝清理: ${resolved:-未知}"
-  fi
-}
-
-remove_aid_manual_accounts() {
-  # 手动部署专用系统账号仅服务于 DATA_ROOT 内的隔离 MySQL/Redis；彻底
-  # 清理时一并删除。普通卸载保留账号与数据，便于无损重新安装。
-  id aidmysql >/dev/null 2>&1 && userdel aidmysql >/dev/null 2>&1 || true
-  id aidredis >/dev/null 2>&1 && userdel aidredis >/dev/null 2>&1 || true
-  getent group aidmysql >/dev/null 2>&1 && groupdel aidmysql >/dev/null 2>&1 || true
-  getent group aidredis >/dev/null 2>&1 && groupdel aidredis >/dev/null 2>&1 || true
-}
-
-aid_manual_accounts_present() {
-  local name
-  for name in aidmysql aidredis; do
-    if id "${name}" >/dev/null 2>&1 || getent group "${name}" >/dev/null 2>&1; then
-      err "卸载残留 AID 受管系统账号或用户组: ${name}"
-      return 0
-    fi
-  done
-  return 1
 }
 
 is_recognized_aid_bootstrap() { # is_recognized_aid_bootstrap <absolute path>
@@ -6711,7 +6938,7 @@ remove_aid_bootstrap_scripts() {
   local path
   local -a paths=()
   IFS=':' read -r -a paths <<< "${AID_BOOTSTRAP_PATHS}"
-  for path in "${paths[@]}"; do
+  for path in "${paths[@]+"${paths[@]}"}"; do
     [[ -n "${path}" ]] || continue
     is_recognized_aid_bootstrap "${path}" || continue
     if bootstrap_path_is_protected "${path}"; then
@@ -6726,7 +6953,7 @@ aid_bootstrap_residuals_present() {
   local path
   local -a paths=()
   IFS=':' read -r -a paths <<< "${AID_BOOTSTRAP_PATHS}"
-  for path in "${paths[@]}"; do
+  for path in "${paths[@]+"${paths[@]}"}"; do
     [[ -n "${path}" ]] || continue
     if is_recognized_aid_bootstrap "${path}"; then
       err "卸载残留 AID 引导脚本: ${path}"
@@ -6741,7 +6968,7 @@ purge_current_script_requires_handoff() {
   case "${SCRIPT_PATH}" in "${DATA_ROOT}"/*) return 0 ;; esac
   local -a paths=()
   IFS=':' read -r -a paths <<< "${AID_BOOTSTRAP_PATHS}"
-  for path in "${paths[@]}"; do
+  for path in "${paths[@]+"${paths[@]}"}"; do
     [[ -n "${path}" ]] || continue
     resolved="$(readlink -f -- "${path}" 2>/dev/null || true)"
     [[ -n "${resolved}" && "${resolved}" == "${SCRIPT_PATH}" ]] && return 0
@@ -6765,25 +6992,417 @@ handoff_purge_to_safe_script() {
     tmp="$1"; source="$2"
     cp -- "${source}" "${tmp}" || exit 1
     chmod 700 "${tmp}" || { rm -f -- "${tmp}"; exit 1; }
-    env AID_SH_LIBRARY_MODE=0 AID_UNINSTALL_SAFE_REEXEC=1 bash "${tmp}" uninstall --purge
+    env AID_DATA_ROOT="$3" AID_SH_LIBRARY_MODE=0 AID_UNINSTALL_SAFE_REEXEC=1 bash "${tmp}" uninstall --purge
     status=$?
     rm -f -- "${tmp}"
     exit "${status}"
-  ' bash "${safeScript}" "${SCRIPT_PATH}"
+  ' bash "${safeScript}" "${SCRIPT_PATH}" "${DATA_ROOT}"
 }
 
 purge_aid_data() {
   validate_aid_purge_root
-  [[ ! -e "${DATA_ROOT}" ]] || rm -rf -- "${DATA_ROOT}"
+  [[ ! -e "${DATA_ROOT}" ]] || rm -rf -- "${DATA_ROOT}" \
+    || die "删除 AID 数据目录失败: ${DATA_ROOT}"
   remove_aid_manual_accounts
   remove_aid_bootstrap_scripts
+}
+
+aid_systemd_unit_belongs_to_current_install() { # aid_systemd_unit_belongs_to_current_install <unit path>
+  local unitPath="$1"
+  [[ -f "${unitPath}" && ! -L "${unitPath}" ]] || return 1
+  if grep -Fxq '# AID_MANAGED_UNIT=1' "${unitPath}" 2>/dev/null \
+      && grep -Fxq "# AID_DATA_ROOT=${DATA_ROOT}" "${unitPath}" 2>/dev/null; then
+    return 0
+  fi
+  # 旧升级器单元没有 DATA_ROOT 注释；只有同一升级器配置已证明归属时才允许回收。
+  [[ "$(basename -- "${unitPath}")" == "aid-updater.service" ]] \
+    && grep -Fq "${UPDATER_CONFIG_FILE}" "${unitPath}" 2>/dev/null \
+    && aid_updater_config_belongs_to_current_install && return 0
+  # Legacy unit: a fixed AID unit name plus a precise current-root runtime reference.
+  grep -Fq "${DATA_ROOT}/app/" "${unitPath}" 2>/dev/null \
+    || grep -Fq "${DATA_ROOT}/runtime/" "${unitPath}" 2>/dev/null \
+    || grep -Fq "${DATA_ROOT}/config/" "${unitPath}" 2>/dev/null
+}
+
+aid_java_profile_belongs_to_current_install() { # aid_java_profile_belongs_to_current_install <profile path>
+  local path="$1"
+  [[ -f "${path}" && ! -L "${path}" ]] || return 1
+  if grep -Fxq '# AID_MANAGED_JAVA_PROFILE=1' "${path}" 2>/dev/null \
+      && grep -Fxq "# AID_DATA_ROOT=${DATA_ROOT}" "${path}" 2>/dev/null; then
+    return 0
+  fi
+  grep -Fq 'AID 非 Docker 运行环境' "${path}" 2>/dev/null \
+    && grep -Fq "${DATA_ROOT}/runtime/jdk-" "${path}" 2>/dev/null
+}
+
+aid_updater_marker_belongs_to_current_install() { # aid_updater_marker_belongs_to_current_install <directory>
+  local marker="$1/.aid-managed"
+  [[ -f "${marker}" && ! -L "${marker}" ]] \
+    && grep -Fxq 'AID_MANAGED_UPDATER=1' "${marker}" 2>/dev/null \
+    && grep -Fxq "AID_DATA_ROOT=${DATA_ROOT}" "${marker}" 2>/dev/null \
+    && grep -Fxq "AID_MANAGER_SCRIPT=${MANAGED_SCRIPT}" "${marker}" 2>/dev/null
+}
+
+aid_updater_config_belongs_to_current_install() {
+  aid_updater_marker_belongs_to_current_install "${UPDATER_CONFIG_DIR}" && return 0
+  [[ -f "${UPDATER_CONFIG_FILE}" && ! -L "${UPDATER_CONFIG_FILE}" ]] \
+    && grep -Fq "\"managerScript\": \"${MANAGED_SCRIPT}\"" "${UPDATER_CONFIG_FILE}" 2>/dev/null \
+    && grep -Fq "\"backendJar\": \"${DATA_ROOT}/app/aid-admin.jar\"" "${UPDATER_CONFIG_FILE}" 2>/dev/null
+}
+
+aid_updater_data_belongs_to_current_install() {
+  aid_updater_marker_belongs_to_current_install "${UPDATER_DATA_DIR}" && return 0
+  aid_updater_config_belongs_to_current_install
+}
+
+remove_aid_updater_runtime() { # remove_aid_updater_runtime <keep|purge>
+  local cleanupMode="$1" configOwned=0 dataOwned=0
+  aid_updater_config_belongs_to_current_install && configOwned=1
+  # 在删除配置前保存归属结论：旧版 data 目录可能没有 marker，需要依赖旧配置识别。
+  aid_updater_data_belongs_to_current_install && dataOwned=1
+  validate_aid_updater_runtime_dir "${UPDATER_CONFIG_DIR}"
+  if [[ "${configOwned}" == "1" ]]; then
+    rm -rf -- "${UPDATER_CONFIG_DIR}" || die "删除升级器配置失败: ${UPDATER_CONFIG_DIR}"
+    [[ ! -e "${UPDATER_CONFIG_DIR}" && ! -L "${UPDATER_CONFIG_DIR}" ]] \
+      || die "升级器配置仍有残留: ${UPDATER_CONFIG_DIR}"
+  elif [[ -e "${UPDATER_CONFIG_DIR}" || -L "${UPDATER_CONFIG_DIR}" ]]; then
+    warn "保留非当前 AID 安装的升级器配置目录: ${UPDATER_CONFIG_DIR}"
+  fi
+  [[ "${cleanupMode}" == "purge" ]] || return 0
+  validate_aid_updater_runtime_dir "${UPDATER_DATA_DIR}"
+  if [[ "${dataOwned}" == "1" ]]; then
+    rm -rf -- "${UPDATER_DATA_DIR}" || die "删除升级器数据失败: ${UPDATER_DATA_DIR}"
+    [[ ! -e "${UPDATER_DATA_DIR}" && ! -L "${UPDATER_DATA_DIR}" ]] \
+      || die "升级器数据仍有残留: ${UPDATER_DATA_DIR}"
+  elif [[ -e "${UPDATER_DATA_DIR}" || -L "${UPDATER_DATA_DIR}" ]]; then
+    warn "保留非当前 AID 安装的升级器数据目录: ${UPDATER_DATA_DIR}"
+  fi
+}
+
+aid_updater_residuals_present() {
+  if aid_updater_config_belongs_to_current_install && [[ -e "${UPDATER_CONFIG_DIR}" || -L "${UPDATER_CONFIG_DIR}" ]]; then
+    err "卸载残留当前 AID 升级器配置: ${UPDATER_CONFIG_DIR}"
+    return 0
+  fi
+  if aid_updater_data_belongs_to_current_install && [[ -e "${UPDATER_DATA_DIR}" || -L "${UPDATER_DATA_DIR}" ]]; then
+    err "卸载残留当前 AID 升级器数据: ${UPDATER_DATA_DIR}"
+    return 0
+  fi
+  return 1
+}
+
+aid_nginx_site_belongs_to_current_install() { # aid_nginx_site_belongs_to_current_install <site file>
+  local path="$1"
+  [[ -f "${path}" && ! -L "${path}" ]] || return 1
+  if grep -Fxq '# AID_MANAGED_NGINX=1' "${path}" 2>/dev/null \
+      && grep -Fxq "# AID_DATA_ROOT=${DATA_ROOT}" "${path}" 2>/dev/null; then
+    return 0
+  fi
+  # 旧版没有 marker，只接受安装器生成配置的三个强特征，禁止用 DATA_ROOT 子串宽松匹配。
+  grep -Fq '# AID 站点' "${path}" 2>/dev/null \
+    && grep -Fq "    root ${DATA_ROOT}/app/admin-dist;" "${path}" 2>/dev/null \
+    && grep -Fq '        proxy_pass http://127.0.0.1:3000;' "${path}" 2>/dev/null
+}
+
+write_aid_nginx_backup_state() { # write_aid_nginx_backup_state <site file> <backup file>
+  local siteFile="$1" backupFile="$2" backupSha tmp
+  [[ -f "${backupFile}" && ! -L "${backupFile}" ]] || die "Nginx 原配置备份无效: ${backupFile}"
+  backupSha="$(sha256_file "${backupFile}" 2>/dev/null || true)"
+  [[ "${backupSha}" =~ ^[0-9A-Fa-f]{64}$ ]] || die "无法校验 Nginx 原配置备份: ${backupFile}"
+  mkdir -p "$(dirname "${AID_NGINX_STATE_FILE}")"
+  tmp="$(mktemp "${AID_NGINX_STATE_FILE}.XXXXXX")" || die "无法写入 Nginx 受管状态"
+  cat > "${tmp}" <<EOF
+AID_MANAGED_NGINX_STATE=1
+AID_DATA_ROOT=${DATA_ROOT}
+SITE_FILE=${siteFile}
+BACKUP_FILE=${backupFile}
+BACKUP_SHA256=${backupSha}
+EOF
+  chmod 600 "${tmp}"
+  mv -f -- "${tmp}" "${AID_NGINX_STATE_FILE}"
+}
+
+aid_nginx_backup_for_site() { # aid_nginx_backup_for_site <site file>
+  local siteFile="$1" stateSite="" backup="" expectedSha="" actualSha="" suffix=""
+  [[ -f "${AID_NGINX_STATE_FILE}" && ! -L "${AID_NGINX_STATE_FILE}" ]] || return 1
+  grep -Fxq 'AID_MANAGED_NGINX_STATE=1' "${AID_NGINX_STATE_FILE}" 2>/dev/null \
+    && grep -Fxq "AID_DATA_ROOT=${DATA_ROOT}" "${AID_NGINX_STATE_FILE}" 2>/dev/null || return 1
+  stateSite="$(sed -nE 's|^SITE_FILE=(.*)$|\1|p' "${AID_NGINX_STATE_FILE}" | head -n 1)"
+  backup="$(sed -nE 's|^BACKUP_FILE=(.*)$|\1|p' "${AID_NGINX_STATE_FILE}" | head -n 1)"
+  expectedSha="$(sed -nE 's|^BACKUP_SHA256=([0-9A-Fa-f]{64})$|\1|p' "${AID_NGINX_STATE_FILE}" | head -n 1)"
+  [[ "${stateSite}" == "${siteFile}" && -n "${backup}" \
+    && "$(dirname "${backup}")" == "$(dirname "${siteFile}")" \
+    && "${backup}" == "${siteFile}.aid-before-install."* \
+    && -f "${backup}" && ! -L "${backup}" ]] || return 1
+  suffix="${backup#${siteFile}.aid-before-install.}"
+  [[ "${suffix}" =~ ^[0-9]+$ ]] || return 1
+  actualSha="$(sha256_file "${backup}" 2>/dev/null || true)"
+  [[ -n "${expectedSha}" && "${actualSha,,}" == "${expectedSha,,}" ]] || return 1
+  printf '%s\n' "${backup}"
+}
+
+remove_aid_nginx_site() {
+  local dir siteFile backup
+  local -a dirs=()
+  IFS=':' read -r -a dirs <<< "${AID_NGINX_SITE_DIRS}"
+  for dir in "${dirs[@]+"${dirs[@]}"}"; do
+    [[ -n "${dir}" && -d "${dir}" ]] || continue
+    siteFile="${dir}/aid.conf"
+    backup="$(aid_nginx_backup_for_site "${siteFile}" 2>/dev/null || true)"
+    if [[ ! -e "${siteFile}" && ! -L "${siteFile}" ]]; then
+      # 受管站点意外丢失时，仍优先恢复本次安装前保存的同一路径配置。
+      if [[ -n "${backup}" ]]; then
+        cp -p -- "${backup}" "${siteFile}" || die "恢复原 Nginx 配置失败: ${siteFile}"
+        rm -f -- "${backup}" "${AID_NGINX_STATE_FILE}" || die "清理已恢复的 Nginx 备份状态失败"
+        log "已恢复安装 AID 前的 Nginx 配置: ${siteFile}"
+      fi
+      continue
+    fi
+    if ! aid_nginx_site_belongs_to_current_install "${siteFile}"; then
+      warn "保留非当前 AID 安装的同名 Nginx 配置: ${siteFile}"
+      continue
+    fi
+    if [[ -n "${backup}" ]]; then
+      cp -p -- "${backup}" "${siteFile}" || die "恢复原 Nginx 配置失败: ${siteFile}"
+      rm -f -- "${backup}" "${AID_NGINX_STATE_FILE}" || die "清理已恢复的 Nginx 备份状态失败"
+      log "已恢复安装 AID 前的 Nginx 配置: ${siteFile}"
+    else
+      rm -f -- "${siteFile}" || die "删除 AID Nginx 配置失败: ${siteFile}"
+      if [[ -f "${AID_NGINX_STATE_FILE}" ]] \
+          && grep -Fxq "AID_DATA_ROOT=${DATA_ROOT}" "${AID_NGINX_STATE_FILE}" 2>/dev/null; then
+        rm -f -- "${AID_NGINX_STATE_FILE}" || die "删除 AID Nginx 状态失败: ${AID_NGINX_STATE_FILE}"
+      fi
+    fi
+  done
+  if select_existing_nginx_runtime >/dev/null 2>&1 && "${NGINX_BIN}" -t >/dev/null 2>&1; then
+    reload_nginx_runtime >/dev/null 2>&1 || true
+  fi
+}
+
+aid_nginx_site_residuals_present() {
+  local dir siteFile
+  local -a dirs=()
+  IFS=':' read -r -a dirs <<< "${AID_NGINX_SITE_DIRS}"
+  for dir in "${dirs[@]+"${dirs[@]}"}"; do
+    [[ -n "${dir}" && -d "${dir}" ]] || continue
+    siteFile="${dir}/aid.conf"
+    if aid_nginx_site_belongs_to_current_install "${siteFile}"; then
+      err "卸载残留当前 AID Nginx 配置: ${siteFile}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+aid_systemd_runtime_control_required() {
+  [[ "${AID_SYSTEMD_UNIT_DIR}" == "/etc/systemd/system" ]] && return 0
+  [[ "${AID_UNINSTALL_TEST_MODE:-0}" == "1" && "${AID_UNINSTALL_TEST_SYSTEMD:-0}" == "1" ]]
+}
+
+remove_aid_system_services() {
+  local unitDir="${AID_SYSTEMD_UNIT_DIR}" unit unitPath
+  local stopFailed=0 activeStatus=0
+  AID_OWNED_SYSTEMD_SERVICES=()
+  AID_OWNED_SYSTEMD_SERVICE_COUNT=0
+  while IFS= read -r unit; do
+    unitPath="${unitDir}/${unit}"
+    [[ -e "${unitPath}" || -L "${unitPath}" ]] || continue
+    if aid_systemd_unit_belongs_to_current_install "${unitPath}"; then
+      AID_OWNED_SYSTEMD_SERVICES+=("${unit}")
+      AID_OWNED_SYSTEMD_SERVICE_COUNT=$((AID_OWNED_SYSTEMD_SERVICE_COUNT + 1))
+    else
+      warn "保留非当前 AID 安装的同名 systemd unit: ${unitPath}"
+    fi
+  done < <(aid_systemd_unit_names)
+  if aid_systemd_runtime_control_required && [[ "${AID_OWNED_SYSTEMD_SERVICE_COUNT}" -gt 0 ]]; then
+    command -v systemctl >/dev/null 2>&1 \
+      || die "无法验证 AID systemd 服务状态，未删除任何 unit"
+    for unit in "${AID_OWNED_SYSTEMD_SERVICES[@]+"${AID_OWNED_SYSTEMD_SERVICES[@]}"}"; do
+      stopFailed=0
+      systemctl disable --now "${unit}" >/dev/null 2>&1 || stopFailed=1
+      if systemctl is-active --quiet "${unit}"; then activeStatus=0; else activeStatus=$?; fi
+      case "${activeStatus}" in
+        0) die "AID 服务仍在运行，拒绝删除 unit: ${unit}" ;;
+        3|4) ;;
+        *) die "无法确认 AID 服务已停止，拒绝删除 unit: ${unit}" ;;
+      esac
+      [[ "${stopFailed}" == "0" ]] || warn "${unit} 停止/禁用命令返回异常，但服务已确认停止"
+    done
+  fi
+  for unit in "${AID_OWNED_SYSTEMD_SERVICES[@]+"${AID_OWNED_SYSTEMD_SERVICES[@]}"}"; do
+    rm -f -- "${unitDir}/${unit}" || die "删除 AID systemd unit 失败: ${unitDir}/${unit}"
+  done
+  if aid_java_profile_belongs_to_current_install "${JAVA_PROFILE_FILE}"; then
+    rm -f -- "${JAVA_PROFILE_FILE}" || die "删除 AID Java 环境文件失败: ${JAVA_PROFILE_FILE}"
+  elif [[ -e "${JAVA_PROFILE_FILE}" || -L "${JAVA_PROFILE_FILE}" ]]; then
+    warn "保留非当前 AID 安装的 Java profile: ${JAVA_PROFILE_FILE}"
+  fi
+  if aid_systemd_runtime_control_required && [[ "${AID_OWNED_SYSTEMD_SERVICE_COUNT}" -gt 0 ]]; then
+    systemctl daemon-reload >/dev/null 2>&1 || die "systemd 配置重载失败"
+    systemctl reset-failed >/dev/null 2>&1 || warn "systemd 失败状态清理未完成"
+  fi
+}
+
+aid_systemd_residuals_present() {
+  local unitDir="$1" unit unitPath recorded activeStatus
+  while IFS= read -r unit; do
+    unitPath="${unitDir}/${unit}"
+    aid_systemd_unit_belongs_to_current_install "${unitPath}" || continue
+    err "卸载残留当前 AID systemd unit: ${unitPath}"
+    return 0
+  done < <(aid_systemd_unit_names)
+  if aid_java_profile_belongs_to_current_install "${JAVA_PROFILE_FILE}"; then
+    err "卸载残留当前 AID Java 环境文件: ${JAVA_PROFILE_FILE}"
+    return 0
+  fi
+  if aid_systemd_runtime_control_required && [[ "${AID_OWNED_SYSTEMD_SERVICE_COUNT}" -gt 0 ]]; then
+    command -v systemctl >/dev/null 2>&1 || { err "无法核验 AID systemd 服务运行状态"; return 0; }
+    for recorded in "${AID_OWNED_SYSTEMD_SERVICES[@]+"${AID_OWNED_SYSTEMD_SERVICES[@]}"}"; do
+      if systemctl is-active --quiet "${recorded}"; then activeStatus=0; else activeStatus=$?; fi
+      case "${activeStatus}" in
+        0) err "卸载残留运行中的 AID systemd 服务: ${recorded}"; return 0 ;;
+        3|4) ;;
+        *) err "无法核验 AID systemd 服务状态: ${recorded}"; return 0 ;;
+      esac
+    done
+  fi
+  return 1
+}
+
+aid_manual_account_belongs_to_current_install() { # aid_manual_account_belongs_to_current_install <aidmysql|aidredis>
+  local name="$1" expectedHome="" account home shell
+  case "${name}" in
+    aidmysql) expectedHome="${DATA_ROOT}/mysql-data-manual" ;;
+    aidredis) expectedHome="${DATA_ROOT}/redis-data-manual" ;;
+    *) return 1 ;;
+  esac
+  account="$(getent passwd "${name}" 2>/dev/null || true)"
+  [[ -n "${account}" ]] || return 1
+  IFS=':' read -r _ _ _ _ _ home shell <<< "${account}"
+  [[ "${home}" == "${expectedHome}" ]] || return 1
+  [[ "${shell}" == "/sbin/nologin" || "${shell}" == "/usr/sbin/nologin" || "${shell}" == "nologin" ]]
+}
+
+remove_aid_manual_accounts() {
+  local name
+  AID_OWNED_MANUAL_ACCOUNTS=()
+  AID_OWNED_MANUAL_ACCOUNT_COUNT=0
+  AID_OWNED_MANUAL_GROUPS=()
+  AID_OWNED_MANUAL_GROUP_COUNT=0
+  for name in aidmysql aidredis; do
+    if aid_manual_account_belongs_to_current_install "${name}"; then
+      AID_OWNED_MANUAL_ACCOUNTS+=("${name}")
+      AID_OWNED_MANUAL_ACCOUNT_COUNT=$((AID_OWNED_MANUAL_ACCOUNT_COUNT + 1))
+      if getent group "${name}" >/dev/null 2>&1; then
+        AID_OWNED_MANUAL_GROUPS+=("${name}")
+        AID_OWNED_MANUAL_GROUP_COUNT=$((AID_OWNED_MANUAL_GROUP_COUNT + 1))
+      fi
+      userdel "${name}" >/dev/null 2>&1 || warn "无法删除受管系统账号，稍后会作为卸载残留报错: ${name}"
+      if getent group "${name}" >/dev/null 2>&1; then
+        groupdel "${name}" >/dev/null 2>&1 \
+          || warn "无法删除受管系统用户组，稍后会作为卸载残留报错: ${name}"
+      fi
+    elif id "${name}" >/dev/null 2>&1 || getent group "${name}" >/dev/null 2>&1; then
+      warn "保留非当前 AID 安装的同名系统账号或用户组: ${name}"
+    fi
+  done
+}
+
+aid_manual_accounts_present() {
+  local name
+  for name in "${AID_OWNED_MANUAL_ACCOUNTS[@]+"${AID_OWNED_MANUAL_ACCOUNTS[@]}"}"; do
+    if id "${name}" >/dev/null 2>&1 || getent passwd "${name}" >/dev/null 2>&1; then
+      err "卸载残留当前 AID 受管系统账号: ${name}"
+      return 0
+    fi
+  done
+  for name in "${AID_OWNED_MANUAL_GROUPS[@]+"${AID_OWNED_MANUAL_GROUPS[@]}"}"; do
+    if getent group "${name}" >/dev/null 2>&1; then
+      err "卸载残留当前 AID 受管系统用户组: ${name}"
+      return 0
+    fi
+  done
+  for name in aidmysql aidredis; do
+    if aid_manual_account_belongs_to_current_install "${name}"; then
+      err "卸载残留当前 AID 受管系统账号: ${name}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+aid_data_root_has_ownership_evidence() {
+  [[ -f "${AID_ROOT_MARKER}" && ! -L "${AID_ROOT_MARKER}" ]] \
+    && grep -Fxq 'AID_MANAGED_ROOT=1' "${AID_ROOT_MARKER}" 2>/dev/null \
+    && grep -Fxq "AID_DATA_ROOT=${DATA_ROOT}" "${AID_ROOT_MARKER}" 2>/dev/null \
+    && grep -Fxq "AID_MANAGER_SCRIPT=${MANAGED_SCRIPT}" "${AID_ROOT_MARKER}" 2>/dev/null && return 0
+  [[ -f "${DEPLOYMENT_DESCRIPTOR}" && ! -L "${DEPLOYMENT_DESCRIPTOR}" ]] \
+    && grep -Fq "\"dataRoot\": \"${DATA_ROOT}\"" "${DEPLOYMENT_DESCRIPTOR}" 2>/dev/null \
+    && grep -Eq '"mode"[[:space:]]*:[[:space:]]*"(docker|manual|systemd)"' "${DEPLOYMENT_DESCRIPTOR}" 2>/dev/null && return 0
+  [[ -f "${STATE_FILE}" && ! -L "${STATE_FILE}" ]] \
+    && grep -Fxq "DATA_ROOT=${DATA_ROOT}" "${STATE_FILE}" 2>/dev/null \
+    && grep -Eq '^DEPLOY_MODE=(docker|manual)$' "${STATE_FILE}" 2>/dev/null && return 0
+  [[ -f "${CONF}" && ! -L "${CONF}" ]] \
+    && grep -Fq '# AID 手动部署配置（唯一配置真源' "${CONF}" 2>/dev/null \
+    && grep -Fxq "DATA_ROOT=${DATA_ROOT}" "${CONF}" 2>/dev/null && return 0
+  [[ -f "${ENV_FILE}" && ! -L "${ENV_FILE}" ]] \
+    && grep -Fq '# AID Docker 部署配置（唯一配置真源）' "${ENV_FILE}" 2>/dev/null \
+    && grep -Fxq "DATA_ROOT=${DATA_ROOT}" "${ENV_FILE}" 2>/dev/null && return 0
+  return 1
+}
+
+aid_uninstall_target_evidence_present() {
+  local unit unitPath dir siteFile backup container network
+  local -a dirs=()
+  aid_data_root_has_ownership_evidence && return 0
+  aid_updater_config_belongs_to_current_install && return 0
+  aid_updater_data_belongs_to_current_install && return 0
+  while IFS= read -r unit; do
+    unitPath="${AID_SYSTEMD_UNIT_DIR}/${unit}"
+    aid_systemd_unit_belongs_to_current_install "${unitPath}" && return 0
+  done < <(aid_systemd_unit_names)
+  IFS=':' read -r -a dirs <<< "${AID_NGINX_SITE_DIRS}"
+  for dir in "${dirs[@]+"${dirs[@]}"}"; do
+    [[ -n "${dir}" ]] || continue
+    siteFile="${dir}/aid.conf"
+    aid_nginx_site_belongs_to_current_install "${siteFile}" && return 0
+    backup="$(aid_nginx_backup_for_site "${siteFile}" 2>/dev/null || true)"
+    [[ -z "${backup}" ]] || return 0
+  done
+  is_aid_management_command "${AID_LOCAL_BIN_DIR}/aid" && return 0
+  is_aid_updater_command "${AID_LOCAL_BIN_DIR}/aid-updater" && return 0
+  if aid_docker_daemon_available; then
+    while IFS= read -r container; do
+      docker inspect "${container}" >/dev/null 2>&1 || continue
+      aid_docker_container_belongs_to_current_install "${container}" && return 0
+    done < <(aid_docker_candidate_container_list)
+    while IFS= read -r network; do
+      [[ -n "${network}" ]] || continue
+      aid_docker_network_belongs_to_current_install "${network}" && return 0
+    done < <(docker network ls --format '{{.Name}}' 2>/dev/null || true)
+  fi
+  return 1
+}
+
+validate_aid_purge_root() {
+  local resolved=""
+  [[ "${DATA_ROOT}" == /* ]] || die "拒绝清理非绝对数据目录: ${DATA_ROOT}"
+  case "${DATA_ROOT}" in
+    /|/bin|/boot|/data|/dev|/etc|/home|/opt|/root|/run|/srv|/tmp|/usr|/var) die "拒绝清理高风险目录: ${DATA_ROOT}" ;;
+  esac
+  [[ "${DATA_ROOT#/}" == */* ]] || die "数据目录层级过浅，拒绝清理: ${DATA_ROOT}"
+  [[ ! -L "${DATA_ROOT}" ]] || die "数据目录是软链接，拒绝清理: ${DATA_ROOT}"
+  if [[ -e "${DATA_ROOT}" ]]; then
+    resolved="$(readlink -f -- "${DATA_ROOT}" 2>/dev/null || true)"
+    [[ "${resolved}" == "${DATA_ROOT}" ]] || die "数据目录解析异常，拒绝清理: ${resolved:-未知}"
+    aid_data_root_has_ownership_evidence || die "数据目录缺少 AID 受管证据，拒绝递归删除: ${DATA_ROOT}"
+  fi
 }
 
 verify_aid_purge_cleanup() {
   local failed=0
   [[ ! -e "${DATA_ROOT}" && ! -L "${DATA_ROOT}" ]] || { err "卸载残留数据目录: ${DATA_ROOT}"; failed=1; }
-  [[ ! -e "${UPDATER_CONFIG_DIR}" && ! -L "${UPDATER_CONFIG_DIR}" ]] || { err "卸载残留升级器配置: ${UPDATER_CONFIG_DIR}"; failed=1; }
-  [[ ! -e "${UPDATER_DATA_DIR}" && ! -L "${UPDATER_DATA_DIR}" ]] || { err "卸载残留升级器数据: ${UPDATER_DATA_DIR}"; failed=1; }
+  aid_updater_residuals_present && failed=1
   aid_systemd_residuals_present "${AID_SYSTEMD_UNIT_DIR}" && failed=1
   aid_docker_containers_present && failed=1
   aid_docker_images_present && failed=1
@@ -6799,6 +7418,10 @@ do_uninstall() { # do_uninstall [keep|purge|--keep|--purge]
   require_root
   local requested="${1:-}" cleanupMode="" choice confirm mode
   mode="$(detect_mode)"
+  aid_uninstall_target_evidence_present \
+    || die "未找到属于 ${DATA_ROOT} 的 AID 安装证据；未删除任何内容。自定义目录请显式指定 AID_DATA_ROOT=/实际目录"
+  # Docker 部署必须先确认守护进程可访问；否则不能把“无法核验”误报为已彻底卸载。
+  require_docker_for_uninstall_if_needed "${mode}"
   echo ""
   risk "卸载会立即停止 AID；请先确认没有生成任务运行，并已完成异机备份"
   echo "  当前部署方式: ${mode}"

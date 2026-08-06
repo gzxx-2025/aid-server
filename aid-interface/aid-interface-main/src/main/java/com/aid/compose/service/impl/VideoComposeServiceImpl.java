@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -44,6 +45,7 @@ import com.aid.compose.domain.ComposeCommand;
 import com.aid.compose.domain.ComposeGroup;
 import com.aid.compose.domain.ComposePendingContext;
 import com.aid.compose.domain.ComposeSubmitResult;
+import com.aid.compose.domain.TimedSubtitleCue;
 import com.aid.compose.dto.ComposeAcceptResult;
 import com.aid.compose.dto.ComposeGroupDto;
 import com.aid.compose.dto.ComposeStatusRequest;
@@ -64,7 +66,9 @@ import com.aid.compose.service.ExportSubtitleAlignmentService;
 import com.aid.compose.service.StoryboardVideoSelectionResolver;
 import com.aid.compose.service.VideoComposeService;
 import com.aid.compose.util.MaterialUrlGuard;
+import com.aid.compose.util.SubtitleDialogueFingerprint;
 import com.aid.compose.util.SubtitleRecognitionMediaResolver;
+import com.aid.compose.util.SubtitleSpeakerMatcher;
 import com.aid.compose.util.TimelineSubtitleMatcher;
 import com.aid.domain.vo.AiModelConfigVo;
 import com.aid.enums.CreationStepEnum;
@@ -136,6 +140,9 @@ public class VideoComposeServiceImpl implements VideoComposeService {
 
     /** 接口2 单组字幕最大字数（与剪辑器时间轴口径一致），防超长文本挤爆字幕渲染 */
     private static final int MAX_SUBTITLE_LENGTH = 500;
+
+    /** 成片指纹包含字幕布局规则，规则变化后不得复用旧的无字幕或短字幕成片。 */
+    private static final String SUBTITLE_LAYOUT_FINGERPRINT = "body-limit-segment-window";
 
     /** 接口2 工程报文最大字符数（与剪辑器时间轴保存口径一致），防超大 JSON 落库 */
     private static final int MAX_TIMELINE_JSON_LENGTH = 1_000_000;
@@ -518,6 +525,8 @@ public class VideoComposeServiceImpl implements VideoComposeService {
             if (Objects.nonNull(inFlight)) {
                 return inFlight;
             }
+            // 必须在视频同步、工程 show=false 清洗等就地修改前记录前端整批来源，防止清洗后误判为全空。
+            boolean clientGroupBatchHasSubtitle = hasAnyGroupSubtitle(request.getGroups());
             // 系统分镜段以服务端当前选中记录为权威源，换片后即使前端仍持有旧工程快照也不会导出旧视频。
             // 只对真正的新受理执行素材同步；幂等命中不重复做业务读取与素材探测。
             Map<Long, AidGenRecord> selectedVideos = synchronizeExportGroupVideos(
@@ -526,7 +535,7 @@ public class VideoComposeServiceImpl implements VideoComposeService {
             // 防止成片同一段叠两层人声；发生在指纹计算之前，等价请求可命中成片复用
             normalizeComposeGroupAudio(request.getGroups(), userId,
                     freshEditor.getProjectId(), freshEditor.getEpisodeId());
-            return doExportEpisode(request, freshEditor, userId, selectedVideos);
+            return doExportEpisode(request, freshEditor, userId, selectedVideos, clientGroupBatchHasSubtitle);
         } finally {
             composeBatchStore.unlockExport(editor.getId());
         }
@@ -567,16 +576,34 @@ public class VideoComposeServiceImpl implements VideoComposeService {
      * @param request 导出入参
      * @param editor  剪辑记录
      * @param userId  当前用户ID
+     * @param clientGroupBatchHasSubtitle 前端分组原始入参是否存在任一有效字幕
      * @return 导出受理结果
      */
     private EpisodeExportResult doExportEpisode(EpisodeExportRequest request, AidEpisodeEditor editor, Long userId,
-                                                Map<Long, AidGenRecord> selectedVideos) {
+                                                Map<Long, AidGenRecord> selectedVideos,
+                                                boolean clientGroupBatchHasSubtitle) {
         // 字幕收口：分组未携带字幕时回落工程时间轴中该段的台词。
         // 必须发生在指纹计算之前——指纹含字幕，回落结果参与复用判定才不会命中「无字幕」的旧成片
         TimelineSubtitleContext subtitleContext = applyTimelineSubtitles(request, editor, selectedVideos);
+        // 整批字幕来源互斥：前端任一分镜有有效字幕时整批只用前端；仅整批全空才查询服务端分镜台词。
+        int storyboardSubtitleCount = backfillStoryboardSubtitlesWhenClientBatchEmpty(
+                request.getGroups(), subtitleContext.matchedSegments(), subtitleContext.timeline(), editor, userId,
+                clientGroupBatchHasSubtitle);
+        if (storyboardSubtitleCount > 0) {
+            // 同步修复本次工程快照，避免下次打开剪辑器或重复导出时再次缺失服务端兜底文本。
+            refreshTimelineJson(request, subtitleContext.timeline());
+        }
+
+        // 前端字幕与服务端兜底字幕统一按当前台词重匹配历史 ASR 人物；即使自动识别已关闭，
+        // 也不能让旧检查点中的人物名称覆盖本次双人或多人台词。
+        int rematchedCueCount = rematchExistingAsrCueSpeakers(
+                request.getGroups(), subtitleContext.matchedSegments());
+        if (rematchedCueCount > 0) {
+            refreshTimelineJson(request, subtitleContext.timeline());
+        }
 
         // 自动字幕开启时，只处理有台词且当前视频尚无有效时间戳的分镜。识别在本次请求内同步完成；
-        // 任一分镜经 Provider 内部重试后仍失败，则整次导出失败，禁止混入按字数估算的字幕。
+        // Provider 请求异常仍终止导出，任务成功但未识别人声时仅该镜回落文本时长排布，保证可以导出。
         boolean automaticSubtitleEnabled = exportSubtitleAlignmentService.isEnabled();
         int alignmentTotal = automaticSubtitleEnabled
                 ? exportSubtitleAlignmentService.countRequired(request.getGroups(),
@@ -722,14 +749,14 @@ public class VideoComposeServiceImpl implements VideoComposeService {
         aidEpisodeEditorMapper.update(null, update);
     }
 
-    /** 把本次同步生成的时间戳与检查点写回请求工程。 */
+    /** 把本次后端补齐的字幕文本、时间戳与检查点写回请求工程。 */
     private void refreshTimelineJson(EpisodeExportRequest request, TimelineData timeline) {
         if (Objects.isNull(timeline)) {
             return;
         }
         String timelineJson = JSON.toJSONString(timeline);
         if (timelineJson.length() > MAX_TIMELINE_JSON_LENGTH) {
-            log.error("接口2 自动字幕工程报文超长, length={}, max={}",
+            log.error("接口2 字幕工程报文超长, length={}, max={}",
                     timelineJson.length(), MAX_TIMELINE_JSON_LENGTH);
             throw new ServiceException("工程报文过大");
         }
@@ -838,7 +865,8 @@ public class VideoComposeServiceImpl implements VideoComposeService {
      * @return SHA-256 十六进制指纹（64字符）
      */
     private String computeExportFingerprint(EpisodeExportRequest request) {
-        StringBuilder raw = new StringBuilder("v1");
+        StringBuilder raw = new StringBuilder("compose");
+        raw.append("|SL:").append(SUBTITLE_LAYOUT_FINGERPRINT);
         raw.append("|R:").append(StrUtil.isBlank(request.getResolution())
                 ? "FHD" : request.getResolution().trim().toUpperCase());
         raw.append("|GB:").append(normalizeFingerprintUrl(request.getGlobalBgmUrl()));
@@ -1177,7 +1205,7 @@ public class VideoComposeServiceImpl implements VideoComposeService {
     }
 
     /**
-     * 导出字幕收口：字幕以剪辑器工程时间轴为权威源，分组未携带字幕时按段回落工程中的台词，
+     * 导出字幕工程收口：分组未携带字幕时按段回落工程中的台词，
      * 工程中该段字幕被关闭（show=false）时一律不烧。段与分组仅按稳定 storyboardId 对应，
      * 禁止使用视频地址或数组下标猜测，避免素材换片、部分导出或顺序变化时串用字幕。
      *
@@ -1192,13 +1220,13 @@ public class VideoComposeServiceImpl implements VideoComposeService {
         boolean requestTimelineProvided = StrUtil.isNotBlank(request.getTimelineJson());
         String timelineJson = requestTimelineProvided ? request.getTimelineJson() : storedTimelineJson;
         if (StrUtil.isBlank(timelineJson)) {
-            log.warn("接口2 工程时间轴为空,字幕仅取分组入参, episodeEditorId={}", editor.getId());
+            log.warn("接口2 工程时间轴为空,跳过工程字幕回落, episodeEditorId={}", editor.getId());
             return new TimelineSubtitleContext(null, List.of());
         }
         TimelineData timeline = parseTimelineData(timelineJson, editor.getId());
         List<TimelineSegment> segments = Objects.isNull(timeline) ? null : timeline.getSegments();
         if (CollectionUtil.isEmpty(segments)) {
-            log.warn("接口2 工程时间轴无有效分镜,字幕仅取分组入参, episodeEditorId={}", editor.getId());
+            log.warn("接口2 工程时间轴无有效分镜,跳过工程字幕回落, episodeEditorId={}", editor.getId());
             return new TimelineSubtitleContext(timeline, List.of());
         }
         if (requestTimelineProvided && StrUtil.isNotBlank(storedTimelineJson)
@@ -1210,7 +1238,7 @@ public class VideoComposeServiceImpl implements VideoComposeService {
             ComposeGroupDto group = groups.get(i);
             TimelineSegment segment = matchedSegments.get(i);
             if (Objects.isNull(segment)) {
-                log.warn("接口2 导出分组未匹配工程分镜,字幕仅取分组入参, episodeEditorId={}, groupIndex={}, storyboardId={}",
+                log.warn("接口2 导出分组未匹配工程分镜,跳过工程字幕回落, episodeEditorId={}, groupIndex={}, storyboardId={}",
                         editor.getId(), i, group.getStoryboardId());
                 continue;
             }
@@ -1240,6 +1268,194 @@ public class VideoComposeServiceImpl implements VideoComposeService {
             }
         }
         return new TimelineSubtitleContext(timeline, matchedSegments);
+    }
+
+    /**
+     * 当前端整批字幕完全为空时，按分镜归属批量读取服务端台词并补入导出分组。
+     * 任一分组或工程分镜已有有效文本/时间戳时整批不查询，避免同一成片混用前后端字幕来源。
+     *
+     * @param groups          导出分组
+     * @param matchedSegments 与导出分组按下标对应的工程分镜
+     * @param timeline        本次采用的完整工程时间线
+     * @param editor          当前剪辑记录
+     * @param userId          当前用户ID
+     * @param clientGroupBatchHasSubtitle 前端分组原始入参是否存在任一有效字幕
+     * @return 成功补入字幕的分组数
+     */
+    private int backfillStoryboardSubtitlesWhenClientBatchEmpty(List<ComposeGroupDto> groups,
+                                                                List<TimelineSegment> matchedSegments,
+                                                                TimelineData timeline,
+                                                                AidEpisodeEditor editor, Long userId,
+                                                                boolean clientGroupBatchHasSubtitle) {
+        if (CollectionUtil.isEmpty(groups) || Objects.isNull(editor) || Objects.isNull(userId)
+                || clientGroupBatchHasSubtitle || hasAnyClientSubtitle(groups, timeline)) {
+            return 0;
+        }
+
+        Set<Long> storyboardIds = new LinkedHashSet<>();
+        for (int index = 0; index < groups.size(); index++) {
+            ComposeGroupDto group = groups.get(index);
+            TimelineSegment segment = CollectionUtil.isEmpty(matchedSegments) || index >= matchedSegments.size()
+                    ? null : matchedSegments.get(index);
+            boolean subtitleHidden = Objects.nonNull(segment) && Objects.nonNull(segment.getSubtitle())
+                    && Boolean.FALSE.equals(segment.getSubtitle().getShow());
+            if (Objects.nonNull(group) && Objects.nonNull(group.getStoryboardId()) && !subtitleHidden) {
+                storyboardIds.add(group.getStoryboardId());
+            }
+        }
+        if (CollectionUtil.isEmpty(storyboardIds)) {
+            return 0;
+        }
+
+        // 查询字段精简：导出字幕兜底只需要分镜主键与台词；新增消费字段时此处必须同步补充。
+        List<AidStoryboard> storyboards = aidStoryboardService.list(
+                Wrappers.<AidStoryboard>lambdaQuery()
+                        .select(AidStoryboard::getId, AidStoryboard::getDialogueText)
+                        .in(AidStoryboard::getId, storyboardIds)
+                        .eq(AidStoryboard::getProjectId, editor.getProjectId())
+                        .eq(AidStoryboard::getEpisodeId, editor.getEpisodeId())
+                        .eq(AidStoryboard::getUserId, userId)
+                        .eq(AidStoryboard::getDelFlag, DEL_FLAG_NORMAL));
+        Map<Long, String> subtitleByStoryboardId = new HashMap<>();
+        for (AidStoryboard storyboard : storyboards) {
+            // 与前端传入字幕的最终下发口径一致，统一处理换行、结构化角色及中英文冒号。
+            String subtitle = DialogueSubtitleFormatter.format(storyboard.getDialogueText());
+            if (StrUtil.isNotBlank(subtitle)) {
+                subtitleByStoryboardId.put(storyboard.getId(), subtitle);
+            }
+        }
+
+        int backfilledCount = 0;
+        for (int index = 0; index < groups.size(); index++) {
+            ComposeGroupDto group = groups.get(index);
+            if (Objects.isNull(group)) {
+                continue;
+            }
+            String subtitle = subtitleByStoryboardId.get(group.getStoryboardId());
+            if (StrUtil.isBlank(subtitle)) {
+                continue;
+            }
+            validateSubtitleLength(subtitle, index);
+            group.setSubtitle(subtitle);
+            TimelineSegment segment = CollectionUtil.isEmpty(matchedSegments) || index >= matchedSegments.size()
+                    ? null : matchedSegments.get(index);
+            TimelineSubtitleItem timelineSubtitle = Objects.isNull(segment) ? null : segment.getSubtitle();
+            if (Objects.nonNull(timelineSubtitle) && !Boolean.FALSE.equals(timelineSubtitle.getShow())) {
+                timelineSubtitle.setText(subtitle);
+            }
+            backfilledCount++;
+        }
+        if (backfilledCount > 0) {
+            log.info("接口2 服务端分镜字幕整批兜底完成, episodeEditorId={}, count={}",
+                    editor.getId(), backfilledCount);
+        }
+        return backfilledCount;
+    }
+
+    /** 判断前端分组或本次采用的工程中是否存在任一有效字幕，作为整批来源选择开关。 */
+    private boolean hasAnyClientSubtitle(List<ComposeGroupDto> groups, TimelineData timeline) {
+        if (hasAnyGroupSubtitle(groups)) {
+            return true;
+        }
+        if (Objects.isNull(timeline) || CollectionUtil.isEmpty(timeline.getSegments())) {
+            return false;
+        }
+        for (TimelineSegment segment : timeline.getSegments()) {
+            TimelineSubtitleItem subtitle = Objects.isNull(segment) ? null : segment.getSubtitle();
+            if (Objects.nonNull(subtitle)
+                    && (StrUtil.isNotBlank(DialogueSubtitleFormatter.format(subtitle.getText()))
+                    || hasValidSubtitleCues(subtitle.getCues()))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 判断分组原始入参中是否存在任一有效字幕。 */
+    private boolean hasAnyGroupSubtitle(List<ComposeGroupDto> groups) {
+        if (CollectionUtil.isEmpty(groups)) {
+            return false;
+        }
+        for (ComposeGroupDto group : groups) {
+            if (Objects.nonNull(group) && (StrUtil.isNotBlank(DialogueSubtitleFormatter.format(group.getSubtitle()))
+                    || hasValidSubtitleCues(group.getSubtitleCues()))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 判断时间戳字幕列表中是否至少存在一条可烧录内容。 */
+    private boolean hasValidSubtitleCues(List<TimedSubtitleCue> cues) {
+        if (CollectionUtil.isEmpty(cues)) {
+            return false;
+        }
+        for (TimedSubtitleCue cue : cues) {
+            if (Objects.nonNull(cue) && Objects.nonNull(cue.getStartSeconds())
+                    && Objects.nonNull(cue.getEndSeconds())
+                    && cue.getEndSeconds() > cue.getStartSeconds() && StrUtil.isNotBlank(cue.getText())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 复用 ASR 时间戳时按本次有效台词重新匹配人物。
+     * 前端传入文本与后端分镜兜底文本都在此处使用同一格式化器和匹配器；手工/TTS 时间戳保持原人物不改。
+     *
+     * @param groups          导出分组
+     * @param matchedSegments 与分组对应的工程分镜
+     * @return 完成人物重匹配的分组数
+     */
+    private int rematchExistingAsrCueSpeakers(List<ComposeGroupDto> groups,
+                                              List<TimelineSegment> matchedSegments) {
+        if (CollectionUtil.isEmpty(groups)) {
+            return 0;
+        }
+        int rematchedCount = 0;
+        for (int index = 0; index < groups.size(); index++) {
+            ComposeGroupDto group = groups.get(index);
+            if (Objects.isNull(group) || CollectionUtil.isEmpty(group.getSubtitleCues())) {
+                continue;
+            }
+            List<TimedSubtitleCue> nonNullCues = group.getSubtitleCues().stream()
+                    .filter(Objects::nonNull)
+                    .toList();
+            boolean onlyAsrCues = CollectionUtil.isNotEmpty(nonNullCues)
+                    && nonNullCues.stream().allMatch(cue ->
+                    "ASR".equalsIgnoreCase(StrUtil.blankToDefault(cue.getSource(), "")));
+            String formattedDialogue = DialogueSubtitleFormatter.format(group.getSubtitle());
+            if (!onlyAsrCues || StrUtil.isBlank(formattedDialogue)) {
+                continue;
+            }
+            double mediaDuration = SubtitleRecognitionMediaResolver.resolveDurations(group).stream()
+                    .filter(Objects::nonNull)
+                    .mapToDouble(Double::doubleValue)
+                    .sum();
+            List<TimedSubtitleCue> rematched = SubtitleSpeakerMatcher.match(
+                    nonNullCues, formattedDialogue, mediaDuration);
+            if (CollectionUtil.isEmpty(rematched)) {
+                continue;
+            }
+            group.setSubtitle(formattedDialogue);
+            group.setSubtitleCues(rematched);
+            TimelineSegment segment = CollectionUtil.isEmpty(matchedSegments)
+                    || index >= matchedSegments.size() ? null : matchedSegments.get(index);
+            TimelineSubtitleItem timelineSubtitle = Objects.isNull(segment) ? null : segment.getSubtitle();
+            if (Objects.nonNull(timelineSubtitle) && !Boolean.FALSE.equals(timelineSubtitle.getShow())) {
+                timelineSubtitle.setText(formattedDialogue);
+                timelineSubtitle.setCues(rematched);
+                if (StrUtil.isNotBlank(group.getSubtitleSourceMediaFingerprint())) {
+                    timelineSubtitle.setSourceMediaFingerprint(
+                            group.getSubtitleSourceMediaFingerprint());
+                }
+                timelineSubtitle.setSourceDialogueFingerprint(
+                        SubtitleDialogueFingerprint.of(formattedDialogue));
+            }
+            rematchedCount++;
+        }
+        return rematchedCount;
     }
 
     /**
@@ -1362,7 +1578,7 @@ public class VideoComposeServiceImpl implements VideoComposeService {
     }
 
     /**
-     * 解析工程时间轴的分镜段列表（解析失败返回 null，由调用方降级为仅用分组入参）。
+     * 解析工程时间轴的分镜段列表（解析失败返回 null，由调用方跳过工程字幕回落）。
      *
      * @param timelineJson    工程报文
      * @param episodeEditorId 剪辑记录ID（日志用）
@@ -1372,7 +1588,7 @@ public class VideoComposeServiceImpl implements VideoComposeService {
         try {
             return JSON.parseObject(timelineJson, TimelineData.class);
         } catch (Exception ex) {
-            log.warn("接口2 工程时间轴解析失败,字幕仅取分组入参, episodeEditorId={}, err={}",
+            log.warn("接口2 工程时间轴解析失败,跳过工程字幕回落, episodeEditorId={}, err={}",
                     episodeEditorId, ex.getMessage());
             return null;
         }

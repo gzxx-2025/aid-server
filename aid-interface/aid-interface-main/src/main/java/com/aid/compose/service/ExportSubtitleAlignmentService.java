@@ -26,7 +26,7 @@ public interface ExportSubtitleAlignmentService {
                       Map<Long, AidGenRecord> selectedVideos);
 
     /**
-     * 同步完成所需分镜的字幕识别；任一分镜重试后仍失败会直接抛错，禁止静默回退估算字幕。
+     * 同步完成所需分镜的字幕识别；服务请求失败会直接抛错，音源未识别到人声时保留文本兼容排布。
      *
      * @param groups           导出合成分组
      * @param matchedSegments  与分组下标对应的工程分镜，未匹配项为 null

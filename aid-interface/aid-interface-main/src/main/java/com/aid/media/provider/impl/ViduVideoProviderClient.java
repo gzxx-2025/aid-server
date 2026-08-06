@@ -36,6 +36,11 @@ import java.util.Objects;
 @Component
 public class ViduVideoProviderClient implements VideoProviderClient {
 
+    /** 音画同出时禁止模型把对白误画成字幕；明确要求的屏幕/道具文字仍可正常生成。 */
+    private static final String DIALOGUE_CAPTION_GUARD =
+            "字幕约束：禁止把台词、说话人姓名或人物对白渲染成字幕、标题或说话人标签；"
+                    + "台词只生成声音与口型，仅保留镜头描述中明确要求的屏幕或道具文字。";
+
     @Override
     public String protocol() {
         // 返回协议名称。
@@ -61,6 +66,7 @@ public class ViduVideoProviderClient implements VideoProviderClient {
         } else {
             ReferencePromptSanitizer.sanitizeInPlace(request, dispatchedImages, 0);
         }
+        applyDialogueCaptionGuard(request);
         //    推断不到再回退按入参/options 推断，保证与 DB 驱动的端点配置一致。
         ViduScenario scenario = resolveScenarioFromSuffix(modelConfig.getApiSuffix());
         if (scenario == null) {
@@ -80,6 +86,15 @@ public class ViduVideoProviderClient implements VideoProviderClient {
             .directUrl(directUrl)
             .rawResponse(raw)
             .build();
+    }
+
+    /** Vidu 音画同出模型可能自行生成对白字幕，在 Provider 入口追加幂等硬约束降低脏字风险。 */
+    private void applyDialogueCaptionGuard(MediaVideoGenerateRequest request) {
+        if (!Boolean.TRUE.equals(request.getAudio()) || StrUtil.isBlank(request.getPrompt())
+                || request.getPrompt().contains(DIALOGUE_CAPTION_GUARD)) {
+            return;
+        }
+        request.setPrompt(request.getPrompt().stripTrailing() + "\n\n" + DIALOGUE_CAPTION_GUARD);
     }
 
     @Override

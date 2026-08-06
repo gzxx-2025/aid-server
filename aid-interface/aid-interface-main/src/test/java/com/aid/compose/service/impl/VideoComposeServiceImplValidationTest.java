@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.util.Date;
@@ -19,16 +20,23 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
-import com.aid.aid.domain.AidGenRecord;
 import com.aid.aid.domain.AidEpisodeEditor;
+import com.aid.aid.domain.AidGenRecord;
+import com.aid.aid.domain.AidStoryboard;
 import com.aid.aid.domain.media.AidMediaTask;
 import com.aid.aid.mapper.AidMediaTaskMapper;
+import com.aid.aid.service.IAidStoryboardService;
 import com.aid.common.exception.ServiceException;
 import com.aid.compose.ComposeConstants;
+import com.aid.compose.domain.TimedSubtitleCue;
 import com.aid.compose.dto.ComposeGroupDto;
 import com.aid.compose.dto.EpisodeExportResult;
 import com.aid.compose.dto.StoryboardComposeRequest;
+import com.aid.compose.dto.timeline.TimelineData;
+import com.aid.compose.dto.timeline.TimelineSegment;
+import com.aid.compose.dto.timeline.TimelineSubtitleItem;
 import com.aid.media.enums.MediaTaskStatus;
 
 class VideoComposeServiceImplValidationTest {
@@ -39,6 +47,7 @@ class VideoComposeServiceImplValidationTest {
         MapperBuilderAssistant assistant = new MapperBuilderAssistant(configuration, "test");
         assistant.setCurrentNamespace(VideoComposeServiceImplValidationTest.class.getName());
         TableInfoHelper.initTableInfo(assistant, AidMediaTask.class);
+        TableInfoHelper.initTableInfo(assistant, AidStoryboard.class);
     }
 
     @Test
@@ -184,6 +193,127 @@ class VideoComposeServiceImplValidationTest {
                 service, "validateRequestTimeline", timelineJson, List.of(group)));
     }
 
+    @Test
+    void backfillsWholeBatchFromStoryboardWhenClientBatchIsEmpty() {
+        VideoComposeServiceImpl service = mock(VideoComposeServiceImpl.class, CALLS_REAL_METHODS);
+        IAidStoryboardService storyboardService = mock(IAidStoryboardService.class);
+        ReflectionTestUtils.setField(service, "aidStoryboardService", storyboardService);
+        AidStoryboard firstStoryboard = storyboard(101L, "科普医师：第一句。\n张叔: 第二句！");
+        AidStoryboard secondStoryboard = storyboard(102L, "旁白：第三句。");
+        when(storyboardService.list(org.mockito.ArgumentMatchers.<Wrapper<AidStoryboard>>any()))
+                .thenReturn(List.of(firstStoryboard, secondStoryboard));
+        ComposeGroupDto firstGroup = exportGroup(101L);
+        ComposeGroupDto secondGroup = exportGroup(102L);
+        TimelineSegment firstSegment = timelineSegment(true);
+        TimelineSegment secondSegment = timelineSegment(true);
+        TimelineData timeline = timeline(firstSegment, secondSegment);
+
+        Integer count = ReflectionTestUtils.invokeMethod(service,
+                "backfillStoryboardSubtitlesWhenClientBatchEmpty",
+                List.of(firstGroup, secondGroup), List.of(firstSegment, secondSegment), timeline,
+                composingEditor("9004", new Date()), 2001L, false);
+
+        assertEquals(2, count);
+        assertEquals("科普医师：第一句\n张叔：第二句", firstGroup.getSubtitle());
+        assertEquals("旁白：第三句", secondGroup.getSubtitle());
+        assertEquals(firstGroup.getSubtitle(), firstSegment.getSubtitle().getText());
+        assertEquals(secondGroup.getSubtitle(), secondSegment.getSubtitle().getText());
+    }
+
+    @Test
+    void doesNotUseBackendWhenAnyClientGroupHasSubtitle() {
+        VideoComposeServiceImpl service = mock(VideoComposeServiceImpl.class, CALLS_REAL_METHODS);
+        IAidStoryboardService storyboardService = mock(IAidStoryboardService.class);
+        ReflectionTestUtils.setField(service, "aidStoryboardService", storyboardService);
+        ComposeGroupDto firstGroup = exportGroup(101L);
+        firstGroup.setSubtitle("前端角色：保留内容");
+        ComposeGroupDto secondGroup = exportGroup(102L);
+        TimelineData timeline = timeline(timelineSegment(true), timelineSegment(true));
+
+        Integer count = ReflectionTestUtils.invokeMethod(service,
+                "backfillStoryboardSubtitlesWhenClientBatchEmpty",
+                List.of(firstGroup, secondGroup), timeline.getSegments(), timeline,
+                composingEditor("9005", new Date()), 2001L, false);
+
+        assertEquals(0, count);
+        assertEquals("前端角色：保留内容", firstGroup.getSubtitle());
+        assertNull(secondGroup.getSubtitle());
+        verifyNoInteractions(storyboardService);
+    }
+
+    @Test
+    void doesNotUseBackendWhenAnyTimelineSegmentHasSubtitle() {
+        VideoComposeServiceImpl service = mock(VideoComposeServiceImpl.class, CALLS_REAL_METHODS);
+        IAidStoryboardService storyboardService = mock(IAidStoryboardService.class);
+        ReflectionTestUtils.setField(service, "aidStoryboardService", storyboardService);
+        ComposeGroupDto firstGroup = exportGroup(101L);
+        ComposeGroupDto secondGroup = exportGroup(102L);
+        TimelineSegment firstSegment = timelineSegment(true);
+        firstSegment.getSubtitle().setText("时间线角色：已有内容");
+        TimelineSegment secondSegment = timelineSegment(true);
+        TimelineData timeline = timeline(firstSegment, secondSegment);
+
+        Integer count = ReflectionTestUtils.invokeMethod(service,
+                "backfillStoryboardSubtitlesWhenClientBatchEmpty",
+                List.of(firstGroup, secondGroup), List.of(firstSegment, secondSegment), timeline,
+                composingEditor("9006", new Date()), 2001L, false);
+
+        assertEquals(0, count);
+        assertNull(firstGroup.getSubtitle());
+        assertNull(secondGroup.getSubtitle());
+        verifyNoInteractions(storyboardService);
+    }
+
+    @Test
+    void doesNotFallbackAfterFrontendSubtitleWasClearedByShowFalse() {
+        VideoComposeServiceImpl service = mock(VideoComposeServiceImpl.class, CALLS_REAL_METHODS);
+        IAidStoryboardService storyboardService = mock(IAidStoryboardService.class);
+        ReflectionTestUtils.setField(service, "aidStoryboardService", storyboardService);
+        ComposeGroupDto hiddenGroup = exportGroup(101L);
+        hiddenGroup.setSubtitle("前端角色：已传但关闭");
+        ComposeGroupDto visibleGroup = exportGroup(102L);
+        TimelineSegment hiddenSegment = timelineSegment(false);
+        TimelineSegment visibleSegment = timelineSegment(true);
+        TimelineData timeline = timeline(hiddenSegment, visibleSegment);
+        Boolean clientGroupBatchHasSubtitle = ReflectionTestUtils.invokeMethod(
+                service, "hasAnyGroupSubtitle", List.of(hiddenGroup, visibleGroup));
+        hiddenGroup.setSubtitle(null);
+
+        Integer count = ReflectionTestUtils.invokeMethod(service,
+                "backfillStoryboardSubtitlesWhenClientBatchEmpty",
+                List.of(hiddenGroup, visibleGroup), List.of(hiddenSegment, visibleSegment), timeline,
+                composingEditor("9007", new Date()), 2001L, clientGroupBatchHasSubtitle);
+
+        assertEquals(0, count);
+        assertNull(hiddenGroup.getSubtitle());
+        assertNull(visibleGroup.getSubtitle());
+        verifyNoInteractions(storyboardService);
+    }
+
+    @Test
+    void rematchesExistingAsrCuesToTwoFrontendSpeakers() {
+        VideoComposeServiceImpl service = mock(VideoComposeServiceImpl.class, CALLS_REAL_METHODS);
+        ComposeGroupDto group = exportGroup(101L);
+        group.setSubtitle("张叔担忧地说：\"有没有对症的治疗药物?\" [镜头2]\n"
+                + "科普医师：目前需要进一步检查");
+        group.setSubtitleCues(List.of(
+                asrCue(0.2D, 1.8D, "有没有对症的治疗药物", "科普医师"),
+                asrCue(1.9D, 3.8D, "目前需要进一步检查", "科普医师")));
+        group.setSubtitleSourceMediaFingerprint("VIDEO:101");
+        TimelineSegment segment = timelineSegment(true);
+
+        Integer count = ReflectionTestUtils.invokeMethod(service,
+                "rematchExistingAsrCueSpeakers", List.of(group), List.of(segment));
+
+        assertEquals(1, count);
+        assertEquals("张叔", group.getSubtitleCues().get(0).getSpeaker());
+        assertEquals("科普医师", group.getSubtitleCues().get(1).getSpeaker());
+        assertEquals(group.getSubtitleCues(), segment.getSubtitle().getCues());
+        assertEquals("VIDEO:101", segment.getSubtitle().getSourceMediaFingerprint());
+        assertEquals("张叔：有没有对症的治疗药物\n科普医师：目前需要进一步检查",
+                segment.getSubtitle().getText());
+    }
+
     private StoryboardComposeRequest request(Long projectId, Long episodeId) {
         StoryboardComposeRequest request = new StoryboardComposeRequest();
         request.setProjectId(projectId);
@@ -205,6 +335,37 @@ class VideoComposeServiceImplValidationTest {
         record.setProjectId(projectId);
         record.setEpisodeId(episodeId);
         return record;
+    }
+
+    private AidStoryboard storyboard(Long id, String dialogueText) {
+        AidStoryboard storyboard = new AidStoryboard();
+        storyboard.setId(id);
+        storyboard.setDialogueText(dialogueText);
+        return storyboard;
+    }
+
+    private TimedSubtitleCue asrCue(double start, double end, String text, String speaker) {
+        TimedSubtitleCue cue = new TimedSubtitleCue();
+        cue.setStartSeconds(start);
+        cue.setEndSeconds(end);
+        cue.setText(text);
+        cue.setSpeaker(speaker);
+        cue.setSource("ASR");
+        return cue;
+    }
+
+    private TimelineSegment timelineSegment(boolean showSubtitle) {
+        TimelineSegment segment = new TimelineSegment();
+        TimelineSubtitleItem subtitle = new TimelineSubtitleItem();
+        subtitle.setShow(showSubtitle);
+        segment.setSubtitle(subtitle);
+        return segment;
+    }
+
+    private TimelineData timeline(TimelineSegment... segments) {
+        TimelineData timeline = new TimelineData();
+        timeline.setSegments(List.of(segments));
+        return timeline;
     }
 
     private AidEpisodeEditor composingEditor(String exportTaskId, Date updateTime) {

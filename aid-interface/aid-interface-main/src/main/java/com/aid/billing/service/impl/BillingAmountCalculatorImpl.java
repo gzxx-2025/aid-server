@@ -363,7 +363,7 @@ public class BillingAmountCalculatorImpl implements BillingAmountCalculator {
             snapshot.setGlobalBillingMultiplier(globalMultiplier);
             snapshot.setFinalBillingMultiplier(finalMultiplier);
         }
-        // 倍率后金额保留 6 位精度，最终落库前由调用方再做 setScale(2)
+        // 倍率计算保留原始精度，进入统一账户账本前由调用方规整为 4 位小数。
         BigDecimal adjusted = baseAmount.multiply(finalMultiplier);
         log.info("应用计费倍率, model={}, base={}, modelMul={}, globalMul={}, finalMul={}, adjusted={}",
                 modelConfig.getModelCode(), baseAmount, modelMultiplier, globalMultiplier, finalMultiplier, adjusted);

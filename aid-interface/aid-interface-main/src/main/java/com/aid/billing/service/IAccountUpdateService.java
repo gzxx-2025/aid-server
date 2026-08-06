@@ -44,6 +44,16 @@ public interface IAccountUpdateService {
     void settle(Long userId, BigDecimal amount, String traceId, String bizType, String bizName);
 
     /**
+     * 查询同一计费链路已经从冻结余额结算的金额。
+     * 历史两位小数流水会按原账本金额返回，用于补偿任务避免重复采用新计算精度。
+     *
+     * @param traceId 计费追踪ID
+     * @param fallbackAmount 未找到消费流水时的兜底金额
+     * @return 已落账消费金额或四位小数兜底金额
+     */
+    BigDecimal resolveConsumedAmount(String traceId, BigDecimal fallbackAmount);
+
+    /**
      * 退回：frozenBalance -= amount, balance += amount。
      *
      * @param userId        用户ID

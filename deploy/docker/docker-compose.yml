@@ -25,6 +25,9 @@ services:
     # 生产部署固定使用 MySQL 5.7，不自动切换数据库大版本
     image: mysql:5.7
     container_name: aid-mysql
+    labels:
+      com.aid.managed: "true"
+      com.aid.data_root: "${DATA_ROOT:-/data/aid}"
     profiles: ["mysql"]
     restart: unless-stopped
     logging: *default-logging
@@ -71,6 +74,9 @@ services:
   redis:
     image: redis:7-alpine
     container_name: aid-redis
+    labels:
+      com.aid.managed: "true"
+      com.aid.data_root: "${DATA_ROOT:-/data/aid}"
     restart: unless-stopped
     logging: *default-logging
     profiles: ["redis"]
@@ -97,6 +103,9 @@ services:
     image: aid/openjdk:17.0.20
     pull_policy: never
     container_name: aid-server
+    labels:
+      com.aid.managed: "true"
+      com.aid.data_root: "${DATA_ROOT:-/data/aid}"
     restart: unless-stopped
     logging: *default-logging
     working_dir: /app
@@ -174,6 +183,9 @@ services:
   aid-web:
     image: node:22.22.0-alpine
     container_name: aid-web
+    labels:
+      com.aid.managed: "true"
+      com.aid.data_root: "${DATA_ROOT:-/data/aid}"
     restart: unless-stopped
     logging: *default-logging
     working_dir: /app
@@ -205,6 +217,9 @@ services:
   aid-updater:
     image: docker:27-cli
     container_name: aid-updater
+    labels:
+      com.aid.managed: "true"
+      com.aid.data_root: "${DATA_ROOT:-/data/aid}"
     # 自升级完成后进程主动退出，由 docker 拉起新版本
     restart: always
     logging: *default-logging
@@ -229,6 +244,9 @@ services:
   nginx:
     image: nginx:1.25-alpine
     container_name: aid-nginx
+    labels:
+      com.aid.managed: "true"
+      com.aid.data_root: "${DATA_ROOT:-/data/aid}"
     restart: unless-stopped
     logging: *default-logging
     ports:
@@ -256,6 +274,9 @@ services:
   nginx-https:
     image: nginx:1.25-alpine
     container_name: aid-nginx-https
+    labels:
+      com.aid.managed: "true"
+      com.aid.data_root: "${DATA_ROOT:-/data/aid}"
     profiles: ["https"]
     restart: unless-stopped
     logging: *default-logging
@@ -285,6 +306,9 @@ services:
   rocketmq-nameserver:
     image: apache/rocketmq:5.3.1
     container_name: aid-rocketmq-nameserver
+    labels:
+      com.aid.managed: "true"
+      com.aid.data_root: "${DATA_ROOT:-/data/aid}"
     restart: unless-stopped
     logging: *default-logging
     profiles: ["mq"]
@@ -305,6 +329,9 @@ services:
   rocketmq-broker:
     image: apache/rocketmq:5.3.1
     container_name: aid-rocketmq-broker
+    labels:
+      com.aid.managed: "true"
+      com.aid.data_root: "${DATA_ROOT:-/data/aid}"
     restart: unless-stopped
     logging: *default-logging
     profiles: ["mq"]
@@ -336,3 +363,9 @@ services:
       timeout: 5s
       retries: 18
       start_period: 30s
+
+networks:
+  default:
+    labels:
+      com.aid.managed: "true"
+      com.aid.data_root: "${DATA_ROOT:-/data/aid}"

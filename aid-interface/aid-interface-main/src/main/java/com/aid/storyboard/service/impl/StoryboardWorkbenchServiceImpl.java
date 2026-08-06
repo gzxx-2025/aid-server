@@ -11,6 +11,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.aid.aid.domain.*;
 import com.aid.aid.mapper.AidUserProfileMapper;
 import com.aid.aid.service.*;
+import com.aid.billing.enums.BillingConstants;
 import com.aid.billing.service.IAccountUpdateService;
 import com.aid.billing.service.BillingPriceMultiplierService;
 import com.aid.common.error.TaskErrorPresentation;
@@ -1354,8 +1355,9 @@ public class StoryboardWorkbenchServiceImpl implements IStoryboardWorkbenchServi
 
         // 请求级幂等 traceId 由稳定输入 + 10 秒时间桶派生：桶内双击/重试幂等防重复扣费，
         // 跨桶同参数重抽为新一次生成正常计费（accountUpdateService 侧按 traceId+changeType 幂等）。
-        BigDecimal costCredits = billingPriceMultiplierService.apply(
-                model.getCostCredits(), model.getBillingMultiplier());
+        BigDecimal costCredits = BillingConstants.normalizeAccountAmount(
+                billingPriceMultiplierService.apply(
+                        model.getCostCredits(), model.getBillingMultiplier()));
         String stableTraceId = buildStableBillingTraceId(userId, request, assembledPrompt);
 
         // 扣费走 freeze → settle/refund 两阶段，保证任何异常路径都能退回冻结资金。
@@ -3080,6 +3082,12 @@ public class StoryboardWorkbenchServiceImpl implements IStoryboardWorkbenchServi
      */
     @Override
     public GenRecordVO uploadStoryboardImage(UploadStoryboardImageRequest request, Long userId) {
+        // 视频时长由前端读取媒体元数据后提交；缺失时必须在任何查库和落库动作前直接拒绝。
+        boolean isVideo = Objects.equals("video", request.getMediaType());
+        if (isVideo && Objects.isNull(request.getVideoDuration())) {
+            log.error("用户上传分镜视频未传时长, storyboardId={}, userId={}", request.getStoryboardId(), userId);
+            throw new ServiceException("请上传秒数");
+        }
         Long normalizedEpisodeId = validateProjectAndEpisode(
                 request.getProjectId(), request.getEpisodeId(), userId);
 
@@ -3105,7 +3113,6 @@ public class StoryboardWorkbenchServiceImpl implements IStoryboardWorkbenchServi
         }
         String fullImageUrl = mediaUrlResolver.toFullUrl(relativeUrl); // 相对路径拼回完整URL
         // 媒体类型：默认图片，兼容旧调用；video 走上传视频链路
-        boolean isVideo = Objects.equals("video", request.getMediaType());
         if (!isVideo) {
             // 云存储图片执行远程真实性探测，本地模式仅做来源与路径校验。
             OssProperties ossProperties = ossConfigManager.getOssProperties();
@@ -3132,6 +3139,7 @@ public class StoryboardWorkbenchServiceImpl implements IStoryboardWorkbenchServi
         record.setStatus(1);                              // 1=成功（用户上传无需异步处理）
         record.setIsSelected(SELECTED_NO);                // 默认未被选择
         record.setPromptText("用户自行上传");                // 提示词协商展示文案
+        record.setVideoDuration(isVideo ? Long.valueOf(request.getVideoDuration()) : null);
         record.setCostCredits(BigDecimal.ZERO);           // 用户上传不扣费
         record.setDelFlag(DEL_FLAG_NORMAL);
         record.setCreateBy(String.valueOf(userId));

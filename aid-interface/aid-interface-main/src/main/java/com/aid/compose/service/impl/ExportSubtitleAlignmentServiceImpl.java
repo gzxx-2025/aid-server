@@ -3,7 +3,6 @@ package com.aid.compose.service.impl;
 import cn.hutool.core.collection.CollectionUtil;
 import cn.hutool.core.date.DateUtil;
 import cn.hutool.core.util.StrUtil;
-import cn.hutool.crypto.digest.DigestUtil;
 import com.aid.aid.domain.AidGenRecord;
 import com.aid.common.exception.ServiceException;
 import com.aid.compose.domain.TimedSubtitleCue;
@@ -13,6 +12,7 @@ import com.aid.compose.dto.timeline.TimelineSubtitleItem;
 import com.aid.compose.enums.SubtitleRecognitionStatus;
 import com.aid.compose.service.ExportSubtitleAlignmentService;
 import com.aid.compose.util.SubtitleRecognitionMediaResolver;
+import com.aid.compose.util.SubtitleDialogueFingerprint;
 import com.aid.compose.util.SubtitleSpeakerMatcher;
 import com.aid.media.dto.SpeechRecognitionResult;
 import com.aid.media.provider.SpeechRecognitionClient;
@@ -34,7 +34,6 @@ import java.util.function.BiConsumer;
 public class ExportSubtitleAlignmentServiceImpl implements ExportSubtitleAlignmentService {
 
     private static final String ASR_SOURCE = "ASR";
-    private static final String DIALOGUE_FINGERPRINT_PREFIX = "DIALOGUE:";
     private static final String DEFAULT_ERROR = "字幕生成失败";
 
     private final List<SpeechRecognitionClient> speechRecognitionClients;
@@ -104,11 +103,12 @@ public class ExportSubtitleAlignmentServiceImpl implements ExportSubtitleAlignme
                 alignGroup(group, segment, selectedVideos, client, heartbeatCallback);
                 runCheckpoint(checkpointCallback);
             } catch (RuntimeException ex) {
-                markFailed(group, segment, client.providerCode(), mediaFingerprint, shortError(ex));
+                String failureReason = shortError(ex);
+                markFailed(group, segment, client.providerCode(), mediaFingerprint, failureReason);
                 safeCheckpoint(checkpointCallback, group, index);
                 log.error("导出分镜字幕生成失败, storyboardId={}, groupIndex={}, provider={}, error={}",
                         group.getStoryboardId(), index, client.providerCode(), ex.getMessage(), ex);
-                throw new ServiceException(DEFAULT_ERROR);
+                throw new ServiceException(groupFailureMessage(index, failureReason));
             }
             completed++;
             notifyProgress(progressCallback, completed, total);
@@ -160,8 +160,8 @@ public class ExportSubtitleAlignmentServiceImpl implements ExportSubtitleAlignme
         String dialogueFingerprint = dialogueFingerprint(dialogue);
         TimelineSubtitleItem subtitle = Objects.isNull(segment) ? null : segment.getSubtitle();
 
-        if (asrCues && (Objects.isNull(subtitle)
-                || !Objects.equals(dialogueFingerprint, subtitle.getSourceDialogueFingerprint()))) {
+        // ASR 原文时间戳可复用，但说话人必须每次按当前台词重新匹配；历史错误人物不能因音源未变永久复用。
+        if (asrCues) {
             List<TimedSubtitleCue> rematched = SubtitleSpeakerMatcher.match(
                     cues, dialogue, sumDurations(mediaDurations));
             if (CollectionUtil.isEmpty(rematched)) {
@@ -197,20 +197,34 @@ public class ExportSubtitleAlignmentServiceImpl implements ExportSubtitleAlignme
         double mediaOffset = 0D;
         for (int index = 0; index < mediaUrls.size(); index++) {
             SpeechRecognitionResult result = client.recognize(mediaUrls.get(index), heartbeatCallback);
-            if (Objects.isNull(result) || CollectionUtil.isEmpty(result.getCues())) {
-                log.error("导出分镜字幕识别结果为空, storyboardId={}, mediaIndex={}",
+            if (Objects.isNull(result)) {
+                log.error("导出分镜字幕识别响应为空, storyboardId={}, mediaIndex={}",
                         group.getStoryboardId(), index);
                 throw new ServiceException("字幕结果为空");
+            }
+            if (CollectionUtil.isEmpty(result.getCues())) {
+                log.warn("导出分镜未识别到人声,改用文本时长排布, storyboardId={}, mediaIndex={}",
+                        group.getStoryboardId(), index);
+                mediaOffset += mediaDurations.get(index);
+                continue;
             }
             appendWithOffset(rawCues, result.getCues(), mediaOffset);
             mediaOffset += mediaDurations.get(index);
         }
 
+        // 音源存在但没有可识别人声时保留原台词且不生成伪造时间戳，核心合成会沿用兼容文本排布。
+        if (CollectionUtil.isEmpty(rawCues)) {
+            fallbackToTextTiming(group, segment);
+            return;
+        }
+
         List<TimedSubtitleCue> matchedCues = SubtitleSpeakerMatcher.match(
                 rawCues, group.getSubtitle(), mediaOffset);
         if (CollectionUtil.isEmpty(matchedCues)) {
-            log.error("导出分镜字幕匹配结果为空, storyboardId={}", group.getStoryboardId());
-            throw new ServiceException("字幕结果为空");
+            log.warn("导出分镜字幕匹配结果为空,改用文本时长排布, storyboardId={}",
+                    group.getStoryboardId());
+            fallbackToTextTiming(group, segment);
+            return;
         }
 
         String mediaFingerprint = currentFingerprint(group, selectedVideos);
@@ -223,6 +237,12 @@ public class ExportSubtitleAlignmentServiceImpl implements ExportSubtitleAlignme
         subtitle.setRecognitionProvider(client.providerCode());
         subtitle.setRecognitionUpdatedAt(DateUtil.now());
         subtitle.setRecognitionError(null);
+    }
+
+    /** 清除识别中的临时状态，保留台词给核心合成按当前分镜时长兼容排布。 */
+    private void fallbackToTextTiming(ComposeGroupDto group, TimelineSegment segment) {
+        clearTimedAlignment(group, segment.getSubtitle());
+        writeTimelineSubtitle(segment, group.getSubtitle(), null, null);
     }
 
     private void appendWithOffset(List<TimedSubtitleCue> target, List<TimedSubtitleCue> source, double offset) {
@@ -319,7 +339,7 @@ public class ExportSubtitleAlignmentServiceImpl implements ExportSubtitleAlignme
     }
 
     private String dialogueFingerprint(String dialogue) {
-        return DigestUtil.sha256Hex(DIALOGUE_FINGERPRINT_PREFIX + dialogue);
+        return SubtitleDialogueFingerprint.of(dialogue);
     }
 
     private double sumDurations(List<Double> durations) {
@@ -380,6 +400,13 @@ public class ExportSubtitleAlignmentServiceImpl implements ExportSubtitleAlignme
     private String shortError(RuntimeException ex) {
         String message = ex instanceof ServiceException ? ex.getMessage() : null;
         return StrUtil.isNotBlank(message) && message.length() <= 12 ? message : DEFAULT_ERROR;
+    }
+
+    /** 导出终态携带一基分镜序号，前端可直接提示用户处理对应音源。 */
+    private String groupFailureMessage(int groupIndex, String failureReason) {
+        String prefix = "第" + (groupIndex + 1) + "镜";
+        String message = prefix + StrUtil.blankToDefault(failureReason, DEFAULT_ERROR);
+        return message.length() <= 12 ? message : prefix + DEFAULT_ERROR;
     }
 
     private enum AlignmentDecision {

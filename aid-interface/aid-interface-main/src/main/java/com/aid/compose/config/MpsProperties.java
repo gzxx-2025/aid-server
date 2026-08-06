@@ -54,6 +54,6 @@ public class MpsProperties {
     /** 成片字幕字号（如 5% / 40px），默认 5% */
     private String subtitleFontSize = "5%";
 
-    /** 成片字幕单屏最大字数（超出切分为多屏依次显示；≤0 按默认值处理），默认 10 */
+    /** 成片字幕单屏正文优先最大字数（最终显示收敛为 7～12 字；≤0 按默认值处理），默认 10 */
     private int subtitleMaxChars = 10;
 }

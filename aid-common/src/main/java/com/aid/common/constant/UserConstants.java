@@ -74,6 +74,11 @@ public class UserConstants
     public static final int USERNAME_MAX_LENGTH = 20;
 
     /**
+     * 登录账号长度限制，兼容用户名、手机号和邮箱
+     */
+    public static final int LOGIN_ACCOUNT_MAX_LENGTH = 50;
+
+    /**
      * 密码长度限制
      */
     public static final int PASSWORD_MIN_LENGTH = 5;

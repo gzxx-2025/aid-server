@@ -8,7 +8,8 @@ import cn.hutool.core.util.StrUtil;
 /**
  * 成片字幕分屏切分工具：把一段台词切成「一屏一句」的字幕片段序列，
  * 切分优先级为换行 → 句末标点 → 句内停顿标点 → 按单屏字数均分硬切，
- * 保证每屏字数不超过上限且尽量落在语义边界上，片段保持原文顺序且不含换行。
+ * 常规台词保证每屏 7～12 字且尽量落在语义边界上，片段保持原文顺序且不含换行。
+ * 整段不足 7 字时原样保留；13 字属于无法同时满足上下限的边界情况，会均衡为 7 字和 6 字两屏。
  *
  * @author 视觉AID
  */
@@ -19,6 +20,12 @@ public final class SubtitleScreenSplitter {
 
     /** 单屏最大字数兜底值（配置缺失或非法时使用） */
     private static final int DEFAULT_MAX_CHARS = 10;
+
+    /** 单屏正文期望最少字数 */
+    private static final int MIN_SCREEN_CHARS = 7;
+
+    /** 单屏正文硬性最多字数 */
+    private static final int MAX_SCREEN_CHARS = 12;
 
     /** 句末标点：一句台词的天然边界，切分后保留在句尾 */
     private static final String SENTENCE_END_MARKS = "。！？!?；;…";
@@ -33,7 +40,7 @@ public final class SubtitleScreenSplitter {
      * 台词分屏切分。
      *
      * @param text     字幕文本（可含换行，代表多段台词）
-     * @param maxChars 单屏最大字数（≤0 时使用兜底值）
+     * @param maxChars 单屏优先最大字数（≤0 时使用兜底值，最终限定在 7～12 字）
      * @return 按播放顺序排列的字幕片段；入参空白时返回空列表
      */
     public static List<String> split(String text, int maxChars) {
@@ -41,27 +48,55 @@ public final class SubtitleScreenSplitter {
         if (StrUtil.isBlank(text)) {
             return screens;
         }
-        int limit = maxChars > 0 ? maxChars : DEFAULT_MAX_CHARS;
+        int configuredLimit = maxChars > 0 ? maxChars : DEFAULT_MAX_CHARS;
+        int limit = Math.max(MIN_SCREEN_CHARS, Math.min(configuredLimit, MAX_SCREEN_CHARS));
         for (String line : text.split("\\R")) {
             String trimmedLine = line.trim();
             if (trimmedLine.isEmpty()) {
                 continue;
             }
+            List<String> lineScreens = new ArrayList<>();
             for (String sentence : splitByMarks(trimmedLine, SENTENCE_END_MARKS)) {
                 if (charCount(sentence) <= limit) {
-                    screens.add(sentence);
+                    lineScreens.add(sentence);
                     continue;
                 }
                 for (String clause : splitByMarks(sentence, CLAUSE_MARKS)) {
                     if (charCount(clause) <= limit) {
-                        screens.add(clause);
+                        lineScreens.add(clause);
                         continue;
                     }
-                    screens.addAll(splitEvenly(clause, limit));
+                    lineScreens.addAll(splitEvenly(clause, limit));
                 }
             }
+            screens.addAll(rebalanceShortScreens(lineScreens));
         }
         return screens;
+    }
+
+    /**
+     * 语义切分产生短屏时，按整行重新均衡，避免画面上连续出现一两个字的字幕。
+     * 已满足 7～12 字的语义分屏保持不变；短台词不补字、不跨换行合并。
+     *
+     * @param screens 一行台词的初步分屏
+     * @return 字数均衡后的分屏
+     */
+    private static List<String> rebalanceShortScreens(List<String> screens) {
+        if (screens.isEmpty()) {
+            return screens;
+        }
+        boolean alreadyBalanced = screens.stream().allMatch(screen -> {
+            int count = charCount(screen);
+            return count >= MIN_SCREEN_CHARS && count <= MAX_SCREEN_CHARS;
+        });
+        if (alreadyBalanced) {
+            return screens;
+        }
+        String combined = String.join("", screens);
+        if (charCount(combined) <= MAX_SCREEN_CHARS) {
+            return List.of(combined);
+        }
+        return splitEvenly(combined, MAX_SCREEN_CHARS);
     }
 
     /**

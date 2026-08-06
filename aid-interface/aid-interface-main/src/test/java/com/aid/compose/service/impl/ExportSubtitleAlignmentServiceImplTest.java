@@ -90,8 +90,46 @@ class ExportSubtitleAlignmentServiceImplTest {
                 () -> service.align(List.of(group("甲：你好")), List.of(segment), Map.of(),
                         null, null, null));
 
-        assertEquals("字幕生成失败", exception.getMessage());
+        assertEquals("第1镜字幕请求失败", exception.getMessage());
         assertEquals(SubtitleRecognitionStatus.FAILED, segment.getSubtitle().getRecognitionStatus());
+        assertEquals("字幕请求失败", segment.getSubtitle().getRecognitionError());
+    }
+
+    @Test
+    void shouldFallbackToTextTimingWhenNoSpeechIsRecognized() {
+        AtomicInteger calls = new AtomicInteger();
+        SpeechRecognitionClient emptyClient = new SpeechRecognitionClient() {
+            @Override
+            public String providerCode() {
+                return "tencent_asr";
+            }
+
+            @Override
+            public boolean isEnabled() {
+                return true;
+            }
+
+            @Override
+            public SpeechRecognitionResult recognize(String mediaUrl) {
+                calls.incrementAndGet();
+                SpeechRecognitionResult result = new SpeechRecognitionResult();
+                result.setDurationSeconds(4D);
+                result.setCues(List.of());
+                return result;
+            }
+        };
+        ExportSubtitleAlignmentServiceImpl service = new ExportSubtitleAlignmentServiceImpl(List.of(emptyClient));
+        ComposeGroupDto group = group("甲：没有识别到人声");
+        TimelineSegment segment = segment(3L);
+
+        service.align(List.of(group), List.of(segment), Map.of(), null, null, null);
+
+        assertEquals(1, calls.get());
+        assertEquals("甲：没有识别到人声", group.getSubtitle());
+        assertNull(group.getSubtitleCues());
+        assertEquals("甲：没有识别到人声", segment.getSubtitle().getText());
+        assertNull(segment.getSubtitle().getCues());
+        assertNull(segment.getSubtitle().getRecognitionStatus());
     }
 
     @Test
@@ -159,6 +197,32 @@ class ExportSubtitleAlignmentServiceImplTest {
         assertEquals(1, retryCalls.get());
         assertEquals(SubtitleRecognitionStatus.COMPLETED,
                 secondSegment.getSubtitle().getRecognitionStatus());
+    }
+
+    @Test
+    void shouldRematchWrongSpeakerWhenReusingSameAsrCheckpoint() {
+        ExportSubtitleAlignmentServiceImpl service = new ExportSubtitleAlignmentServiceImpl(
+                List.of(successClient(new AtomicInteger())));
+        ComposeGroupDto group = group(3L, "https://example.com/video.mp4",
+                "张叔：查出指标异常后有没有对症的治疗药物\n科普医师：目前需要进一步检查");
+        AidGenRecord selected = selectedVideo(99L, "/video/current.mp4");
+        String mediaFingerprint = TimelineMediaFingerprint.of(selected.getId(), selected.getFileUrl());
+        TimedSubtitleCue staleCue = new TimedSubtitleCue();
+        staleCue.setStartSeconds(0.2D);
+        staleCue.setEndSeconds(1.8D);
+        staleCue.setSpeaker("科普医师");
+        staleCue.setText("查出指标异常后");
+        staleCue.setSource("ASR");
+        group.setSubtitleCues(List.of(staleCue));
+        group.setSubtitleSourceMediaFingerprint(mediaFingerprint);
+        TimelineSegment segment = segment(3L);
+        segment.getSubtitle().setCues(List.of(staleCue));
+        segment.getSubtitle().setSourceMediaFingerprint(mediaFingerprint);
+
+        int required = service.countRequired(List.of(group), List.of(segment), Map.of(3L, selected));
+
+        assertEquals(0, required);
+        assertEquals("张叔", group.getSubtitleCues().get(0).getSpeaker());
     }
 
     private ComposeGroupDto group(String subtitle) {

@@ -7,6 +7,7 @@ import java.util.Objects;
 
 import org.springframework.stereotype.Service;
 
+import com.aid.billing.enums.BillingConstants;
 import com.aid.billing.service.IAccountUpdateService;
 import com.aid.compose.config.MpsConfigManager;
 import com.aid.compose.config.MpsProperties;
@@ -66,9 +67,11 @@ public class ComposeBillingServiceImpl implements ComposeBillingService {
             log.error("合成结算缺少计费快照, userId={}, traceId={}", userId, traceId);
             throw new RuntimeException("结算异常");
         }
-        BigDecimal frozen = nullToZero(snapshot.getFrozenCredits());
+        BigDecimal frozen = BillingConstants.normalizeAccountAmount(
+                nullToZero(snapshot.getFrozenCredits()));
         // 实扣积分 = ceil(实际秒数/60) × 档单价
-        BigDecimal actualCredits = computeCredits(actualSeconds, snapshot.getCreditPerMinute());
+        BigDecimal actualCredits = BillingConstants.normalizeAccountAmount(
+                computeCredits(actualSeconds, snapshot.getCreditPerMinute()));
         // 结算金额从冻结里扣，封顶不超过冻结额
         BigDecimal settleAmount = actualCredits.min(frozen);
         if (isZero(settleAmount)) {
@@ -96,7 +99,8 @@ public class ComposeBillingServiceImpl implements ComposeBillingService {
             log.error("合成退款缺少计费快照, userId={}, traceId={}", userId, traceId);
             throw new RuntimeException("退款异常");
         }
-        BigDecimal frozen = nullToZero(snapshot.getFrozenCredits());
+        BigDecimal frozen = BillingConstants.normalizeAccountAmount(
+                nullToZero(snapshot.getFrozenCredits()));
         // 0 金额规则：原冻结为 0 跳过 refund，绝不调用账户执行器、绝不写流水
         if (isZero(frozen)) {
             log.info("合成失败退款原冻结为0,跳过退款, userId={}, traceId={}", userId, traceId);
@@ -124,7 +128,8 @@ public class ComposeBillingServiceImpl implements ComposeBillingService {
         BigDecimal creditPerMinute = unitPrice
                 .multiply(BigDecimal.valueOf(creditRate))
                 .multiply(profit);
-        BigDecimal frozen = computeCredits(estimatedSeconds, creditPerMinute);
+        BigDecimal frozen = BillingConstants.normalizeAccountAmount(
+                computeCredits(estimatedSeconds, creditPerMinute));
 
         ComposeBillingSnapshot snapshot = new ComposeBillingSnapshot();
         snapshot.setResolution(tier);

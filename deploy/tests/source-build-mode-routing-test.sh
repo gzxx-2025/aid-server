@@ -10,6 +10,24 @@ export AID_DATA_ROOT="${TMP_ROOT}/data"
 # shellcheck source=../aid.sh
 source "${ROOT_DIR}/deploy/aid.sh"
 
+# 首次确认文案必须按部署方式区分；非 Docker 不能再误报“拉取 Docker 镜像”。
+RESOLVED_VERSION=1.0.0-test
+RESOLVED_CHANNEL=beta
+AID_ASSUME_YES=1
+dockerConfirmText="$(confirm_first_install docker 2>&1)"
+manualConfirmText="$(confirm_first_install manual 2>&1)"
+grep -Fq 'Docker 部署会拉取所需镜像' <<< "${dockerConfirmText}" \
+  || { echo 'FAIL: Docker first-install notice is inaccurate' >&2; exit 1; }
+grep -Fq '非 Docker 部署会按配置检查或准备宿主机依赖' <<< "${manualConfirmText}" \
+  || { echo 'FAIL: manual first-install notice is missing' >&2; exit 1; }
+grep -Fq '用户端口 : 80' <<< "${manualConfirmText}" \
+  || { echo 'FAIL: manual first-install ports are missing' >&2; exit 1; }
+if grep -Fq '拉取 Docker 镜像' <<< "${manualConfirmText}"; then
+  echo 'FAIL: manual first-install notice mentions Docker image pulling' >&2
+  exit 1
+fi
+unset AID_ASSUME_YES
+
 call_log="${TMP_ROOT}/calls.log"
 docker() {
   printf 'docker %s\n' "$*" >> "${call_log}"

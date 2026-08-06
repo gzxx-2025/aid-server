@@ -24,7 +24,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
@@ -69,7 +68,7 @@ public class BillingFacadeServiceImpl implements BillingFacadeService {
         }
 
         // 计算器已完成：官方原价 × 模型基础倍率 × 单模型倍率。
-        BigDecimal adjustedAmount = calcResult.getAmount().setScale(2, RoundingMode.HALF_UP);
+        BigDecimal adjustedAmount = BillingConstants.normalizeAccountAmount(calcResult.getAmount());
         String meterType = calcResult.getSnapshot() != null ? calcResult.getSnapshot().getMeterType() : "UNKNOWN";
         log.info("预扣计费, model={}, meterType={}, calculated={}, adjusted={}",
                 modelConfig.getModelCode(), meterType, calcResult.getAmount(), adjustedAmount);
@@ -154,7 +153,7 @@ public class BillingFacadeServiceImpl implements BillingFacadeService {
             BillingCalcResult settleCalc = billingAmountCalculator.calculateSettleAmount(
                     preHoldAmount, task.getBillingSnapshotJson(), effectiveUsage);
 
-            BigDecimal actualAmount = settleCalc.getAmount().setScale(2, RoundingMode.HALF_UP);
+            BigDecimal actualAmount = BillingConstants.normalizeAccountAmount(settleCalc.getAmount());
             logTextSettleSummary(task, snapshot, settleCalc, preHoldAmount, actualAmount, effectiveUsage);
 
             // 持久化快照（含textSettleDone审计标记）— 实际金额/退款金额用倍率后值，保证审计口径一致
@@ -415,8 +414,8 @@ public class BillingFacadeServiceImpl implements BillingFacadeService {
         BigDecimal actualAmount = unitPrice
                 .multiply(BigDecimal.valueOf(actualImageCount))
                 .add(inputMediaBase)
-                .multiply(finalMultiplier)
-                .setScale(2, RoundingMode.HALF_UP);
+                .multiply(finalMultiplier);
+        actualAmount = BillingConstants.normalizeAccountAmount(actualAmount);
         if (actualAmount.compareTo(preHoldAmount) > 0) {
             log.info("图片实际金额超过预扣, 按预扣封顶, taskId={}, preHold={}, calc={}",
                     task.getId(), preHoldAmount, actualAmount);

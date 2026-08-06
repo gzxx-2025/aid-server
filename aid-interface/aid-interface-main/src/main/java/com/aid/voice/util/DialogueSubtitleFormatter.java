@@ -27,6 +27,8 @@ import cn.hutool.core.util.StrUtil;
  *       情感/形象标注对观众是噪声，全部剥掉；旁白按角色写法（如 {@code [旁白_初始形象]}）同样输出「旁白：…」；</li>
  *   <li>无角色标记的纯文本段 → 统一输出「旁白：正文」；</li>
  *   <li>{@code @音频N[...]} 占位、{@code 台词：} 前缀、段尾语速标注、正文引号壳统一剥掉；</li>
+ *   <li>真正换行与字面量 {@code \\n} 均按多段解析；{@code 张叔担忧地说："…" [镜头2]} 等自然语言结构
+ *       提取为“张叔：…”，镜头标记不进入字幕；</li>
  *   <li>正文中的中英文标点统一移除，仅保留人物与正文之间的全角冒号；</li>
  *   <li>竖线分隔的多段台词 → 逐段转换后按换行拼接；</li>
  *   <li><strong>幂等</strong>：已是「人物：说的话」时保留人物结构并重新执行展示清洗。</li>
@@ -44,6 +46,25 @@ public final class DialogueSubtitleFormatter
 
     /** 已格式化的“人物：正文”结构。 */
     private static final Pattern DISPLAY_LINE = Pattern.compile("^([^：:\\r\\n]{1,40})[：:](.+)$");
+
+    /** 字面量换行转义：兼容数据库或前端把 {@code \\n}/{@code \\r\\n} 当普通字符保存的历史数据。 */
+    private static final Pattern ESCAPED_LINE_BREAK = Pattern.compile("\\\\r\\\\n|\\\\n|\\\\r");
+
+    /**
+     * 自然语言说话人结构，如“张叔担忧地说：\"正文\" [镜头2]”。
+     * 组1为“人物+语气修饰”，组2为引号内真正台词；语气修饰由下方规则从人物尾部剥离。
+     */
+    private static final Pattern NATURAL_SPEECH_LINE = Pattern.compile(
+            "^([^：:\\r\\n]{1,40}?)(?:说|说道|问|询问|回答|答道|解释|强调|提醒|补充|总结)\\s*[：:]?\\s*"
+                    + "[\\\"“「『](.+?)[\\\"”」』]\\s*(?:[\\[【]\\s*镜头\\s*\\d+\\s*[\\]】])?\\s*$");
+
+    /** 自然语言人物名后的表演/语气描述，字幕只保留人物主名。 */
+    private static final Pattern SPEAKER_MODIFIER_SUFFIX = Pattern.compile(
+            "(?:担忧|焦急|急切|耐心|专业|客观|和蔼|严肃|认真|温和|平静|肯定|清晰|疑惑|关切|郑重|低声|大声|轻声|微笑)(?:地)?$");
+
+    /** 镜头序号是脚本结构标记，不属于观众要看的台词。 */
+    private static final Pattern SHOT_MARKER = Pattern.compile(
+            "\\s*[\\[【]\\s*镜头\\s*\\d+\\s*[\\]】]\\s*$");
 
     /** 成片字幕禁止展示的中英文标点；人名与正文之间的全角冒号由格式化逻辑单独保留。 */
     private static final Pattern SUBTITLE_PUNCTUATION = Pattern.compile(
@@ -65,13 +86,15 @@ public final class DialogueSubtitleFormatter
         {
             return null;
         }
+        // 历史数据可能保存了两个普通字符“\”和“n”，先恢复成真正换行再交给统一分段器。
+        String normalizedText = ESCAPED_LINE_BREAK.matcher(rawText).replaceAll("\n");
         // 「无台词」占位（无/（无）/无台词…）不是字幕正文：返回 null，避免成片烧上"无"字
-        if (DialogueTextSanitizer.isNoDialoguePlaceholder(rawText))
+        if (DialogueTextSanitizer.isNoDialoguePlaceholder(normalizedText))
         {
             return null;
         }
         // 结构化解析：拆段 + 每段解析出角色主名与纯正文（标记/占位/引号壳已剥）
-        List<DialogueSegment> segments = RESOLVER.parse(rawText);
+        List<DialogueSegment> segments = RESOLVER.parse(normalizedText);
         if (CollectionUtil.isEmpty(segments))
         {
             return null;
@@ -94,10 +117,21 @@ public final class DialogueSubtitleFormatter
             }
             else
             {
-                Matcher matcher = DISPLAY_LINE.matcher(segment.getText().trim());
-                String line = matcher.matches()
-                        ? formatCue(matcher.group(1), matcher.group(2))
-                        : formatCue("旁白", segment.getText());
+                String segmentText = segment.getText().trim();
+                Matcher naturalSpeech = NATURAL_SPEECH_LINE.matcher(segmentText);
+                Matcher display = DISPLAY_LINE.matcher(segmentText);
+                String line;
+                if (naturalSpeech.matches())
+                {
+                    String speaker = SPEAKER_MODIFIER_SUFFIX.matcher(naturalSpeech.group(1).trim()).replaceFirst("");
+                    line = formatCue(speaker, naturalSpeech.group(2));
+                }
+                else
+                {
+                    line = display.matches()
+                            ? formatCue(display.group(1), display.group(2))
+                            : formatCue("旁白", segmentText);
+                }
                 if (StrUtil.isNotBlank(line))
                 {
                     lines.add(line);
@@ -141,7 +175,8 @@ public final class DialogueSubtitleFormatter
         {
             return null;
         }
-        String cleaned = SUBTITLE_PUNCTUATION.matcher(text).replaceAll("");
+        String cleaned = SHOT_MARKER.matcher(text).replaceFirst("");
+        cleaned = SUBTITLE_PUNCTUATION.matcher(cleaned).replaceAll("");
         cleaned = cleaned.replaceAll("\\s+", " ").trim();
         return StrUtil.isBlank(cleaned) ? null : cleaned;
     }

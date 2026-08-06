@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.validation.Valid;
 import cn.hutool.core.util.StrUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -32,6 +33,8 @@ import com.aid.aid.domain.vo.AidUserProfileVo;
 import com.aid.aid.service.IAidUserProfileService;
 import com.aid.billing.service.IAccountUpdateService;
 import com.aid.core.service.ISysUserService;
+import com.aid.user.dto.AdminUserCreateRequest;
+import com.aid.user.service.IAdminUserCreateService;
 import com.aid.common.utils.poi.ExcelUtil;
 import com.aid.common.core.page.TableDataInfo;
 
@@ -55,6 +58,10 @@ public class AidUserProfileController extends BaseController
     /** 系统用户服务：复用状态变更 / 逻辑删除能力（sys_user） */
     @Autowired
     private ISysUserService userService;
+
+    /** C 端用户创建服务：统一创建系统账号并初始化用户扩展信息 */
+    @Autowired
+    private IAdminUserCreateService adminUserCreateService;
 
     /** Redis 缓存：用于扫描并清理在线会话 token，实现"踢下线" */
     @Autowired
@@ -248,15 +255,19 @@ public class AidUserProfileController extends BaseController
     }
 
     /**
-     * 新增用户扩展信息
-     * 用户扩展表涉及余额 / 实名，禁止 UI 层手动新增。
+     * 新增 C 端用户。
+     * 邮箱和手机号必须二选一；系统自动生成初始密码，并通过 data 返回一次供管理员复制。
+     * 创建过程复用系统用户服务，事务内同步初始化用户扩展信息、余额和默认会员数据。
+     *
+     * @param request 用户联系方式
+     * @return 用户账号和一次性初始密码
      */
     @PreAuthorize("@ss.hasPermi('aid:extenduserprofile:add')")
-    @Log(title = "用户扩展信息", businessType = BusinessType.INSERT)
+    @Log(title = "新增 C 端用户", businessType = BusinessType.INSERT, isSaveResponseData = false)
     @PostMapping
-    public AjaxResult add(@RequestBody AidUserProfile aidUserProfile)
+    public AjaxResult add(@Valid @RequestBody AdminUserCreateRequest request)
     {
-        return AjaxResult.error(403, "用户扩展信息禁止手动新增");
+        return success(adminUserCreateService.createUser(request, getUsername()));
     }
 
     /**

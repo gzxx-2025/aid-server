@@ -16,7 +16,7 @@ import com.aid.aid.service.IAdminBrandConfigService;
 import com.aid.aid.service.IAidConfigService;
 
 /**
- * 平台品牌配置：从 aid_config(category=admin_brand) 读取平台 LOGO / 页签图标。
+ * 后台平台品牌配置读取服务。
  *
  * @author 视觉AID
  */
@@ -26,6 +26,12 @@ public class AdminBrandConfigServiceImpl implements IAdminBrandConfigService
 {
     /** 配置分类 */
     public static final String CATEGORY = "admin_brand";
+
+    /** 基础配置分类 */
+    public static final String BASIC_CATEGORY = "basic";
+
+    /** SEO 网站名称 */
+    public static final String KEY_SITE_NAME = "site_name";
 
     /** 平台 LOGO */
     public static final String KEY_PLATFORM_LOGO = "platform_logo_url";
@@ -46,6 +52,18 @@ public class AdminBrandConfigServiceImpl implements IAdminBrandConfigService
     public AdminBrandConfigVO getPublicConfig()
     {
         AdminBrandConfigVO vo = new AdminBrandConfigVO();
+        loadBrandImages(vo);
+        loadSiteName(vo);
+        return vo;
+    }
+
+    /**
+     * 读取后台平台品牌图片。
+     *
+     * @param vo 后台平台品牌配置
+     */
+    private void loadBrandImages(AdminBrandConfigVO vo)
+    {
         try
         {
             AidConfig query = new AidConfig();
@@ -54,7 +72,7 @@ public class AdminBrandConfigServiceImpl implements IAdminBrandConfigService
             List<AidConfig> list = aidConfigService.selectAidConfigList(query);
             if (CollectionUtil.isEmpty(list))
             {
-                return vo;
+                return;
             }
             String legacyLoginLogo = "";
             String legacySidebarLogo = "";
@@ -96,6 +114,27 @@ public class AdminBrandConfigServiceImpl implements IAdminBrandConfigService
             // 配置读取失败不影响登录/后台主流程，前端继续用内置默认图
             log.error("读取平台品牌配置异常", e);
         }
-        return vo;
+    }
+
+    /**
+     * 读取 SEO 网站名称作为后台平台名称。
+     *
+     * @param vo 后台平台品牌配置
+     */
+    private void loadSiteName(AdminBrandConfigVO vo)
+    {
+        try
+        {
+            String siteName = StrUtil.trimToEmpty(aidConfigService.getConfigValue(BASIC_CATEGORY, KEY_SITE_NAME));
+            if (StrUtil.isNotBlank(siteName))
+            {
+                vo.setSiteName(siteName);
+            }
+        }
+        catch (Exception e)
+        {
+            // 名称缺失或读取失败时由管理端使用内置名称，不能阻塞登录页加载
+            log.error("读取后台平台名称异常", e);
+        }
     }
 }

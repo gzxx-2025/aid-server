@@ -3,13 +3,16 @@ package com.aid.aid.domain.vo;
 import lombok.Data;
 
 /**
- * 平台品牌图片公开配置。
+ * 后台平台品牌公开配置。
  *
  * @author 视觉AID
  */
 @Data
 public class AdminBrandConfigVO
 {
+    /** 平台名称 */
+    private String siteName;
+
     /** 平台 LOGO 地址 */
     private String platformLogoUrl;
 

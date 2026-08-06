@@ -181,7 +181,7 @@ public class MpsConfigManager {
         properties.setPricingTiers(getCacheValue("pricingTiers", ""));
         properties.setCreditRate(getCacheInt("creditRate", 100));
         properties.setProfitMultiplier(getCacheDecimal("profitMultiplier", new BigDecimal("1.1")));
-        // 字幕渲染配置：字号 + 单屏最大字数（长台词按上限切分为多屏依次显示，按画幅可调）
+        // 字幕渲染配置：字号 + 单屏正文优先上限，最终分屏统一收敛为 7～12 字。
         properties.setSubtitleFontSize(getCacheValue("subtitleFontSize", "5%"));
         properties.setSubtitleMaxChars(getCacheInt("subtitleMaxChars", 10));
         return properties;
