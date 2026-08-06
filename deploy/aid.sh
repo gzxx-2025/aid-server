@@ -4785,7 +4785,9 @@ place_updater_binary() { # place_updater_binary <包根目录>
 # 从已签名官方清单中按宿主机架构取得小型升级器包。这条路径不构建三端，
 # 专用于老环境补装、升级器损坏恢复，以及主程序升级前的升级器优先更新。
 ensure_official_updater_binary() {
-  local platform updaterVersion currentVersion url mirror sha256 archive listFile extractDir source actual
+  local platform updaterVersion currentVersion currentComparison currentBinarySha
+  local recordedVersion recordedPackageSha recordedBinarySha installedBinarySha
+  local url mirror sha256 archive listFile extractDir source actual
   local downloaded="no"
   case "$(uname -m)" in
     x86_64) platform="linux_amd64" ;;
@@ -4803,10 +4805,32 @@ ensure_official_updater_binary() {
     || die "升级器制品与签名清单载荷不一致"
 
   currentVersion="$("${DATA_ROOT}/app/updater/aid-updater" -version 2>/dev/null || true)"
-  if [[ "${currentVersion}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] \
-      && [[ "$(version_compare "${currentVersion}" "${updaterVersion}")" != "-1" ]]; then
-    ok "升级器 ${currentVersion} 已存在且版本符合，跳过下载"
-    return 0
+  if [[ "${currentVersion}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+    currentComparison="$(version_compare "${currentVersion}" "${updaterVersion}")"
+    if [[ "${currentComparison}" == "1" ]]; then
+      ok "本地升级器 ${currentVersion} 高于官方 ${updaterVersion}，保留本地版本且不执行降级"
+      return 0
+    fi
+    if [[ "${currentComparison}" == "0" ]]; then
+      recordedVersion="$(state_get OFFICIAL_UPDATER_VERSION '')"
+      recordedPackageSha="$(state_get OFFICIAL_UPDATER_PACKAGE_SHA256 '' | tr 'A-F' 'a-f')"
+      recordedBinarySha="$(state_get OFFICIAL_UPDATER_BINARY_SHA256 '' | tr 'A-F' 'a-f')"
+      currentBinarySha="$(sha256_file "${DATA_ROOT}/app/updater/aid-updater" 2>/dev/null || true)"
+      if [[ "${recordedVersion}" == "${updaterVersion}" \
+          && "${recordedPackageSha}" == "${sha256}" \
+          && "${recordedBinarySha}" =~ ^[0-9a-f]{64}$ \
+          && "${currentBinarySha}" == "${recordedBinarySha}" ]]; then
+        ok "升级器 ${currentVersion} 与当前签名清单制品一致，跳过下载"
+        return 0
+      fi
+      if [[ -z "${recordedPackageSha}" || -z "${recordedBinarySha}" ]]; then
+        warn "当前升级器缺少官方制品或二进制 SHA256 记录，将安全刷新一次"
+      elif [[ "${currentBinarySha}" != "${recordedBinarySha}" ]]; then
+        warn "当前升级器二进制与受信状态不一致，将重新下载并校验"
+      else
+        warn "官方升级器同版本制品已更新，将重新下载并校验"
+      fi
+    fi
   fi
 
   require_download_tools
@@ -4848,6 +4872,13 @@ ensure_official_updater_binary() {
   currentVersion="$("${DATA_ROOT}/app/updater/aid-updater" -version 2>/dev/null || true)"
   [[ "${currentVersion}" == "${updaterVersion}" ]] \
     || die "升级器二进制版本校验失败"
+  installedBinarySha="$(sha256_file "${DATA_ROOT}/app/updater/aid-updater" 2>/dev/null || true)"
+  [[ "${installedBinarySha}" =~ ^[0-9a-f]{64}$ ]] \
+    || die "升级器二进制 SHA256 计算失败"
+  # 仅在下载、摘要校验、安装、版本和二进制摘要复核全部成功后持久化官方制品身份。
+  state_set OFFICIAL_UPDATER_VERSION "${updaterVersion}"
+  state_set OFFICIAL_UPDATER_PACKAGE_SHA256 "${sha256}"
+  state_set OFFICIAL_UPDATER_BINARY_SHA256 "${installedBinarySha}"
   ok "升级器 ${updaterVersion} 已从官方发布制品安全恢复"
 }
 
