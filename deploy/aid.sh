@@ -3522,6 +3522,42 @@ package_is_source_build() { # package_is_source_build <包>
   tar -xOzf "$1" "${entry}" 2>/dev/null | grep -q '"builtBy"[[:space:]]*:[[:space:]]*"remote-source-build"'
 }
 
+# 只读判断已有源码构建缓存是否符合当前静态 Web 发布契约。此函数不调用 die、
+# 不执行包内脚本，也不修改缓存；严格的路径/类型/权限校验仍由 validate_release_package 完成。
+source_package_cache_matches_current_contract() { # source_package_cache_matches_current_contract <包>
+  local package="$1" listFile entry archEntry=""
+  listFile="$(mktemp)" || return 1
+  if ! tar -tzf "${package}" > "${listFile}" 2>/dev/null; then
+    rm -f -- "${listFile}"
+    return 1
+  fi
+  for entry in \
+      '(^|/)backend/aid-admin\.jar$' \
+      '(^|/)admin-dist/index\.html$' \
+      '(^|/)web-dist/index\.html$' \
+      '(^|/)web-dist/200\.html$' \
+      '(^|/)build-info\.json$' \
+      '(^|/)installer/deploy/aid\.sh$' \
+      '(^|/)installer/deploy/build-release-from-source\.sh$' \
+      '(^|/)installer/deploy/docker/docker-compose\.yml$' \
+      '(^|/)installer/deploy/docker/nginx/web-static\.conf$'; do
+    if ! grep -Eq "${entry}" "${listFile}"; then
+      rm -f -- "${listFile}"
+      return 1
+    fi
+  done
+  case "$(uname -m)" in
+    x86_64) archEntry='(^|/)updater/aid-updater_linux_amd64$' ;;
+    aarch64) archEntry='(^|/)updater/aid-updater_linux_arm64$' ;;
+  esac
+  if [[ -n "${archEntry}" ]] && ! grep -Eq "${archEntry}" "${listFile}"; then
+    rm -f -- "${listFile}"
+    return 1
+  fi
+  rm -f -- "${listFile}"
+  return 0
+}
+
 source_builder_supports_explicit_mode() { # source_builder_supports_explicit_mode <脚本路径>
   local candidate="$1" size
   [[ -f "${candidate}" && ! -L "${candidate}" ]] || return 1
@@ -3656,12 +3692,16 @@ ensure_source_package() {
         && "${owner}" == "0" && "${modeBits}" =~ ^[0-7]+$ ]] \
         && (( (8#${modeBits} & 8#022) == 0 )) \
         && package_is_source_build "${RESOLVED_PACKAGE_PATH}"; then
-      validate_release_package "${RESOLVED_PACKAGE_PATH}" no
-      ok "复用 root 权限保护且校验通过的源码构建包: ${RESOLVED_PACKAGE_PATH}"
-      RESOLVED_PACKAGE_SHA256="${actual}"
-      return 0
+      if source_package_cache_matches_current_contract "${RESOLVED_PACKAGE_PATH}"; then
+        validate_release_package "${RESOLVED_PACKAGE_PATH}" no
+        ok "复用 root 权限保护且校验通过的源码构建包: ${RESOLVED_PACKAGE_PATH}"
+        RESOLVED_PACKAGE_SHA256="${actual}"
+        return 0
+      fi
+      warn "旧缓存结构不兼容，自动删除并重新构建: ${RESOLVED_PACKAGE_PATH}"
+    else
+      risk "源码构建缓存校验或权限不安全，将重新构建，不会使用旧缓存"
     fi
-    risk "源码构建缓存校验或权限不安全，将重新构建，不会使用旧缓存"
     rm -f "${RESOLVED_PACKAGE_PATH}" "${checksumFile}"
   fi
 
@@ -3722,6 +3762,7 @@ deployment_runtime_ready() {
   [[ -f "${SCRIPT_DIR}/aid-deploy.conf.example" \
      && -f "${COMPOSE_DIR}/.env.example" \
      && -f "${COMPOSE_DIR}/docker-compose.yml" \
+     && -f "${COMPOSE_DIR}/nginx/web-static.conf" \
      && -f "${REPO_DIR}/sql/aid-init.sql" ]]
 }
 
@@ -3807,6 +3848,7 @@ extract_installer_from_package() { # extract_installer_from_package <发布包>
   for required in deploy/aid.sh deploy/aid-deploy.conf.example \
       deploy/docker/.env.example deploy/docker/docker-compose.yml \
       deploy/docker/nginx/aid-https.conf.template \
+      deploy/docker/nginx/web-static.conf \
       deploy/docker/rocketmq/broker-entrypoint.sh sql/aid-init.sql; do
     if [[ ! -f "${sourceRoot}/${required}" ]]; then
       rm -rf -- "${extractRoot}"

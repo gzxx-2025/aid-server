@@ -44,4 +44,31 @@ grep -Fq 'try_files $uri $uri/ /200.html;' "${ROOT_DIR}/deploy/docker/nginx/web-
 [[ "$(grep -Fc 'try_files \$uri \$uri/ /200.html;' "${ROOT_DIR}/deploy/aid.sh")" -eq 2 ]] \
   || { echo 'FAIL: manual HTTP and HTTPS Web sites must use Nuxt 200.html fallback' >&2; exit 1; }
 
+# 同版本旧 SSR 缓存必须在严格校验前被识别为不兼容；补齐当前静态入口和
+# 静态容器模板后，才允许进入严格校验与复用路径。
+cache_root="${TMP_ROOT}/cache-package"
+cache_archive="${TMP_ROOT}/aid-v-cache.tar.gz"
+mkdir -p "${cache_root}/backend" "${cache_root}/admin-dist" "${cache_root}/web-dist/server" \
+  "${cache_root}/updater" "${cache_root}/installer/deploy/docker/nginx"
+printf 'jar\n' > "${cache_root}/backend/aid-admin.jar"
+printf '<!doctype html>\n' > "${cache_root}/admin-dist/index.html"
+printf 'export default {}\n' > "${cache_root}/web-dist/server/index.mjs"
+printf '{"builtBy":"remote-source-build"}\n' > "${cache_root}/build-info.json"
+printf 'updater\n' > "${cache_root}/updater/aid-updater_linux_amd64"
+printf 'updater\n' > "${cache_root}/updater/aid-updater_linux_arm64"
+printf '#!/bin/bash\n' > "${cache_root}/installer/deploy/aid.sh"
+printf '#!/bin/sh\n' > "${cache_root}/installer/deploy/build-release-from-source.sh"
+printf 'services: {}\n' > "${cache_root}/installer/deploy/docker/docker-compose.yml"
+(cd "${cache_root}" && tar -czf "${cache_archive}" ./*)
+if source_package_cache_matches_current_contract "${cache_archive}"; then
+  echo 'FAIL: legacy SSR source package cache must be rejected before strict validation' >&2
+  exit 1
+fi
+printf '<!doctype html>\n' > "${cache_root}/web-dist/index.html"
+printf '<!doctype html>\n' > "${cache_root}/web-dist/200.html"
+printf 'server {}\n' > "${cache_root}/installer/deploy/docker/nginx/web-static.conf"
+(cd "${cache_root}" && tar -czf "${cache_archive}" ./*)
+source_package_cache_matches_current_contract "${cache_archive}" \
+  || { echo 'FAIL: current static source package cache should be reusable' >&2; exit 1; }
+
 echo 'source build diagnostics tests passed'
