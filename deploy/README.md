@@ -101,7 +101,7 @@ sudo env AID_REMOTE_BOOTSTRAP=1 AID_RELEASE_CHANNEL=beta bash aid-install.sh upd
  10) 立即备份（数据库+上传文件）
  11) 安装/修复在线升级器
  12) 查看登录地址与数据库初始化账号
- 13) 卸载 AID（可选保留数据或彻底清除）
+ 13) 彻底卸载 AID（删除全部 AID 数据）
  14) 查看 MySQL 数据库连接与账号信息
   0) 退出
 ------------------------------------------------------
@@ -116,7 +116,7 @@ sudo env AID_REMOTE_BOOTSTRAP=1 AID_RELEASE_CHANNEL=beta bash aid-install.sh upd
 - **在线升级器自动安装**：源码构建包内置当前版本升级器二进制，两种部署方式首次部署都会自动装好（Docker 为编排内 `aid-updater` 容器，手动为 systemd 服务），部署完成即可用后台页面一键升级；损坏时菜单 11（或 `sudo aid setup-updater`）会从签名清单下载当前架构的小型升级器并完成健康检查
 - **密钥自动生成**：内置 MySQL 的 root 与业务密码留空时分别生成 12 位字母数字随机值，JWT 密钥仍使用 48 位随机值；外部数据库密码始终由管理员提供，安装器不会擅自改写
 - **受管数据库配置一致性**：Docker 与手动模式都会把内置 MySQL 的库名、root 密码、业务账号、业务密码和授权同步到正式配置，并在启动主程序前回连验证；外部 MySQL 只验证配置中的账号，不修改服务商账号
-- 受管安装器支持统一直通子命令：`sudo aid update` / `backup` / `restart` / `status` / `default` / `mysql` / `logs` / `rollback` / `setup-updater` / `uninstall`，不受当前工作目录影响
+- 受管安装器支持统一直通子命令：`sudo aid update` / `backup` / `restart` / `status` / `default` / `mysql` / `logs` / `rollback` / `setup-updater` / `uninstall` / `uninstall-all`，不受当前工作目录影响
 - 明确授权的无人值守环境可设置 `AID_ASSUME_YES=1` 跳过部署或升级确认；该变量会绕过风险确认，**不要在交互式生产运维中长期配置**
 
 ### 卸载 AID
@@ -127,12 +127,12 @@ Docker 与手动 systemd 部署统一使用：
 sudo aid uninstall
 ```
 
-卸载器提供两种模式：
+卸载器提供两种模式；交互菜单的 **13** 会直接进入彻底清除流程，不再提供“保留数据”的菜单选择：
 
 - `sudo aid uninstall --keep`：停止并删除 AID 容器/systemd 服务、Nginx 站点、升级器和管理入口，但保留 `DATA_ROOT` 下的数据库、上传文件、配置、备份及构建缓存。仍需输入 `y` 确认
-- `sudo aid uninstall --purge`：除上述内容外，永久删除 `DATA_ROOT`、内置 MySQL/Redis/RocketMQ 数据和 AID 自建镜像；必须再次输入完整的 `DELETE-AID`，不接受普通 `y` 或无人值守变量绕过
+- `sudo aid uninstall --purge` 或 `sudo aid uninstall-all`：除上述内容外，永久删除 `DATA_ROOT`、内置 MySQL/Redis/RocketMQ 数据、升级器配置/数据、AID 自建镜像、受管系统账号及已识别的 AID 引导脚本；必须再次输入完整的 `DELETE-AID`，不接受普通 `y` 或 `AID_ASSUME_YES` 绕过
 
-卸载器只操作名称固定的 AID 容器、服务和站点，并在递归删除前拒绝 `/`、`/data`、`/home` 等高风险目录及软链接。它不会执行 Docker prune，不会卸载 Docker/JDK/Nginx/Git 等共享环境，也不会删除外部或用户原有的 MySQL、Redis、RocketMQ、OSS/COS 数据。需要删除外部数据时必须到对应服务单独确认处理。
+彻底清除完成前会核验 `DATA_ROOT`、AID unit/容器、管理命令、升级器目录、受管账号、`aid/*` 镜像与引导脚本均无残留；核验失败会以非零退出且不会报告成功。卸载器只操作名称固定的 AID 容器、服务和站点，并在递归删除前拒绝 `/`、`/data`、`/home` 等高风险目录及软链接。它不会执行 Docker prune，不会卸载 Docker/JDK/Nginx/Git 等共享环境，也不会删除外部或用户原有的 MySQL、Redis、RocketMQ、OSS/COS 数据。需要删除外部数据时必须到对应服务单独确认处理。
 
 ## 本地开发环境（面向开发者）
 
