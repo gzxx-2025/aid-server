@@ -983,30 +983,34 @@ nginx_binary_version() { # nginx_binary_version <二进制路径>
   "$1" -v 2>&1 | sed -nE 's#^nginx version: nginx/([0-9]+(\.[0-9]+)+).*#\1#p'
 }
 
+select_existing_nginx_candidate() { # select_existing_nginx_candidate <二进制路径>
+  local candidate="$1" version
+  [[ -n "${candidate}" && -x "${candidate}" ]] || return 1
+  version="$(nginx_binary_version "${candidate}")"
+  [[ -n "${version}" ]] && version_at_least "${version}" "${NGINX_MIN_VERSION}" || return 1
+  NGINX_BIN="${candidate}"
+  if [[ "${candidate}" == "${NGINX_HOME}/sbin/nginx" ]]; then
+    NGINX_SERVICE="${NGINX_MANAGED_SERVICE}"
+    NGINX_SITE_DIR="${CONFIG_ROOT}/nginx/conf.d"
+  elif [[ "${candidate}" == /www/server/nginx/* ]]; then
+    NGINX_SERVICE="nginx.service"
+    NGINX_SITE_DIR="/www/server/panel/vhost/nginx"
+  else
+    NGINX_SERVICE="nginx.service"
+    NGINX_SITE_DIR="/etc/nginx/conf.d"
+  fi
+  ok "Nginx ${version} 已存在且版本符合，跳过下载和编译: ${candidate}"
+}
+
 select_existing_nginx_runtime() {
-  local candidate version
-  local -a candidates=()
+  local systemNginx=""
   NGINX_HOME="${DATA_ROOT}/runtime/nginx-${NGINX_VERSION}"
-  [[ -x "${NGINX_HOME}/sbin/nginx" ]] && candidates+=("${NGINX_HOME}/sbin/nginx")
-  command -v nginx >/dev/null 2>&1 && candidates+=("$(command -v nginx)")
-  [[ -x /www/server/nginx/sbin/nginx ]] && candidates+=(/www/server/nginx/sbin/nginx)
-  for candidate in "${candidates[@]}"; do
-    version="$(nginx_binary_version "${candidate}")"
-    [[ -n "${version}" ]] && version_at_least "${version}" "${NGINX_MIN_VERSION}" || continue
-    NGINX_BIN="${candidate}"
-    if [[ "${candidate}" == "${NGINX_HOME}/sbin/nginx" ]]; then
-      NGINX_SERVICE="${NGINX_MANAGED_SERVICE}"
-      NGINX_SITE_DIR="${CONFIG_ROOT}/nginx/conf.d"
-    elif [[ "${candidate}" == /www/server/nginx/* ]]; then
-      NGINX_SERVICE="nginx.service"
-      NGINX_SITE_DIR="/www/server/panel/vhost/nginx"
-    else
-      NGINX_SERVICE="nginx.service"
-      NGINX_SITE_DIR="/etc/nginx/conf.d"
-    fi
-    ok "Nginx ${version} 已存在且版本符合，跳过下载和编译: ${candidate}"
-    return 0
-  done
+  select_existing_nginx_candidate "${NGINX_HOME}/sbin/nginx" && return 0
+  systemNginx="$(command -v nginx 2>/dev/null || true)"
+  if [[ -n "${systemNginx}" ]]; then
+    select_existing_nginx_candidate "${systemNginx}" && return 0
+  fi
+  select_existing_nginx_candidate /www/server/nginx/sbin/nginx && return 0
   return 1
 }
 
