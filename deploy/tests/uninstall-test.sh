@@ -145,6 +145,22 @@ else
   printf 'SKIP: filesystem does not provide POSIX symbolic links; symbolic-link safety checks skipped\n' >&2
 fi
 
+# 临时安全脚本的 REPO_DIR 可能解析为 /；根目录绝不能把引导脚本误判为源码。
+prepare_sandbox
+originalRepoDir="${REPO_DIR}"
+REPO_DIR="/"
+remove_aid_bootstrap_scripts
+REPO_DIR="${originalRepoDir}"
+assert_missing "${TMP_ROOT}/root/aid-install.sh"
+
+# 真实项目源码根（.git 或 pom.xml）下的引导脚本仍必须保留。
+prepare_sandbox
+touch "${TMP_ROOT}/root/pom.xml"
+REPO_DIR="${TMP_ROOT}/root"
+remove_aid_bootstrap_scripts
+REPO_DIR="${originalRepoDir}"
+assert_exists "${TMP_ROOT}/root/aid-install.sh"
+
 # keep：保留 DATA_ROOT、升级器数据和受管账号；只撤销运行入口。
 prepare_sandbox
 do_uninstall --keep

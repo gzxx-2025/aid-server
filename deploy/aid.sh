@@ -6449,11 +6449,18 @@ is_recognized_aid_bootstrap() { # is_recognized_aid_bootstrap <absolute path>
   grep -Fq -- "${AID_BOOTSTRAP_MARKER}" "${path}" 2>/dev/null
 }
 
+is_aid_project_source_root() { # is_aid_project_source_root <resolved root>
+  local root="$1"
+  [[ -n "${root}" && "${root}" != "/" && -d "${root}" ]] || return 1
+  [[ -d "${root}/.git" || -f "${root}/pom.xml" ]]
+}
+
 bootstrap_path_is_protected() { # bootstrap_path_is_protected <path>
   local path="$1" resolved repoResolved
   resolved="$(readlink -f -- "${path}" 2>/dev/null || true)"
   repoResolved="$(readlink -f -- "${REPO_DIR}" 2>/dev/null || true)"
   [[ -n "${resolved}" && "${resolved}" == "${SCRIPT_PATH}" ]] && return 0
+  is_aid_project_source_root "${repoResolved}" || return 1
   case "${resolved}" in
     "${repoResolved}"|"${repoResolved}/"*) return 0 ;;
   esac
