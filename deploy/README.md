@@ -130,7 +130,7 @@ sudo aid uninstall
 卸载器提供两种模式；交互菜单的 **13** 会直接进入彻底清除流程，不再提供“保留数据”的菜单选择：
 
 - `sudo aid uninstall --keep`：停止并删除 AID 容器/systemd 服务、Nginx 站点、升级器和管理入口，但保留 `DATA_ROOT` 下的数据库、上传文件、配置、备份及构建缓存。仍需输入 `y` 确认
-- `sudo aid uninstall --purge` 或 `sudo aid uninstall-all`：除上述内容外，永久删除 `DATA_ROOT`、内置 MySQL/Redis/RocketMQ 数据、升级器配置/数据、AID 自建镜像、受管系统账号及已识别的 AID 引导脚本；必须再次输入完整的 `DELETE-AID`，不接受普通 `y` 或 `AID_ASSUME_YES` 绕过
+- `sudo aid uninstall --purge` 或 `sudo aid uninstall-all`：除上述内容外，永久删除 `DATA_ROOT`、内置 MySQL/Redis/RocketMQ 数据、升级器配置/数据、AID 自建镜像、受管系统账号及已识别的 AID 引导脚本；必须输入完整的 `DELETE-AID`，不接受普通 `y` 或 `AID_ASSUME_YES` 绕过
 
 彻底清除完成前会核验 `DATA_ROOT`、AID unit/容器、管理命令、升级器目录、受管账号、`aid/*` 镜像与引导脚本均无残留；核验失败会以非零退出且不会报告成功。卸载器只操作名称固定的 AID 容器、服务和站点，并在递归删除前拒绝 `/`、`/data`、`/home` 等高风险目录及软链接。它不会执行 Docker prune，不会卸载 Docker/JDK/Nginx/Git 等共享环境，也不会删除外部或用户原有的 MySQL、Redis、RocketMQ、OSS/COS 数据。需要删除外部数据时必须到对应服务单独确认处理。
 

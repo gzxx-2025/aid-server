@@ -6245,7 +6245,9 @@ remove_aid_nginx_site() {
     [[ -n "${dir}" ]] || continue
     [[ -d "${dir}" ]] || continue
     rm -f -- "${dir}/aid.conf"
-    find "${dir}" -maxdepth 1 -type f -name 'aid.conf.bak.*' -delete 2>/dev/null || true
+    # 仅在已限定的 AID Nginx 目录中删除精确命名的普通文件或符号链接；
+    # find 默认不跟随链接，不会触及链接目标。
+    find "${dir}" -maxdepth 1 \( -type f -o -type l \) -name 'aid.conf.bak.*' -delete 2>/dev/null || true
   done
   if select_existing_nginx_runtime >/dev/null 2>&1 && "${NGINX_BIN}" -t >/dev/null 2>&1; then
     reload_nginx_runtime >/dev/null 2>&1 || true
@@ -6262,7 +6264,7 @@ aid_nginx_site_residuals_present() {
       err "卸载残留 AID Nginx 配置: ${dir}/aid.conf"
       return 0
     fi
-    backup="$(find "${dir}" -maxdepth 1 -type f -name 'aid.conf.bak.*' -print -quit 2>/dev/null || true)"
+    backup="$(find "${dir}" -maxdepth 1 \( -type f -o -type l \) -name 'aid.conf.bak.*' -print -quit 2>/dev/null || true)"
     if [[ -n "${backup}" ]]; then
       err "卸载残留 AID Nginx 配置备份: ${backup}"
       return 0

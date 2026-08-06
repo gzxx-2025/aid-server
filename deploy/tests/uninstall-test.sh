@@ -86,6 +86,8 @@ prepare_sandbox() {
   if [[ "${SYMLINK_TESTS_SUPPORTED}" == "1" ]]; then
     make_test_symlink "${TMP_ROOT}/root/aid-install.sh" "${TMP_ROOT}/root/aid-link.sh" \
       || fail 'filesystem stopped supporting symbolic links during test'
+    make_test_symlink "${TMP_ROOT}/nginx/conf.d/aid.conf" "${TMP_ROOT}/nginx/conf.d/aid.conf.bak.link" \
+      || fail 'filesystem stopped supporting symbolic links during test'
   fi
   FAKE_AID_ACCOUNTS=1
   unset MOCK_ASK_VALUE AID_UNINSTALL_SAFE_REEXEC
@@ -103,6 +105,7 @@ assert_source_pattern() {
 assert_source_pattern '^[[:space:]]*13\)[[:space:]]*do_uninstall_all[[:space:]]*\|\|[[:space:]]*true[[:space:]]*;;' 'menu 13 -> do_uninstall_all'
 assert_source_pattern '^[[:space:]]*uninstall-all\)[[:space:]]*do_uninstall_all;[[:space:]]*exit[[:space:]]*\$\?[[:space:]]*;;' 'uninstall-all -> do_uninstall_all'
 assert_source_pattern 'env AID_SH_LIBRARY_MODE=0 AID_UNINSTALL_SAFE_REEXEC=1 bash' 'safe reexec route'
+assert_source_pattern '-type f -o -type l' 'Nginx backup symlink cleanup and verification'
 if grep -Fq 'AID_UNINSTALL_SAFE_CONFIRMED' "${ROOT_DIR}/deploy/aid.sh"; then
   fail 'purge confirmation must not be bypassed through an environment flag'
 fi
@@ -163,6 +166,9 @@ assert_missing "${AID_LOCAL_BIN_DIR}/aid-updater"
 assert_missing "${UPDATER_CONFIG_DIR}"
 assert_missing "${UPDATER_DATA_DIR}"
 assert_missing "${TMP_ROOT}/nginx/conf.d/aid.conf"
+if [[ "${SYMLINK_TESTS_SUPPORTED}" == "1" ]]; then
+  assert_missing "${TMP_ROOT}/nginx/conf.d/aid.conf.bak.link"
+fi
 assert_missing "${TMP_ROOT}/root/aid-install.sh"
 assert_exists "${TMP_ROOT}/root/aid.sh"
 if [[ "${SYMLINK_TESTS_SUPPORTED}" == "1" ]]; then
