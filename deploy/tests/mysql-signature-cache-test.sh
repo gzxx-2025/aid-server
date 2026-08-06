@@ -53,4 +53,12 @@ verify_mysql_archive_signature "${archive}" "$(basename "${archive}")" "${cacheD
 [[ "${SIGNATURE_DOWNLOADS}" == "1" ]] \
   || { echo 'FAIL: invalid cached MySQL signature must be downloaded exactly once' >&2; exit 1; }
 
-echo 'MySQL signature cache recovery tests passed'
+KEY_DOWNLOADS=0
+SIGNATURE_DOWNLOADS=0
+verify_mysql_archive_signature "${archive}" "$(basename "${archive}")" "${cacheDir}" >/dev/null
+[[ "${KEY_DOWNLOADS}" == "0" ]] \
+  || { echo 'FAIL: verified MySQL key cache must be reused without downloading' >&2; exit 1; }
+[[ "${SIGNATURE_DOWNLOADS}" == "0" ]] \
+  || { echo 'FAIL: verified MySQL signature cache must be reused without downloading' >&2; exit 1; }
+
+echo 'MySQL signature cache recovery and reuse tests passed'

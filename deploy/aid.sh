@@ -2329,17 +2329,61 @@ file_digest_matches() { # file_digest_matches <文件> <sha256|sha512|md5> <固�
   [[ "${actual,,}" == "${expected}" ]]
 }
 
+download_with_curl_ipv4_fallback() { # <URL> <目标文件> <是否断点续传> <名称>
+  local url="$1" output="$2" resume="${3:-no}" label="$4" curlCode=0
+  local minSpeed="${DOWNLOAD_MIN_SPEED_BYTES}" lowSpeedSeconds="${DOWNLOAD_LOW_SPEED_SECONDS}"
+  local -a curlArgs=()
+  [[ "${minSpeed}" =~ ^[0-9]+$ ]] || minSpeed=32768
+  [[ "${lowSpeedSeconds}" =~ ^[0-9]+$ ]] || lowSpeedSeconds=30
+  curlArgs=(--fail --location --retry 3 --retry-delay 2 --connect-timeout 15
+    --max-time "${DOWNLOAD_TIMEOUT_SECONDS}" --speed-limit "${minSpeed}"
+    --speed-time "${lowSpeedSeconds}" --proto '=https' --tlsv1.2 --progress-bar)
+  if [[ "${resume}" == "yes" ]]; then
+    curl "${curlArgs[@]}" --continue-at - --output "${output}" "${url}" || curlCode=$?
+  else
+    curl "${curlArgs[@]}" --output "${output}" "${url}" || curlCode=$?
+  fi
+  (( curlCode == 0 )) && return 0
+  # 33/36 表示服务端不支持 Range；调用方会清除 .part 后按原逻辑重试完整文件。
+  if [[ "${resume}" == "yes" ]] && (( curlCode == 33 || curlCode == 36 )); then
+    return "${curlCode}"
+  fi
+  warn "${label} 默认网络连接失败（curl ${curlCode}），正在强制 IPv4 重试"
+  curlCode=0
+  if [[ "${resume}" == "yes" ]]; then
+    curl "${curlArgs[@]}" --ipv4 --continue-at - --output "${output}" "${url}" || curlCode=$?
+  else
+    curl "${curlArgs[@]}" --ipv4 --output "${output}" "${url}" || curlCode=$?
+  fi
+  return "${curlCode}"
+}
+
+download_with_wget_ipv4_fallback() { # <URL> <目标文件> <是否断点续传> <名称>
+  local url="$1" output="$2" resume="${3:-no}" label="$4" wgetCode=0
+  local -a wgetArgs=()
+  # wget 必须具备 HTTPS-only 与 TLS 1.2 强制能力，不能因为切换下载工具而降低传输安全。
+  if ! wget --help 2>&1 | grep -Fq -- '--https-only' \
+      || ! wget --help 2>&1 | grep -Fq -- '--secure-protocol'; then
+    err "当前 wget 不支持 HTTPS/TLS 安全下载参数"
+    return 1
+  fi
+  wgetArgs=(--https-only --secure-protocol=TLSv1_2 --tries=3 --waitretry=2 --timeout=15)
+  [[ "${resume}" == "yes" ]] && wgetArgs+=(--continue)
+  wget "${wgetArgs[@]}" --output-document="${output}" "${url}" || wgetCode=$?
+  (( wgetCode == 0 )) && return 0
+  warn "${label} 默认网络连接失败（wget ${wgetCode}），正在强制 IPv4 重试"
+  wgetCode=0
+  wget "${wgetArgs[@]}" --inet4-only --output-document="${output}" "${url}" || wgetCode=$?
+  return "${wgetCode}"
+}
+
 try_download() { # try_download <URL> <目标文件> <名称> [摘要算法] [固定摘要]
   local url="$1" target="$2" label="$3" algorithm="${4:-}" expected="${5:-}"
-  local part="${2}.part" currentSize=0 curlCode=0 minSpeed="${DOWNLOAD_MIN_SPEED_BYTES}"
-  local lowSpeedSeconds="${DOWNLOAD_LOW_SPEED_SECONDS}"
-  local -a curlArgs=()
+  local part="${2}.part" currentSize=0 downloadCode=0 downloadClient=""
   case "${url}" in
     https://*) ;;
     *) err "拒绝非 HTTPS 下载地址: ${url}"; return 1 ;;
   esac
-  [[ "${minSpeed}" =~ ^[0-9]+$ ]] || minSpeed=32768
-  [[ "${lowSpeedSeconds}" =~ ^[0-9]+$ ]] || lowSpeedSeconds=30
   if [[ -n "${algorithm}" && -n "${expected}" ]] && file_digest_matches "${target}" "${algorithm}" "${expected}"; then
     ok "${label} 完整缓存校验通过，跳过下载: ${target}"
     return 0
@@ -2349,25 +2393,38 @@ try_download() { # try_download <URL> <目标文件> <名称> [摘要算法] [�
     ok "${label} 未完成缓存实际已完整，经摘要校验后直接复用"
     return 0
   fi
-  curlArgs=(--fail --location --retry 3 --retry-delay 2 --connect-timeout 15
-    --max-time "${DOWNLOAD_TIMEOUT_SECONDS}" --speed-limit "${minSpeed}"
-    --speed-time "${lowSpeedSeconds}" --proto '=https' --tlsv1.2 --progress-bar)
+  if command -v curl >/dev/null 2>&1; then
+    downloadClient="curl"
+  elif command -v wget >/dev/null 2>&1; then
+    downloadClient="wget"
+  else
+    err "缺少 HTTPS 下载工具（curl/wget）"
+    return 1
+  fi
   log "${C_BLUE}下载 ${label}${C_RESET}"
   echo "  ${url}"
   if [[ -s "${part}" ]]; then
     currentSize="$(wc -c < "${part}" | tr -d '[:space:]')"
     warn "发现 ${label} 未完成缓存（${currentSize:-0} 字节），从断点继续；切换镜像不会从 0 开始"
-    curl "${curlArgs[@]}" --continue-at - --output "${part}" "${url}" || curlCode=$?
-    if (( curlCode == 33 || curlCode == 36 )); then
+    if [[ "${downloadClient}" == "curl" ]]; then
+      download_with_curl_ipv4_fallback "${url}" "${part}" yes "${label}" || downloadCode=$?
+    else
+      download_with_wget_ipv4_fallback "${url}" "${part}" yes "${label}" || downloadCode=$?
+    fi
+    if [[ "${downloadClient}" == "curl" ]] && (( downloadCode == 33 || downloadCode == 36 )); then
       warn "当前地址不支持断点续传，清理未完成缓存后从该地址重新下载"
       rm -f -- "${part}"
-      curlCode=0
-      curl "${curlArgs[@]}" --output "${part}" "${url}" || curlCode=$?
+      downloadCode=0
+      download_with_curl_ipv4_fallback "${url}" "${part}" no "${label}" || downloadCode=$?
     fi
   else
-    curl "${curlArgs[@]}" --output "${part}" "${url}" || curlCode=$?
+    if [[ "${downloadClient}" == "curl" ]]; then
+      download_with_curl_ipv4_fallback "${url}" "${part}" no "${label}" || downloadCode=$?
+    else
+      download_with_wget_ipv4_fallback "${url}" "${part}" no "${label}" || downloadCode=$?
+    fi
   fi
-  if (( curlCode != 0 )); then
+  if (( downloadCode != 0 )); then
     [[ ! -s "${part}" ]] || warn "下载中断，已保留断点文件: ${part}"
     return 1
   fi
