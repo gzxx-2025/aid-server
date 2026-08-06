@@ -135,6 +135,20 @@ public class ExportSubtitleAlignmentServiceImpl implements ExportSubtitleAlignme
         group.setSubtitle(formattedDialogue);
 
         String mediaFingerprint = currentFingerprint(group, selectedVideos);
+        TimelineSubtitleItem timelineSubtitle = Objects.isNull(segment) ? null : segment.getSubtitle();
+        boolean textFallbackReusable = Objects.nonNull(timelineSubtitle)
+                && Objects.equals(timelineSubtitle.getRecognitionStatus(), SubtitleRecognitionStatus.TEXT_FALLBACK)
+                && StrUtil.isNotBlank(mediaFingerprint)
+                && Objects.equals(mediaFingerprint, timelineSubtitle.getSourceMediaFingerprint())
+                && Objects.equals(dialogueFingerprint(formattedDialogue),
+                timelineSubtitle.getSourceDialogueFingerprint())
+                && Objects.equals(providerCode, timelineSubtitle.getRecognitionProvider());
+        if (textFallbackReusable) {
+            group.setSubtitleCues(null);
+            group.setSubtitleSourceMediaFingerprint(mediaFingerprint);
+            writeTimelineSubtitle(segment, formattedDialogue, null, mediaFingerprint);
+            return AlignmentDecision.REUSABLE;
+        }
         boolean cuesReusable = CollectionUtil.isNotEmpty(group.getSubtitleCues())
                 && StrUtil.isNotBlank(mediaFingerprint)
                 && Objects.equals(mediaFingerprint, group.getSubtitleSourceMediaFingerprint());
@@ -214,7 +228,8 @@ public class ExportSubtitleAlignmentServiceImpl implements ExportSubtitleAlignme
 
         // 音源存在但没有可识别人声时保留原台词且不生成伪造时间戳，核心合成会沿用兼容文本排布。
         if (CollectionUtil.isEmpty(rawCues)) {
-            fallbackToTextTiming(group, segment);
+            fallbackToTextTiming(group, segment, currentFingerprint(group, selectedVideos),
+                    client.providerCode());
             return;
         }
 
@@ -223,7 +238,8 @@ public class ExportSubtitleAlignmentServiceImpl implements ExportSubtitleAlignme
         if (CollectionUtil.isEmpty(matchedCues)) {
             log.warn("导出分镜字幕匹配结果为空,改用文本时长排布, storyboardId={}",
                     group.getStoryboardId());
-            fallbackToTextTiming(group, segment);
+            fallbackToTextTiming(group, segment, currentFingerprint(group, selectedVideos),
+                    client.providerCode());
             return;
         }
 
@@ -240,9 +256,17 @@ public class ExportSubtitleAlignmentServiceImpl implements ExportSubtitleAlignme
     }
 
     /** 清除识别中的临时状态，保留台词给核心合成按当前分镜时长兼容排布。 */
-    private void fallbackToTextTiming(ComposeGroupDto group, TimelineSegment segment) {
+    private void fallbackToTextTiming(ComposeGroupDto group, TimelineSegment segment,
+                                      String mediaFingerprint, String providerCode) {
         clearTimedAlignment(group, segment.getSubtitle());
-        writeTimelineSubtitle(segment, group.getSubtitle(), null, null);
+        group.setSubtitleSourceMediaFingerprint(mediaFingerprint);
+        writeTimelineSubtitle(segment, group.getSubtitle(), null, mediaFingerprint);
+        TimelineSubtitleItem subtitle = ensureSubtitle(segment);
+        subtitle.setSourceDialogueFingerprint(dialogueFingerprint(group.getSubtitle()));
+        subtitle.setRecognitionStatus(SubtitleRecognitionStatus.TEXT_FALLBACK);
+        subtitle.setRecognitionProvider(providerCode);
+        subtitle.setRecognitionUpdatedAt(DateUtil.now());
+        subtitle.setRecognitionError(null);
     }
 
     private void appendWithOffset(List<TimedSubtitleCue> target, List<TimedSubtitleCue> source, double offset) {

@@ -107,30 +107,72 @@ public class ComposeResultListener {
             log.warn("COMPOSE 接口2 回写缺少 callbackRecordId, taskId={}", task.getId());
             return;
         }
-        // 查询字段精简：槽位判定只需归属字段（新增使用字段时此处必须同步补充）
+        // 查询字段精简：成片槽位、指纹和当前任务令牌用于回调幂等及陈旧任务隔离。
         AidEpisodeEditor editor = aidEpisodeEditorMapper.selectOne(new LambdaQueryWrapper<AidEpisodeEditor>()
-                .select(AidEpisodeEditor::getId, AidEpisodeEditor::getProjectId, AidEpisodeEditor::getEpisodeId)
+                .select(AidEpisodeEditor::getId, AidEpisodeEditor::getProjectId, AidEpisodeEditor::getEpisodeId,
+                        AidEpisodeEditor::getFinalVideoUrl, AidEpisodeEditor::getFinalVideoFingerprint,
+                        AidEpisodeEditor::getPendingVideoUrl, AidEpisodeEditor::getPendingVideoFingerprint,
+                        AidEpisodeEditor::getExportStatus, AidEpisodeEditor::getExportTaskId,
+                        AidEpisodeEditor::getExportFingerprint)
                 .eq(AidEpisodeEditor::getId, task.getCallbackRecordId())
                 .last("LIMIT 1"));
-        // 审核中/已过审内容重新导出：新片入待审槽，公开展示的旧片不受影响
-        boolean toPendingSlot = Objects.nonNull(editor) && isContentInAuditFlow(editor);
+        if (Objects.isNull(editor)) {
+            log.warn("COMPOSE 接口2 回写记录不存在, taskId={}, episodeEditorId={}",
+                    task.getId(), task.getCallbackRecordId());
+            return;
+        }
+        if (!Objects.equals(String.valueOf(task.getId()), editor.getExportTaskId())) {
+            log.warn("COMPOSE 接口2 陈旧任务回写已忽略, taskId={}, episodeEditorId={}, activeTaskId={}",
+                    task.getId(), editor.getId(), editor.getExportTaskId());
+            return;
+        }
+        Integer contentStatus = resolveContentStatus(editor);
+        String exportFingerprint = editor.getExportFingerprint();
 
         LambdaUpdateWrapper<AidEpisodeEditor> update = new LambdaUpdateWrapper<>();
-        update.eq(AidEpisodeEditor::getId, task.getCallbackRecordId());
-        if (toPendingSlot) {
+        update.eq(AidEpisodeEditor::getId, editor.getId());
+        update.eq(AidEpisodeEditor::getExportTaskId, String.valueOf(task.getId()));
+        update.eq(AidEpisodeEditor::getExportStatus, ComposeConstants.EXPORT_STATUS_COMPOSING);
+        String slot;
+        if (isAuditing(contentStatus)) {
+            // 审核候选提交后不可变：竞态完成的新任务只收口导出状态，不覆盖正在审核的槽位。
+            String auditedFingerprint = StrUtil.isNotBlank(editor.getPendingVideoUrl())
+                    ? editor.getPendingVideoFingerprint() : editor.getFinalVideoFingerprint();
+            update.set(AidEpisodeEditor::getExportFingerprint, auditedFingerprint);
+            slot = "ignored-auditing";
+            log.warn("COMPOSE 审核中候选快照受保护, taskId={}, episodeEditorId={}",
+                    task.getId(), editor.getId());
+        } else if (isAuditPassed(contentStatus)
+                && StrUtil.isNotBlank(editor.getFinalVideoFingerprint())
+                && Objects.equals(exportFingerprint, editor.getFinalVideoFingerprint())) {
+            // 已过审内容相同，不制造待审槽，也不会再次触发审核。
+            update.set(AidEpisodeEditor::getPendingVideoUrl, null);
+            update.set(AidEpisodeEditor::getPendingVideoFingerprint, null);
+            slot = "reused-final";
+        } else if (isAuditPassed(contentStatus)) {
             update.set(AidEpisodeEditor::getPendingVideoUrl, task.getOssUrl());
+            update.set(AidEpisodeEditor::getPendingVideoFingerprint, exportFingerprint);
+            slot = "pending";
         } else {
             update.set(AidEpisodeEditor::getFinalVideoUrl, task.getOssUrl());
+            update.set(AidEpisodeEditor::getFinalVideoFingerprint, exportFingerprint);
             // 覆盖 final 时清残留待审片，避免陈旧 pending 误触发"待重审"提示
             update.set(AidEpisodeEditor::getPendingVideoUrl, null);
+            update.set(AidEpisodeEditor::getPendingVideoFingerprint, null);
+            slot = "final";
         }
         update.set(AidEpisodeEditor::getExportStatus, ComposeConstants.EXPORT_STATUS_SUCCESS);
         update.set(AidEpisodeEditor::getExportProgress, 100);
         update.set(AidEpisodeEditor::getErrorMsg, null);
         update.set(AidEpisodeEditor::getUpdateTime, new Date());
-        aidEpisodeEditorMapper.update(null, update);
+        int updated = aidEpisodeEditorMapper.update(null, update);
+        if (updated != 1) {
+            log.warn("COMPOSE 接口2 回写状态已变化, taskId={}, episodeEditorId={}",
+                    task.getId(), editor.getId());
+            return;
+        }
         log.info("COMPOSE 接口2 成片回写完成, taskId={}, episodeEditorId={}, slot={}",
-                task.getId(), task.getCallbackRecordId(), toPendingSlot ? "pending" : "final");
+                task.getId(), task.getCallbackRecordId(), slot);
         // 成片已生成：项目/剧集状态从草稿/制作中联动为「完成(2)」可提审（条件更新，审核流程中的状态不受影响）
         markAuditableAfterExport(task.getCallbackRecordId());
     }
@@ -143,35 +185,32 @@ public class ComposeResultListener {
      * @param editor 剪辑记录（含归属）
      * @return true=审核中或已过审
      */
-    private boolean isContentInAuditFlow(AidEpisodeEditor editor) {
+    private Integer resolveContentStatus(AidEpisodeEditor editor) {
         if (Objects.isNull(editor.getProjectId()) || Objects.isNull(editor.getEpisodeId())) {
-            return false;
+            return null;
         }
-        try {
-            if (Objects.equals(editor.getEpisodeId(), MOVIE_EPISODE_ID)) {
-                // 查询字段精简：仅需状态（新增使用字段时此处必须同步补充）
-                AidComicProject project = aidComicProjectService.getOne(Wrappers.<AidComicProject>lambdaQuery()
-                        .select(AidComicProject::getId, AidComicProject::getStatus)
-                        .eq(AidComicProject::getId, editor.getProjectId())
-                        .eq(AidComicProject::getDelFlag, DEL_FLAG_NORMAL)
-                        .last("LIMIT 1"));
-                return Objects.nonNull(project)
-                        && (Objects.equals(project.getStatus(), ProjectStatusEnum.AUDITING.getValue())
-                        || Objects.equals(project.getStatus(), ProjectStatusEnum.AUDIT_PASSED.getValue()));
-            }
-            AidComicEpisode episode = aidComicEpisodeService.getOne(Wrappers.<AidComicEpisode>lambdaQuery()
-                    .select(AidComicEpisode::getId, AidComicEpisode::getStatus)
-                    .eq(AidComicEpisode::getId, editor.getEpisodeId())
-                    .eq(AidComicEpisode::getDelFlag, DEL_FLAG_NORMAL)
+        if (Objects.equals(editor.getEpisodeId(), MOVIE_EPISODE_ID)) {
+            AidComicProject project = aidComicProjectService.getOne(Wrappers.<AidComicProject>lambdaQuery()
+                    .select(AidComicProject::getId, AidComicProject::getStatus)
+                    .eq(AidComicProject::getId, editor.getProjectId())
+                    .eq(AidComicProject::getDelFlag, DEL_FLAG_NORMAL)
                     .last("LIMIT 1"));
-            return Objects.nonNull(episode)
-                    && (Objects.equals(episode.getStatus(), EpisodeStatusEnum.AUDITING.getValue())
-                    || Objects.equals(episode.getStatus(), EpisodeStatusEnum.AUDIT_PASSED.getValue()));
-        } catch (Exception ex) {
-            // 判定异常按"未进入审核流程"处理（写 final 槽），保持导出主链路可用
-            log.error("COMPOSE 槽位判定异常, editorId={}", editor.getId(), ex);
-            return false;
+            return Objects.isNull(project) ? null : project.getStatus();
         }
+        AidComicEpisode episode = aidComicEpisodeService.getOne(Wrappers.<AidComicEpisode>lambdaQuery()
+                .select(AidComicEpisode::getId, AidComicEpisode::getStatus)
+                .eq(AidComicEpisode::getId, editor.getEpisodeId())
+                .eq(AidComicEpisode::getDelFlag, DEL_FLAG_NORMAL)
+                .last("LIMIT 1"));
+        return Objects.isNull(episode) ? null : episode.getStatus();
+    }
+
+    private boolean isAuditing(Integer contentStatus) {
+        return Objects.equals(contentStatus, ProjectStatusEnum.AUDITING.getValue());
+    }
+
+    private boolean isAuditPassed(Integer contentStatus) {
+        return Objects.equals(contentStatus, ProjectStatusEnum.AUDIT_PASSED.getValue());
     }
 
     /**

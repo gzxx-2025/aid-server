@@ -200,7 +200,7 @@ public class SystemUpgradeServiceImpl implements ISystemUpgradeService {
     @Override
     public DeploymentConfigVo getDeploymentConfig() {
         UpdaterStatusVo updater = updaterClient.detect();
-        if (!updater.isReady() || Objects.isNull(updater.getDeploymentConfig())) {
+        if (Objects.isNull(updater.getDeploymentConfig())) {
             log.error("读取部署配置失败, 升级器状态={}, protocol={}", updater.getStatus(), updater.getProtocolVersion());
             throw new ServiceException("部署配置不可用");
         }

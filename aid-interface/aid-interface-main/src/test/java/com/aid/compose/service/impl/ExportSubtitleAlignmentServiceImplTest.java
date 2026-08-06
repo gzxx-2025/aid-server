@@ -129,7 +129,15 @@ class ExportSubtitleAlignmentServiceImplTest {
         assertNull(group.getSubtitleCues());
         assertEquals("甲：没有识别到人声", segment.getSubtitle().getText());
         assertNull(segment.getSubtitle().getCues());
-        assertNull(segment.getSubtitle().getRecognitionStatus());
+        assertEquals(SubtitleRecognitionStatus.TEXT_FALLBACK,
+                segment.getSubtitle().getRecognitionStatus());
+        assertEquals("tencent_asr", segment.getSubtitle().getRecognitionProvider());
+        assertEquals(group.getSubtitleSourceMediaFingerprint(),
+                segment.getSubtitle().getSourceMediaFingerprint());
+
+        assertEquals(0, service.countRequired(List.of(group), List.of(segment), Map.of()));
+        service.align(List.of(group), List.of(segment), Map.of(), null, null, null);
+        assertEquals(1, calls.get());
     }
 
     @Test

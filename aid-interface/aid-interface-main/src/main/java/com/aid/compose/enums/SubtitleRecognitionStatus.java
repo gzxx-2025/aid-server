@@ -13,6 +13,9 @@ public enum SubtitleRecognitionStatus {
     /** 当前识别来源的精确字幕已完整写入。 */
     COMPLETED,
 
+    /** 当前音源未识别到可用人声，已稳定回落为文本时长排布。 */
+    TEXT_FALLBACK,
+
     /** 当前分镜识别失败，下次导出需要重试。 */
     FAILED
 }

@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"syscall"
 	"time"
+	// 内嵌时区数据，确保精简 Docker 镜像中的 TZ=Asia/Shanghai 同样生效。
+	_ "time/tzdata"
 
 	"aid-updater/internal/config"
 	"aid-updater/internal/health"

@@ -3063,7 +3063,9 @@ prepare_exact_node() {
       # unofficial-builds 项目在 glibc 2.17 上构建的同版本产物；国内地址只做
       # 字节镜像，最终仍以该项目发布的固定 SHA256 为信任边界。
       officialUrl="https://unofficial-builds.nodejs.org/download/release/v${NODE_VERSION}/${name}"
-      cnUrl="https://gitee.com/gzxx-2025/aid-server/releases/download/toolchain-node-v${NODE_VERSION}/${name}"
+      # 国内兼容包固定随首个采用该工具链的正式 AID Release 发布，避免为了工具链
+      # 暴露额外 Git Tag；内容仍以 Node.js unofficial-builds 固定 SHA256 为信任边界。
+      cnUrl="https://gitee.com/gzxx-2025/aid-server/releases/download/v1.0.0-beta.2/${name}"
       warn "检测到 glibc ${glibcVersion}，将使用 Node.js ${NODE_VERSION} 的 glibc 2.17 兼容构建"
     else
       officialUrl="https://nodejs.org/dist/v${NODE_VERSION}/${name}"
@@ -3678,31 +3680,53 @@ source_build_failure_diagnostics() { # source_build_failure_diagnostics <构建�
 ensure_source_package() {
   mkdir -p "${DATA_ROOT}/packages"
   RESOLVED_PACKAGE_PATH="${DATA_ROOT}/packages/aid-v${RESOLVED_VERSION}.tar.gz"
-  local sourceBuildMode builder actual checksumFile ownerMode owner modeBits buildLog buildStamp
+  local sourceBuildMode builder actual checksumFile manifestFingerprintFile currentManifestFingerprint
+  local ownerMode owner modeBits fingerprintOwnerMode fingerprintOwner fingerprintModeBits buildLog buildStamp
   local -a buildStatuses
   require_source_build_mode
   sourceBuildMode="${AID_SOURCE_BUILD_MODE}"
   checksumFile="${RESOLVED_PACKAGE_PATH}.sha256"
-  if [[ -f "${RESOLVED_PACKAGE_PATH}" && -f "${checksumFile}" && "${AID_FORCE_SOURCE_REBUILD:-0}" != "1" ]]; then
-    actual="$(sha256_file "${RESOLVED_PACKAGE_PATH}" || true)"
-    ownerMode="$(stat -c '%u:%a' "${RESOLVED_PACKAGE_PATH}" 2>/dev/null || true)"
-    owner="${ownerMode%%:*}"
-    modeBits="${ownerMode#*:}"
-    if [[ "${actual}" == "$(awk '{print tolower($1)}' "${checksumFile}" 2>/dev/null)" \
-        && "${owner}" == "0" && "${modeBits}" =~ ^[0-7]+$ ]] \
-        && (( (8#${modeBits} & 8#022) == 0 )) \
-        && package_is_source_build "${RESOLVED_PACKAGE_PATH}"; then
-      if source_package_cache_matches_current_contract "${RESOLVED_PACKAGE_PATH}"; then
-        validate_release_package "${RESOLVED_PACKAGE_PATH}" no
-        ok "复用 root 权限保护且校验通过的源码构建包: ${RESOLVED_PACKAGE_PATH}"
-        RESOLVED_PACKAGE_SHA256="${actual}"
-        return 0
+  manifestFingerprintFile="${RESOLVED_PACKAGE_PATH}.manifest.sha256"
+  [[ -f "${RESOLVED_MANIFEST_PATH:-}" && ! -L "${RESOLVED_MANIFEST_PATH}" ]] \
+    || die "官方版本清单不可用，拒绝复用或生成源码构建包"
+  currentManifestFingerprint="$(sha256_file "${RESOLVED_MANIFEST_PATH}" || true)"
+  [[ "${currentManifestFingerprint}" =~ ^[0-9a-f]{64}$ ]] \
+    || die "无法计算官方版本清单 SHA256"
+
+  if [[ -e "${RESOLVED_PACKAGE_PATH}" || -e "${checksumFile}" || -e "${manifestFingerprintFile}" ]]; then
+    if [[ -f "${RESOLVED_PACKAGE_PATH}" && -f "${checksumFile}" && -f "${manifestFingerprintFile}" \
+        && "${AID_FORCE_SOURCE_REBUILD:-0}" != "1" ]]; then
+      actual="$(sha256_file "${RESOLVED_PACKAGE_PATH}" || true)"
+      ownerMode="$(stat -c '%u:%a' "${RESOLVED_PACKAGE_PATH}" 2>/dev/null || true)"
+      owner="${ownerMode%%:*}"
+      modeBits="${ownerMode#*:}"
+      fingerprintOwnerMode="$(stat -c '%u:%a' "${manifestFingerprintFile}" 2>/dev/null || true)"
+      fingerprintOwner="${fingerprintOwnerMode%%:*}"
+      fingerprintModeBits="${fingerprintOwnerMode#*:}"
+      if [[ "${actual}" == "$(awk '{print tolower($1)}' "${checksumFile}" 2>/dev/null)" \
+          && "${currentManifestFingerprint}" == "$(awk 'NR == 1 {print tolower($1)}' "${manifestFingerprintFile}" 2>/dev/null)" \
+          && "${owner}" == "0" && "${modeBits}" =~ ^[0-7]+$ \
+          && "${fingerprintOwner}" == "0" && "${fingerprintModeBits}" == "600" ]] \
+          && (( (8#${modeBits} & 8#022) == 0 )) \
+          && package_is_source_build "${RESOLVED_PACKAGE_PATH}"; then
+        if source_package_cache_matches_current_contract "${RESOLVED_PACKAGE_PATH}"; then
+          validate_release_package "${RESOLVED_PACKAGE_PATH}" no
+          ok "复用与当前签名清单一致且校验通过的源码构建包: ${RESOLVED_PACKAGE_PATH}"
+          RESOLVED_PACKAGE_SHA256="${actual}"
+          return 0
+        fi
+        warn "旧缓存结构不兼容，自动删除并重新构建: ${RESOLVED_PACKAGE_PATH}"
+      elif [[ "${currentManifestFingerprint}" != "$(awk 'NR == 1 {print tolower($1)}' "${manifestFingerprintFile}" 2>/dev/null)" ]]; then
+        warn "官方版本清单已更新，自动淘汰同版本源码构建缓存"
+      else
+        risk "源码构建缓存校验、清单指纹或权限不安全，将重新构建，不会使用旧缓存"
       fi
-      warn "旧缓存结构不兼容，自动删除并重新构建: ${RESOLVED_PACKAGE_PATH}"
+    elif [[ "${AID_FORCE_SOURCE_REBUILD:-0}" == "1" ]]; then
+      warn "已要求强制重新构建源码发布包"
     else
-      risk "源码构建缓存校验或权限不安全，将重新构建，不会使用旧缓存"
+      warn "旧源码构建缓存缺少当前签名清单指纹，自动删除并重新构建"
     fi
-    rm -f "${RESOLVED_PACKAGE_PATH}" "${checksumFile}"
+    rm -f -- "${RESOLVED_PACKAGE_PATH}" "${checksumFile}" "${manifestFingerprintFile}"
   fi
 
   bootstrap_source_builder "${sourceBuildMode}"
@@ -3753,7 +3777,9 @@ ensure_source_package() {
   actual="$(sha256_file "${RESOLVED_PACKAGE_PATH}" || true)"
   [[ -n "${actual}" ]] || die "无法计算源码构建包 SHA256"
   printf '%s  %s\n' "${actual}" "$(basename "${RESOLVED_PACKAGE_PATH}")" > "${checksumFile}"
-  chmod 600 "${RESOLVED_PACKAGE_PATH}" "${checksumFile}" 2>/dev/null || true
+  printf '%s\n' "${currentManifestFingerprint}" > "${manifestFingerprintFile}"
+  chmod 600 "${RESOLVED_PACKAGE_PATH}" "${checksumFile}" "${manifestFingerprintFile}" 2>/dev/null \
+    || die "无法收紧源码构建缓存权限"
   RESOLVED_PACKAGE_SHA256="${actual}"
   ok "三端源码构建、包结构与本地 SHA256 校验通过；完整日志: ${buildLog}"
 }

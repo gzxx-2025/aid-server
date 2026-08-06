@@ -34,6 +34,7 @@ import com.aid.common.aid.oss.util.MediaUrlResolver;
 import com.aid.common.page.SafePageUtils;
 import com.aid.common.utils.DateUtils;
 import com.aid.common.utils.StringUtils;
+import com.aid.compose.ComposeConstants;
 import com.aid.enums.AuditActionEnum;
 import com.aid.enums.AuditTargetTypeEnum;
 import com.aid.enums.CreationModeEnum;
@@ -495,7 +496,7 @@ public class UserEpisodeBusinessServiceImpl implements IUserEpisodeBusinessServi
                 .orderByDesc(AidEpisodeEditor::getId)
                 .last("LIMIT 1"));
         if (Objects.equals(beforeStatus, EpisodeStatusEnum.AUDIT_PASSED.getValue())
-                && (Objects.isNull(editor) || StringUtils.isEmpty(editor.getPendingVideoUrl()))
+                && !hasPendingExportVideo(editor)
                 && !hasPendingEpisodeMetadata(episode)) {
             // 已过审且没有待审新片或待审元数据时，无重审必要。
             throw new ServiceException("已通过审核");
@@ -504,16 +505,25 @@ public class UserEpisodeBusinessServiceImpl implements IUserEpisodeBusinessServi
             log.info("提交剧集审核失败，剧集缺成品视频: episodeId={}", id);
             throw new ServiceException("请先合成视频");
         }
+        if (Objects.equals(editor.getExportStatus(), ComposeConstants.EXPORT_STATUS_COMPOSING)) {
+            log.info("提交剧集审核失败，视频正在合成: episodeId={}", id);
+            throw new ServiceException("视频合成中");
+        }
         assertRequiredEpisodeMetadata(effectiveEpisodeDesc(episode), effectiveEpisodeCoverUrl(episode), id);
         // 置为审核中并清空上次状态原因
         Integer afterStatus = EpisodeStatusEnum.AUDITING.getValue();
         LambdaUpdateWrapper<AidComicEpisode> updateWrapper = Wrappers.lambdaUpdate();
         updateWrapper.eq(AidComicEpisode::getId, id);
         updateWrapper.eq(AidComicEpisode::getUserId, userId);
+        updateWrapper.eq(AidComicEpisode::getStatus, beforeStatus);
         updateWrapper.set(AidComicEpisode::getStatus, afterStatus);
         updateWrapper.set(AidComicEpisode::getStatusReason, null);
         updateWrapper.set(AidComicEpisode::getUpdateTime, DateUtils.getNowDate());
-        aidComicEpisodeService.update(updateWrapper);
+        boolean updated = aidComicEpisodeService.update(updateWrapper);
+        if (!updated) {
+            log.info("提交剧集审核状态已变化: episodeId={}, beforeStatus={}", id, beforeStatus);
+            throw new ServiceException("状态已变化");
+        }
         // 写入审核流水（提交审核），操作人记为用户ID
         aidComicAuditRecordService.saveAuditRecord(AuditTargetTypeEnum.EPISODE.getValue(), id, userId,
                 AuditActionEnum.SUBMIT.getValue(), beforeStatus, afterStatus, null, String.valueOf(userId));
@@ -524,6 +534,14 @@ public class UserEpisodeBusinessServiceImpl implements IUserEpisodeBusinessServi
         episode.setStatus(afterStatus);
         episode.setStatusReason(null);
         return episode;
+    }
+
+    /** 待审地址存在且双槽指纹不相同，才表示确有需要重新审核的新成片。 */
+    private boolean hasPendingExportVideo(AidEpisodeEditor editor)
+    {
+        return Objects.nonNull(editor) && StringUtils.isNotEmpty(editor.getPendingVideoUrl())
+                && !(StrUtil.isNotBlank(editor.getFinalVideoFingerprint())
+                && Objects.equals(editor.getFinalVideoFingerprint(), editor.getPendingVideoFingerprint()));
     }
 
     @Override

@@ -505,7 +505,9 @@ public class AdminAuditBusinessServiceImpl implements IAdminAuditBusinessService
             // 查询字段精简：转正只需成片双槽字段（新增使用字段时此处必须同步补充）
             AidEpisodeEditor editor = aidEpisodeEditorService.getOne(Wrappers.<AidEpisodeEditor>lambdaQuery()
                     .select(AidEpisodeEditor::getId, AidEpisodeEditor::getFinalVideoUrl,
-                            AidEpisodeEditor::getPendingVideoUrl)
+                            AidEpisodeEditor::getFinalVideoFingerprint,
+                            AidEpisodeEditor::getPendingVideoUrl,
+                            AidEpisodeEditor::getPendingVideoFingerprint)
                     .eq(AidEpisodeEditor::getProjectId, projectId)
                     .eq(AidEpisodeEditor::getEpisodeId, episodeId)
                     .eq(AidEpisodeEditor::getDelFlag, DEL_FLAG_NORMAL)
@@ -519,7 +521,10 @@ public class AdminAuditBusinessServiceImpl implements IAdminAuditBusinessService
             LambdaUpdateWrapper<AidEpisodeEditor> update = Wrappers.lambdaUpdate();
             update.eq(AidEpisodeEditor::getId, editor.getId());
             update.set(AidEpisodeEditor::getFinalVideoUrl, newVideoUrl);
+            update.set(AidEpisodeEditor::getFinalVideoFingerprint,
+                    editor.getPendingVideoFingerprint());
             update.set(AidEpisodeEditor::getPendingVideoUrl, null);
+            update.set(AidEpisodeEditor::getPendingVideoFingerprint, null);
             update.set(AidEpisodeEditor::getUpdateBy, operator);
             update.set(AidEpisodeEditor::getUpdateTime, DateUtils.getNowDate());
             aidEpisodeEditorService.update(update);

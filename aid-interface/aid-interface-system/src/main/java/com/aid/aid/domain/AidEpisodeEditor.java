@@ -51,6 +51,10 @@ public class AidEpisodeEditor extends BaseEntity implements Serializable
     @MediaUrl
     private String finalVideoUrl;
 
+    /** 当前正式成片对应的导出素材指纹。 */
+    @TableField(value = "final_video_fingerprint")
+    private String finalVideoFingerprint;
+
     /**
      * 待审核新成片地址（相对路径）。
      * 已过审内容重新导出时，新成片先落本槽位，final_video_url 保留旧片继续公开展示；
@@ -60,6 +64,10 @@ public class AidEpisodeEditor extends BaseEntity implements Serializable
     @TableField(value = "pending_video_url")
     @MediaUrl
     private String pendingVideoUrl;
+
+    /** 当前待审成片对应的导出素材指纹。 */
+    @TableField(value = "pending_video_fingerprint")
+    private String pendingVideoFingerprint;
 
     /** 最新成片的预览封面图（相对路径） */
     @Excel(name = "最新成片的预览封面图OSS地址")

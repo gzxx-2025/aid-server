@@ -32,6 +32,7 @@ import com.aid.common.exception.ServiceException;
 import com.aid.common.page.SafePageUtils;
 import com.aid.common.utils.DateUtils;
 import com.aid.common.utils.StringUtils;
+import com.aid.compose.ComposeConstants;
 import com.aid.enums.AspectRatioEnum;
 import com.aid.enums.AuditActionEnum;
 import com.aid.enums.AuditTargetTypeEnum;
@@ -646,10 +647,15 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
         LambdaUpdateWrapper<AidComicProject> updateWrapper = Wrappers.lambdaUpdate();
         updateWrapper.eq(AidComicProject::getId, id);
         updateWrapper.eq(AidComicProject::getUserId, userId);
+        updateWrapper.eq(AidComicProject::getStatus, beforeStatus);
         updateWrapper.set(AidComicProject::getStatus, afterStatus);
         updateWrapper.set(AidComicProject::getStatusReason, null);
         updateWrapper.set(AidComicProject::getUpdateTime, DateUtils.getNowDate());
-        aidComicProjectService.update(updateWrapper);
+        boolean updated = aidComicProjectService.update(updateWrapper);
+        if (!updated) {
+            log.info("提交项目审核状态已变化: projectId={}, beforeStatus={}", id, beforeStatus);
+            throw new ServiceException("状态已变化");
+        }
         // 写入审核流水（提交审核），操作人记为用户ID
         aidComicAuditRecordService.saveAuditRecord(AuditTargetTypeEnum.PROJECT.getValue(), id, userId,
                 AuditActionEnum.SUBMIT.getValue(), beforeStatus, afterStatus, null, String.valueOf(userId));
@@ -822,15 +828,19 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
         if (!Objects.equals(ProjectTypeEnum.MOVIE.getValue(), project.getProjectType())) {
             return false;
         }
-        // 查询字段精简：仅需待审片字段（新增使用字段时此处必须同步补充）；多行时取最新一条
+        // 查询字段精简：待审地址与双槽指纹共同判定是否确有新候选版本。
         AidEpisodeEditor editor = aidEpisodeEditorService.getOne(Wrappers.<AidEpisodeEditor>lambdaQuery()
-                .select(AidEpisodeEditor::getId, AidEpisodeEditor::getPendingVideoUrl)
+                .select(AidEpisodeEditor::getId, AidEpisodeEditor::getPendingVideoUrl,
+                        AidEpisodeEditor::getFinalVideoFingerprint,
+                        AidEpisodeEditor::getPendingVideoFingerprint)
                 .eq(AidEpisodeEditor::getProjectId, project.getId())
                 .eq(AidEpisodeEditor::getEpisodeId, MOVIE_EPISODE_ID)
                 .eq(AidEpisodeEditor::getDelFlag, DEL_FLAG_NORMAL)
                 .orderByDesc(AidEpisodeEditor::getId)
                 .last("LIMIT 1"));
-        return Objects.nonNull(editor) && StringUtils.isNotEmpty(editor.getPendingVideoUrl());
+        return Objects.nonNull(editor) && StringUtils.isNotEmpty(editor.getPendingVideoUrl())
+                && !(StrUtil.isNotBlank(editor.getFinalVideoFingerprint())
+                && Objects.equals(editor.getFinalVideoFingerprint(), editor.getPendingVideoFingerprint()));
     }
 
     /**
@@ -851,6 +861,11 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
                     .eq(AidEpisodeEditor::getDelFlag, DEL_FLAG_NORMAL)
                     .orderByDesc(AidEpisodeEditor::getId)
                     .last("LIMIT 1"));
+            if (Objects.nonNull(editor)
+                    && Objects.equals(editor.getExportStatus(), ComposeConstants.EXPORT_STATUS_COMPOSING)) {
+                log.info("提交项目审核失败，电影正在合成: projectId={}", project.getId());
+                throw new ServiceException("视频合成中");
+            }
             if (Objects.isNull(editor) || StringUtils.isEmpty(editor.getFinalVideoUrl())) {
                 log.info("提交项目审核失败，电影缺成品视频: projectId={}", project.getId());
                 throw new ServiceException("请先合成视频");

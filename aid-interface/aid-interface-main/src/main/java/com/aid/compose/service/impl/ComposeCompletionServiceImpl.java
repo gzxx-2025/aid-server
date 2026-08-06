@@ -101,6 +101,7 @@ public class ComposeCompletionServiceImpl implements ComposeCompletionService {
         try {
             LambdaUpdateWrapper<AidEpisodeEditor> update = new LambdaUpdateWrapper<>();
             update.eq(AidEpisodeEditor::getId, task.getCallbackRecordId());
+            update.eq(AidEpisodeEditor::getExportTaskId, String.valueOf(task.getId()));
             // 仅在仍「合成中」时回写，且进度只增不减（并发轮询/回调乱序时防回退）
             update.eq(AidEpisodeEditor::getExportStatus, ComposeConstants.EXPORT_STATUS_COMPOSING);
             update.and(w -> w.isNull(AidEpisodeEditor::getExportProgress)
@@ -126,6 +127,8 @@ public class ComposeCompletionServiceImpl implements ComposeCompletionService {
                 ? result.getErrorMessage() : "合成失败";
         LambdaUpdateWrapper<AidEpisodeEditor> update = new LambdaUpdateWrapper<>();
         update.eq(AidEpisodeEditor::getId, task.getCallbackRecordId());
+        update.eq(AidEpisodeEditor::getExportTaskId, String.valueOf(task.getId()));
+        update.eq(AidEpisodeEditor::getExportStatus, ComposeConstants.EXPORT_STATUS_COMPOSING);
         update.set(AidEpisodeEditor::getExportStatus, ComposeConstants.EXPORT_STATUS_FAILED);
         update.set(AidEpisodeEditor::getErrorMsg, errorMsg);
         update.set(AidEpisodeEditor::getUpdateTime, new Date());

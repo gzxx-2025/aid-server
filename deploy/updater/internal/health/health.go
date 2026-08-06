@@ -50,13 +50,14 @@ type DeploymentConfiguration struct {
 }
 
 type payload struct {
-	Status          string                   `json:"status"`
-	Version         string                   `json:"version"`
-	ProtocolVersion int                      `json:"protocolVersion"`
-	ServiceManager  string                   `json:"serviceManager,omitempty"`
-	UpdatedAt       string                   `json:"updatedAt"`
-	LastTask        *LastTask                `json:"lastTask,omitempty"`
-	Configuration   *DeploymentConfiguration `json:"configuration,omitempty"`
+	Status           string                   `json:"status"`
+	Version          string                   `json:"version"`
+	ProtocolVersion  int                      `json:"protocolVersion"`
+	ServiceManager   string                   `json:"serviceManager,omitempty"`
+	UpdatedAt        string                   `json:"updatedAt"`
+	UpdatedAtEpochMs int64                    `json:"updatedAtEpochMs"`
+	LastTask         *LastTask                `json:"lastTask,omitempty"`
+	Configuration    *DeploymentConfiguration `json:"configuration,omitempty"`
 }
 
 // Reporter 周期性写健康文件，并承载最近任务状态。
@@ -119,15 +120,17 @@ func (r *Reporter) Flush(status string) {
 }
 
 func (r *Reporter) write(status string) {
+	now := time.Now()
 	r.mu.Lock()
 	body := payload{
-		Status:          status,
-		Version:         r.version,
-		ProtocolVersion: ProtocolVersion,
-		ServiceManager:  r.serviceManager,
-		UpdatedAt:       time.Now().Format(timeLayout),
-		LastTask:        r.lastTask,
-		Configuration:   cloneConfiguration(r.configuration),
+		Status:           status,
+		Version:          r.version,
+		ProtocolVersion:  ProtocolVersion,
+		ServiceManager:   r.serviceManager,
+		UpdatedAt:        now.Format(timeLayout),
+		UpdatedAtEpochMs: now.UnixMilli(),
+		LastTask:         r.lastTask,
+		Configuration:    cloneConfiguration(r.configuration),
 	}
 	r.mu.Unlock()
 

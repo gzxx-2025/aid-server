@@ -19,7 +19,7 @@ public final class UpgradeConfigKeys {
 
     /** 使用教程默认地址：清单未下发时兜底 */
     public static final String DEFAULT_DOCS_URL =
-            "https://gitee.com/gzxx-2025/aid-server#%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B";
+            "https://gzxxaitdb.feishu.cn/docx/LZ5zdesEgo1z4Mxc7OWc7zTHnJc";
 
     /** 提示词开发教程默认地址：清单未下发时兜底 */
     public static final String DEFAULT_PROMPT_DOCS_URL =

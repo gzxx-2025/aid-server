@@ -43,7 +43,7 @@ AID_DEPENDENCY_INSTALL_MODE=auto
 RESOLVED_DEPENDENCY_REGION=""
 prepare_exact_node >/dev/null
 
-[[ "${CAPTURED_NODE_URL}" == "https://gitee.com/gzxx-2025/aid-server/releases/download/toolchain-node-v22.22.0/node-v22.22.0-linux-x64-glibc-217.tar.xz" ]] \
+[[ "${CAPTURED_NODE_URL}" == "https://gitee.com/gzxx-2025/aid-server/releases/download/v1.0.0-beta.2/node-v22.22.0-linux-x64-glibc-217.tar.xz" ]] \
   || { echo "旧 glibc 未优先选择国内兼容包: ${CAPTURED_NODE_URL}" >&2; exit 1; }
 [[ "$("${NODE_HOME}/bin/node" -v)" == "v22.22.0" ]] \
   || { echo '兼容版 Node.js 未正确就位' >&2; exit 1; }

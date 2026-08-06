@@ -25,6 +25,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.aid.aid.domain.AidAiVoiceLibrary;
 import com.aid.aid.domain.AidComicProject;
+import com.aid.aid.domain.AidComicEpisode;
 import com.aid.aid.domain.AidEpisodeEditor;
 import com.aid.aid.domain.AidGenRecord;
 import com.aid.aid.domain.AidStoryboard;
@@ -33,6 +34,7 @@ import com.aid.aid.domain.media.AidMediaTask;
 import com.aid.aid.mapper.AidAudioRecordMapper;
 import com.aid.aid.service.IAidAiVoiceLibraryService;
 import com.aid.aid.service.IAidComicProjectService;
+import com.aid.aid.service.IAidComicEpisodeService;
 import com.aid.aid.service.IAidStoryboardService;
 import com.aid.aid.mapper.AidEpisodeEditorMapper;
 import com.aid.aid.mapper.AidGenRecordMapper;
@@ -72,7 +74,9 @@ import com.aid.compose.util.SubtitleSpeakerMatcher;
 import com.aid.compose.util.TimelineSubtitleMatcher;
 import com.aid.domain.vo.AiModelConfigVo;
 import com.aid.enums.CreationStepEnum;
+import com.aid.enums.EpisodeStatusEnum;
 import com.aid.enums.GenTypeEnum;
+import com.aid.enums.ProjectStatusEnum;
 import com.aid.media.constants.MinimaxTtsConstants;
 import com.aid.media.dto.MediaAudioGenerateRequest;
 import com.aid.media.enums.MediaTaskStatus;
@@ -164,6 +168,9 @@ public class VideoComposeServiceImpl implements VideoComposeService {
 
     /** 项目服务（接口2 自动建档时校验项目归属） */
     private final IAidComicProjectService aidComicProjectService;
+
+    /** 剧集服务（接口2 审核中候选版本保护） */
+    private final IAidComicEpisodeService aidComicEpisodeService;
 
     /** 模型配置服务（按 voiceModelId 解析 TTS 模型码） */
     private final IAiModelConfigService aiModelConfigService;
@@ -637,19 +644,11 @@ public class VideoComposeServiceImpl implements VideoComposeService {
         String fingerprint = computeExportFingerprint(request);
         String latestVideoUrl = StrUtil.isNotBlank(editor.getPendingVideoUrl())
                 ? editor.getPendingVideoUrl() : editor.getFinalVideoUrl();
-        if (!exportStarted && !Boolean.TRUE.equals(request.getForceRecompose())
+        if (!Boolean.TRUE.equals(request.getForceRecompose())
                 && Objects.equals(editor.getExportStatus(), ComposeConstants.EXPORT_STATUS_SUCCESS)
                 && StrUtil.isNotBlank(latestVideoUrl)
                 && Objects.equals(fingerprint, editor.getExportFingerprint())) {
-            // 复用不触碰导出状态与审核状态，仅保存最新工程报文（不影响公开展示）
-            if (StrUtil.isNotBlank(request.getTimelineJson())) {
-                LambdaUpdateWrapper<AidEpisodeEditor> timelineUpdate = new LambdaUpdateWrapper<>();
-                timelineUpdate.eq(AidEpisodeEditor::getId, editor.getId());
-                timelineUpdate.set(AidEpisodeEditor::getTimelineJson, request.getTimelineJson());
-                timelineUpdate.set(AidEpisodeEditor::getUpdateTime, new Date());
-                timelineUpdate.set(AidEpisodeEditor::getUpdateBy, String.valueOf(userId));
-                aidEpisodeEditorMapper.update(null, timelineUpdate);
-            }
+            restoreReusedExport(request, editor, userId, exportStarted, exportRunToken);
             log.info("接口2 素材未变复用已有成片, episodeEditorId={}, fingerprint={}", editor.getId(), fingerprint);
             EpisodeExportResult reusedResult = new EpisodeExportResult();
             reusedResult.setEpisodeEditorId(editor.getId());
@@ -659,6 +658,8 @@ public class VideoComposeServiceImpl implements VideoComposeService {
             reusedResult.setFinalVideoUrl(latestVideoUrl);
             return reusedResult;
         }
+        // 审核中的候选视频必须保持不可变；只有素材未变的幂等导出允许在上方直接复用。
+        assertContentNotAuditing(editor);
         // 说明：已过审/审核中内容重新导出不再回落审核状态、不下架旧片——
         // 新成片由回写监听器落待审槽（pending_video_url），旧片继续公开展示，重新过审后新片转正
 
@@ -703,6 +704,62 @@ public class VideoComposeServiceImpl implements VideoComposeService {
         result.setExportStatus(ComposeConstants.EXPORT_STATUS_COMPOSING);
         result.setReused(false);
         return result;
+    }
+
+    /**
+     * 自动字幕阶段可能先把导出置为合成中；若补齐检查点后最终素材指纹仍未变化，
+     * 原子恢复原成功状态并保留最新工程，禁止仅因字幕检查点维护重复提交云合成。
+     */
+    private void restoreReusedExport(EpisodeExportRequest request, AidEpisodeEditor editor, Long userId,
+                                     boolean exportStarted, String exportRunToken) {
+        LambdaUpdateWrapper<AidEpisodeEditor> update = new LambdaUpdateWrapper<>();
+        update.eq(AidEpisodeEditor::getId, editor.getId());
+        if (exportStarted) {
+            update.eq(AidEpisodeEditor::getExportStatus, ComposeConstants.EXPORT_STATUS_COMPOSING);
+            update.eq(AidEpisodeEditor::getExportTaskId, exportRunToken);
+            update.set(AidEpisodeEditor::getExportStatus, ComposeConstants.EXPORT_STATUS_SUCCESS);
+            update.set(AidEpisodeEditor::getExportProgress, 100);
+            update.set(AidEpisodeEditor::getExportTaskId, editor.getExportTaskId());
+            update.set(AidEpisodeEditor::getErrorMsg, null);
+        }
+        if (StrUtil.isNotBlank(request.getTimelineJson())) {
+            update.set(AidEpisodeEditor::getTimelineJson, request.getTimelineJson());
+        }
+        update.set(AidEpisodeEditor::getUpdateTime, new Date());
+        update.set(AidEpisodeEditor::getUpdateBy, String.valueOf(userId));
+        int updated = aidEpisodeEditorMapper.update(null, update);
+        if (updated != 1) {
+            log.error("接口2 复用成片状态恢复失败, episodeEditorId={}, runToken={}",
+                    editor.getId(), exportRunToken);
+            throw new ServiceException("导出状态失效");
+        }
+    }
+
+    /** 审核期间禁止生成不同内容覆盖候选快照，审核通过或驳回后再允许重新导出。 */
+    private void assertContentNotAuditing(AidEpisodeEditor editor) {
+        if (Objects.equals(editor.getEpisodeId(), 0L)) {
+            AidComicProject project = aidComicProjectService.getOne(Wrappers.<AidComicProject>lambdaQuery()
+                    .select(AidComicProject::getId, AidComicProject::getStatus)
+                    .eq(AidComicProject::getId, editor.getProjectId())
+                    .eq(AidComicProject::getDelFlag, DEL_FLAG_NORMAL)
+                    .last("LIMIT 1"));
+            if (Objects.nonNull(project)
+                    && Objects.equals(project.getStatus(), ProjectStatusEnum.AUDITING.getValue())) {
+                log.info("接口2 审核中拒绝变更电影候选视频, projectId={}", editor.getProjectId());
+                throw new ServiceException("内容审核中");
+            }
+            return;
+        }
+        AidComicEpisode episode = aidComicEpisodeService.getOne(Wrappers.<AidComicEpisode>lambdaQuery()
+                .select(AidComicEpisode::getId, AidComicEpisode::getStatus)
+                .eq(AidComicEpisode::getId, editor.getEpisodeId())
+                .eq(AidComicEpisode::getDelFlag, DEL_FLAG_NORMAL)
+                .last("LIMIT 1"));
+        if (Objects.nonNull(episode)
+                && Objects.equals(episode.getStatus(), EpisodeStatusEnum.AUDITING.getValue())) {
+            log.info("接口2 审核中拒绝变更剧集候选视频, episodeId={}", editor.getEpisodeId());
+            throw new ServiceException("内容审核中");
+        }
     }
 
     /** 把剪辑记录切换为合成中，并写入本次受理令牌隔离并发或崩溃后恢复的旧请求。 */
@@ -1522,7 +1579,11 @@ public class VideoComposeServiceImpl implements VideoComposeService {
                 || Objects.equals(subtitle.getRecognitionStatus(), SubtitleRecognitionStatus.FAILED)) {
             return false;
         }
-        return CollectionUtil.isNotEmpty(subtitle.getCues())
+        boolean stableTextFallback = Objects.equals(subtitle.getRecognitionStatus(),
+                SubtitleRecognitionStatus.TEXT_FALLBACK)
+                && StrUtil.isNotBlank(subtitle.getSourceDialogueFingerprint())
+                && StrUtil.isNotBlank(subtitle.getRecognitionProvider());
+        return (CollectionUtil.isNotEmpty(subtitle.getCues()) || stableTextFallback)
                 && StrUtil.isNotBlank(currentFingerprint)
                 && Objects.equals(currentFingerprint, subtitle.getSourceMediaFingerprint());
     }

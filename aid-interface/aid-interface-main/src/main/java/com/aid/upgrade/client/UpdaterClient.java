@@ -18,7 +18,6 @@ import org.springframework.stereotype.Component;
 
 import com.aid.common.aid.core.service.ConfigService;
 import com.aid.common.exception.ServiceException;
-import com.aid.common.utils.DateUtils;
 import com.aid.upgrade.constant.UpgradeConfigKeys;
 import com.aid.upgrade.dto.DeploymentConfigVo;
 import com.aid.upgrade.dto.UpdaterLastTaskVo;
@@ -106,7 +105,7 @@ public class UpdaterClient {
             vo.setServiceManager(StrUtil.trimToNull(health.getString("serviceManager")));
             vo.setLastTask(parseLastTask(health));
             vo.setDeploymentConfig(parseDeploymentConfig(health));
-            if (Objects.equals("RUNNING", status) && isHeartbeatStale(health)) {
+            if (Objects.equals("RUNNING", status) && isHeartbeatStale(health, healthFile)) {
                 // 升级器异常退出时健康文件可能残留 RUNNING，按心跳时间判定真实状态
                 vo.setStatus(STATUS_STOPPED);
                 vo.setMessage("升级器心跳超时，请检查 aid-updater 服务是否存活。");
@@ -265,20 +264,16 @@ public class UpdaterClient {
     }
 
     /**
-     * 判断健康文件心跳是否过期；updatedAt 缺失或非法时视为未过期（兼容旧版升级器）
+     * 判断健康文件心跳是否过期。新版协议优先使用与时区无关的 Epoch 毫秒；
+     * 旧版升级器使用健康文件修改时间，避免容器缺少时区数据时产生八小时偏差。
      */
-    private boolean isHeartbeatStale(JSONObject health) {
-        String updatedAt = health.getString("updatedAt");
-        if (StrUtil.isBlank(updatedAt)) {
-            return false;
+    private boolean isHeartbeatStale(JSONObject health, File healthFile) {
+        Long heartbeatAt = health.getLong("updatedAtEpochMs");
+        if (Objects.nonNull(heartbeatAt) && heartbeatAt > 0L) {
+            return System.currentTimeMillis() - heartbeatAt > HEARTBEAT_STALE_MS;
         }
-        try {
-            long updatedAtMs = DateUtils.parseDate(updatedAt, "yyyy-MM-dd HH:mm:ss").getTime();
-            return System.currentTimeMillis() - updatedAtMs > HEARTBEAT_STALE_MS;
-        } catch (Exception e) {
-            // 时间格式异常不影响主流程，按未过期处理
-            return false;
-        }
+        long fileModifiedAt = healthFile.lastModified();
+        return fileModifiedAt > 0L && System.currentTimeMillis() - fileModifiedAt > HEARTBEAT_STALE_MS;
     }
 
     /**
