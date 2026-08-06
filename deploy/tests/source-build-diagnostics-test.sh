@@ -25,5 +25,9 @@ builder_file="${ROOT_DIR}/deploy/build-release-from-source.sh"
 count="$(grep -c -- '--no-transfer-progress' "${builder_file}")"
 [[ "${count}" -ge 3 ]] \
   || { echo 'FAIL: every Maven build path must suppress transfer progress noise' >&2; exit 1; }
+if grep -Eq 'git[[:space:]]+-C([[:space:]]|$)' "${builder_file}"; then
+  echo 'FAIL: source builder must remain compatible with CentOS 7 Git 1.8.3.1' >&2
+  exit 1
+fi
 
 echo 'source build diagnostics tests passed'

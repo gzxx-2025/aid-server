@@ -430,7 +430,8 @@ clone_release_set() {
 repo_commit() {
   repo_dir="$1"
   if command -v git >/dev/null 2>&1; then
-    git -C "$repo_dir" rev-parse HEAD
+    # CentOS 7 自带 Git 1.8.3.1 不支持 -C；进入子目录执行可兼容全部受支持版本。
+    (cd "$repo_dir" && git rev-parse HEAD)
   else
     docker run --rm --user "$(id -u):$(id -g)" -v "$repo_dir:/repo" -w /repo "$GIT_IMAGE" rev-parse HEAD
   fi
