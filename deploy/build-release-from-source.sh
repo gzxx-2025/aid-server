@@ -1,4 +1,5 @@
 #!/bin/sh
+# AID_SOURCE_BUILD_MODE_CAPABILITY=explicit-v1
 # AID 远程源码构建器：从同一版本标签拉取三端公开源码，在临时目录完成构建并组装本地安装包。
 # Gitee 三仓均可访问时优先使用 Gitee；任一不可用则整组回退到 GitHub，禁止混用来源。
 
@@ -8,6 +9,7 @@ VERSION=""
 OUTPUT=""
 WORK_DIR=""
 FORGE="${AID_SOURCE_FORGE:-auto}"
+SOURCE_BUILD_MODE="${AID_SOURCE_BUILD_MODE:-auto}"
 DATA_ROOT="${AID_DATA_ROOT:-/data/aid}"
 CACHE_DIR="${AID_BUILD_CACHE_DIR:-$DATA_ROOT/build-cache}"
 
@@ -48,6 +50,7 @@ usage() {
 
 环境变量:
   AID_DATA_ROOT               数据目录，默认 /data/aid
+  AID_SOURCE_BUILD_MODE       源码构建模式：docker（强制容器构建）、host（强制宿主机构建）；官方部署会显式传入
   AID_NPM_REGISTRY            覆盖首选 npm 镜像
   AID_MAVEN_MIRROR_URL        覆盖首选 Maven 镜像
   AID_MAVEN_FALLBACK_URL      覆盖备用 Maven 仓库
@@ -79,6 +82,7 @@ case "$VERSION" in
   *) die "版本号不符合 SemVer: $VERSION" ;;
 esac
 case "$FORGE" in auto|github|gitee) ;; *) die "源码平台仅支持 auto、github 或 gitee" ;; esac
+case "$SOURCE_BUILD_MODE" in auto|docker|host) ;; *) die 'AID_SOURCE_BUILD_MODE 仅支持 auto、docker 或 host' ;; esac
 case "$DEPENDENCY_INSTALL_MODE" in auto|manual) ;; *) die 'AID_DEPENDENCY_INSTALL_MODE 仅支持 auto 或 manual' ;; esac
 case "$DEPENDENCY_REGION" in auto|cn|global) ;; *) die 'AID_DEPENDENCY_REGION 仅支持 auto、cn 或 global' ;; esac
 [ -n "$OUTPUT" ] || die '--output 不能为空'
@@ -94,12 +98,29 @@ command -v tar >/dev/null 2>&1 || die '未检测到 tar'
 command -v sha256sum >/dev/null 2>&1 || die '未检测到 sha256sum'
 
 USE_DOCKER=no
-if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
-  USE_DOCKER=yes
-fi
-if ! command -v git >/dev/null 2>&1 && [ "$USE_DOCKER" != yes ]; then
-  die '未检测到 Git，且 Docker 不可用；请先安装 Git'
-fi
+case "$SOURCE_BUILD_MODE" in
+  docker)
+    command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 \
+      || die 'Docker 容器源码构建需要可用的 Docker Engine'
+    USE_DOCKER=yes
+    log '源码构建模式：Docker 容器源码构建'
+    ;;
+  host)
+    command -v git >/dev/null 2>&1 \
+      || die '非 Docker 宿主机源码构建需要 Git；请先完成手动部署依赖安装后重试'
+    log '源码构建模式：非 Docker 宿主机源码构建（不会探测、拉取或调用 Docker）'
+    ;;
+  auto)
+    # 仅保留给开发者直接调用构建器的兼容行为；AID 官方部署和升级会显式指定 docker 或 host。
+    if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+      USE_DOCKER=yes
+    fi
+    if ! command -v git >/dev/null 2>&1 && [ "$USE_DOCKER" != yes ]; then
+      die '未检测到 Git，且 Docker 不可用；请先安装 Git'
+    fi
+    log "源码构建模式：兼容自动选择（${USE_DOCKER}）"
+    ;;
+esac
 
 detect_dependency_region() {
   case "$DEPENDENCY_REGION" in
@@ -333,7 +354,7 @@ ensure_docker_image() {
 
 if [ "$USE_DOCKER" = yes ]; then
   detect_dependency_region
-  command -v git >/dev/null 2>&1 || ensure_docker_image "$GIT_IMAGE" 'Git源码拉取'
+  ensure_docker_image "$GIT_IMAGE" 'Git源码拉取'
 fi
 
 # 删除范围必须严格位于 source-build 或升级器 work 目录下，避免配置错误导致误删。
@@ -348,6 +369,16 @@ safe_reset_work_dir() {
 
 git_probe() {
   repo_url="$1"
+  if [ "$USE_DOCKER" = yes ]; then
+    if command -v timeout >/dev/null 2>&1; then
+      timeout 30 docker run --rm "$GIT_IMAGE" -c http.lowSpeedLimit=1 -c http.lowSpeedTime=12 \
+        ls-remote --exit-code "$repo_url" "refs/tags/$TAG" 2>/dev/null
+    else
+      docker run --rm "$GIT_IMAGE" -c http.lowSpeedLimit=1 -c http.lowSpeedTime=12 \
+        ls-remote --exit-code "$repo_url" "refs/tags/$TAG" 2>/dev/null
+    fi
+    return $?
+  fi
   if command -v git >/dev/null 2>&1; then
     if command -v timeout >/dev/null 2>&1; then
       GIT_TERMINAL_PROMPT=0 GIT_HTTP_LOW_SPEED_LIMIT=1 GIT_HTTP_LOW_SPEED_TIME=12 \
@@ -358,13 +389,7 @@ git_probe() {
     fi
     return $?
   fi
-  if command -v timeout >/dev/null 2>&1; then
-    timeout 30 docker run --rm "$GIT_IMAGE" -c http.lowSpeedLimit=1 -c http.lowSpeedTime=12 \
-      ls-remote --exit-code "$repo_url" "refs/tags/$TAG" 2>/dev/null
-  else
-    docker run --rm "$GIT_IMAGE" -c http.lowSpeedLimit=1 -c http.lowSpeedTime=12 \
-      ls-remote --exit-code "$repo_url" "refs/tags/$TAG" 2>/dev/null
-  fi
+  return 1
 }
 
 probe_forge() {
@@ -401,13 +426,7 @@ clone_repo() {
   repo="$1"
   dest="$2"
   url="$SOURCE_BASE/$repo.git"
-  if command -v git >/dev/null 2>&1; then
-    if command -v timeout >/dev/null 2>&1; then
-      GIT_TERMINAL_PROMPT=0 timeout 300 git clone --depth 1 --single-branch --branch "$TAG" "$url" "$dest"
-    else
-      GIT_TERMINAL_PROMPT=0 git clone --depth 1 --single-branch --branch "$TAG" "$url" "$dest"
-    fi
-  else
+  if [ "$USE_DOCKER" = yes ]; then
     parent="$(dirname "$dest")"; name="$(basename "$dest")"
     if command -v timeout >/dev/null 2>&1; then
       timeout 300 docker run --rm --user "$(id -u):$(id -g)" -v "$parent:/work" -w /work "$GIT_IMAGE" \
@@ -416,6 +435,14 @@ clone_repo() {
       docker run --rm --user "$(id -u):$(id -g)" -v "$parent:/work" -w /work "$GIT_IMAGE" \
         clone --depth 1 --single-branch --branch "$TAG" "$url" "$name"
     fi
+  elif command -v git >/dev/null 2>&1; then
+    if command -v timeout >/dev/null 2>&1; then
+      GIT_TERMINAL_PROMPT=0 timeout 300 git clone --depth 1 --single-branch --branch "$TAG" "$url" "$dest"
+    else
+      GIT_TERMINAL_PROMPT=0 git clone --depth 1 --single-branch --branch "$TAG" "$url" "$dest"
+    fi
+  else
+    die '宿主机 Git 在源码构建过程中不可用；非 Docker 构建拒绝使用 Docker 回退'
   fi
 }
 
@@ -429,11 +456,13 @@ clone_release_set() {
 
 repo_commit() {
   repo_dir="$1"
-  if command -v git >/dev/null 2>&1; then
+  if [ "$USE_DOCKER" = yes ]; then
+    docker run --rm --user "$(id -u):$(id -g)" -v "$repo_dir:/repo" -w /repo "$GIT_IMAGE" rev-parse HEAD
+  elif command -v git >/dev/null 2>&1; then
     # CentOS 7 自带 Git 1.8.3.1 不支持 -C；进入子目录执行可兼容全部受支持版本。
     (cd "$repo_dir" && git rev-parse HEAD)
   else
-    docker run --rm --user "$(id -u):$(id -g)" -v "$repo_dir:/repo" -w /repo "$GIT_IMAGE" rev-parse HEAD
+    die '宿主机 Git 在源码构建过程中不可用；非 Docker 构建拒绝使用 Docker 回退'
   fi
 }
 
@@ -443,12 +472,20 @@ prepare_dependency_mirrors() {
     NPM_REGISTRY="${AID_NPM_REGISTRY:-https://registry.npmmirror.com}"
     NPM_REGISTRY_FALLBACK="https://registry.npmjs.org"
     GO_PROXY="${AID_GO_PROXY:-https://goproxy.cn|https://proxy.golang.org|direct}"
-    warn '已自动选择国内依赖线路；Docker、JDK、Maven、npm、Go 均优先使用国内镜像并保留官方回退'
+    if [ "$USE_DOCKER" = yes ]; then
+      warn '已自动选择国内依赖线路；容器、JDK、Maven、npm、Go 均优先使用国内镜像并保留官方回退'
+    else
+      warn '已自动选择国内依赖线路；JDK、Maven、npm、Go 均优先使用国内镜像并保留官方回退'
+    fi
   else
     NPM_REGISTRY="${AID_NPM_REGISTRY:-https://registry.npmjs.org}"
     NPM_REGISTRY_FALLBACK="https://registry.npmmirror.com"
     GO_PROXY="${AID_GO_PROXY:-https://proxy.golang.org|https://goproxy.cn|direct}"
-    log '已自动选择国际依赖线路；Docker、JDK、npm、Go 均保留国内备用线路'
+    if [ "$USE_DOCKER" = yes ]; then
+      log '已自动选择国际依赖线路；容器、JDK、npm、Go 均保留国内备用线路'
+    else
+      log '已自动选择国际依赖线路；JDK、npm、Go 均保留国内备用线路'
+    fi
   fi
   # 线上源码构建固定优先使用国内 Maven 镜像；国内镜像不可用时，重新执行
   # Maven 构建并回退到原始 Maven Central，避免单一镜像故障阻断部署。

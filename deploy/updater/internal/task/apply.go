@@ -1,8 +1,10 @@
 package task
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"os"
@@ -321,6 +323,82 @@ func (r *Runner) reconcileDockerApplicationServices() error {
 	return nil
 }
 
+func sourceBuildModeForServiceManager(serviceManager string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(serviceManager)) {
+	case sysctl.ManagerDocker:
+		return "docker", nil
+	case sysctl.ManagerSystemd:
+		return "host", nil
+	default:
+		return "", fmt.Errorf("未知服务管理方式，无法选择源码构建模式: %s", serviceManager)
+	}
+}
+
+var sourceBuildEnvironmentKeys = map[string]struct{}{
+	"AID_DATA_ROOT":               {},
+	"AID_SOURCE_BUILD_MODE":       {},
+	"AID_DEPENDENCY_INSTALL_MODE": {},
+	"AID_DEPENDENCY_REGION":       {},
+	"AID_DOCKER_MIRRORS":          {},
+}
+
+const (
+	sourceBuildModeCapability = "AID_SOURCE_BUILD_MODE_CAPABILITY=explicit-v1"
+	maxSourceBuildScriptSize  = 1024 * 1024
+)
+
+func sourceBuildEnvironment(base []string, dataRoot, sourceBuildMode, dependencyMode, dependencyRegion, dockerMirrors string) []string {
+	env := make([]string, 0, len(base)+5)
+	for _, item := range base {
+		key, _, _ := strings.Cut(item, "=")
+		if _, managed := sourceBuildEnvironmentKeys[key]; !managed {
+			env = append(env, item)
+		}
+	}
+	env = append(env,
+		"AID_DATA_ROOT="+dataRoot,
+		"AID_SOURCE_BUILD_MODE="+sourceBuildMode,
+		"AID_DEPENDENCY_INSTALL_MODE="+dependencyMode,
+		"AID_DEPENDENCY_REGION="+dependencyRegion)
+	if sourceBuildMode == "docker" {
+		env = append(env, "AID_DOCKER_MIRRORS="+dockerMirrors)
+	}
+	return env
+}
+
+func sourceBuildScriptSupportsExplicitMode(path string) (bool, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return false, err
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() <= 0 || info.Size() > maxSourceBuildScriptSize {
+		return false, nil
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return false, err
+	}
+	defer file.Close()
+	content, err := io.ReadAll(io.LimitReader(file, maxSourceBuildScriptSize+1))
+	if err != nil {
+		return false, err
+	}
+	if len(content) == 0 || len(content) > maxSourceBuildScriptSize {
+		return false, nil
+	}
+	requiredMarkers := [][]byte{
+		[]byte(sourceBuildModeCapability),
+		[]byte(`SOURCE_BUILD_MODE="${AID_SOURCE_BUILD_MODE:-auto}"`),
+		[]byte(`case "$SOURCE_BUILD_MODE" in`),
+	}
+	for _, marker := range requiredMarkers {
+		if !bytes.Contains(content, marker) {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
 // buildSourcePackage 调用部署时随安装器落盘的受控脚本，在独立目录构建目标版本。
 func (r *Runner) buildSourcePackage(t *Task, archivePath, sourceWorkDir string) error {
 	script := strings.TrimSpace(r.cfg.SourceBuildScript)
@@ -334,8 +412,19 @@ func (r *Runner) buildSourcePackage(t *Task, archivePath, sourceWorkDir string) 
 	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o022 != 0 {
 		return fmt.Errorf("源码构建脚本类型非法")
 	}
+	supported, err := sourceBuildScriptSupportsExplicitMode(script)
+	if err != nil {
+		return fmt.Errorf("读取源码构建脚本失败: %w", err)
+	}
+	if !supported {
+		return fmt.Errorf("源码构建脚本不支持显式构建模式；请先使用最新远程 aid.sh 执行 sudo aid setup-updater 后重试")
+	}
 	if err := os.MkdirAll(r.cfg.WorkDir, 0o700); err != nil {
 		return fmt.Errorf("创建源码构建目录失败: %w", err)
+	}
+	sourceBuildMode, err := sourceBuildModeForServiceManager(r.cfg.Install.ServiceManager)
+	if err != nil {
+		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(),
 		time.Duration(r.cfg.SourceBuildTimeoutSeconds)*time.Second)
@@ -357,14 +446,12 @@ func (r *Runner) buildSourcePackage(t *Task, archivePath, sourceWorkDir string) 
 		dependencyRegion = "auto"
 	}
 	dockerMirrors := strings.TrimSpace(deploymentState.Values["DOCKER_MIRRORS"])
-	cmd.Env = append(os.Environ(),
-		"AID_DATA_ROOT="+filepath.Dir(filepath.Dir(r.cfg.Install.BackendJar)),
-		"AID_DEPENDENCY_INSTALL_MODE="+dependencyMode,
-		"AID_DEPENDENCY_REGION="+dependencyRegion,
-		"AID_DOCKER_MIRRORS="+dockerMirrors)
+	cmd.Env = sourceBuildEnvironment(os.Environ(),
+		filepath.Dir(filepath.Dir(r.cfg.Install.BackendJar)), sourceBuildMode,
+		dependencyMode, dependencyRegion, dockerMirrors)
 	cmd.Stdout = log.Writer()
 	cmd.Stderr = log.Writer()
-	log.Printf("开始远程源码构建 AID %s", t.TargetVersion)
+	log.Printf("开始远程源码构建 AID %s（模式: %s）", t.TargetVersion, sourceBuildMode)
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			return fmt.Errorf("源码构建超时（%d秒）", r.cfg.SourceBuildTimeoutSeconds)

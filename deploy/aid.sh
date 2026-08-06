@@ -911,12 +911,39 @@ ensure_docker_image() { # ensure_docker_image <镜像> <用途>
   die "${label}镜像下载失败；官方地址和全部国内镜像均不可用: ${image}"
 }
 
-prepare_source_build_images() {
-  command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 || return 0
-  [[ -n "$(command -v git 2>/dev/null || true)" ]] || ensure_docker_image "${SOURCE_GIT_IMAGE}" "Git源码拉取"
-  ensure_docker_image "${SOURCE_MAVEN_IMAGE}" "Maven构建基础"
-  ensure_docker_image "${SOURCE_NODE_IMAGE}" "Node.js 22.22.0构建"
-  ensure_docker_image "${SOURCE_GO_IMAGE}" "Go构建"
+set_source_build_mode() { # set_source_build_mode <docker|manual>
+  case "$1" in
+    docker) export AID_SOURCE_BUILD_MODE="docker" ;;
+    manual) export AID_SOURCE_BUILD_MODE="host" ;;
+    *) die "未知部署方式，无法选择源码构建模式: $1" ;;
+  esac
+}
+
+require_source_build_mode() {
+  case "${AID_SOURCE_BUILD_MODE:-}" in
+    docker|host) return 0 ;;
+    '') die "缺少 AID_SOURCE_BUILD_MODE；请通过 AID 官方 Docker 或非 Docker 部署入口执行" ;;
+    *) die "AID_SOURCE_BUILD_MODE 仅支持 docker 或 host" ;;
+  esac
+}
+
+prepare_source_build_images() { # prepare_source_build_images <docker|host>
+  local sourceBuildMode="$1"
+  case "${sourceBuildMode}" in
+    host)
+      # 手动/systemd 部署必须只使用宿主机构建工具；即使 Docker 已安装也绝不探测、拉取或调用 Docker。
+      return 0
+      ;;
+    docker)
+      command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 \
+        || die "Docker 容器源码构建需要可用的 Docker Engine"
+      ensure_docker_image "${SOURCE_GIT_IMAGE}" "Git源码拉取"
+      ensure_docker_image "${SOURCE_MAVEN_IMAGE}" "Maven构建基础"
+      ensure_docker_image "${SOURCE_NODE_IMAGE}" "Node.js 22.22.0构建"
+      ensure_docker_image "${SOURCE_GO_IMAGE}" "Go构建"
+      ;;
+    *) die "未知源码构建模式: ${sourceBuildMode}" ;;
+  esac
 }
 
 prepare_docker_runtime_images() {
@@ -3298,18 +3325,53 @@ package_is_source_build() { # package_is_source_build <包>
   tar -xOzf "$1" "${entry}" 2>/dev/null | grep -q '"builtBy"[[:space:]]*:[[:space:]]*"remote-source-build"'
 }
 
-bootstrap_source_builder() {
-  local builder="${SCRIPT_DIR}/${SOURCE_BUILDER_NAME}" tmpDir base repoUrl cloned sourceRef remoteRef
-  if [[ -f "${builder}" ]]; then
+source_builder_supports_explicit_mode() { # source_builder_supports_explicit_mode <脚本路径>
+  local candidate="$1" size
+  [[ -f "${candidate}" && ! -L "${candidate}" ]] || return 1
+  size="$(wc -c < "${candidate}" 2>/dev/null || true)"
+  [[ "${size}" =~ ^[0-9]+$ ]] && (( size > 0 && size <= 1048576 )) || return 1
+  grep -Fqx '# AID_SOURCE_BUILD_MODE_CAPABILITY=explicit-v1' "${candidate}" \
+    && grep -Fq 'SOURCE_BUILD_MODE="${AID_SOURCE_BUILD_MODE:-auto}"' "${candidate}" \
+    && grep -Fq 'case "$SOURCE_BUILD_MODE" in' "${candidate}"
+}
+
+sync_source_builder_to_installer() { # sync_source_builder_to_installer <已验证构建器>
+  local candidate="$1" target staged
+  [[ -d "${INSTALLER_ROOT}/deploy" ]] || return 0
+  target="${INSTALLER_ROOT}/deploy/${SOURCE_BUILDER_NAME}"
+  # 仅更新受管安装器目录；候选文件已在 DATA_ROOT/packages，绝不改写当前源码仓库中的 deploy 文件。
+  [[ ! -L "${target}" ]] || die "受管源码构建器不能是符号链接: ${target}"
+  if [[ -f "${target}" ]] && cmp -s "${candidate}" "${target}"; then
+    return 0
+  fi
+  staged="${target}.tmp.$$"
+  install -m 0700 "${candidate}" "${staged}" \
+    && mv -f -- "${staged}" "${target}" \
+    || { rm -f -- "${staged}"; die "同步受管源码构建器失败: ${target}"; }
+  ok "已同步支持显式构建模式的构建器: ${target}"
+}
+
+bootstrap_source_builder() { # bootstrap_source_builder <docker|host>
+  local sourceBuildMode="$1" builder="${SCRIPT_DIR}/${SOURCE_BUILDER_NAME}" tmpDir base repoUrl cloned sourceRef remoteRef
+  case "${sourceBuildMode}" in
+    docker)
+      command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 \
+        || die "Docker 容器源码构建需要可用的 Docker Engine"
+      ensure_docker_image "${SOURCE_GIT_IMAGE}" "Git源码拉取"
+      log "Docker 源码构建器将使用隔离的 ${SOURCE_GIT_IMAGE} 容器拉取源码"
+      ;;
+    host)
+      command -v git >/dev/null 2>&1 \
+        || die "非 Docker 宿主机源码构建需要 Git；请先完成手动部署依赖安装后重试"
+      ;;
+    *) die "未知源码构建模式: ${sourceBuildMode}" ;;
+  esac
+  if [[ -f "${builder}" ]] && source_builder_supports_explicit_mode "${builder}"; then
+    sync_source_builder_to_installer "${builder}"
     SOURCE_BUILDER_PATH="${builder}"
     return 0
   fi
-  if ! command -v git >/dev/null 2>&1; then
-    command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 \
-      || die "源码构建需要 Git 或可用的 Docker Engine；Docker 部署请先启动 Docker，手动部署可安装 Git"
-    ensure_docker_image "${SOURCE_GIT_IMAGE}" "Git源码拉取"
-    warn "宿主机未安装 Git，将使用隔离的 ${SOURCE_GIT_IMAGE} 容器拉取源码，不会修改系统软件"
-  fi
+  [[ ! -f "${builder}" ]] || warn "本地源码构建器不支持 Docker/非 Docker 显式隔离，将从公开 master 刷新构建器"
   tmpDir="$(mktemp -d)"
   # 安装器本身从公开 master 获取最新修复，源码构建器也应遵循同一策略；
   # 三端业务源码仍由构建器严格拉取版本标签，不会混入 master 业务代码。
@@ -3323,7 +3385,17 @@ bootstrap_source_builder() {
       log "获取源码构建器 ${sourceRef}: ${base}"
       repoUrl="${base}/aid-server.git"
       cloned="no"
-      if command -v git >/dev/null 2>&1; then
+      if [[ "${sourceBuildMode}" == "docker" ]] && command -v timeout >/dev/null 2>&1; then
+        if timeout 240 docker run --rm --user "$(id -u):$(id -g)" -v "${tmpDir}:/work" -w /work \
+            "${SOURCE_GIT_IMAGE}" clone --depth 1 --single-branch --branch "${sourceRef}" \
+            "${repoUrl}" server >/dev/null 2>&1; then
+          cloned="yes"
+        fi
+      elif [[ "${sourceBuildMode}" == "docker" ]] && docker run --rm --user "$(id -u):$(id -g)" -v "${tmpDir}:/work" -w /work \
+          "${SOURCE_GIT_IMAGE}" clone --depth 1 --single-branch --branch "${sourceRef}" \
+          "${repoUrl}" server >/dev/null 2>&1; then
+        cloned="yes"
+      elif command -v git >/dev/null 2>&1; then
         if command -v timeout >/dev/null 2>&1; then
           if GIT_TERMINAL_PROMPT=0 GIT_HTTP_LOW_SPEED_LIMIT=1 GIT_HTTP_LOW_SPEED_TIME=12 \
               timeout 25 git ls-remote --exit-code "${repoUrl}" "${remoteRef}" >/dev/null 2>&1 \
@@ -3337,21 +3409,17 @@ bootstrap_source_builder() {
               --branch "${sourceRef}" "${repoUrl}" "${tmpDir}/server" 2>/dev/null; then
           cloned="yes"
         fi
-      elif command -v timeout >/dev/null 2>&1; then
-        if timeout 240 docker run --rm --user "$(id -u):$(id -g)" -v "${tmpDir}:/work" -w /work \
-            "${SOURCE_GIT_IMAGE}" clone --depth 1 --single-branch --branch "${sourceRef}" \
-            "${repoUrl}" server >/dev/null 2>&1; then
-          cloned="yes"
-        fi
-      elif docker run --rm --user "$(id -u):$(id -g)" -v "${tmpDir}:/work" -w /work \
-          "${SOURCE_GIT_IMAGE}" clone --depth 1 --single-branch --branch "${sourceRef}" \
-          "${repoUrl}" server >/dev/null 2>&1; then
-        cloned="yes"
       fi
       if [[ "${cloned}" == "yes" && -f "${tmpDir}/server/deploy/${SOURCE_BUILDER_NAME}" ]]; then
         mkdir -p "${DATA_ROOT}/packages"
         builder="${DATA_ROOT}/packages/${SOURCE_BUILDER_NAME}"
         install -m 0755 "${tmpDir}/server/deploy/${SOURCE_BUILDER_NAME}" "${builder}"
+        if ! source_builder_supports_explicit_mode "${builder}"; then
+          warn "公开 ${sourceRef} 中的源码构建器不支持 Docker/非 Docker 显式隔离，拒绝使用"
+          rm -f "${builder}"
+          continue
+        fi
+        sync_source_builder_to_installer "${builder}"
         rm -rf "${tmpDir}"
         SOURCE_BUILDER_PATH="${builder}"
         return 0
@@ -3359,7 +3427,7 @@ bootstrap_source_builder() {
     done
   done
   rm -rf "${tmpDir}"
-  die "版本 v${RESOLVED_VERSION} 缺少源码构建器，或 Gitee/GitHub 均不可访问"
+  die "未获得支持显式构建模式的源码构建器；请重新执行最新远程 aid.sh 后运行 sudo aid setup-updater 修复"
 }
 
 source_build_failure_diagnostics() { # source_build_failure_diagnostics <构建日志>
@@ -3377,8 +3445,10 @@ source_build_failure_diagnostics() { # source_build_failure_diagnostics <构建�
 ensure_source_package() {
   mkdir -p "${DATA_ROOT}/packages"
   RESOLVED_PACKAGE_PATH="${DATA_ROOT}/packages/aid-v${RESOLVED_VERSION}.tar.gz"
-  local builder actual checksumFile ownerMode owner modeBits buildLog buildStamp
+  local sourceBuildMode builder actual checksumFile ownerMode owner modeBits buildLog buildStamp
   local -a buildStatuses
+  require_source_build_mode
+  sourceBuildMode="${AID_SOURCE_BUILD_MODE}"
   checksumFile="${RESOLVED_PACKAGE_PATH}.sha256"
   if [[ -f "${RESOLVED_PACKAGE_PATH}" && -f "${checksumFile}" && "${AID_FORCE_SOURCE_REBUILD:-0}" != "1" ]]; then
     actual="$(sha256_file "${RESOLVED_PACKAGE_PATH}" || true)"
@@ -3398,24 +3468,42 @@ ensure_source_package() {
     rm -f "${RESOLVED_PACKAGE_PATH}" "${checksumFile}"
   fi
 
-  bootstrap_source_builder
-  prepare_source_build_images
+  bootstrap_source_builder "${sourceBuildMode}"
+  prepare_source_build_images "${sourceBuildMode}"
   builder="${SOURCE_BUILDER_PATH}"
   section "远程源码构建 AID v${RESOLVED_VERSION}"
   warn "只拉取三个公开仓库的 v${RESOLVED_VERSION} 标签；优先 Gitee，失败时整组回退到 GitHub"
-  warn "首次构建需要下载 Maven/npm/Go 依赖及构建镜像，请预留至少 15GB 磁盘与足够时间"
+  if [[ "${sourceBuildMode}" == "docker" ]]; then
+    log "源码构建模式：Docker 容器源码构建"
+    warn "首次构建需要下载 Maven/npm/Go 依赖及 Docker 构建镜像，请预留至少 15GB 磁盘与足够时间"
+  else
+    log "源码构建模式：非 Docker 宿主机源码构建"
+    warn "首次构建需要下载 Maven/npm/Go 依赖；不会拉取或调用 Docker，请预留至少 15GB 磁盘与足够时间"
+  fi
   mkdir -p "${DATA_ROOT}/logs" || die "无法创建构建日志目录: ${DATA_ROOT}/logs"
   buildStamp="$(date '+%Y%m%d-%H%M%S')"
   buildLog="${DATA_ROOT}/logs/source-build-v${RESOLVED_VERSION}-${buildStamp}.log"
   : > "${buildLog}" || die "无法创建三端构建日志: ${buildLog}"
   chmod 600 "${buildLog}" 2>/dev/null || true
   log "三端编译实时日志将同时保存到: ${buildLog}"
-  AID_DATA_ROOT="${DATA_ROOT}" AID_MANIFEST_PUBLIC_KEY="${TRUSTED_MANIFEST_PUBLIC_KEY}" \
-    AID_DEPENDENCY_REGION="$(dependency_region_setting)" \
-    AID_DOCKER_MIRRORS="$(docker_mirror_setting)" \
-    AID_MANAGER_SCRIPT="${SCRIPT_DIR}/$(basename "${BASH_SOURCE[0]}")" \
-    sh "${builder}" --version "${RESOLVED_VERSION}" --output "${RESOLVED_PACKAGE_PATH}" \
-      --work-dir "${DATA_ROOT}/source-build/v${RESOLVED_VERSION}" 2>&1 | tee -a "${buildLog}"
+  if [[ "${sourceBuildMode}" == "docker" ]]; then
+    AID_DATA_ROOT="${DATA_ROOT}" AID_SOURCE_BUILD_MODE="${sourceBuildMode}" AID_MANIFEST_PUBLIC_KEY="${TRUSTED_MANIFEST_PUBLIC_KEY}" \
+      AID_DEPENDENCY_REGION="$(dependency_region_setting)" \
+      AID_DOCKER_MIRRORS="$(docker_mirror_setting)" \
+      AID_MANAGER_SCRIPT="${SCRIPT_DIR}/$(basename "${BASH_SOURCE[0]}")" \
+      sh "${builder}" --version "${RESOLVED_VERSION}" --output "${RESOLVED_PACKAGE_PATH}" \
+        --work-dir "${DATA_ROOT}/source-build/v${RESOLVED_VERSION}"
+  else
+    # 手动构建不继承也不传递 Docker 镜像参数，避免环境残留导致两条链路混用。
+    (
+      unset AID_DOCKER_MIRRORS AID_DOCKER_CN_MIRROR
+      AID_DATA_ROOT="${DATA_ROOT}" AID_SOURCE_BUILD_MODE="${sourceBuildMode}" AID_MANIFEST_PUBLIC_KEY="${TRUSTED_MANIFEST_PUBLIC_KEY}" \
+        AID_DEPENDENCY_REGION="$(dependency_region_setting)" \
+        AID_MANAGER_SCRIPT="${SCRIPT_DIR}/$(basename "${BASH_SOURCE[0]}")" \
+        sh "${builder}" --version "${RESOLVED_VERSION}" --output "${RESOLVED_PACKAGE_PATH}" \
+          --work-dir "${DATA_ROOT}/source-build/v${RESOLVED_VERSION}"
+    )
+  fi 2>&1 | tee -a "${buildLog}"
   buildStatuses=( "${PIPESTATUS[@]}" )
   if (( buildStatuses[0] != 0 )); then
     source_build_failure_diagnostics "${buildLog}"
@@ -5530,6 +5618,7 @@ do_install_docker() {
   ensure_env_file
   confirm_initial_configuration docker
   export AID_DEPENDENCY_INSTALL_MODE="$(dependency_install_mode docker)"
+  set_source_build_mode docker
   require_docker_runtime
   if [[ "$(uname -m)" == "aarch64" ]]; then
     die "Docker 一键部署固定使用 MySQL 5.7，官方镜像不支持 ARM64；请改用 x86_64 服务器"
@@ -5862,6 +5951,7 @@ do_install_manual() {
   ensure_conf_file
   confirm_initial_configuration manual
   export AID_DEPENDENCY_INSTALL_MODE="$(dependency_install_mode manual)"
+  set_source_build_mode manual
   ensure_manual_host_dependencies
   prepare_install_package "${1:-}"
   package="${RESOLVED_PACKAGE_PATH}"
@@ -5924,6 +6014,7 @@ do_update() {
   # 先用当前远程引导脚本/受管模板补齐旧配置；仅追加缺失键，原值不变且同目录留备份。
   if [[ "${mode}" == "docker" ]]; then ensure_env_file; else ensure_conf_file; fi
   export AID_DEPENDENCY_INSTALL_MODE="$(dependency_install_mode "${mode}")"
+  set_source_build_mode "${mode}"
   # Docker 升级同样先校验容器运行时，避免后续缺 Git 时给出误导性报错。
   if [[ "${mode}" == "docker" ]]; then
     require_docker_runtime
@@ -6858,7 +6949,16 @@ do_setup_updater() {
   else
     ensure_conf_file
   fi
+  export AID_DEPENDENCY_INSTALL_MODE="$(dependency_install_mode "${mode}")"
+  set_source_build_mode "${mode}"
+  if [[ "${mode}" == "manual" ]]; then
+    ensure_git_runtime "${AID_DEPENDENCY_INSTALL_MODE}"
+  fi
   resolve_official_release
+  # 只刷新并验证构建器，不构建三端源码；升级器后续必须使用与部署方式一致的构建链路。
+  bootstrap_source_builder "${AID_SOURCE_BUILD_MODE}"
+  source_builder_supports_explicit_mode "${SOURCE_BUILDER_PATH}" \
+    || die "源码构建器不支持显式构建模式；请重新执行最新远程 aid.sh 后重试"
   ensure_official_updater_binary
   setup_updater "${mode}" || die "升级器安装/修复失败，请查看上方诊断日志"
   install_management_command
