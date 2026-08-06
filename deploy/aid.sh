@@ -2123,7 +2123,7 @@ ensure_redis_build_compiler() {
 
 prepare_managed_redis() {
   local installMode="$1" name btChecksum officialChecksum cacheDir archive actual downloaded=no url tmp
-  local redisHost redisPort redisUser redisPwd redisData redisRun redisLog redisConf buildLog
+  local redisHost redisPort redisUser redisPwd redisData redisRun redisLog redisConf buildLog redisCli
   local -a urls=()
   name="redis-${REDIS_VERSION}.tar.gz"
   # 国内镜像和 Redis 官方归档的源码树一致，但 gzip 打包元数据不同，因此分别固定两个可信摘要。
@@ -2250,7 +2250,9 @@ EOF
   wait_managed_redis_ready "${redisPort}" "${redisUser}" "${redisPwd}" \
     || die "受管 Redis 未就绪，诊断日志已输出"
   link_managed_redis_commands
-  command -v redis-cli >/dev/null 2>&1 || die "受管 Redis 客户端命令安装失败"
+  redisCli="$(resolve_redis_cli_command 2>/dev/null || true)"
+  [[ -n "${redisCli}" && -x "${redisCli}" ]] \
+    || die "受管 Redis 客户端不可用: ${REDIS_HOME}/src/redis-cli"
   ok "Redis ${REDIS_VERSION} 已安装为独立服务 ${REDIS_MANAGED_SERVICE}"
 }
 
@@ -2259,22 +2261,63 @@ managed_redis_home() {
 }
 
 link_managed_redis_commands() {
-  local redisHome binDir name source target
+  local redisHome binDir name source target resolvedTarget currentPath
   redisHome="$(managed_redis_home)"
   binDir="${AID_LOCAL_BIN_DIR:-/usr/local/bin}"
-  mkdir -p "${binDir}"
+  currentPath="${PATH:-/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin}"
+  case ":${currentPath}:" in
+    *":${binDir}:"*) ;;
+    *) currentPath="${binDir}:${currentPath}" ;;
+  esac
+  export PATH="${currentPath}"
+  if ! mkdir -p "${binDir}"; then
+    warn "无法创建 Redis 命令目录 ${binDir}，将直接使用受管安装目录中的命令"
+    return 0
+  fi
   for name in redis-server redis-cli; do
-    command -v "${name}" >/dev/null 2>&1 && continue
     source="${redisHome}/src/${name}"
     target="${binDir}/${name}"
     [[ -x "${source}" ]] || continue
     if [[ -L "${target}" ]]; then
-      ln -sfn "${source}" "${target}"
+      resolvedTarget="$(resolve_aid_symlink_target "${target}" 2>/dev/null || true)"
+      case "${resolvedTarget}" in
+        "${source}") continue ;;
+        "${DATA_ROOT}/runtime/"*)
+          ln -sfn "${source}" "${target}" \
+            || warn "无法修复受管 Redis 命令链接: ${target}"
+          ;;
+        *) warn "保留已有非 AID Redis 命令链接: ${target}" ;;
+      esac
+    elif [[ -n "$(command -v "${name}" 2>/dev/null || true)" ]]; then
+      continue
     elif [[ ! -e "${target}" ]]; then
-      ln -s "${source}" "${target}"
+      ln -s "${source}" "${target}" \
+        || warn "无法创建 Redis 命令链接 ${target}，将直接使用 ${source}"
+    elif [[ ! -x "${target}" ]]; then
+      warn "保留已有非可执行文件 ${target}，将直接使用 ${source}"
     fi
   done
   return 0
+}
+
+resolve_redis_cli_command() {
+  local commandPath="" redisHome
+  commandPath="$(command -v redis-cli 2>/dev/null || true)"
+  if [[ -n "${commandPath}" && -x "${commandPath}" ]]; then
+    printf '%s\n' "${commandPath}"
+    return 0
+  fi
+  redisHome="${REDIS_HOME:-$(managed_redis_home)}"
+  if [[ -x "${redisHome}/src/redis-cli" ]]; then
+    printf '%s\n' "${redisHome}/src/redis-cli"
+    return 0
+  fi
+  commandPath="${AID_LOCAL_BIN_DIR:-/usr/local/bin}/redis-cli"
+  if [[ -x "${commandPath}" ]]; then
+    printf '%s\n' "${commandPath}"
+    return 0
+  fi
+  return 1
 }
 
 managed_redis_service_needs_recovery() {
@@ -2320,7 +2363,7 @@ wait_managed_redis_ready() { # wait_managed_redis_ready <端口> <用户名> <�
 }
 
 ensure_manual_host_dependencies() {
-  local installMode redisHost redisPort redisUser redisPwd redisVersion redisMajor redisDb
+  local installMode redisHost redisPort redisUser redisPwd redisVersion redisMajor redisDb redisCli
   local -a redisArgs=()
   installMode="$(dependency_install_mode manual)"
   export AID_DEPENDENCY_INSTALL_MODE="${installMode}"
@@ -2375,11 +2418,16 @@ ensure_manual_host_dependencies() {
       fi ;;
     *) ok "已配置外部 Redis ${redisHost}:${redisPort}，不会安装本机 Redis" ;;
   esac
-  ensure_host_command redis-cli "Redis客户端" "redis-tools" "redis" "${installMode}"
+  redisCli="$(resolve_redis_cli_command 2>/dev/null || true)"
+  if [[ -z "${redisCli}" ]]; then
+    ensure_host_command redis-cli "Redis客户端" "redis-tools" "redis" "${installMode}"
+    redisCli="$(resolve_redis_cli_command 2>/dev/null || true)"
+  fi
+  [[ -n "${redisCli}" && -x "${redisCli}" ]] || die "Redis 客户端命令不可用"
   redisDb="$(conf_get REDIS_DATABASE 0)"
   redisArgs=(--no-auth-warning -h "${redisHost}" -p "${redisPort}" -n "${redisDb}")
   [[ -z "${redisUser}" ]] || redisArgs+=(--user "${redisUser}")
-  redisVersion="$(REDISCLI_AUTH="${redisPwd}" redis-cli "${redisArgs[@]}" INFO server 2>/dev/null \
+  redisVersion="$(REDISCLI_AUTH="${redisPwd}" "${redisCli}" "${redisArgs[@]}" INFO server 2>/dev/null \
     | awk -F: '$1=="redis_version" {gsub("\r", "", $2); print $2; exit}')"
   redisMajor="${redisVersion%%.*}"
   [[ "${redisMajor}" =~ ^[0-9]+$ && "${redisMajor}" -ge 6 ]] \
