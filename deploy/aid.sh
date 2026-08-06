@@ -2022,9 +2022,43 @@ EOF
   fi
   wait_managed_redis_ready "${redisPort}" "${redisUser}" "${redisPwd}" \
     || die "受管 Redis 未就绪，诊断日志已输出"
-  command -v redis-server >/dev/null 2>&1 || ln -s "${REDIS_HOME}/src/redis-server" /usr/local/bin/redis-server
-  command -v redis-cli >/dev/null 2>&1 || ln -s "${REDIS_HOME}/src/redis-cli" /usr/local/bin/redis-cli
+  link_managed_redis_commands
+  command -v redis-cli >/dev/null 2>&1 || die "受管 Redis 客户端命令安装失败"
   ok "Redis ${REDIS_VERSION} 已安装为独立服务 ${REDIS_MANAGED_SERVICE}"
+}
+
+managed_redis_home() {
+  printf '%s/runtime/redis-%s\n' "${DATA_ROOT}" "${REDIS_VERSION}"
+}
+
+link_managed_redis_commands() {
+  local redisHome binDir name source target
+  redisHome="$(managed_redis_home)"
+  binDir="${AID_LOCAL_BIN_DIR:-/usr/local/bin}"
+  mkdir -p "${binDir}"
+  for name in redis-server redis-cli; do
+    command -v "${name}" >/dev/null 2>&1 && continue
+    source="${redisHome}/src/${name}"
+    target="${binDir}/${name}"
+    [[ -x "${source}" ]] || continue
+    if [[ -L "${target}" ]]; then
+      ln -sfn "${source}" "${target}"
+    elif [[ ! -e "${target}" ]]; then
+      ln -s "${source}" "${target}"
+    fi
+  done
+  return 0
+}
+
+managed_redis_service_needs_recovery() {
+  local redisHome unitFile
+  redisHome="$(managed_redis_home)"
+  unitFile="${AID_SYSTEMD_UNIT_DIR:-/etc/systemd/system}/${REDIS_MANAGED_SERVICE}"
+  [[ -x "${redisHome}/src/redis-server" ]] || return 1
+  [[ -f "${unitFile}" ]] || return 0
+  grep -Eq '^Type=notify|--supervised[[:space:]]+systemd' "${unitFile}" && return 0
+  systemctl is-active --quiet "${REDIS_MANAGED_SERVICE}" || return 0
+  return 1
 }
 
 managed_redis_ping() { # managed_redis_ping <端口> <用户名> <密码>
@@ -2085,6 +2119,14 @@ ensure_manual_host_dependencies() {
   redisUser="$(conf_get REDIS_USERNAME '')"; redisPwd="$(conf_get REDIS_PASSWORD '')"
   case "${redisHost}" in
     127.0.0.1|localhost)
+      # 上一次安装可能已完成编译并拉起进程，却在创建命令链接或确认服务前中断。
+      # 遇到旧 notify unit、缺失 unit 或非活跃服务时，直接用受管产物补齐安装，不走系统仓库。
+      if managed_redis_service_needs_recovery; then
+        warn "检测到未收尾的受管 Redis，正在自动修复服务与客户端命令"
+        prepare_managed_redis "${installMode}"
+      else
+        link_managed_redis_commands
+      fi
       if ! tcp_reachable "${redisHost}" "${redisPort}"; then
         [[ "${installMode}" == "auto" ]] || die "本机 Redis ${redisHost}:${redisPort} 不可用，请启动后重试"
         if command -v redis-server >/dev/null 2>&1; then
