@@ -11,7 +11,7 @@
 #   - 全部数据统一放在 DATA_ROOT（默认 /data/aid）：程序、上传文件、日志、
 #     中间件数据、备份、源码构建缓存
 #   - 首次部署自动从模板创建正式配置；后续配置真源 = 用户维护的正式配置文件：
-#       Docker 部署 → deploy/docker/.env（模板 .env.example）
+#       Docker 部署 → DATA_ROOT/config/docker.env（模板 deploy/docker/.env.example）
 #       手动部署   → DATA_ROOT/aid-deploy.conf（模板 deploy/aid-deploy.conf.example）
 #     密码/密钥留空自动生成强随机值写回；改配置 = 编辑文件 + 菜单「重启服务」
 #   - 自动识别部署方式（docker / manual），每个环节自动判断当前状态
@@ -213,9 +213,11 @@ AID_NGINX_STATE_FILE="${CONFIG_ROOT}/nginx/managed-site.state"
 DEPLOYMENT_DESCRIPTOR="${CONFIG_ROOT}/deployment.json"
 STATE_FILE="${CONFIG_ROOT}/install-state.conf"
 DEFAULT_MANUAL_CONFIG="${DATA_ROOT}/aid-deploy.conf"
-DEFAULT_DOCKER_CONFIG="${COMPOSE_DIR}/.env"
+DEFAULT_DOCKER_CONFIG="${CONFIG_ROOT}/docker.env"
 descriptorMode=""
 descriptorPath=""
+descriptorNormalizedPath=""
+configRootNormalized="$(readlink -m -- "${CONFIG_ROOT}" 2>/dev/null || true)"
 if [[ -f "${DEPLOYMENT_DESCRIPTOR}" ]]; then
   descriptorMode="$(grep -E '"mode"[[:space:]]*:' "${DEPLOYMENT_DESCRIPTOR}" 2>/dev/null | head -n 1 | sed -E 's/.*:[[:space:]]*"([^"]+)".*/\1/')"
   descriptorPath="$(grep -E '"configPath"[[:space:]]*:' "${DEPLOYMENT_DESCRIPTOR}" 2>/dev/null | head -n 1 | sed -E 's/.*:[[:space:]]*"([^"]+)".*/\1/')"
@@ -223,11 +225,20 @@ fi
 CONF="${DEFAULT_MANUAL_CONFIG}"
 ENV_FILE="${DEFAULT_DOCKER_CONFIG}"
 if [[ ( "${descriptorMode}" == "manual" || "${descriptorMode}" == "systemd" ) && "${descriptorPath}" == /* ]]; then CONF="${descriptorPath}"; fi
-if [[ "${descriptorMode}" == "docker" && "${descriptorPath}" == /* ]]; then ENV_FILE="${descriptorPath}"; fi
-# 单文件首次启动时 deploy/docker 尚未落盘，先把配置放进数据目录的受控配置区；
-# 安装器落盘后仍通过 deployment.json 读取同一文件，不会生成第二份配置。
-if [[ ! -d "${COMPOSE_DIR}" && ! -f "${DEPLOYMENT_DESCRIPTOR}" ]]; then
-  ENV_FILE="${CONFIG_ROOT}/docker.env"
+# 旧版在远程引导脚本位于 /tmp 时，可能将 Docker 配置误写到临时 deploy/docker/.env。
+# 这里只记录 descriptor 指向，绝不直接将未受控路径作为当前配置真源；ensure_env_file
+# 会在核对 root 所有权、普通文件、AID 配置头和 DATA_ROOT 后执行一次性迁移。
+LEGACY_DOCKER_CONFIG_PATH=""
+if [[ "${descriptorMode}" == "docker" && "${descriptorPath}" == /* ]]; then
+  descriptorNormalizedPath="$(readlink -m -- "${descriptorPath}" 2>/dev/null || true)"
+  if [[ -n "${configRootNormalized}" \
+      && "${descriptorNormalizedPath}" == "${descriptorPath}" \
+      && "${descriptorNormalizedPath}" == "${configRootNormalized}/"* ]]; then
+    # 后台允许在受控配置目录中选择自定义 .env/.conf，继续保留该指向。
+    ENV_FILE="${descriptorPath}"
+  elif [[ "${descriptorPath}" != "${DEFAULT_DOCKER_CONFIG}" ]]; then
+    LEGACY_DOCKER_CONFIG_PATH="${descriptorPath}"
+  fi
 fi
 HEALTH_WAIT_SECONDS=300
 
@@ -253,10 +264,6 @@ if [[ "${AID_REMOTE_BOOTSTRAP:-0}" == "1" \
     && -f "${INSTALLER_ROOT}/sql/aid-init.sql" ]]; then
   REPO_DIR="${INSTALLER_ROOT}"
   COMPOSE_DIR="${INSTALLER_ROOT}/deploy/docker"
-  DEFAULT_DOCKER_CONFIG="${COMPOSE_DIR}/.env"
-  if [[ "${descriptorMode}" != "docker" && -f "${DEFAULT_DOCKER_CONFIG}" ]]; then
-    ENV_FILE="${DEFAULT_DOCKER_CONFIG}"
-  fi
 fi
 DOWNLOAD_TIMEOUT_SECONDS="${AID_DOWNLOAD_TIMEOUT_SECONDS:-1800}"
 DOWNLOAD_MIN_SPEED_BYTES="${AID_DOWNLOAD_MIN_SPEED_BYTES:-32768}"
@@ -391,7 +398,8 @@ gen_secret() { tr -dc 'A-Za-z0-9' </dev/urandom | head -c 48 || true; }
 # 其他密钥仍使用上面的 48 位随机值，不随数据库密码规则缩短。
 gen_database_secret() { gen_secret | head -c 12; }
 
-# Docker 部署配置真源：默认 deploy/docker/.env；单文件首次部署或后台迁移时可位于 DATA_ROOT/config。
+# Docker 部署配置真源默认固定在 DATA_ROOT/config/docker.env；
+# 后台自定义路径也必须位于 DATA_ROOT/config 受控目录中。
 env_get() { # env_get <key> <默认值>
   local value=""
   if [[ -f "${ENV_FILE}" ]] && grep -qE "^${1}=" "${ENV_FILE}" 2>/dev/null; then
@@ -437,6 +445,115 @@ EOF
   chmod 600 "${tmp}"
   mv -f "${tmp}" "${DEPLOYMENT_DESCRIPTOR}"
   write_aid_root_marker
+}
+
+docker_config_has_managed_identity() { # docker_config_has_managed_identity <path>
+  local path="$1" resolved owner links
+  [[ -f "${path}" && ! -L "${path}" ]] || return 1
+  resolved="$(readlink -f -- "${path}" 2>/dev/null || true)"
+  [[ -n "${resolved}" && "${resolved}" == "${path}" ]] || return 1
+  owner="$(stat -c '%u' -- "${path}" 2>/dev/null || true)"
+  links="$(stat -c '%h' -- "${path}" 2>/dev/null || true)"
+  [[ "${owner}" == "0" && "${links}" == "1" ]] || return 1
+  grep -Fq '# AID Docker 部署配置（唯一配置真源）' "${path}" 2>/dev/null \
+    && grep -Fxq "DATA_ROOT=${DATA_ROOT}" "${path}" 2>/dev/null
+}
+
+legacy_docker_descriptor_matches() { # legacy_docker_descriptor_matches <legacy path>
+  local legacy="$1" resolved owner links
+  [[ -f "${DEPLOYMENT_DESCRIPTOR}" && ! -L "${DEPLOYMENT_DESCRIPTOR}" ]] || return 1
+  resolved="$(readlink -f -- "${DEPLOYMENT_DESCRIPTOR}" 2>/dev/null || true)"
+  [[ -n "${resolved}" && "${resolved}" == "${DEPLOYMENT_DESCRIPTOR}" ]] || return 1
+  owner="$(stat -c '%u' -- "${DEPLOYMENT_DESCRIPTOR}" 2>/dev/null || true)"
+  links="$(stat -c '%h' -- "${DEPLOYMENT_DESCRIPTOR}" 2>/dev/null || true)"
+  [[ "${owner}" == "0" && "${links}" == "1" ]] || return 1
+  grep -Fq '"mode": "docker"' "${DEPLOYMENT_DESCRIPTOR}" 2>/dev/null \
+    && grep -Fq "\"dataRoot\": \"${DATA_ROOT}\"" "${DEPLOYMENT_DESCRIPTOR}" 2>/dev/null \
+    && grep -Fq "\"configPath\": \"${legacy}\"" "${DEPLOYMENT_DESCRIPTOR}" 2>/dev/null
+}
+
+legacy_docker_parent_is_secure() { # legacy_docker_parent_is_secure <legacy path>
+  local parent resolved owner mode
+  parent="$(dirname -- "$1")"
+  [[ -d "${parent}" && ! -L "${parent}" ]] || return 1
+  resolved="$(readlink -f -- "${parent}" 2>/dev/null || true)"
+  [[ -n "${resolved}" && "${resolved}" == "${parent}" ]] || return 1
+  owner="$(stat -c '%u' -- "${parent}" 2>/dev/null || true)"
+  mode="$(stat -c '%a' -- "${parent}" 2>/dev/null || true)"
+  [[ "${owner}" == "0" && "${mode}" =~ ^[0-7]{3,4}$ ]] || return 1
+  (( (8#${mode} & 8#022) == 0 ))
+}
+
+archive_migrated_docker_config() { # archive_migrated_docker_config <legacy path>
+  local legacy="$1" backup stamp suffix=0
+  stamp="$(date '+%Y%m%d-%H%M%S')"
+  backup="${legacy}.migrated.${stamp}.bak"
+  while [[ -e "${backup}" || -L "${backup}" ]]; do
+    suffix=$((suffix + 1)); backup="${legacy}.migrated.${stamp}.${suffix}.bak"
+  done
+  if mv -- "${legacy}" "${backup}"; then
+    chmod 600 "${backup}" 2>/dev/null || true
+    chown root:root "${backup}" 2>/dev/null || true
+    echo "  旧配置备份: ${backup}"
+  else
+    warn "Docker 配置已迁移，但旧文件无法改名，请人工移除: ${legacy}"
+  fi
+}
+
+migrate_legacy_docker_config() {
+  local legacy="${LEGACY_DOCKER_CONFIG_PATH:-}" resolved staged
+  [[ -n "${legacy}" && "${legacy}" != "${ENV_FILE}" ]] || return 0
+
+  # 仅兼容两类历史路径：受管安装器的旧 .env，以及旧版远程引导器
+  # 留在 /tmp/.../docker/.env 的临时文件。其他 CONFIG_ROOT 外路径一律拒绝。
+  case "${legacy}" in
+    "${INSTALLER_ROOT}/deploy/docker/.env"|/tmp/docker/.env|/tmp/*/docker/.env) ;;
+    *) die "旧 Docker 配置不在可迁移的历史路径: ${legacy}" ;;
+  esac
+  resolved="$(readlink -f -- "${legacy}" 2>/dev/null || true)"
+  [[ -n "${resolved}" && "${resolved}" == "${legacy}" ]] \
+    || die "旧 Docker 配置路径包含链接或不安全跳转: ${legacy}"
+  legacy_docker_parent_is_secure "${legacy}" \
+    || die "旧 Docker 配置父目录必须由 root 所有、不是软链接且不允许组或其他用户写入"
+  legacy_docker_descriptor_matches "${legacy}" \
+    || die "旧 Docker 配置缺少可信部署描述证据: ${legacy}"
+  docker_config_has_managed_identity "${legacy}" \
+    || die "旧 Docker 配置必须是 root 所有的独立普通文件，且 AID 标识与 DATA_ROOT 必须匹配"
+
+  # 受控真源与旧文件同时存在时，只有内容逐字节一致才能收敛指向。
+  # 不一致往往意味着两套数据库凭证，必须阻断并交由管理员选择。
+  if [[ -e "${ENV_FILE}" || -L "${ENV_FILE}" ]]; then
+    docker_config_has_managed_identity "${ENV_FILE}" \
+      || die "Docker 受控配置身份校验失败: ${ENV_FILE}"
+    cmp -s -- "${legacy}" "${ENV_FILE}" \
+      || die "Docker 配置内容冲突，禁止自动选择: ${legacy} <> ${ENV_FILE}"
+    write_deployment_descriptor docker "${ENV_FILE}"
+    archive_migrated_docker_config "${legacy}"
+    LEGACY_DOCKER_CONFIG_PATH=""
+    ok "Docker descriptor 已收敛到受控配置: ${ENV_FILE}"
+    return 0
+  fi
+
+  mkdir -p "${CONFIG_ROOT}"
+  [[ ! -L "${CONFIG_ROOT}" ]] || die "Docker 配置目录不能是软链接: ${CONFIG_ROOT}"
+  staged="$(mktemp "${CONFIG_ROOT}/.docker.env.migrate.XXXXXX")" \
+    || die "无法创建 Docker 配置迁移临时文件"
+  if ! install -m 0600 "${legacy}" "${staged}" || ! cmp -s -- "${legacy}" "${staged}"; then
+    rm -f -- "${staged}"
+    die "Docker 配置迁移复制或校验失败，旧文件未修改"
+  fi
+  mv -f -- "${staged}" "${ENV_FILE}" \
+    || { rm -f -- "${staged}"; die "Docker 配置迁移落盘失败，旧文件未修改"; }
+  chown root:root "${ENV_FILE}" 2>/dev/null || true
+  chmod 600 "${ENV_FILE}"
+  docker_config_has_managed_identity "${ENV_FILE}" \
+    || die "Docker 受控配置迁移后身份复核失败: ${ENV_FILE}"
+  write_deployment_descriptor docker "${ENV_FILE}"
+
+  # 目标和 descriptor 都已落盘后再把旧文件原子改名为 root-only 备份。
+  archive_migrated_docker_config "${legacy}"
+  ok "Docker 配置已安全迁移至: ${ENV_FILE}"
+  LEGACY_DOCKER_CONFIG_PATH=""
 }
 
 config_sha256() { sha256_file "$1" 2>/dev/null || true; }
@@ -4495,6 +4612,9 @@ EOF
 # ----------------------------------------------------------------------------
 ensure_env_file() {
   local existedBefore=0 legacyMissingDbHost=0
+  # 任何 Docker 配置读取前先将旧版 /tmp/.../docker/.env 迁移到受控目录。
+  # 迁移不通过就终止，绝不会为已有部署生成一份新默认配置覆盖原值。
+  migrate_legacy_docker_config
   [[ -f "${ENV_FILE}" ]] && existedBefore=1
   if [[ "${existedBefore}" == "1" ]] && ! grep -qE '^DB_HOST=' "${ENV_FILE}" 2>/dev/null; then
     legacyMissingDbHost=1
