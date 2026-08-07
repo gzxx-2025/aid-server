@@ -131,10 +131,10 @@ ON DUPLICATE KEY UPDATE
     `remark` = VALUES(`remark`),
     `del_flag` = 0;
 
--- 公共访问域名由本地、OSS、COS、七牛云共用；保留已填写的域名值。
+-- 公共访问域名由 OSS、COS、七牛云共用；本地模式自动使用 localDomain + /profile。
 UPDATE `aid_config`
 SET `config_dict` = '公共访问域名（CDN）',
-    `remark` = '本地官方资源示例https://api.example.com/profile；云存储示例https://cdn.example.com，通常不加/profile',
+    `remark` = '云存储公共访问域名，例如https://cdn.example.com，通常不加/profile；本地模式无需填写',
     `update_by` = 'system',
     `update_time` = NOW()
 WHERE `category` = 'oss' AND `config_name` = 'cdnDomain';
@@ -151,6 +151,20 @@ SET `config_dict` = 'COS源站域名（可选）',
     `update_by` = 'system',
     `update_time` = NOW()
 WHERE `category` = 'oss' AND `config_name` = 'cosCdnDomain';
+
+-- MQ 默认关闭：只收口从未被管理员修改过的历史默认 true，保留部署方已显式配置的状态。
+UPDATE `aid_config`
+SET `config_value` = 'false',
+    `update_by` = 'system',
+    `update_time` = NOW(),
+    `remark` = '消息队列总开关；仅在已配置RocketMQ基础设施并显式开启后启用'
+WHERE `category` = 'mq'
+  AND `config_name` = 'enabled'
+  AND (
+      `config_value` IS NULL
+      OR TRIM(`config_value`) = ''
+      OR (LOWER(TRIM(`config_value`)) = 'true' AND COALESCE(TRIM(`update_by`), '') = '')
+  );
 
 -- 官方资源初始化按钮权限。
 SET @upgrade_menu_id := (

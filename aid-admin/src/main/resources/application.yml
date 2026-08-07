@@ -229,7 +229,7 @@ referer:
 #   rocketmq.enabled=false 时不装配消费者与发送模板，未部署 RocketMQ 的环境零依赖启动；
 #   业务派发模式（MQ/本地双模式）由后台「消息队列配置」（aid_config category=mq）控制，默认本地模式。
 rocketmq:
-  enabled: ${ROCKETMQ_ENABLED:true} # 基础设施装配开关（未部署 RocketMQ 的环境设为 false）
+  enabled: ${ROCKETMQ_ENABLED:false} # 基础设施装配开关；只有显式设为 true 才初始化 MQ 组件
   name-server: ${ROCKETMQ_NAMESERVER:127.0.0.1:9876} # NameServer 地址（环境变量注入）
   # ACL 凭证；未启用 ACL 的 RocketMQ 可同时留空
   access-key: ${ROCKETMQ_ACCESS_KEY:}

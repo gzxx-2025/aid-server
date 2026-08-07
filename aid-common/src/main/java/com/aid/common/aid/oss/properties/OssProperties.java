@@ -3,6 +3,7 @@ package com.aid.common.aid.oss.properties;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 import lombok.Data;
@@ -15,17 +16,20 @@ import lombok.Data;
 @Data
 public class OssProperties
 {
+    /** 本地文件统一公共访问路径。 */
+    private static final String LOCAL_PROFILE_PATH = "/profile";
+
     /**
      * 是否启用OSS
      */
-    private Boolean enabled = false;
+    private Boolean enabled = true;
 
     /**
      * 上传模式：local=本地存储；oss=阿里云OSS；cos=腾讯云COS；qiniu=七牛云Kodo。
      * 统一上传接口 /api/user/oss/upload 会根据该值分发。
-     * 默认 oss，缺省或非法值按 oss 处理。
+     * 默认 local，保证首次部署无需云存储凭证即可使用上传功能。
      */
-    private String uploadMode = "oss";
+    private String uploadMode = "local";
 
     /**
      * OSS Endpoint
@@ -53,8 +57,7 @@ public class OssProperties
     private String prefix;
 
     /**
-     * 公共访问域名。
-     * OSS、COS、七牛云共用；本地模式用于解析初始化数据中的 /aid/... 官方资源。
+     * 云存储公共访问域名，由 OSS、COS、七牛云共用。
      */
     private String cdnDomain;
     // 各云存储凭证相互独立，切换模式时无需重复填写。
@@ -170,13 +173,27 @@ public class OssProperties
     }
 
     /**
-     * 当前生效的对外访问域名。OSS、COS、七牛云以及本地官方资源统一使用 {@link #cdnDomain}。
-     * 本地新上传文件仍使用 localDomain；COS 源站域名见 {@link #cosCdnDomain}。
+     * 当前生效的对外访问前缀。云存储使用 {@link #cdnDomain}；本地模式由
+     * {@link #localDomain} 自动派生 {@code /profile}，使普通上传和初始化数据中的
+     * {@code /aid/...} 官方资源共用一个后台配置项。
      *
      * @return 生效的对外访问域名
      */
     public String getEffectiveCdnDomain()
     {
+        if ("local".equalsIgnoreCase(uploadMode))
+        {
+            String normalizedLocalDomain = Objects.isNull(localDomain) ? "" : localDomain.trim();
+            while (normalizedLocalDomain.endsWith("/") && normalizedLocalDomain.length() > 1)
+            {
+                normalizedLocalDomain = normalizedLocalDomain.substring(0, normalizedLocalDomain.length() - 1);
+            }
+            if (normalizedLocalDomain.endsWith(LOCAL_PROFILE_PATH))
+            {
+                return normalizedLocalDomain;
+            }
+            return normalizedLocalDomain + LOCAL_PROFILE_PATH;
+        }
         return cdnDomain;
     }
 

@@ -47,6 +47,9 @@ public class OssConnectivityTester implements ConfigConnectivityTester {
     /** 探测对象目录。 */
     private static final String PROBE_DIRECTORY = "__aid_probe__";
 
+    /** 本地文件统一公共访问路径。 */
+    private static final String LOCAL_PROFILE_PATH = "/profile";
+
     /** 探测文件内容。 */
     private static final byte[] PROBE_BYTES = new byte[PROBE_FILE_SIZE];
 
@@ -227,26 +230,23 @@ public class OssConnectivityTester implements ConfigConnectivityTester {
     /** 本地目录读写删除测试。 */
     private ConfigTestResult testLocal(Map<String, Object> payload) {
         String localDomain = TesterPayloads.str(payload, "localDomain");
-        String cdnDomain = TesterPayloads.str(payload, "cdnDomain");
-        if (StrUtil.hasBlank(localDomain, cdnDomain)) {
-            return ConfigTestResult.fail("请填写完整本地配置");
-        }
-        if (!isHttpDomain(localDomain) || !isHttpDomain(cdnDomain)) {
+        if (StrUtil.isNotBlank(localDomain) && !isHttpDomain(localDomain)) {
             return ConfigTestResult.fail("访问域名格式错误");
         }
-        if (domainPathEndsWith(localDomain, "/profile")) {
+        if (StrUtil.isNotBlank(localDomain) && domainPathEndsWith(localDomain, LOCAL_PROFILE_PATH)) {
             return ConfigTestResult.fail("本地域名不要加/profile");
-        }
-        if (!domainPathEndsWith(cdnDomain, "/profile")) {
-            return ConfigTestResult.fail("公共域名需加/profile");
         }
 
         if (StrUtil.isBlank(AidAppConfig.getProfile())) {
             return ConfigTestResult.fail("本地目录未配置");
         }
         String uploadPath = AidAppConfig.getUploadPath();
+        String publicPrefix = StrUtil.isBlank(localDomain)
+                ? LOCAL_PROFILE_PATH
+                : StrUtil.removeSuffix(localDomain.trim(), "/") + LOCAL_PROFILE_PATH;
         String details = "uploadMode=local; uploadPath=" + uploadPath
-                + "; localDomain=" + localDomain + "; cdnDomain=" + cdnDomain;
+                + "; localDomain=" + (StrUtil.isBlank(localDomain) ? "<relative>" : localDomain)
+                + "; publicPrefix=" + publicPrefix;
         File probeFile = null;
         try {
             File folder = new File(uploadPath, PROBE_DIRECTORY);

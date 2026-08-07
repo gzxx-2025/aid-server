@@ -80,7 +80,7 @@ import org.springframework.beans.factory.annotation.Value;
  */
 @Slf4j
 @Service
-@ConditionalOnProperty(prefix = "rocketmq", name = "enabled", havingValue = "true", matchIfMissing = true)
+@ConditionalOnProperty(prefix = "rocketmq", name = "enabled", havingValue = "true", matchIfMissing = false)
 @RocketMQMessageListener(topic = "ASSET_EXTRACT_TOPIC",
         selectorExpression = "extract || image_upscale",
         consumerGroup = "asset_extract_consumer_group",

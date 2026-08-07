@@ -111,12 +111,12 @@ public class OssConfigManager
     public boolean isEnabled()
     {
         init();
-        return Boolean.parseBoolean(getCacheValue("enabled", "false"));
+        return Boolean.parseBoolean(getCacheValue("enabled", "true"));
     }
 
     /**
      * 获取当前生效的配置（供前端展示，脱敏处理）
-     * - local 模式：展示 localDomain 与公共 cdnDomain
+     * - local 模式：只需 localDomain，官方资源前缀自动派生为 localDomain + /profile
      * - 云存储模式：展示当前厂商字段与公共 cdnDomain，密钥统一脱敏
      *
      * @return 脱敏后的配置Map
@@ -136,10 +136,10 @@ public class OssConfigManager
         desensitize(result, "qiniuAccessKey");
         desensitize(result, "qiniuSecretKey");
         // 根据 uploadMode 过滤展示字段
-        String mode = Objects.isNull(currentProperties) ? "oss" : currentProperties.getUploadMode();
+        String mode = Objects.isNull(currentProperties) ? "local" : currentProperties.getUploadMode();
         if ("local".equalsIgnoreCase(mode))
         {
-            // local 模式隐藏与 OSS / COS 相关的字段
+            // local 模式隐藏云存储字段；官方资源公共前缀由 localDomain 自动派生
             result.remove("endpoint");
             result.remove("accessKeyId");
             result.remove("accessKeySecret");
@@ -155,6 +155,7 @@ public class OssConfigManager
             result.remove("qiniuSecretKey");
             result.remove("qiniuBucketName");
             result.remove("qiniuPrefix");
+            result.remove("cdnDomain");
         }
         else if ("cos".equalsIgnoreCase(mode))
         {
@@ -267,16 +268,16 @@ public class OssConfigManager
     private OssProperties buildOssProperties()
     {
         OssProperties properties = new OssProperties();
-        properties.setEnabled(getCacheBoolean("enabled", false));
-        // 上传模式：trim 后再判定，缺省或非法值按 oss 处理，防止 " local " 这类带空格的脏数据被误判
-        String mode = StrUtil.trim(getCacheValue("uploadMode", "oss"));
+        properties.setEnabled(getCacheBoolean("enabled", true));
+        // 上传模式：trim 后再判定，缺省或非法值按 local 处理，确保开源首次部署可直接使用
+        String mode = StrUtil.trim(getCacheValue("uploadMode", "local"));
         if (StrUtil.isBlank(mode)
                 || (!"local".equalsIgnoreCase(mode)
                 && !"oss".equalsIgnoreCase(mode)
                 && !"cos".equalsIgnoreCase(mode)
                 && !"qiniu".equalsIgnoreCase(mode)))
         {
-            mode = "oss";
+            mode = "local";
         }
         properties.setUploadMode(mode.toLowerCase());
         properties.setEndpoint(getCacheValue("endpoint", ""));
