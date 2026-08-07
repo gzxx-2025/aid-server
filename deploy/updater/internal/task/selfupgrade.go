@@ -19,6 +19,7 @@ func (r *Runner) runSelfUpgrade(t *Task) error {
 	if strings.TrimSpace(t.ManifestURL) == "" {
 		return fmt.Errorf("任务缺少更新清单地址")
 	}
+	r.reportProgress(t, 8, "检查升级器", "正在获取签名清单并选择当前架构制品")
 	m, err := manifest.Fetch(t.ManifestURL, 30*time.Second)
 	if err != nil {
 		return err
@@ -36,11 +37,13 @@ func (r *Runner) runSelfUpgrade(t *Task) error {
 	extractDir := filepath.Join(r.cfg.WorkDir, fmt.Sprintf("updater-extract-%s", t.TaskID))
 	defer r.cleanupWork(archivePath, extractDir)
 
+	r.reportProgress(t, 25, "下载升级器", "正在下载并校验升级器制品")
 	sources := append([]string{pkg.URL}, pkg.Mirrors...)
 	if _, _, err := artifact.DownloadAndVerify(sources, archivePath, pkg.SHA256,
 		time.Duration(r.cfg.DownloadTimeoutSeconds)*time.Second); err != nil {
 		return fmt.Errorf("下载升级器失败: %w", err)
 	}
+	r.reportProgress(t, 65, "校验升级器", "制品校验通过，正在解压")
 	if err := artifact.ExtractTarGz(archivePath, extractDir); err != nil {
 		return fmt.Errorf("解压升级器失败: %w", err)
 	}
@@ -49,9 +52,11 @@ func (r *Runner) runSelfUpgrade(t *Task) error {
 		return err
 	}
 
+	r.reportProgress(t, 85, "替换升级器", "正在原子替换升级器可执行文件")
 	if err := replaceSelf(newBinary); err != nil {
 		return err
 	}
+	r.reportProgress(t, 98, "重启升级器", "新版本已就位，正在重启升级器服务")
 	log.Printf("升级器已替换为 %s，进程即将退出交由 systemd 重启", updaterInfo.Version)
 	return nil
 }

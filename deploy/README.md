@@ -72,7 +72,7 @@ sudo env AID_REMOTE_BOOTSTRAP=1 AID_RELEASE_CHANNEL=beta bash aid-install.sh upd
 - 只有确实需要追加参数时才创建备份，备份与原文件同目录，例如 `docker.env.bak.20260804-120000` 或 `aid-deploy.conf.bak.20260804-120000`，权限保持为仅管理员可读写。
 - 即使当前已是最新业务版本，远程脚本仍会先检查并补齐当前模板缺失项；没有缺项时不会改文件，也不会产生无意义备份。
 
-直接执行 `sudo aid update` 仍然可用，它使用已经安装的受管脚本；需要优先取得官方最新安装/配置兼容逻辑时，推荐使用上面的远程更新命令。更新仍会在替换程序和执行增量 SQL 前完成数据库与三端产物备份，失败不会静默覆盖原配置。
+直接执行 `sudo aid update` 仍然可用，它使用已经安装的受管脚本；需要优先取得官方最新安装/配置兼容逻辑时，推荐使用上面的远程更新命令。更新仍会在替换程序和执行增量 SQL 前完成数据库与三端产物备份，失败不会静默覆盖原配置。后台正在执行升级或回退时，可在另一终端运行 `sudo aid progress` 持续查看阶段、百分比和实时日志；按 `q` 只退出查看，不会中断后台任务。
 
 ### 自动化的安全边界
 
@@ -103,6 +103,7 @@ sudo env AID_REMOTE_BOOTSTRAP=1 AID_RELEASE_CHANNEL=beta bash aid-install.sh upd
  12) 查看登录地址与数据库初始化账号
  13) 彻底卸载 AID（删除全部 AID 数据）
  14) 查看 MySQL 数据库连接与账号信息
+ 15) 查看升级/回退实时进度（仅有运行任务时显示）
   0) 退出
 ------------------------------------------------------
 ```
@@ -114,9 +115,11 @@ sudo env AID_REMOTE_BOOTSTRAP=1 AID_RELEASE_CHANNEL=beta bash aid-install.sh upd
 - **自动更新（菜单 3）**：按已保存渠道读取最新版本；相同版本直接提示已是最新，远端版本较低时拒绝自动降级；确认后才拉取标签并构建，且**升级前自动做完整备份**（程序产物 + 数据库全量 + 版本标记，保留最近 3 份）；构建包内增量 SQL 自动执行
 - **回滚（菜单 4）**：从最近 3 份升级前备份中选择还原——程序产物直接还原；数据库默认不还原（避免丢失升级后产生的业务数据），需要时显式确认还原；回滚前还会对当前状态再做一份保护备份，误操作可救
 - **在线升级器自动安装**：源码构建包内置当前版本升级器二进制，两种部署方式首次部署都会自动装好（Docker 为编排内 `aid-updater` 容器，手动为 systemd 服务），部署完成即可用后台页面一键升级；损坏时菜单 11（或 `sudo aid setup-updater`）会从签名清单下载当前架构的小型升级器并完成健康检查
+- **升级进度可见**：后台升级页首屏会显示黑色实时终端、当前阶段、百分比与日志；命令行可用 `sudo aid progress` 查看同一任务。交互菜单只在确有升级、升级器升级或回退任务时显示进度入口
+- **禁止重复升级**：一个任务从待认领到最终成功/失败期间，后台按钮与服务端任务入口都会阻止再次升级或回退，`aid update` / `aid rollback` 同样会检查在线任务，避免覆盖任务文件或并行切换版本
 - **密钥自动生成**：内置 MySQL 的 root 与业务密码留空时分别生成 12 位字母数字随机值，JWT 密钥仍使用 48 位随机值；外部数据库密码始终由管理员提供，安装器不会擅自改写
 - **受管数据库配置一致性**：Docker 与手动模式都会把内置 MySQL 的库名、root 密码、业务账号、业务密码和授权同步到正式配置，并在启动主程序前回连验证；外部 MySQL 只验证配置中的账号，不修改服务商账号
-- 受管安装器支持统一直通子命令：`sudo aid update` / `backup` / `restart` / `status` / `default` / `mysql` / `logs` / `rollback` / `setup-updater` / `uninstall` / `uninstall-all`，不受当前工作目录影响
+- 受管安装器支持统一直通子命令：`sudo aid update` / `progress` / `backup` / `restart` / `status` / `default` / `mysql` / `logs` / `rollback` / `setup-updater` / `uninstall` / `uninstall-all`，不受当前工作目录影响
 - 明确授权的无人值守环境可设置 `AID_ASSUME_YES=1` 跳过部署或升级确认；该变量会绕过风险确认，**不要在交互式生产运维中长期配置**
 
 ### 卸载 AID
@@ -457,7 +460,7 @@ if command -v curl >/dev/null 2>&1; then curl -fL --retry 3 -o aid-install.sh ht
 
 全新服务器会安装隔离的 Nginx 1.30.4，主配置在 `/data/aid/runtime/nginx-1.30.4/conf/nginx.conf`，AID 站点在 `/data/aid/config/nginx/conf.d/aid.conf`，由 `aid-nginx.service` 管理。已有 Nginx 1.30.4+ 会直接复用：标准系统安装写入 `/etc/nginx/conf.d/aid.conf`，服务器面板安装写入 `/www/server/panel/vhost/nginx/aid.conf`。脚本写入前会备份现有同名文件，执行配置校验成功后才重载；校验失败自动恢复旧文件。正在运行的旧版 Nginx 不会被静默覆盖。
 
-全部业务配置项通过环境变量注入 systemd 服务定义（`DB_*`、`REDIS_*`、`TOKEN_SECRET`、`AID_PROFILE`、`LOG_PATH`、`ROCKETMQ_*`），jar 内配置永不修改；后续调整都编辑 `/data/aid/aid-deploy.conf` 后执行菜单「重启服务」生效（服务定义自动重写）。
+全部业务配置项通过环境变量注入 systemd 服务定义（`DB_*`、`REDIS_*`、`TOKEN_SECRET`、`AID_PROFILE`、`LOG_PATH`、`ROCKETMQ_*`），并固定 `LANG/LC_ALL=C.UTF-8`，确保官方资源包中的中文对象键可在 Linux 文件系统正确落盘。jar 内配置永不修改；后续调整都编辑 `/data/aid/aid-deploy.conf` 后执行菜单「重启服务」生效（服务定义自动重写）。
 
 ### 手动部署 HTTPS（可选）
 
@@ -534,10 +537,18 @@ sudo bash /data/aid/installer/deploy/aid.sh setup-updater
 
 1. 后台左上角自动提示新版本（每天自动感知一次，手动「检查更新」立即感知）
 2. 如果「升级器」卡片提示存在新版本，先完成升级器在线升级并确认其恢复为「运行正常」；再点击「一键升级」。这是从旧版大包交付切换到源码标签构建时的兼容步骤，后续版本会保持同步
-3. 「项目升级配置 → 一键升级」：升级器自动完成 签名版本校验 → GitHub/Gitee 同标签源码构建 → 本地包校验 → 备份 → **执行增量 SQL（服务运行中）** → 停服 → 替换三端产物 → 启动 → 健康检查，失败自动回滚；停机窗口只有「替换文件 + 启动」
+3. 「项目升级配置 → 一键升级」：升级器自动完成 签名版本校验 → Gitee/GitHub 同标签源码构建 → 本地包校验 → 备份 → **执行增量 SQL（服务运行中）** → 停服 → 替换三端产物 → 启动 → 健康检查，失败自动回滚；首屏黑色终端会实时显示进度与日志，停机窗口只有「替换文件 + 启动」
 4. SQL 脚本由执行记录表 `aid_schema_history` 自动判重（Flyway 机制）：已执行过的自动跳过、失败的允许重试，重复升级不会重复执行
 5. Docker 与手动部署的升级动作完全一致（唯一区别是重启方式 `docker restart` / `systemctl restart`，由升级器配置决定，页面「部署方式」一栏自动显示）
 6. 「版本回退」可回退到清单允许的历史版本
+
+任务执行期间禁止重复提交升级、升级器升级或版本回退。页面按钮会立即锁定，服务端也会以升级器健康文件中的运行状态做最终校验，避免绕过页面后产生并行切换。需要在服务器侧观察时执行：
+
+```bash
+sudo aid progress
+```
+
+没有运行任务时，该命令只提示当前无任务，交互菜单也不会显示进度选项；任务存在时直接运行 `sudo aid` 会优先进入实时进度视图。
 
 升级器自身也支持在线升级（升级页「升级器」卡片）。
 

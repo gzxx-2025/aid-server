@@ -1,7 +1,9 @@
 package com.aid.upgrade.service.impl;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -19,6 +21,8 @@ import com.aid.upgrade.gateway.OfficialGatewayConfigProvider;
 
 class SystemUpgradeServiceImplTest {
 
+    private static final long ONE_GIB = 1024L * 1024 * 1024;
+
     @Test
     void getDeploymentConfigReturnsSnapshotWhenUpdaterHeartbeatIsStopped() {
         UpdaterClient updaterClient = mock(UpdaterClient.class);
@@ -35,6 +39,14 @@ class SystemUpgradeServiceImplTest {
         assertSame(deploymentConfig, service.getDeploymentConfig());
         assertThrows(ServiceException.class,
                 () -> service.validateDeploymentConfig(new DeploymentConfigSaveDto()));
+    }
+
+    @Test
+    void onlineUpgradeResourceRiskIncludesFourCoreOrFourGibBoundary() {
+        assertTrue(SystemUpgradeServiceImpl.isOnlineUpgradeResourceRisk(4, 8 * ONE_GIB));
+        assertTrue(SystemUpgradeServiceImpl.isOnlineUpgradeResourceRisk(8, 4 * ONE_GIB));
+        assertTrue(SystemUpgradeServiceImpl.isOnlineUpgradeResourceRisk(2, 16 * ONE_GIB));
+        assertFalse(SystemUpgradeServiceImpl.isOnlineUpgradeResourceRisk(8, 8 * ONE_GIB));
     }
 
     private SystemUpgradeServiceImpl createService(UpdaterClient updaterClient) {

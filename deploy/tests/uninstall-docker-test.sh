@@ -146,5 +146,7 @@ if ( do_uninstall --purge ); then fail 'daemon-down Docker uninstall must fail b
 # Compose 必须标注服务和默认网络的归属根。
 grep -Fq 'com.aid.managed: "true"' "${ROOT_DIR}/deploy/docker/docker-compose.yml" || fail 'Compose AID ownership label is missing'
 grep -Fq 'com.aid.data_root: "${DATA_ROOT:-/data/aid}"' "${ROOT_DIR}/deploy/docker/docker-compose.yml" || fail 'Compose data-root label is missing'
+grep -Fq 'LANG: C.UTF-8' "${ROOT_DIR}/deploy/docker/docker-compose.yml" || fail 'Docker server UTF-8 LANG is missing'
+grep -Fq 'LC_ALL: C.UTF-8' "${ROOT_DIR}/deploy/docker/docker-compose.yml" || fail 'Docker server UTF-8 LC_ALL is missing'
 
 echo 'docker uninstall tests passed'

@@ -67,6 +67,33 @@ func TestParseSourceBuildTask(t *testing.T) {
 	}
 }
 
+func TestClaimCreatesRunningMarkerBeforeRemovingInboxTask(t *testing.T) {
+	root := t.TempDir()
+	taskFile := filepath.Join(root, "inbox", "task.json")
+	workDir := filepath.Join(root, "work")
+	if err := os.MkdirAll(filepath.Dir(taskFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(taskFile, []byte(`{"schemaVersion":1}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner := &Runner{cfg: &config.Config{TaskFile: taskFile, WorkDir: workDir}}
+
+	claimed, err := runner.claim()
+	if err != nil {
+		t.Fatalf("claim task: %v", err)
+	}
+	if _, err := os.Stat(runner.taskRunningMarker()); err != nil {
+		t.Fatalf("running marker must exist after claim: %v", err)
+	}
+	if _, err := os.Stat(taskFile); !os.IsNotExist(err) {
+		t.Fatalf("inbox task must be moved, stat err=%v", err)
+	}
+	if _, err := os.Stat(claimed); err != nil {
+		t.Fatalf("claimed task must exist: %v", err)
+	}
+}
+
 func TestRecoveryCompletedStatePersists(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "recovery.json")
 	record := &recoveryRecord{Task: Task{TaskID: "task-1"}}

@@ -63,6 +63,9 @@ public class UpgradeStatusVo {
     /** 升级器状态 */
     private UpdaterStatusVo updater;
 
+    /** 在线升级使用的服务器CPU与内存快照 */
+    private UpgradeHostResourceVo hostResources;
+
     /** 官方API地址同步状态 */
     private OfficialApiStatusVo officialApi;
 

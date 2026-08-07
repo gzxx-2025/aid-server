@@ -22,6 +22,18 @@ public class UpdaterLastTaskVo {
     /** 结果说明 */
     private String message;
 
+    /** 当前进度百分比：0-100 */
+    private Integer progress;
+
+    /** 当前执行阶段 */
+    private String phase;
+
+    /** 开始时间 */
+    private String startedAt;
+
+    /** 最近进度更新时间 */
+    private String updatedAt;
+
     /** 完成时间 */
     private String finishedAt;
 }

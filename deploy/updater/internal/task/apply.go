@@ -32,6 +32,7 @@ const (
 
 // runApply 执行系统升级或版本回退：下载→校验→解压→备份→停服→替换→SQL→启动→健康检查，失败自动回滚。
 func (r *Runner) runApply(t *Task, isRollback bool) error {
+	r.reportProgress(t, 3, "校验任务", "正在校验签名清单、版本与升级参数")
 	var mirrors []string
 	var err error
 	buildFromSource := t.BuildFromSource
@@ -68,18 +69,22 @@ func (r *Runner) runApply(t *Task, isRollback bool) error {
 	defer r.cleanupWork(archivePath, extractDir, sourceWorkDir)
 
 	if buildFromSource {
+		r.reportProgress(t, 8, "构建源码", "正在拉取三端版本标签并编译，期间 CPU 占用会明显升高")
 		if err := r.buildSourcePackage(t, archivePath, sourceWorkDir); err != nil {
 			return err
 		}
 	} else {
+		r.reportProgress(t, 8, "下载制品", "正在下载并校验目标版本发布包")
 		sources := append([]string{t.PackageURL}, mirrors...)
 		if _, _, err := artifact.DownloadAndVerify(sources, archivePath, t.SHA256,
 			time.Duration(r.cfg.DownloadTimeoutSeconds)*time.Second); err != nil {
 			return fmt.Errorf("下载升级包失败: %w", err)
 		}
 	}
+	r.reportProgress(t, 50, "校验制品", "目标版本制品已准备完成")
 
 	// 2. 解压并校验包布局
+	r.reportProgress(t, 53, "检查发布包", "正在解压并检查服务端、后台和 Web 产物")
 	if err := artifact.ExtractTarGz(archivePath, extractDir); err != nil {
 		return fmt.Errorf("解压升级包失败: %w", err)
 	}
@@ -94,6 +99,7 @@ func (r *Runner) runApply(t *Task, isRollback bool) error {
 	if err := validateFrontendArtifacts(packageRoot, r.cfg); err != nil {
 		return err
 	}
+	r.reportProgress(t, 58, "检查发布包", "三端发布包结构校验通过")
 
 	// 3. 数据库前置校验：需要执行 SQL 但未启用数据库配置时，提前失败（此时尚未停服，无损）
 	sqlDir := filepath.Join(packageRoot, pkgSQLDir)
@@ -128,6 +134,7 @@ func (r *Runner) runApply(t *Task, isRollback bool) error {
 	if isRollback {
 		tag = "rollback"
 	}
+	r.reportProgress(t, 60, "创建备份", "正在备份三端产物、配置与数据库")
 	snapshot, err := backup.Create(r.cfg, fmt.Sprintf("%s-%s", tag, t.TargetVersion))
 	if err != nil {
 		return fmt.Errorf("备份失败，已中止: %w", err)
@@ -138,11 +145,13 @@ func (r *Runner) runApply(t *Task, isRollback bool) error {
 		return err
 	}
 	databaseDirty := false
+	r.reportProgress(t, 67, "创建备份", "升级前完整备份已创建")
 
 	// 5. 升级的增量 SQL 在停服前执行（发布规范要求增量只做加法、与旧版本代码兼容），
 	//    把停机窗口压缩到「替换文件 + 启动」；此时失败服务仍在运行，直接中止零影响。
 	//    执行记录表（aid_schema_history）保证重试与跨版本包携带旧脚本时不会重复执行。
 	if !isRollback && r.cfg.Database.Enabled && hasSQLScripts(sqlDir) {
+		r.reportProgress(t, 70, "升级数据库", "正在执行未应用的增量 SQL")
 		if err := markDatabaseDirty(recoveryPath); err != nil {
 			return fmt.Errorf("更新恢复记录失败: %w", err)
 		}
@@ -167,37 +176,42 @@ func (r *Runner) runApply(t *Task, isRollback bool) error {
 			log.Printf("已执行 %d 个增量SQL脚本", count)
 		}
 	}
+	r.reportProgress(t, 75, "准备切换", "数据库检查完成，准备切换程序版本")
 
 	// 6. 停服并替换产物；此后任何失败都走自动回滚
 	if err := sysctl.StopService(r.cfg.Install.ServiceManager, r.cfg.Install.BackendService); err != nil {
-		return r.restoreAndReport(snapshot, fmt.Errorf("停止服务失败: %w", err), recoveryPath, databaseDirty)
+		return r.restoreAndReport(t, snapshot, fmt.Errorf("停止服务失败: %w", err), recoveryPath, databaseDirty)
 	}
+	r.reportProgress(t, 79, "切换版本", "后端已停止，正在原子替换三端产物")
 	if err := r.replaceArtifacts(packageRoot, newJar); err != nil {
-		return r.restoreAndReport(snapshot, err, recoveryPath, databaseDirty)
+		return r.restoreAndReport(t, snapshot, err, recoveryPath, databaseDirty)
 	}
 
 	// 版本回退的数据库回退脚本可能收缩结构，必须在停服后执行
 	if isRollback && rollbackScript != "" {
 		if err := markDatabaseDirty(recoveryPath); err != nil {
-			return r.restoreAndReport(snapshot, fmt.Errorf("更新恢复记录失败: %w", err), recoveryPath, false)
+			return r.restoreAndReport(t, snapshot, fmt.Errorf("更新恢复记录失败: %w", err), recoveryPath, false)
 		}
 		databaseDirty = true
+		r.reportProgress(t, 83, "回退数据库", "正在执行目标版本数据库回退脚本")
 		if err := dbexec.ExecuteScript(r.cfg.Database, filepath.Join(sqlDir, rollbackScript)); err != nil {
-			return r.restoreAndReport(snapshot, fmt.Errorf("执行数据库回退脚本失败: %w", err), recoveryPath, databaseDirty)
+			return r.restoreAndReport(t, snapshot, fmt.Errorf("执行数据库回退脚本失败: %w", err), recoveryPath, databaseDirty)
 		}
 	}
 
 	// 7. 启动并健康检查
+	r.reportProgress(t, 86, "启动新版本", "正在启动后端并等待健康检查")
 	if err := startBackend(r.cfg); err != nil {
-		return r.restoreAndReport(snapshot, fmt.Errorf("启动服务失败: %w", err), recoveryPath, databaseDirty)
+		return r.restoreAndReport(t, snapshot, fmt.Errorf("启动服务失败: %w", err), recoveryPath, databaseDirty)
 	}
 	if err := sysctl.WaitHealthy(r.cfg.Install.HealthCheckURL,
 		time.Duration(r.cfg.Install.HealthCheckTimeoutSeconds)*time.Second); err != nil {
 		if stopErr := sysctl.StopService(r.cfg.Install.ServiceManager, r.cfg.Install.BackendService); stopErr != nil {
 			log.Printf("健康检查失败后停止服务失败: %v", stopErr)
 		}
-		return r.restoreAndReport(snapshot, fmt.Errorf("新版本健康检查失败: %w", err), recoveryPath, databaseDirty)
+		return r.restoreAndReport(t, snapshot, fmt.Errorf("新版本健康检查失败: %w", err), recoveryPath, databaseDirty)
 	}
+	r.reportProgress(t, 92, "健康检查", "新版本后端健康检查通过")
 
 	// 8. 重启附属服务使新产物生效：Docker 静态 Web 容器、网关 Nginx 等
 	//    核心服务已健康后先提交恢复记录，避免清理失败导致下次启动误回滚。
@@ -205,8 +219,9 @@ func (r *Runner) runApply(t *Task, isRollback bool) error {
 		if stopErr := sysctl.StopService(r.cfg.Install.ServiceManager, r.cfg.Install.BackendService); stopErr != nil {
 			log.Printf("提交恢复记录失败后停止服务失败: %v", stopErr)
 		}
-		return r.restoreAndReport(snapshot, fmt.Errorf("提交升级完成状态失败: %w", err), recoveryPath, databaseDirty)
+		return r.restoreAndReport(t, snapshot, fmt.Errorf("提交升级完成状态失败: %w", err), recoveryPath, databaseDirty)
 	}
+	r.reportProgress(t, 96, "刷新部署", "正在刷新部署脚本并重启 Web 与网关服务")
 	deploymentAssetsRefreshed, refreshErr := r.refreshDeploymentAssets(packageRoot)
 	var auxErr error
 	if refreshErr != nil {

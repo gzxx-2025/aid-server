@@ -1,5 +1,6 @@
 package com.aid.upgrade.service.impl;
 
+import java.lang.management.ManagementFactory;
 import java.net.URI;
 import java.util.List;
 import java.util.Map;
@@ -29,6 +30,7 @@ import com.aid.upgrade.dto.RollbackRequestDto;
 import com.aid.upgrade.dto.UpdaterLogVo;
 import com.aid.upgrade.dto.UpdaterStatusVo;
 import com.aid.upgrade.dto.UpgradeManifest;
+import com.aid.upgrade.dto.UpgradeHostResourceVo;
 import com.aid.upgrade.dto.UpgradeSourceSaveDto;
 import com.aid.upgrade.dto.UpgradeSourceSettingVo;
 import com.aid.upgrade.dto.UpgradeStatusVo;
@@ -65,6 +67,12 @@ public class SystemUpgradeServiceImpl implements ISystemUpgradeService {
 
     /** 更新源访问超时（毫秒） */
     private static final int FETCH_TIMEOUT_MS = 5_000;
+
+    /** CPU不超过4核时，源码在线构建存在资源耗尽风险 */
+    private static final int ONLINE_UPGRADE_WARNING_CPU_CORES = 4;
+
+    /** 内存不超过4GiB时，源码在线构建存在OOM或系统失去响应风险 */
+    private static final long ONLINE_UPGRADE_WARNING_MEMORY_BYTES = 4L * 1024 * 1024 * 1024;
 
     /** 更新清单体积上限（字节），防止误配大文件拖垮内存 */
     private static final int MAX_MANIFEST_BYTES = 256 * 1024;
@@ -128,8 +136,45 @@ public class SystemUpgradeServiceImpl implements ISystemUpgradeService {
         }
         vo.setUpdaterDownloadUrl(updaterDownloadUrl);
         vo.setUpdater(buildUpdaterStatus(manifest));
+        vo.setHostResources(detectHostResources());
         vo.setOfficialApi(buildOfficialApiStatus(manifest));
         return vo;
+    }
+
+    /**
+     * 获取操作系统可见CPU和物理内存，用于页面在源码升级前做高风险提醒。
+     * Docker未设置资源限制时这里返回宿主机容量；设置限制时Java 17返回容器可用容量。
+     */
+    private UpgradeHostResourceVo detectHostResources() {
+        UpgradeHostResourceVo vo = new UpgradeHostResourceVo();
+        vo.setWarningCpuCores(ONLINE_UPGRADE_WARNING_CPU_CORES);
+        vo.setWarningMemoryBytes(ONLINE_UPGRADE_WARNING_MEMORY_BYTES);
+        try {
+            java.lang.management.OperatingSystemMXBean operatingSystem = ManagementFactory.getOperatingSystemMXBean();
+            int cpuCores = operatingSystem.getAvailableProcessors();
+            long totalMemoryBytes = 0L;
+            if (operatingSystem instanceof com.sun.management.OperatingSystemMXBean extendedOperatingSystem) {
+                totalMemoryBytes = extendedOperatingSystem.getTotalMemorySize();
+            }
+            vo.setCpuCores(cpuCores);
+            vo.setTotalMemoryBytes(totalMemoryBytes);
+            vo.setDetected(cpuCores > 0 && totalMemoryBytes > 0L);
+            vo.setOnlineUpgradeRisk(isOnlineUpgradeResourceRisk(cpuCores, totalMemoryBytes));
+        } catch (Exception e) {
+            log.error("检测在线升级服务器资源失败", e);
+            vo.setDetected(false);
+            vo.setOnlineUpgradeRisk(false);
+        }
+        return vo;
+    }
+
+    /**
+     * 4核4GiB及以下均提示风险；任一资源达到风险线即提醒，避免单项不足导致宕机。
+     */
+    static boolean isOnlineUpgradeResourceRisk(int cpuCores, long totalMemoryBytes) {
+        boolean cpuRisk = cpuCores > 0 && cpuCores <= ONLINE_UPGRADE_WARNING_CPU_CORES;
+        boolean memoryRisk = totalMemoryBytes > 0L && totalMemoryBytes <= ONLINE_UPGRADE_WARNING_MEMORY_BYTES;
+        return cpuRisk || memoryRisk;
     }
 
     @Override

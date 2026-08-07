@@ -24,6 +24,10 @@ export AID_BOOTSTRAP_PATHS="${TMP_ROOT}/bootstrap/aid-install.sh"
 # shellcheck source=../aid.sh
 source "${ROOT_DIR}/deploy/aid.sh"
 
+# 手动部署生成的后端 unit 必须固定 UTF-8，才能解压带中文对象键的官方资源包。
+grep -Fq 'Environment=LANG=C.UTF-8' "${ROOT_DIR}/deploy/aid.sh" || fail 'Manual server UTF-8 LANG is missing'
+grep -Fq 'Environment=LC_ALL=C.UTF-8' "${ROOT_DIR}/deploy/aid.sh" || fail 'Manual server UTF-8 LC_ALL is missing'
+
 require_root() { :; }
 risk() { :; }
 warn() { :; }

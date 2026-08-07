@@ -21,6 +21,9 @@ const (
 	ProtocolVersion = 2
 
 	timeLayout = "2006-01-02 15:04:05"
+
+	// 健康文件只保存轻量状态；限制旧文件读取大小，防止错误路径指向大文件。
+	maxPreviousHealthBytes = 64 * 1024
 )
 
 // 任务状态常量。
@@ -36,6 +39,10 @@ type LastTask struct {
 	Action     string `json:"action"`
 	State      string `json:"state"`
 	Message    string `json:"message"`
+	Progress   int    `json:"progress"`
+	Phase      string `json:"phase,omitempty"`
+	StartedAt  string `json:"startedAt,omitempty"`
+	UpdatedAt  string `json:"updatedAt,omitempty"`
 	FinishedAt string `json:"finishedAt,omitempty"`
 }
 
@@ -81,7 +88,29 @@ func (r *Reporter) SetConfiguration(configuration *DeploymentConfiguration) {
 
 // NewReporter 创建健康报告器；serviceManager 为部署方式标识（systemd/docker），随心跳透出。
 func NewReporter(filePath string, version string, serviceManager string) *Reporter {
-	return &Reporter{filePath: filePath, version: version, serviceManager: serviceManager}
+	return &Reporter{
+		filePath: filePath, version: version, serviceManager: serviceManager,
+		lastTask: loadPreviousTask(filePath),
+	}
+}
+
+// loadPreviousTask 在升级器重启后保留最终任务结果。自升级会主动退出并由
+// systemd/Docker 拉起新进程，若直接清空 lastTask，页面会把刚完成的任务误判为未知。
+func loadPreviousTask(filePath string) *LastTask {
+	info, err := os.Stat(filePath)
+	if err != nil || !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > maxPreviousHealthBytes {
+		return nil
+	}
+	raw, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil
+	}
+	var previous payload
+	if err := json.Unmarshal(raw, &previous); err != nil || previous.LastTask == nil {
+		return nil
+	}
+	task := *previous.LastTask
+	return &task
 }
 
 // Start 启动心跳协程，ctx 结束时写入 STOPPED 状态。
@@ -104,12 +133,56 @@ func (r *Reporter) Start(ctx context.Context, interval time.Duration) {
 
 // SetTask 更新最近任务状态并立即刷新健康文件。
 func (r *Reporter) SetTask(taskID, action, state, message string) {
+	now := time.Now().Format(timeLayout)
 	r.mu.Lock()
-	task := &LastTask{TaskID: taskID, Action: action, State: state, Message: message}
+	startedAt := now
+	progress := 0
+	phase := "准备执行"
+	if r.lastTask != nil && r.lastTask.TaskID == taskID {
+		startedAt = r.lastTask.StartedAt
+		progress = r.lastTask.Progress
+		phase = r.lastTask.Phase
+	}
+	if state == TaskStateSuccess {
+		progress = 100
+		phase = "执行完成"
+	}
+	if state == TaskStateFailed && phase == "" {
+		phase = "执行失败"
+	}
+	task := &LastTask{
+		TaskID: taskID, Action: action, State: state, Message: message,
+		Progress: progress, Phase: phase, StartedAt: startedAt, UpdatedAt: now,
+	}
 	if state != TaskStateRunning {
-		task.FinishedAt = time.Now().Format(timeLayout)
+		task.FinishedAt = now
 	}
 	r.lastTask = task
+	r.mu.Unlock()
+	r.write(StatusRunning)
+}
+
+// SetTaskProgress 更新运行任务的阶段与百分比。百分比只允许单调前进，避免页面倒退。
+func (r *Reporter) SetTaskProgress(taskID, action string, progress int, phase, message string) {
+	if progress < 0 {
+		progress = 0
+	}
+	if progress > 99 {
+		progress = 99
+	}
+	now := time.Now().Format(timeLayout)
+	r.mu.Lock()
+	startedAt := now
+	if r.lastTask != nil && r.lastTask.TaskID == taskID {
+		startedAt = r.lastTask.StartedAt
+		if progress < r.lastTask.Progress {
+			progress = r.lastTask.Progress
+		}
+	}
+	r.lastTask = &LastTask{
+		TaskID: taskID, Action: action, State: TaskStateRunning, Message: message,
+		Progress: progress, Phase: phase, StartedAt: startedAt, UpdatedAt: now,
+	}
 	r.mu.Unlock()
 	r.write(StatusRunning)
 }

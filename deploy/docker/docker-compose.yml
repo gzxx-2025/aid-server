@@ -112,6 +112,10 @@ services:
     command: sh -c "java $${JAVA_OPTS} -jar /app/aid-admin.jar"
     environment:
       TZ: Asia/Shanghai
+      # Java 17 会从容器 locale 推导文件系统编码；必须固定 UTF-8，
+      # 否则官方资源包中的中文对象键会在解压时触发 InvalidPathException。
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
       JAVA_OPTS: ${JAVA_OPTS:--Xms1g -Xmx2g -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/home/aid/logs}
       # 默认连接内置 MySQL；使用外部 MySQL 时从 Profile 移除 mysql 并覆盖地址
       DB_HOST: ${DB_HOST:-mysql}

@@ -4,7 +4,7 @@
 #
 # 用法：
 #   sudo bash aid.sh              # 交互菜单（首次部署按版本标签拉取三端源码并构建）
-#   sudo bash aid.sh <子命令>     # 直通执行：install/auto/install-docker/install-manual/update/rollback/
+#   sudo bash aid.sh <子命令>     # 直通执行：install/auto/install-docker/install-manual/update/rollback/progress/
 #                                 # restart/stop/status/default/mysql/logs/config/backup/setup-updater/uninstall/uninstall-all
 #
 # 设计：
@@ -6206,6 +6206,8 @@ WorkingDirectory=${DATA_ROOT}/app
 EnvironmentFile=${CONF}
 Environment=AID_PROFILE=${DATA_ROOT}/uploadPath
 Environment=LOG_PATH=${DATA_ROOT}/logs
+Environment=LANG=C.UTF-8
+Environment=LC_ALL=C.UTF-8
 Environment=SERVER_PORT=$(conf_get BACKEND_PORT 8080)
 Environment=JAVA_HOME=${JDK_HOME}
 Environment=PATH=${JDK_HOME}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
@@ -6492,11 +6494,132 @@ do_install_manual() {
 # ----------------------------------------------------------------------------
 # 更新到指定版本（两种模式通用）
 # ----------------------------------------------------------------------------
+updater_task_string_field() { # updater_task_string_field <字段名>
+  local field="$1" healthFile="${UPDATER_DATA_DIR}/health.json"
+  [[ -s "${healthFile}" ]] || return 1
+  sed -nE "s/^[[:space:]]*\"${field}\"[[:space:]]*:[[:space:]]*\"(.*)\"[,]?[[:space:]]*$/\1/p" "${healthFile}" \
+    | tail -n 1
+}
+
+updater_task_number_field() { # updater_task_number_field <字段名>
+  local field="$1" healthFile="${UPDATER_DATA_DIR}/health.json"
+  [[ -s "${healthFile}" ]] || return 1
+  sed -nE "s/^[[:space:]]*\"${field}\"[[:space:]]*:[[:space:]]*([0-9]+)[,]?[[:space:]]*$/\1/p" "${healthFile}" \
+    | tail -n 1
+}
+
+updater_action_label() { # updater_action_label <动作>
+  case "$1" in
+    UPGRADE) echo "主程序升级" ;;
+    ROLLBACK) echo "版本回退" ;;
+    UPDATER_UPGRADE) echo "升级器升级" ;;
+    *) echo "$1" ;;
+  esac
+}
+
+updater_version_task_active() {
+  local action state
+  action="$(updater_task_string_field action 2>/dev/null || true)"
+  state="$(updater_task_string_field state 2>/dev/null || true)"
+  [[ "${state}" == "RUNNING" ]] || return 1
+  case "${action}" in
+    UPGRADE|ROLLBACK|UPDATER_UPGRADE) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+ensure_no_active_version_task() {
+  local action phase progress
+  updater_version_task_active || return 0
+  action="$(updater_task_string_field action 2>/dev/null || true)"
+  phase="$(updater_task_string_field phase 2>/dev/null || true)"
+  progress="$(updater_task_number_field progress 2>/dev/null || echo 0)"
+  err "已有$(updater_action_label "${action}")正在执行（${progress:-0}% ${phase:-处理中}），禁止重复提交"
+  log "请执行 sudo aid progress 查看实时进度"
+  return 1
+}
+
+print_updater_log_delta() { # print_updater_log_delta <日志文件> <已输出行数变量名>
+  local logFile="$1" lineVar="$2" total=0 start=0
+  [[ -f "${logFile}" ]] || return 0
+  total="$(wc -l < "${logFile}" 2>/dev/null || echo 0)"
+  [[ "${total}" =~ ^[0-9]+$ ]] || total=0
+  local previous="${!lineVar}"
+  [[ "${previous}" =~ ^[0-9]+$ ]] || previous=0
+  # 日志被轮转或截断后，从新文件开头继续输出。
+  (( total >= previous )) || previous=0
+  if (( previous == 0 && total > 120 )); then
+    start=$((total - 119))
+  else
+    start=$((previous + 1))
+  fi
+  if (( total >= start && total > 0 )); then
+    sed -n "${start},${total}p" "${logFile}"
+  fi
+  printf -v "${lineVar}" '%s' "${total}"
+}
+
+do_upgrade_progress() {
+  require_root
+  local healthFile="${UPDATER_DATA_DIR}/health.json" logFile="${UPDATER_DATA_DIR}/updater.log"
+  local action state progress phase message taskId startedAt updatedAt snapshot lastSnapshot="" displayedLines=0 key=""
+  if ! updater_version_task_active; then
+    warn "当前没有正在执行的升级、升级器升级或版本回退任务"
+    return 0
+  fi
+
+  section "升级 / 回退实时进度"
+  echo -e "${C_BOLD}黑色终端同源日志正在实时输出；按 q 可返回，任务会继续在后台执行。${C_RESET}"
+  echo "  健康状态: ${healthFile}"
+  echo "  完整日志: ${logFile}"
+  echo "------------------------------------------------------"
+
+  while :; do
+    action="$(updater_task_string_field action 2>/dev/null || true)"
+    state="$(updater_task_string_field state 2>/dev/null || true)"
+    progress="$(updater_task_number_field progress 2>/dev/null || echo 0)"
+    phase="$(updater_task_string_field phase 2>/dev/null || true)"
+    message="$(updater_task_string_field message 2>/dev/null || true)"
+    taskId="$(updater_task_string_field taskId 2>/dev/null || true)"
+    startedAt="$(updater_task_string_field startedAt 2>/dev/null || true)"
+    updatedAt="$(updater_task_string_field updatedAt 2>/dev/null || true)"
+    [[ "${progress}" =~ ^[0-9]+$ ]] || progress=0
+    snapshot="${action}|${state}|${progress}|${phase}|${message}|${updatedAt}"
+    if [[ "${snapshot}" != "${lastSnapshot}" ]]; then
+      echo -e "${C_CYAN}[$(date '+%H:%M:%S')]${C_RESET} ${C_BOLD}$(updater_action_label "${action}")${C_RESET}  ${C_GREEN}${progress}%${C_RESET}  ${phase:-处理中}"
+      [[ -z "${message}" ]] || echo "  ${message}"
+      [[ -z "${taskId}" ]] || echo "  任务: ${taskId}  开始: ${startedAt:-未知}"
+      lastSnapshot="${snapshot}"
+    fi
+    print_updater_log_delta "${logFile}" displayedLines
+
+    if [[ "${state}" != "RUNNING" ]]; then
+      echo "------------------------------------------------------"
+      case "${state}" in
+        SUCCESS) ok "$(updater_action_label "${action}")已完成" ;;
+        FAILED) err "$(updater_action_label "${action}")失败：${message:-请查看完整日志}" ;;
+        *) warn "任务状态已变更为 ${state:-未知}：${message:-请查看完整日志}" ;;
+      esac
+      return 0
+    fi
+
+    if [[ -t 0 && -r /dev/tty ]]; then
+      if read -r -s -n 1 -t 1 key </dev/tty && [[ "${key,,}" == "q" ]]; then
+        warn "已退出进度查看，任务仍在后台执行；可随时运行 sudo aid progress 继续查看"
+        return 0
+      fi
+    else
+      sleep 1
+    fi
+  done
+}
+
 do_update() {
   require_root
   local mode package supplied current target comparison go backupDir dist old f targetChannel repairMode=0
   mode="$(detect_mode)"
   [[ "${mode}" != "none" ]] || die "尚未部署，请先执行首次部署"
+  ensure_no_active_version_task || return 1
   # 先用当前远程引导脚本/受管模板补齐旧配置；仅追加缺失键，原值不变且同目录留备份。
   if [[ "${mode}" == "docker" ]]; then ensure_env_file; else ensure_conf_file; fi
   export AID_DEPENDENCY_INSTALL_MODE="$(dependency_install_mode "${mode}")"
@@ -6653,6 +6776,7 @@ do_rollback() {
   require_root
   local mode; mode="$(detect_mode)"
   [[ "${mode}" != "none" ]] || die "尚未部署"
+  ensure_no_active_version_task || return 1
 
   # 收集最近 3 份升级备份（目录名含时间戳，字典序即时间序，取最新 3 份倒序展示）
   local backups=()
@@ -7901,6 +8025,9 @@ show_menu() {
   echo " 12) 查看登录地址与数据库初始化账号"
   echo " 13) 彻底卸载 AID（删除全部 AID 数据）"
   echo " 14) 查看 MySQL 数据库连接与账号信息"
+  if updater_version_task_active; then
+    echo -e " ${C_GREEN}15) 查看升级/回退实时进度（当前有任务）${C_RESET}"
+  fi
   echo "  0) 退出"
   echo "------------------------------------------------------"
 }
@@ -7921,6 +8048,7 @@ main() {
     install-manual) do_install_manual "${2:-}"; exit $? ;;
     update)         do_update "${2:-}"; exit $? ;;
     rollback)       do_rollback; exit $? ;;
+    progress)       do_upgrade_progress; exit $? ;;
     restart)        do_restart; exit $? ;;
     stop)           do_stop; exit $? ;;
     status)         do_status; exit $? ;;
@@ -7933,8 +8061,13 @@ main() {
     backup)         do_backup; exit $? ;;
     setup-updater)  do_setup_updater; exit $? ;;
     '') ;;
-    *) die "未知子命令: $1（可用: install/auto/install-docker/install-manual/update/rollback/restart/stop/status/default/mysql/logs/config/backup/setup-updater/uninstall/uninstall-all）" ;;
+    *) die "未知子命令: $1（可用: install/auto/install-docker/install-manual/update/rollback/progress/restart/stop/status/default/mysql/logs/config/backup/setup-updater/uninstall/uninstall-all）" ;;
   esac
+
+  # 交互启动时如果检测到进行中的升级/回退，优先进入实时进度，避免任务藏在菜单底部。
+  if updater_version_task_active; then
+    do_upgrade_progress || true
+  fi
 
   # 交互菜单模式：Ctrl+C 只中断当前操作（如日志跟踪）回到菜单，不退出脚本
   trap ':' INT
@@ -7957,6 +8090,13 @@ main() {
       12) do_default || true ;;
       13) do_uninstall_all || true ;;
       14) do_mysql_info || true ;;
+      15)
+        if updater_version_task_active; then
+          do_upgrade_progress || true
+        else
+          warn "当前没有正在执行的升级或回退任务"
+        fi
+        ;;
       0) exit 0 ;;
       *) warn "无效选择" ;;
     esac

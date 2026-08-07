@@ -174,10 +174,17 @@ public class UpdaterClient {
      *
      * @param task 任务内容
      */
-    public void submitTask(JSONObject task) {
+    public synchronized void submitTask(JSONObject task) {
         String taskFilePath = resolveTaskFilePath();
         Path temporary = null;
         try {
+            UpdaterStatusVo currentStatus = detect();
+            UpdaterLastTaskVo runningTask = currentStatus.getLastTask();
+            if (Objects.nonNull(runningTask) && Objects.equals("RUNNING", runningTask.getState())) {
+                log.error("提交升级任务失败, 已有运行任务, taskId={}, action={}",
+                        runningTask.getTaskId(), runningTask.getAction());
+                throw new ServiceException("已有任务处理中");
+            }
             Path target = Path.of(taskFilePath).toAbsolutePath().normalize();
             Path parent = target.getParent();
             if (Objects.isNull(parent)) {
@@ -185,22 +192,23 @@ public class UpdaterClient {
                 throw new ServiceException("任务路径错误");
             }
             Files.createDirectories(parent);
-            if (Files.exists(target)) {
+            Path runningMarker = target.resolveSibling(target.getFileName() + ".running");
+            if (Files.exists(target) || Files.exists(runningMarker)) {
                 log.error("提交升级任务失败, 已有任务待处理, path={}", target);
                 throw new ServiceException("已有任务处理中");
             }
             temporary = Files.createTempFile(parent, "upgrade-task-", ".tmp");
             Files.writeString(temporary, task.toJSONString(), StandardCharsets.UTF_8);
             try {
-				Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE);
+                Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE);
             } catch (AtomicMoveNotSupportedException e) {
-				Files.move(temporary, target);
+                Files.move(temporary, target);
             }
             temporary = null;
         } catch (FileAlreadyExistsException e) {
-			log.error("提交升级任务失败, 已有任务待处理, path={}", taskFilePath);
-			throw new ServiceException("已有任务处理中");
-		} catch (ServiceException e) {
+            log.error("提交升级任务失败, 已有任务待处理, path={}", taskFilePath);
+            throw new ServiceException("已有任务处理中");
+        } catch (ServiceException e) {
             throw e;
         } catch (Exception e) {
             log.error("提交升级任务失败, path={}", taskFilePath, e);
@@ -289,6 +297,11 @@ public class UpdaterClient {
         vo.setAction(lastTask.getString("action"));
         vo.setState(lastTask.getString("state"));
         vo.setMessage(lastTask.getString("message"));
+        Integer progress = lastTask.getInteger("progress");
+        vo.setProgress(Objects.isNull(progress) ? 0 : Math.max(0, Math.min(100, progress)));
+        vo.setPhase(lastTask.getString("phase"));
+        vo.setStartedAt(lastTask.getString("startedAt"));
+        vo.setUpdatedAt(lastTask.getString("updatedAt"));
         vo.setFinishedAt(lastTask.getString("finishedAt"));
         return vo;
     }
