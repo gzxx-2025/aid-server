@@ -22,6 +22,11 @@ import com.aliyun.oss.OSS;
 import com.aliyun.oss.model.ObjectMetadata;
 import com.aliyun.oss.model.PutObjectRequest;
 import com.qcloud.cos.COSClient;
+import com.qiniu.http.Response;
+import com.qiniu.storage.BucketManager;
+import com.qiniu.storage.Configuration;
+import com.qiniu.storage.UploadManager;
+import com.qiniu.util.Auth;
 import com.aid.common.aid.oss.config.OssConfigManager;
 import com.aid.common.aid.oss.exception.OssException;
 import com.aid.common.aid.oss.properties.OssProperties;
@@ -77,6 +82,16 @@ public class OssTemplate
      * OSS配置管理器
      */
     private final OssConfigManager ossConfigManager;
+
+    /**
+     * 七牛云上传客户端，区域由 SDK 根据 AccessKey 与 Bucket 自动识别。
+     */
+    private final Configuration qiniuConfiguration = Configuration.create();
+
+    /**
+     * 七牛云上传管理器，可安全复用其连接池。
+     */
+    private final UploadManager qiniuUploadManager = new UploadManager(qiniuConfiguration);
     /**
      * 上传文件到本地
      *
@@ -526,6 +541,180 @@ public class OssTemplate
             throw new OssException("上传失败");
         }
     }
+
+    /**
+     * 上传文件到七牛云 Kodo。
+     *
+     * @param file 上传文件
+     * @param customDir 自定义目录
+     * @return 文件访问相对路径
+     */
+    public String uploadToQiniu(MultipartFile file, String customDir)
+    {
+        validateFile(file);
+        OssProperties properties = ossConfigManager.getOssProperties();
+        validateQiniuConfig(properties);
+
+        String extension = FilenameUtils.getExtension(file.getOriginalFilename());
+        String objectKey = buildObjectKey(customDir, generateFileName(extension), properties.getQiniuPrefix());
+        String contentType = StrUtil.blankToDefault(file.getContentType(), getContentType(extension));
+        Auth auth = Auth.create(properties.getQiniuAccessKey(), properties.getQiniuSecretKey());
+        String uploadToken = auth.uploadToken(properties.getQiniuBucketName());
+        long startMs = System.currentTimeMillis();
+
+        log.info("[QINIU-UPLOAD] 开始上传, bucket={}, objectKey={}, size={}B, contentType={}",
+                properties.getQiniuBucketName(), objectKey, file.getSize(), contentType);
+        Response response = null;
+        try (InputStream inputStream = file.getInputStream())
+        {
+            response = qiniuUploadManager.put(
+                    inputStream, file.getSize(), objectKey, uploadToken, null, contentType, true);
+            if (!response.isOK())
+            {
+                log.error("[QINIU-UPLOAD] 上传失败, bucket={}, objectKey={}, status={}",
+                        properties.getQiniuBucketName(), objectKey, response.statusCode);
+                throw new OssException("上传失败");
+            }
+            String url = getFileUrl(objectKey, properties);
+            log.info("[QINIU-UPLOAD] 上传成功, objectKey={}, url={}, elapsedMs={}",
+                    objectKey, url, System.currentTimeMillis() - startMs);
+            return url;
+        }
+        catch (OssException e)
+        {
+            throw e;
+        }
+        catch (Exception e)
+        {
+            log.error("[QINIU-UPLOAD] 上传异常, bucket={}, objectKey={}, elapsedMs={}, error={}",
+                    properties.getQiniuBucketName(), objectKey,
+                    System.currentTimeMillis() - startMs, e.getMessage(), e);
+            throw new OssException("上传失败");
+        }
+        finally
+        {
+            closeQiniuResponse(response);
+        }
+    }
+
+    /**
+     * 上传字节数组到七牛云 Kodo。
+     *
+     * @param bytes 文件内容
+     * @param fileName 原文件名
+     * @param customDir 自定义目录
+     * @return 文件访问相对路径
+     */
+    public String uploadBytesToQiniu(byte[] bytes, String fileName, String customDir)
+    {
+        if (Objects.isNull(bytes) || bytes.length == 0)
+        {
+            log.error("[QINIU-UPLOAD] 失败：字节数组为空, fileName={}", fileName);
+            throw new OssException("上传失败");
+        }
+
+        OssProperties properties = ossConfigManager.getOssProperties();
+        validateQiniuConfig(properties);
+        String extension = FilenameUtils.getExtension(fileName);
+        String objectKey = buildObjectKey(customDir, generateFileName(extension), properties.getQiniuPrefix());
+        Auth auth = Auth.create(properties.getQiniuAccessKey(), properties.getQiniuSecretKey());
+        String uploadToken = auth.uploadToken(properties.getQiniuBucketName());
+        long startMs = System.currentTimeMillis();
+
+        Response response = null;
+        try
+        {
+            response = qiniuUploadManager.put(
+                    bytes, objectKey, uploadToken, null, getContentType(extension), true);
+            if (!response.isOK())
+            {
+                log.error("[QINIU-UPLOAD] 上传失败, bucket={}, objectKey={}, status={}",
+                        properties.getQiniuBucketName(), objectKey, response.statusCode);
+                throw new OssException("上传失败");
+            }
+            String url = getFileUrl(objectKey, properties);
+            log.info("[QINIU-UPLOAD] 上传成功, objectKey={}, url={}, elapsedMs={}",
+                    objectKey, url, System.currentTimeMillis() - startMs);
+            return url;
+        }
+        catch (OssException e)
+        {
+            throw e;
+        }
+        catch (Exception e)
+        {
+            log.error("[QINIU-UPLOAD] 上传异常, bucket={}, objectKey={}, elapsedMs={}, error={}",
+                    properties.getQiniuBucketName(), objectKey,
+                    System.currentTimeMillis() - startMs, e.getMessage(), e);
+            throw new OssException("上传失败");
+        }
+        finally
+        {
+            closeQiniuResponse(response);
+        }
+    }
+
+    /** 校验七牛云上传所需配置。 */
+    private void validateQiniuConfig(OssProperties properties)
+    {
+        if (Objects.isNull(properties) || StrUtil.hasBlank(
+                properties.getQiniuAccessKey(),
+                properties.getQiniuSecretKey(),
+                properties.getQiniuBucketName()))
+        {
+            log.error("[QINIU-UPLOAD] 七牛云配置不完整");
+            throw new OssException("七牛云未配置");
+        }
+    }
+
+    /**
+     * 从七牛云删除文件。
+     *
+     * @param fileUrl 文件URL或相对路径
+     * @return true=删除成功
+     */
+    public boolean deleteFromQiniu(String fileUrl)
+    {
+        if (StrUtil.isBlank(fileUrl))
+        {
+            return false;
+        }
+        OssProperties properties = ossConfigManager.getOssProperties();
+        try
+        {
+            validateQiniuConfig(properties);
+            String objectKey = getObjectKeyFromUrl(fileUrl, properties);
+            if (StrUtil.isBlank(objectKey))
+            {
+                return false;
+            }
+            Auth auth = Auth.create(properties.getQiniuAccessKey(), properties.getQiniuSecretKey());
+            BucketManager bucketManager = new BucketManager(auth, qiniuConfiguration);
+            Response response = bucketManager.delete(properties.getQiniuBucketName(), objectKey);
+            try
+            {
+                return response.isOK();
+            }
+            finally
+            {
+                closeQiniuResponse(response);
+            }
+        }
+        catch (Exception e)
+        {
+            log.error("七牛云删除文件失败：{}", e.getMessage(), e);
+            return false;
+        }
+    }
+
+    /** 关闭七牛云响应体，释放底层 HTTP 连接。 */
+    private void closeQiniuResponse(Response response)
+    {
+        if (Objects.nonNull(response))
+        {
+            response.close();
+        }
+    }
     /**
      * 从腾讯云COS删除文件
      *
@@ -662,7 +851,7 @@ public class OssTemplate
     }
 
     /**
-     * 按文件 URL 自动路由删除：依据 URL 归属（本地 / 阿里云OSS / 腾讯云COS）选择对应删除实现，。
+     * 按文件 URL 自动路由删除：依据 URL 归属选择对应存储实现。
      *
      * @param fileUrl 文件 URL 或相对路径
      * @return true=删除成功或本就不存在（幂等）；false=删除失败（调用方应据此阻断后续 DB 删除）
@@ -692,17 +881,31 @@ public class OssTemplate
             return deleteFromCos(fileUrl);
         }
 
+        if (lower.contains(".clouddn.com") || lower.contains(".qiniucdn.com")
+                || lower.contains(".qiniuio.com"))
+        {
+            return deleteFromQiniu(fileUrl);
+        }
+
         String cdn = Objects.isNull(properties) ? null : properties.getCdnDomain();
         if (StrUtil.isNotBlank(cdn) && fileUrl.startsWith(stripDomainTrailingSlash(cdn)))
         {
             String mode = properties.getUploadMode();
-            return "cos".equalsIgnoreCase(mode) ? deleteFromCos(fileUrl) : deleteFromOss(fileUrl);
+            if ("cos".equalsIgnoreCase(mode))
+            {
+                return deleteFromCos(fileUrl);
+            }
+            if ("qiniu".equalsIgnoreCase(mode))
+            {
+                return deleteFromQiniu(fileUrl);
+            }
+            return deleteFromOss(fileUrl);
         }
 
         return delete(fileUrl);
     }
     /**
-     * 统一删除入口：按当前 uploadMode 分发到 local / oss / cos。
+     * 统一删除入口：按当前 uploadMode 分发到本地或对应云存储。
      *
      * @param fileUrl 文件URL或相对路径
      * @return true=删除成功，false=删除失败
@@ -719,11 +922,15 @@ public class OssTemplate
         {
             return deleteFromCos(fileUrl);
         }
+        if ("qiniu".equalsIgnoreCase(mode))
+        {
+            return deleteFromQiniu(fileUrl);
+        }
         return deleteFromOss(fileUrl);
     }
 
     /**
-     * 获取文件临时访问URL（带签名，仅OSS模式有效）。
+     * 获取文件临时访问URL。
      *
      * @param fileUrl 文件URL
      * @param expireSeconds 过期时间（秒）
@@ -748,6 +955,28 @@ public class OssTemplate
         else
         {
             clampedExpire = expireSeconds;
+        }
+
+        // 七牛云私有空间分支
+        if ("qiniu".equalsIgnoreCase(mode))
+        {
+            try
+            {
+                validateQiniuConfig(properties);
+                String objectKey = getObjectKeyFromUrl(fileUrl, properties);
+                if (StrUtil.isBlank(objectKey) || StrUtil.isBlank(properties.getCdnDomain()))
+                {
+                    return fileUrl;
+                }
+                String baseUrl = stripDomainTrailingSlash(properties.getCdnDomain()) + "/" + objectKey;
+                Auth auth = Auth.create(properties.getQiniuAccessKey(), properties.getQiniuSecretKey());
+                return auth.privateDownloadUrl(baseUrl, clampedExpire);
+            }
+            catch (Exception e)
+            {
+                log.error("获取七牛云签名URL失败：{}", e.getMessage(), e);
+                return fileUrl;
+            }
         }
 
         // 腾讯云COS 分支
@@ -909,7 +1138,7 @@ public class OssTemplate
         return allowedList.contains(extension.toLowerCase());
     }
     /**
-     * 统一上传入口：按配置的 uploadMode 分发到 local / oss。
+     * 统一上传入口：按配置的 uploadMode 分发到本地或对应云存储。
      * 返回统一格式的相对路径（带前导 /），DB 只存这个相对路径。
      *
      * @param file MultipartFile
@@ -928,6 +1157,10 @@ public class OssTemplate
         {
             return uploadToCos(file, customDir);
         }
+        if ("qiniu".equalsIgnoreCase(mode))
+        {
+            return uploadToQiniu(file, customDir);
+        }
         return uploadToOss(file, customDir);
     }
 
@@ -936,7 +1169,7 @@ public class OssTemplate
      *
      * @param bytes 字节数组
      * @param fileName 文件名（用于取扩展名）
-     * @param customDir 自定义子目录（可空，仅 OSS 模式生效）
+     * @param customDir 自定义子目录（可空）
      * @return 相对访问路径
      */
     public String uploadBytes(byte[] bytes, String fileName, String customDir)
@@ -955,6 +1188,10 @@ public class OssTemplate
         if ("cos".equalsIgnoreCase(mode))
         {
             return uploadBytesToCos(bytes, fileName, customDir);
+        }
+        if ("qiniu".equalsIgnoreCase(mode))
+        {
+            return uploadBytesToQiniu(bytes, fileName, customDir);
         }
         return uploadBytesToOss(bytes, fileName, customDir);
     }
@@ -1097,7 +1334,7 @@ public class OssTemplate
     }
 
     /**
-     * 返回 OSS/COS 上传后的相对访问路径（带前导 /，不拼域名）。
+     * 返回云存储上传后的相对访问路径（带前导 /，不拼域名）。
      *
      * @param objectKey 对象键
      * @param properties OSS配置（预留）
@@ -1160,12 +1397,17 @@ public class OssTemplate
                 defaultDomain = "https://" + properties.getCosBucketName()
                         + ".cos." + properties.getCosRegion() + ".myqcloud.com";
             }
-            else
+            else if ("oss".equalsIgnoreCase(properties.getUploadMode()))
             {
                 // 阿里云OSS 默认域名：https://{bucket}.{endpoint}
                 defaultDomain = "https://" + properties.getBucketName() + "." + properties.getEndpoint();
             }
-            if (fileUrl.startsWith(defaultDomain))
+            else
+            {
+                // 七牛云下载域名由空间绑定，统一通过 cdnDomain 匹配。
+                defaultDomain = null;
+            }
+            if (StrUtil.isNotBlank(defaultDomain) && fileUrl.startsWith(defaultDomain))
             {
                 return fileUrl.substring(defaultDomain.length() + 1);
             }

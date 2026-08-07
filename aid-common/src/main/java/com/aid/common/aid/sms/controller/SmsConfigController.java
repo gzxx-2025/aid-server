@@ -1,5 +1,6 @@
 package com.aid.common.aid.sms.controller;
 
+import cn.hutool.core.util.RandomUtil;
 import cn.hutool.core.util.StrUtil;
 import com.aid.common.aid.sms.core.SmsTemplateFactory;
 import com.aid.common.aid.sms.dto.SmsTestRequest;
@@ -65,14 +66,14 @@ public class SmsConfigController {
         if (Objects.isNull(request) || StrUtil.isBlank(request.getPhone())) {
             return AjaxResult.error("手机号必填");
         }
-        // 未传则默认用 1234 作为测试验证码，避免触发真实业务
-        String code = StrUtil.isBlank(request.getCode()) ? "1234" : request.getCode().trim();
+        // 每次生成随机验证码，避免同手机号重复提交固定内容被运营商拦截。
+        String code = StrUtil.isBlank(request.getCode()) ? RandomUtil.randomNumbers(6) : request.getCode().trim();
         try {
             // 走统一的默认模板通道，校验配置是否打通
             SmsResult result = smsTemplateFactory.sendCode(request.getPhone().trim(), code);
             if (!Objects.isNull(result) && result.isSuccess()) {
-                // 成功原样返回 SDK 响应，便于排查
-                return AjaxResult.success("发送成功", result);
+                // 服务商成功响应仅代表请求已受理，原样返回通道说明便于判断送达状态。
+                return AjaxResult.success(StrUtil.blankToDefault(result.getMessage(), "发送已受理"), result);
             }
             log.info("短信测试发送失败: phone={}, result={}",
                     LogSanitizer.maskPhone(request.getPhone()), result);

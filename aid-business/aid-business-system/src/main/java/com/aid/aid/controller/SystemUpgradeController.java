@@ -6,7 +6,9 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 import com.aid.common.annotation.Log;
 import com.aid.common.core.controller.BaseController;
@@ -17,6 +19,7 @@ import com.aid.upgrade.dto.DeploymentConfigSaveDto;
 import com.aid.upgrade.dto.RollbackRequestDto;
 import com.aid.upgrade.dto.UpgradeSourceSaveDto;
 import com.aid.upgrade.service.ISystemUpgradeService;
+import com.aid.upgrade.service.IOfficialAssetsService;
 
 /**
  * 系统升级与官方网关Controller
@@ -29,6 +32,28 @@ public class SystemUpgradeController extends BaseController {
 
     @Autowired
     private ISystemUpgradeService systemUpgradeService;
+
+    @Autowired
+    private IOfficialAssetsService officialAssetsService;
+
+    /**
+     * 查询官方资源包初始化状态与手工兜底命令。
+     */
+    @GetMapping("/official-assets/status")
+    @PreAuthorize("@ss.hasPermi('aidconfig:upgrade:list')")
+    public AjaxResult officialAssetsStatus() {
+        return success(officialAssetsService.getStatus());
+    }
+
+    /**
+     * 上传、校验并初始化官方资源包。
+     */
+    @PreAuthorize("@ss.hasPermi('aidconfig:upgrade:assets')")
+    @Log(title = "官方资源初始化", businessType = BusinessType.IMPORT)
+    @PostMapping("/official-assets/install")
+    public AjaxResult installOfficialAssets(@RequestParam("file") MultipartFile file) {
+        return AjaxResult.success("初始化成功", officialAssetsService.install(file));
+    }
 
     /**
      * 查询系统版本与升级状态（走缓存，供侧边栏与升级页展示）

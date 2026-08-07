@@ -17,7 +17,7 @@ import java.nio.file.Paths;
  * 文件上传 Factory（与源系统调用面一致：OssFactory.instance().uploadSuffix(...)）
  * 已改造为按 aid_config[oss.uploadMode] 分发：
  *   - 存在 Spring 环境时：委托给 {@link OssTemplate#uploadBytes(byte[], String, String)}
- *     统一按 uploadMode 分发到本地或阿里云 OSS，返回「相对路径」（DB 只存路径，读取层拼域名）。
+ *     统一按 uploadMode 分发到本地或对应云存储，返回「相对路径」（DB 只存路径，读取层拼域名）。
  *   - Spring 未就绪时（如早期启动链路）：兜底写本地 /profile/media/，保证不崩。
  * 新代码请直接使用 {@link OssTemplate}，此类保留仅为兼容旧调用面。
  */
@@ -42,7 +42,7 @@ public final class OssFactory {
 
         /**
          * 按后缀与内容类型写入 OSS 或本地，并返回相对访问路径（带前导 /）。
-         * 分发策略：优先从 Spring 获取 OssTemplate，按 uploadMode 走 local / oss；
+         * 分发策略：优先从 Spring 获取 OssTemplate，按 uploadMode 走当前存储服务；
          * 若 Spring 未就绪则兜底写本地 /profile/media/。
          */
         public UploadResult uploadSuffix(byte[] bytes, String suffix, String contentType) throws IOException {

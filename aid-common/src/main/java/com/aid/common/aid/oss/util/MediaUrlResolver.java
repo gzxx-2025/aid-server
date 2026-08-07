@@ -152,7 +152,7 @@ public class MediaUrlResolver
         {
             return false;
         }
-        // 本地模式比 localDomain，其余（含 oss / cos）比生效的 CDN 域名
+        // 本地模式比 localDomain，其余云存储模式比公共 CDN 域名。
         String siteDomain = UPLOAD_MODE_LOCAL.equalsIgnoreCase(properties.getUploadMode())
                 ? properties.getLocalDomain()
                 : properties.getEffectiveCdnDomain();
@@ -213,7 +213,7 @@ public class MediaUrlResolver
         {
             return url;
         }
-        // 优先剥生效的 CDN 域名（oss=cdnDomain / cos=cosCdnDomain），再尝试 localDomain，匹配到则截取剩余相对路径
+        // 优先剥公共 CDN 域名，再尝试 localDomain，匹配到则截取剩余相对路径。
         String cdnDomain = StrUtil.isBlank(properties.getEffectiveCdnDomain()) ? null : stripTrailingSlash(properties.getEffectiveCdnDomain());
         if (StrUtil.isNotBlank(cdnDomain) && url.startsWith(cdnDomain))
         {

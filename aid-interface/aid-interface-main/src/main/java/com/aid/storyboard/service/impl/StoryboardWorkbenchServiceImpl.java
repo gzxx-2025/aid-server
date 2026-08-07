@@ -3117,7 +3117,9 @@ public class StoryboardWorkbenchServiceImpl implements IStoryboardWorkbenchServi
             // 云存储图片执行远程真实性探测，本地模式仅做来源与路径校验。
             OssProperties ossProperties = ossConfigManager.getOssProperties();
             String uploadMode = Objects.nonNull(ossProperties) ? ossProperties.getUploadMode() : null;
-            boolean cloudMode = "oss".equalsIgnoreCase(uploadMode) || "cos".equalsIgnoreCase(uploadMode);
+            boolean cloudMode = "oss".equalsIgnoreCase(uploadMode)
+                    || "cos".equalsIgnoreCase(uploadMode)
+                    || "qiniu".equalsIgnoreCase(uploadMode);
             if (cloudMode && !ImageUrlValidator.isValidRemoteImageUrl(fullImageUrl)) {
                 log.error("用户上传分镜图校验不通过, storyboardId={}, userId={}, imageUrl={}",
                         request.getStoryboardId(), userId, fullImageUrl);

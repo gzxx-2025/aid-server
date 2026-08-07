@@ -755,11 +755,8 @@ public class AdminAuditBusinessServiceImpl implements IAdminAuditBusinessService
             log.info("审核通过失败，单集描述缺失: episodeId={}", episode.getId());
             throw new ServiceException("请填写剧集描述");
         }
-        if (StrUtil.isBlank(effectiveEpisodeCoverUrl(episode))) {
-            log.info("审核通过失败，单集封面缺失: episodeId={}", episode.getId());
-            throw new ServiceException("请上传剧集封面");
-        }
-        if (!mediaUrlResolver.isSiteImageUrl(effectiveEpisodeCoverUrl(episode))) {
+        if (StrUtil.isNotBlank(effectiveEpisodeCoverUrl(episode))
+                && !mediaUrlResolver.isSiteImageUrl(effectiveEpisodeCoverUrl(episode))) {
             log.info("审核通过失败，单集封面地址无效: episodeId={}", episode.getId());
             throw new ServiceException("封面图地址无效");
         }

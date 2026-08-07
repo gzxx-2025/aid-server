@@ -52,7 +52,7 @@ public class OssBusinessServiceImpl implements IOssBusinessService
     private final UserImageUploadModerationGuard imageModerationGuard;
 
     /**
-     * 统一批量上传：根据 aid_config `oss.uploadMode` 分发到 local / oss；
+     * 统一批量上传：根据 aid_config `oss.uploadMode` 分发到本地或对应云存储；
      * 支持 1..N 个文件，上限由 aid_config `oss.maxBatchCount` 控制。
      * 单文件尺寸 / 扩展名校验在 {@link OssTemplate} 内部统一执行。
      */
@@ -104,7 +104,7 @@ public class OssBusinessServiceImpl implements IOssBusinessService
             imageModerationGuard.checkBytesOrThrow(bytes, file.getOriginalFilename(), "oss_upload", currentUserIdOrNull());
         }
 
-        // 第二阶段：全部通过校验 + 审查后再上传，内部按 uploadMode 分发到 local/oss
+        // 第二阶段：全部通过校验与审查后再上传，内部按 uploadMode 分发。
         List<OssUploadResponse> responses = new ArrayList<>(files.size());
         for (MultipartFile file : files)
         {

@@ -41,6 +41,9 @@
         <aliyun.oss.version>3.18.1</aliyun.oss.version>
         <!-- 腾讯云COS SDK -->
         <tencent.cos.version>5.6.227</tencent.cos.version>
+        <!-- 七牛云 Kodo SDK -->
+        <qiniu.kodo.version>7.19.0</qiniu.kodo.version>
+        <commons.compress.version>1.28.0</commons.compress.version>
         <bouncycastle.version>1.72</bouncycastle.version>
         <redisson.version>3.20.1</redisson.version>
         <lock4j.version>2.2.4</lock4j.version>
@@ -284,6 +287,20 @@
                 <groupId>com.qcloud</groupId>
                 <artifactId>cos_api</artifactId>
                 <version>${tencent.cos.version}</version>
+            </dependency>
+
+            <!-- 七牛云 Kodo SDK -->
+            <dependency>
+                <groupId>com.qiniu</groupId>
+                <artifactId>qiniu-java-sdk</artifactId>
+                <version>${qiniu.kodo.version}</version>
+            </dependency>
+
+            <!-- 官方资源包 tar/tar.gz 安全解压 -->
+            <dependency>
+                <groupId>org.apache.commons</groupId>
+                <artifactId>commons-compress</artifactId>
+                <version>${commons.compress.version}</version>
             </dependency>
 
             <!-- 加密包引入 -->

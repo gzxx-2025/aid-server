@@ -13,6 +13,6 @@ public class SmsTestRequest {
     /** 接收手机号 */
     private String phone;
 
-    /** 测试验证码（可选），不传默认使用 1234 */
+    /** 测试验证码（可选），不传则随机生成六位数字 */
     private String code;
 }

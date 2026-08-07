@@ -32,7 +32,7 @@ public class OssUploadController
     private IOssBusinessService ossBusinessService;
 
     /**
-     * 统一批量上传：支持 1..N 个文件，按 aid_config `oss.uploadMode` 自动分发到本地或阿里云OSS。
+     * 统一批量上传：支持 1..N 个文件，按 aid_config `oss.uploadMode` 自动分发到当前存储服务。
      *
      * @param files 上传的文件列表（1..N，上限由 oss.maxBatchCount 控制）
      * @param customDir 自定义子目录（可选，仅 OSS 模式生效）

@@ -143,6 +143,12 @@
             <artifactId>cos_api</artifactId>
         </dependency>
 
+        <!-- 七牛云 Kodo SDK -->
+        <dependency>
+            <groupId>com.qiniu</groupId>
+            <artifactId>qiniu-java-sdk</artifactId>
+        </dependency>
+
         <!-- aid-springboot3 / mybatis-plus 配置 -->
         <dependency>
             <groupId>org.mybatis</groupId>

@@ -10,6 +10,7 @@ import com.aid.common.aid.sms.utils.SmsBaoResponseCodes;
 import com.aid.common.utils.log.LogSanitizer;
 import lombok.extern.slf4j.Slf4j;
 
+import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -55,6 +56,7 @@ public class SmsBaoSmsTemplate implements SmsTemplate {
         query.put("c", content);
 
         try (HttpResponse response = HttpRequest.get(SEND_ENDPOINT)
+                .charset(StandardCharsets.UTF_8)
                 .form(query)
                 .setConnectionTimeout(CONNECT_TIMEOUT_MS)
                 .setReadTimeout(READ_TIMEOUT_MS)
@@ -62,7 +64,7 @@ public class SmsBaoSmsTemplate implements SmsTemplate {
             String body = StrUtil.trimToEmpty(response.body());
             boolean success = response.isOk() && SmsBaoResponseCodes.isSuccess(body);
             String message = success
-                    ? "发送成功"
+                    ? "短信宝已受理"
                     : response.isOk() ? SmsBaoResponseCodes.describe(body) : "短信宝连接失败";
             if (!success) {
                 log.error("短信宝发送失败: phone={}, status={}, code={}",

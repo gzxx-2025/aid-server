@@ -22,6 +22,10 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-compress</artifactId>
+        </dependency>
         <!-- 火山引擎方舟推理 SDK（VolcengineImage/VideoProviderClient 使用） -->
         <dependency>
             <groupId>com.volcengine</groupId>

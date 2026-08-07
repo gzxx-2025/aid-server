@@ -1074,7 +1074,7 @@ CREATE TABLE `aid_config`  (
   `tenant_id` bigint(20) NOT NULL DEFAULT 0 COMMENT '租户Id',
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE INDEX `unique_category_key`(`category`, `config_name`) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 399 CHARACTER SET = utf8 COLLATE = utf8_general_ci COMMENT = '配置信息表' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 403 CHARACTER SET = utf8 COLLATE = utf8_general_ci COMMENT = '配置信息表' ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Records of aid_config
@@ -1121,14 +1121,14 @@ INSERT INTO `aid_config` VALUES (103, 'oss', 'accessKeyId', '', 'AccessKey ID', 
 INSERT INTO `aid_config` VALUES (104, 'oss', 'accessKeySecret', '', 'AccessKey Secret', '0', 6, '2026-04-02 15:17:46', '', 'system', '2026-06-27 14:55:27', '阿里云AccessKey Secret', NULL, NULL, 0);
 INSERT INTO `aid_config` VALUES (105, 'oss', 'bucketName', '', 'Bucket名称', '0', 7, '2026-04-02 15:17:46', '', 'system', '2026-06-27 14:55:27', '阿里云OSS Bucket名称', NULL, NULL, 0);
 INSERT INTO `aid_config` VALUES (106, 'oss', 'prefix', '', '路径前缀', '0', 9, '2026-04-02 15:17:46', '', 'system', '2026-06-27 14:55:27', 'OSS文件路径前缀（如 aid）', NULL, NULL, 0);
-INSERT INTO `aid_config` VALUES (107, 'oss', 'cdnDomain', '', 'CDN域名', '0', 11, '2026-04-02 15:17:46', '', 'system', '2026-06-27 14:55:27', 'CDN加速域名（为空则使用OSS默认域名）', NULL, NULL, 0);
+INSERT INTO `aid_config` VALUES (107, 'oss', 'cdnDomain', '', '公共访问域名（CDN）', '0', 11, '2026-04-02 15:17:46', '', 'system', '2026-08-07 00:00:00', '本地官方资源示例https://api.example.com/profile；云存储示例https://cdn.example.com，通常不加/profile', NULL, NULL, 0);
 INSERT INTO `aid_config` VALUES (108, 'oss', 'maxFileSize', '5242880', '最大文件大小(字节)', '0', 3, '2026-04-02 15:17:46', '', 'system', '2026-04-23 21:03:46', '最大文件大小（默认5242880=5MB）', NULL, NULL, 0);
 INSERT INTO `aid_config` VALUES (109, 'oss', 'allowedExtensions', 'jpg,jpeg,png,gif,bmp,webp,pdf,doc,docx,mp4,mp3', '允许的文件类型', '0', 8, '2026-04-02 15:17:46', '', 'system', '2026-04-23 21:03:46', '允许上传的文件扩展名（逗号分隔）', NULL, NULL, 0);
 INSERT INTO `aid_config` VALUES (110, 'mq', 'mqType', 'rocketmq', '消息队列类型', '0', 1, '2026-04-12 02:41:00', '', '', '2026-05-11 23:41:21', '消息队列类型（rocketmq / redis），二者只能选一个', NULL, NULL, 0);
 INSERT INTO `aid_config` VALUES (111, 'mq', 'enabled', 'true', '是否启用', '0', 2, '2026-04-12 02:41:00', '', '', '2026-04-12 03:02:39', '消息队列总开关（true-启用 false-禁用）', NULL, NULL, 0);
 INSERT INTO `aid_config` VALUES (120, 'media', 'media_concurrent_limit_global', '50', '系统全局最大并发任务数', '0', 1, '2026-04-16 23:27:17', '', '', NULL, NULL, NULL, NULL, 0);
 INSERT INTO `aid_config` VALUES (121, 'media', 'media_concurrent_limit_user', '5', '单用户最大并发任务数', '0', 2, '2026-04-16 23:27:17', '', '', NULL, NULL, NULL, NULL, 0);
-INSERT INTO `aid_config` VALUES (133, 'oss', 'uploadMode', 'cos', '上传模式', '0', 2, '2026-04-23 21:03:45', 'system', 'system', '2026-06-27 14:59:43', '上传模式：local=本地存储；oss=阿里云OSS；cos=腾讯云COS；默认 oss', NULL, NULL, 0);
+INSERT INTO `aid_config` VALUES (133, 'oss', 'uploadMode', 'cos', '上传模式', '0', 2, '2026-04-23 21:03:45', 'system', 'system', '2026-08-07 00:00:00', '上传模式：local=本地存储；oss=阿里云OSS；cos=腾讯云COS；qiniu=七牛云Kodo', NULL, NULL, 0);
 INSERT INTO `aid_config` VALUES (134, 'oss', 'localDomain', '', '本地上传访问域名', '0', 10, '2026-04-23 21:05:31', 'system', '', NULL, '本地上传完整URL前缀，如 https://example.com；为空则返回相对路径 /profile/upload/...', NULL, NULL, 0);
 INSERT INTO `aid_config` VALUES (135, 'oss', 'maxBatchCount', '3', '单次最多上传张数', '0', 12, '2026-04-24 17:14:07', 'system', '', NULL, '统一上传接口单次批量上传文件数量上限，默认 3', NULL, NULL, 0);
 INSERT INTO `aid_config` VALUES (142, 'media', 'ai_billing_global_multiplier', '1', '全局计费倍率(与模型级叠加)', '0', 1, '2026-04-30 19:54:53', 'system', 'admin', '2026-07-22 18:23:21', NULL, 1, NULL, 0);
@@ -1162,7 +1162,7 @@ INSERT INTO `aid_config` VALUES (235, 'oss', 'cosSecretId', '', 'COS SecretId（
 INSERT INTO `aid_config` VALUES (236, 'oss', 'cosSecretKey', '', 'COS SecretKey（改后需重启）', '0', 16, '2026-06-23 16:43:19', '', '', '2026-06-27 14:59:43', '腾讯云COS SecretKey(对应阿里云AccessKey Secret)。【注意】该项固化于COS客户端，修改后需重启应用才能生效', NULL, NULL, 0);
 INSERT INTO `aid_config` VALUES (237, 'oss', 'cosBucketName', '', 'COS Bucket名称', '0', 17, '2026-06-23 16:43:19', '', '', '2026-06-27 14:59:43', '腾讯云COS存储桶，命名格式 BucketName-APPID，如 examplebucket-1250000000；改后点【同步配置】即生效，无需重启', NULL, NULL, 0);
 INSERT INTO `aid_config` VALUES (238, 'oss', 'cosPrefix', '', 'COS路径前缀', '0', 18, '2026-06-23 16:43:19', '', '', '2026-06-27 14:59:43', '腾讯云COS文件路径前缀(如 ai_pet/)；改后点【同步配置】即生效，无需重启', NULL, NULL, 0);
-INSERT INTO `aid_config` VALUES (239, 'oss', 'cosCdnDomain', '', 'COS CDN域名', '0', 19, '2026-06-23 16:43:19', '', 'system', '2026-07-03 15:00:25', '腾讯云COS CDN/自定义访问域名(为空则读取层返回相对路径)；改后点【同步配置】即生效，无需重启', NULL, NULL, 0);
+INSERT INTO `aid_config` VALUES (239, 'oss', 'cosCdnDomain', '', 'COS源站域名（可选）', '0', 19, '2026-06-23 16:43:19', '', 'system', '2026-08-07 00:00:00', '腾讯云COS源站域名，仅用于向上游厂商提供源站地址；公共访问域名统一填写cdnDomain', NULL, NULL, 0);
 INSERT INTO `aid_config` VALUES (240, 'image_moderation', 'enabled', 'false', '审查总开关', '0', 1, '2026-06-26 02:14:09', '', 'admin', '2026-06-28 02:10:50', NULL, NULL, NULL, 0);
 INSERT INTO `aid_config` VALUES (241, 'image_moderation', 'provider', 'tencent', '审查服务商', '0', 2, '2026-06-26 02:14:09', '', 'admin', '2026-06-28 02:10:50', NULL, NULL, NULL, 0);
 INSERT INTO `aid_config` VALUES (242, 'image_moderation', 'tencentRegion', 'ap-shanghai', '腾讯云地域', '0', 5, '2026-06-26 02:14:09', '', 'admin', '2026-06-28 02:10:50', NULL, NULL, NULL, 0);
@@ -1261,6 +1261,10 @@ INSERT INTO `aid_config` VALUES (395, 'sms', 'smsBaoUsername', '', '短信宝用
 INSERT INTO `aid_config` VALUES (396, 'sms', 'smsBaoApiKey', '', '短信宝API Key', '0', 21, '2026-08-02 00:00:00', 'system', 'system', '2026-08-02 00:00:00', '敏感配置，请在后台填写', NULL, NULL, 0);
 INSERT INTO `aid_config` VALUES (397, 'sms', 'smsBaoProductId', '', '短信宝产品ID', '0', 22, '2026-08-02 00:00:00', 'system', 'system', '2026-08-02 00:00:00', '专用通道产品ID，可不填', NULL, NULL, 0);
 INSERT INTO `aid_config` VALUES (398, 'sms', 'smsBaoContentTemplate', '【视觉AID】您的验证码是{code}', '短信内容模板（含签名）', '0', 23, '2026-08-02 00:00:00', 'system', 'system', '2026-08-02 00:00:00', '必须包含{code}占位符', NULL, NULL, 0);
+INSERT INTO `aid_config` VALUES (399, 'oss', 'qiniuAccessKey', '', '七牛云AccessKey', '0', 20, '2026-08-07 00:00:00', 'system', 'system', '2026-08-07 00:00:00', '七牛云账号AccessKey，敏感配置', NULL, NULL, 0);
+INSERT INTO `aid_config` VALUES (400, 'oss', 'qiniuSecretKey', '', '七牛云SecretKey', '0', 21, '2026-08-07 00:00:00', 'system', 'system', '2026-08-07 00:00:00', '七牛云账号SecretKey，敏感配置', NULL, NULL, 0);
+INSERT INTO `aid_config` VALUES (401, 'oss', 'qiniuBucketName', '', '七牛云Bucket名称', '0', 22, '2026-08-07 00:00:00', 'system', 'system', '2026-08-07 00:00:00', '七牛云Kodo存储空间名称', NULL, NULL, 0);
+INSERT INTO `aid_config` VALUES (402, 'oss', 'qiniuPrefix', 'upload', '七牛云路径前缀', '0', 23, '2026-08-07 00:00:00', 'system', 'system', '2026-08-07 00:00:00', '仅用于后续新上传文件，可留空；官方资源固定放在Bucket根目录aid下', NULL, NULL, 0);
 
 -- ----------------------------
 -- Table structure for aid_episode_editor
@@ -3533,7 +3537,7 @@ CREATE TABLE `sys_menu`  (
   `update_time` datetime NULL DEFAULT NULL COMMENT '更新时间',
   `remark` varchar(500) CHARACTER SET utf8 COLLATE utf8_general_ci NULL DEFAULT '' COMMENT '备注',
   PRIMARY KEY (`menu_id`) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 1357 CHARACTER SET = utf8 COLLATE = utf8_general_ci COMMENT = '菜单权限表' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 1358 CHARACTER SET = utf8 COLLATE = utf8_general_ci COMMENT = '菜单权限表' ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Records of sys_menu
@@ -3809,6 +3813,7 @@ INSERT INTO `sys_menu` VALUES (1353, '官方地址应用', 1350, 3, '#', '', NUL
 INSERT INTO `sys_menu` VALUES (1354, '升级源配置保存', 1350, 4, '#', '', NULL, '', 1, 0, 'F', '0', '0', 'aidconfig:upgrade:source', '#', 'admin', '2026-07-20 08:43:42', '', NULL, '');
 INSERT INTO `sys_menu` VALUES (1355, '升级器在线升级', 1350, 5, '#', '', NULL, '', 1, 0, 'F', '0', '0', 'aidconfig:upgrade:updater', '#', 'admin', '2026-07-20 08:43:42', '', NULL, '');
 INSERT INTO `sys_menu` VALUES (1356, '版本回退', 1350, 6, '#', '', NULL, '', 1, 0, 'F', '0', '0', 'aidconfig:upgrade:rollback', '#', 'admin', '2026-07-20 16:29:29', '', NULL, '');
+INSERT INTO `sys_menu` VALUES (1357, '官方资源初始化', 1350, 7, '#', '', NULL, '', 1, 0, 'F', '0', '0', 'aidconfig:upgrade:assets', '#', 'system', '2026-08-07 00:00:00', 'system', '2026-08-07 00:00:00', '上传、校验并初始化官方资源包');
 
 -- ----------------------------
 -- Table structure for sys_notice

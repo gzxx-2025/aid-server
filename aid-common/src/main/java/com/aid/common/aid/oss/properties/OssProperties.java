@@ -21,7 +21,7 @@ public class OssProperties
     private Boolean enabled = false;
 
     /**
-     * 上传模式：local=走本地存储；oss=阿里云OSS；cos=腾讯云COS。
+     * 上传模式：local=本地存储；oss=阿里云OSS；cos=腾讯云COS；qiniu=七牛云Kodo。
      * 统一上传接口 /api/user/oss/upload 会根据该值分发。
      * 默认 oss，缺省或非法值按 oss 处理。
      */
@@ -53,10 +53,11 @@ public class OssProperties
     private String prefix;
 
     /**
-     * CDN域名
+     * 公共访问域名。
+     * OSS、COS、七牛云共用；本地模式用于解析初始化数据中的 /aid/... 官方资源。
      */
     private String cdnDomain;
-    // 与阿里云OSS字段相互独立，便于在 oss / cos 之间自由切换而无需重新填写凭证。
+    // 各云存储凭证相互独立，切换模式时无需重复填写。
 
     /**
      * 腾讯云COS 地域（Region），如 ap-guangzhou。
@@ -88,6 +89,26 @@ public class OssProperties
      * 腾讯云COS 源站/内网 endpoint 域名（相当于阿里云的 endpoint），如。
      */
     private String cosCdnDomain;
+
+    /**
+     * 七牛云 AccessKey
+     */
+    private String qiniuAccessKey;
+
+    /**
+     * 七牛云 SecretKey
+     */
+    private String qiniuSecretKey;
+
+    /**
+     * 七牛云空间名称
+     */
+    private String qiniuBucketName;
+
+    /**
+     * 七牛云对象键前缀
+     */
+    private String qiniuPrefix;
 
     /**
      * 本地上传访问域名（如 https://example.com）
@@ -149,8 +170,8 @@ public class OssProperties
     }
 
     /**
-     * 当前生效的对外 CDN/访问域名：oss / cos 模式统一返回 {@link #cdnDomain}（对外读取域名已合并统一）。
-     * 本地模式不走该方法（本地走 localDomain）；COS 源站/内网 endpoint 见 {@link #cosCdnDomain}，仅下发上游时使用。
+     * 当前生效的对外访问域名。OSS、COS、七牛云以及本地官方资源统一使用 {@link #cdnDomain}。
+     * 本地新上传文件仍使用 localDomain；COS 源站域名见 {@link #cosCdnDomain}。
      *
      * @return 生效的对外访问域名
      */
@@ -160,13 +181,21 @@ public class OssProperties
     }
 
     /**
-     * 当前生效的对象键前缀：cos 模式返回 {@link #cosPrefix}，其余返回 {@link #prefix}。
+     * 当前生效的对象键前缀。
      *
      * @return 生效的路径前缀
      */
     public String getEffectivePrefix()
     {
-        return "cos".equalsIgnoreCase(uploadMode) ? cosPrefix : prefix;
+        if ("cos".equalsIgnoreCase(uploadMode))
+        {
+            return cosPrefix;
+        }
+        if ("qiniu".equalsIgnoreCase(uploadMode))
+        {
+            return qiniuPrefix;
+        }
+        return prefix;
     }
 }
 

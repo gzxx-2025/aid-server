@@ -278,7 +278,7 @@ public class UserEpisodeBusinessServiceImpl implements IUserEpisodeBusinessServi
         boolean submittedForReview = reviewMetadata
                 && !Objects.equals(beforeStatus, EpisodeStatusEnum.AUDITING.getValue());
         if (reviewMetadata) {
-            assertRequiredEpisodeMetadata(candidateDesc, candidateCoverUrl, episode.getId());
+            assertEpisodeReviewMetadata(candidateDesc, candidateCoverUrl, episode.getId());
             // 保存完整待审快照，线上标题、描述、封面在审核通过前不变。
             episode.setPendingComicTitle(candidateTitle);
             episode.setPendingComicDesc(candidateDesc);
@@ -380,18 +380,14 @@ public class UserEpisodeBusinessServiceImpl implements IUserEpisodeBusinessServi
                 ? episode.getPendingComicCoverUrl() : episode.getComicCoverUrl();
     }
 
-    /** 单集发布审核必填项统一校验。 */
-    private void assertRequiredEpisodeMetadata(String comicDesc, String coverUrl, Long episodeId)
+    /** 单集审核元数据统一校验：描述必填，封面选填但传入时必须是本站图片。 */
+    private void assertEpisodeReviewMetadata(String comicDesc, String coverUrl, Long episodeId)
     {
         if (StrUtil.isBlank(comicDesc)) {
             log.info("提交剧集审核失败，单集描述缺失: episodeId={}", episodeId);
             throw new ServiceException("请填写剧集描述");
         }
-        if (StrUtil.isBlank(coverUrl)) {
-            log.info("提交剧集审核失败，单集封面缺失: episodeId={}", episodeId);
-            throw new ServiceException("请上传剧集封面");
-        }
-        if (!mediaUrlResolver.isSiteImageUrl(coverUrl)) {
+        if (StrUtil.isNotBlank(coverUrl) && !mediaUrlResolver.isSiteImageUrl(coverUrl)) {
             log.info("提交剧集审核失败，单集封面地址无效: episodeId={}, coverUrl={}", episodeId, coverUrl);
             throw new ServiceException("封面图地址无效");
         }
@@ -509,7 +505,7 @@ public class UserEpisodeBusinessServiceImpl implements IUserEpisodeBusinessServi
             log.info("提交剧集审核失败，视频正在合成: episodeId={}", id);
             throw new ServiceException("视频合成中");
         }
-        assertRequiredEpisodeMetadata(effectiveEpisodeDesc(episode), effectiveEpisodeCoverUrl(episode), id);
+        assertEpisodeReviewMetadata(effectiveEpisodeDesc(episode), effectiveEpisodeCoverUrl(episode), id);
         // 置为审核中并清空上次状态原因
         Integer afterStatus = EpisodeStatusEnum.AUDITING.getValue();
         LambdaUpdateWrapper<AidComicEpisode> updateWrapper = Wrappers.lambdaUpdate();

@@ -142,7 +142,7 @@ public class AidProviderErrorRuleController extends BaseController {
     /**
      * 错误码枚举：返回 {@link TaskErrorCode} 全部值供前端下拉选择。
      */
-    @PreAuthorize("@ss.hasPermi('aid:errorrule:query')")
+    @PreAuthorize("@ss.hasAnyPermi('aid:errorrule:query,aid:errorlog:convert')")
     @GetMapping("/error-codes")
     public AjaxResult listErrorCodes() {
         List<Map<String, Object>> list = new ArrayList<>();

@@ -106,7 +106,7 @@ public class UserEpisodeController extends BaseController
     /**
      * 提交剧集审核
      * 除「审核中」外的状态均可提交（「审核通过」的剧集仅在重新导出产生待审新片时可再次提审），
-     * 提交后剧集状态变为「审核中」。
+     * 提交前必须已有成品视频并填写剧集描述；单集封面选填，提交后剧集状态变为「审核中」。
      *
      * @param request 提交审核请求（剧集ID）
      * @return 提交审核成功提示

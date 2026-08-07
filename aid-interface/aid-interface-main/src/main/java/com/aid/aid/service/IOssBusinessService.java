@@ -14,7 +14,7 @@ import com.aid.aid.domain.dto.OssUploadResponse;
 public interface IOssBusinessService
 {
     /**
-     * 统一批量上传：支持 1..N 个文件，根据 aid_config `oss.uploadMode` 自动分发到本地或阿里云OSS。
+     * 统一批量上传：支持 1..N 个文件，根据 aid_config `oss.uploadMode` 自动分发到当前存储服务。
      *
      * @param files 上传的文件列表，size 必须在 [1, maxBatchCount] 范围内
      * @param customDir 自定义子目录（可选）

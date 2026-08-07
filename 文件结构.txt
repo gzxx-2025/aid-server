@@ -3,14 +3,18 @@ aid-master/
 │   ├── aid-business-main/                C 端成片导出与进度查询接口
 │   └── aid-business-system/
 │       ├── com/aid/aid/controller/AidUserProfileController.java  后台 C 端用户管理与新增入口
-│       └── com/aid/config/asr/           腾讯云语音识别后台配置与视频测试接口
+│       ├── com/aid/aid/controller/SystemUpgradeController.java  系统升级与官方资源包初始化接口
+│       ├── com/aid/config/asr/           腾讯云语音识别后台配置与视频测试接口
+│       └── com/aid/config/test/tester/OssConnectivityTester.java  本地、OSS、COS、七牛云读写删除连通性测试
 ├── aid-common/                           公共组件（复用腾讯云 TC3 签名）
+│   ├── com/aid/common/aid/oss/           本地、阿里云OSS、腾讯云COS、七牛云Kodo统一文件存储
 │   ├── com/aid/common/aid/sms/           阿里云、腾讯云、短信宝统一短信工具与动态配置
 │   └── com/aid/common/utils/GatewayUrlUtils.java  API基础网关地址校验与规范化
 ├── aid-interface/
 │   ├── aid-interface-main/               业务服务层
 │   │   ├── src/main/java/com/aid/
 │   │   │   ├── auth/                     登录、发码与扫码注册认证流程
+│   │   │   ├── common/error/rule/ErrorLogRuleConversionService.java  错误样本生成规则草稿、规则创建与样本状态回写
 │   │   │   ├── promotion/                邀请码预校验、注册绑定与返佣业务
 │   │   │   ├── compose/
 │   │   │   │   ├── config/               腾讯云语音识别强类型配置与缓存
@@ -24,14 +28,17 @@ aid-master/
 │   │   │   │   ├── dto/                  厂商无关的语音识别标准结果
 │   │   │   │   └── provider/             语音识别扩展点、腾讯云录音识别与 Vidu 音画对白字幕约束实现
 │   │   │   ├── storyboard/               分镜视频生成与选片同步
+│   │   │   ├── upgrade/                  官方资源包状态、安全校验、原子解压与安装服务
 │   │   │   └── user/                     后台 C 端用户创建、账户信息与出入参
 │   │   └── src/test/java/com/aid/
 │   │       ├── auth/service/              发码前邀请码校验测试
+│   │       ├── common/error/rule/         错误样本转规则草稿、命中校验与状态回写测试
 │   │       ├── compose/                   无人声字幕检查点复用与陈旧成片回调隔离测试
 │   │       ├── media/provider/            腾讯云真实视频语音识别诊断测试（凭证环境变量控制）
 │   │       ├── promotion/service/impl/    邀请码严格校验与注册绑定测试
 │   │       ├── rps/queue/                 批量任务终态分类测试
 │   │       ├── storyboard/service/impl/   上传分镜视频秒数必传校验测试
+│   │       ├── upgrade/service/impl/      官方资源包校验安装与失败保留旧资源测试
 │   │       └── user/service/impl/         后台新增用户与账户查询测试
 │   └── aid-interface-system/             实体、Mapper 与领域服务
 │       ├── com/aid/aid/domain/AidEpisodeEditor.java  正式/待审成片及各自素材指纹槽位
@@ -39,9 +46,9 @@ aid-master/
 ├── doc/Business-API.md                   C 端接口文档
 └── sql/
     ├── aid-init.sql                      已合并全部初始化结构与配置数据
-    ├── alter_episode_video_fingerprint_slots.sql 成片双槽指纹幂等迁移
     ├── alter_account_amount_precision.sql 账户账本与任务计费金额四位小数迁移
-    ├── v1.0.0-beta.2.sql                当前版本的幂等数据库迁移脚本
+    ├── v1.0.0-beta.2.sql                上一测试版本的幂等数据库迁移脚本
+    ├── v1.0.0-beta.3.sql                当前测试版本的幂等数据库迁移脚本
     └── update_creation_flow_step_names.sql  已有引导配置的流程名称更新脚本
 
 version/

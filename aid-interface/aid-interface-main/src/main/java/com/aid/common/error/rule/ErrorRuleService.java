@@ -71,13 +71,11 @@ public class ErrorRuleService {
     }
 
     @Transactional(rollbackFor = Exception.class)
-    public void add(AidProviderErrorRule rule, String operator) {
+    public Long add(AidProviderErrorRule rule, String operator) {
         validate(rule);
         rule.setId(null);
-        // 新增的非内置规则，默认 is_builtin=0
-        if (rule.getIsBuiltin() == null) {
-            rule.setIsBuiltin(0);
-        }
+        // 管理端新增规则一律是自定义规则，禁止通过请求参数伪造不可删除的内置规则。
+        rule.setIsBuiltin(0);
         if (rule.getEnabled() == null) {
             rule.setEnabled(1);
         }
@@ -86,8 +84,11 @@ public class ErrorRuleService {
         }
         rule.setCreateBy(operator);
         rule.setCreateTime(new Date());
+        rule.setUpdateBy(null);
+        rule.setUpdateTime(null);
         errorRuleMapper.insert(rule);
         errorRuleCache.refresh(rule.getProviderCode());
+        return rule.getId();
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -136,14 +137,17 @@ public class ErrorRuleService {
         errorRuleCache.rebuild();
     }
 
-    private void validate(AidProviderErrorRule rule) {
+    void validate(AidProviderErrorRule rule) {
         if (rule == null) {
+            log.info("[ErrorRuleService] 规则参数缺失");
             throw new ServiceException("参数缺失");
         }
         if (StringUtils.isBlank(rule.getRuleName())) {
+            log.info("[ErrorRuleService] 规则名为空");
             throw new ServiceException("规则名不能为空");
         }
         if (StringUtils.isBlank(rule.getMatchType())) {
+            log.info("[ErrorRuleService] 匹配类型为空");
             throw new ServiceException("匹配类型不能为空");
         }
         // matchType 必须是 5 种合法值之一，否则规则将永远静默失败
@@ -154,6 +158,7 @@ public class ErrorRuleService {
         }
         rule.setMatchType(upperMatchType);
         if (StringUtils.isBlank(rule.getMatchPattern())) {
+            log.info("[ErrorRuleService] 匹配内容为空, ruleName={}", rule.getRuleName());
             throw new ServiceException("匹配内容不能为空");
         }
         // REGEX 类型保存前校验正则有效性，避免运行期静默失效
@@ -169,17 +174,21 @@ public class ErrorRuleService {
         // JSON_PATH 必须配套字段路径
         if (ErrorRuleEngine.MATCH_JSON_PATH.equals(upperMatchType)
                 && StringUtils.isBlank(rule.getMatchField())) {
+            log.info("[ErrorRuleService] JSON_PATH 字段路径为空, ruleName={}", rule.getRuleName());
             throw new ServiceException("参数缺失");
         }
         if (StringUtils.isBlank(rule.getErrorCode())) {
+            log.info("[ErrorRuleService] 错误码为空, ruleName={}", rule.getRuleName());
             throw new ServiceException("错误码不能为空");
         }
         // errorCode 必须是合法 TaskErrorCode 枚举，否则运行期静默失效
+        String errorCode = rule.getErrorCode().trim();
         try {
-            TaskErrorCode.valueOf(rule.getErrorCode().trim());
+            TaskErrorCode.valueOf(errorCode);
         } catch (IllegalArgumentException iae) {
             log.warn("[ErrorRuleService] 错误码不存在, errorCode={}", rule.getErrorCode());
             throw new ServiceException("错误码格式有误");
         }
+        rule.setErrorCode(errorCode);
     }
 }

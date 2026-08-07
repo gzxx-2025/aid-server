@@ -116,8 +116,8 @@ public class OssConfigManager
 
     /**
      * 获取当前生效的配置（供前端展示，脱敏处理）
-     * - local 模式：仅展示 enabled / uploadMode / localDomain / maxFileSize / allowedExtensions
-     * - oss 模式：展示全部配置，accessKeyId/accessKeySecret 脱敏
+     * - local 模式：展示 localDomain 与公共 cdnDomain
+     * - 云存储模式：展示当前厂商字段与公共 cdnDomain，密钥统一脱敏
      *
      * @return 脱敏后的配置Map
      */
@@ -132,6 +132,9 @@ public class OssConfigManager
         // 脱敏：腾讯云COS SecretId / SecretKey
         desensitize(result, "cosSecretId");
         desensitize(result, "cosSecretKey");
+        // 脱敏：七牛云 AccessKey / SecretKey
+        desensitize(result, "qiniuAccessKey");
+        desensitize(result, "qiniuSecretKey");
         // 根据 uploadMode 过滤展示字段
         String mode = Objects.isNull(currentProperties) ? "oss" : currentProperties.getUploadMode();
         if ("local".equalsIgnoreCase(mode))
@@ -142,13 +145,16 @@ public class OssConfigManager
             result.remove("accessKeySecret");
             result.remove("bucketName");
             result.remove("prefix");
-            result.remove("cdnDomain");
             result.remove("cosRegion");
             result.remove("cosSecretId");
             result.remove("cosSecretKey");
             result.remove("cosBucketName");
             result.remove("cosPrefix");
             result.remove("cosCdnDomain");
+            result.remove("qiniuAccessKey");
+            result.remove("qiniuSecretKey");
+            result.remove("qiniuBucketName");
+            result.remove("qiniuPrefix");
         }
         else if ("cos".equalsIgnoreCase(mode))
         {
@@ -158,7 +164,27 @@ public class OssConfigManager
             result.remove("accessKeySecret");
             result.remove("bucketName");
             result.remove("prefix");
-            result.remove("cdnDomain");
+            result.remove("localDomain");
+            result.remove("qiniuAccessKey");
+            result.remove("qiniuSecretKey");
+            result.remove("qiniuBucketName");
+            result.remove("qiniuPrefix");
+        }
+        else if ("qiniu".equalsIgnoreCase(mode))
+        {
+            // 七牛云模式隐藏阿里云、腾讯云与本地专属字段
+            result.remove("endpoint");
+            result.remove("accessKeyId");
+            result.remove("accessKeySecret");
+            result.remove("bucketName");
+            result.remove("prefix");
+            result.remove("cosRegion");
+            result.remove("cosSecretId");
+            result.remove("cosSecretKey");
+            result.remove("cosBucketName");
+            result.remove("cosPrefix");
+            result.remove("cosCdnDomain");
+            result.remove("localDomain");
         }
         else
         {
@@ -169,6 +195,11 @@ public class OssConfigManager
             result.remove("cosBucketName");
             result.remove("cosPrefix");
             result.remove("cosCdnDomain");
+            result.remove("qiniuAccessKey");
+            result.remove("qiniuSecretKey");
+            result.remove("qiniuBucketName");
+            result.remove("qiniuPrefix");
+            result.remove("localDomain");
         }
         return result;
     }
@@ -242,7 +273,8 @@ public class OssConfigManager
         if (StrUtil.isBlank(mode)
                 || (!"local".equalsIgnoreCase(mode)
                 && !"oss".equalsIgnoreCase(mode)
-                && !"cos".equalsIgnoreCase(mode)))
+                && !"cos".equalsIgnoreCase(mode)
+                && !"qiniu".equalsIgnoreCase(mode)))
         {
             mode = "oss";
         }
@@ -260,6 +292,11 @@ public class OssConfigManager
         properties.setCosBucketName(getCacheValue("cosBucketName", ""));
         properties.setCosPrefix(getCacheValue("cosPrefix", ""));
         properties.setCosCdnDomain(getCacheValue("cosCdnDomain", ""));
+        // 七牛云 Kodo 专属配置，公共访问域名继续复用 cdnDomain
+        properties.setQiniuAccessKey(getCacheValue("qiniuAccessKey", ""));
+        properties.setQiniuSecretKey(getCacheValue("qiniuSecretKey", ""));
+        properties.setQiniuBucketName(getCacheValue("qiniuBucketName", ""));
+        properties.setQiniuPrefix(getCacheValue("qiniuPrefix", ""));
         properties.setLocalDomain(getCacheValue("localDomain", ""));
         // 图片URL域名白名单（逗号分隔，可空）：cdnDomain/localDomain 之外额外放行的可信外部图片域名前缀
         properties.setImageUrlWhitelist(getCacheValue("imageUrlWhitelist", ""));
