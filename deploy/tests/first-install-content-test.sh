@@ -28,6 +28,19 @@ assert_unmanaged_entry() {
   }
 }
 
+assert_unmanaged_manual_runtime_entry() {
+  local actual
+  actual="$(first_install_unmanaged_entry docker || true)"
+  case "${actual}" in
+    "${AID_DATA_ROOT}/runtime"|"${AID_DATA_ROOT}/mysql-data-manual"|\
+    "${AID_DATA_ROOT}/mysql-files"|"${AID_DATA_ROOT}/redis-data-manual"|"${AID_DATA_ROOT}/run") ;;
+    *)
+      echo "FAIL: docker 模式未识别手动部署目录，实际: ${actual:-<空>}" >&2
+      exit 1
+      ;;
+  esac
+}
+
 # Docker 在确认部署前会完成配置、源码构建、镜像准备与安装器提取。
 mkdir -p "${AID_DATA_ROOT}"/{packages,installer,config,source-build,build-cache,logs}
 touch "${AID_DATA_ROOT}/aid-deploy.conf"
@@ -37,8 +50,9 @@ assert_no_unmanaged_entry docker
 mkdir -p "${AID_DATA_ROOT}"/{runtime,mysql-data-manual,mysql-files,redis-data-manual,run}
 assert_no_unmanaged_entry manual
 
-# Docker 不应把仅属于手动部署的运行目录静默放行。
-assert_unmanaged_entry docker "${AID_DATA_ROOT}/runtime"
+# Docker 不应把仅属于手动部署的运行目录静默放行。find 的目录返回顺序不固定，
+# 因此接受任意一个被正确识别出的手动部署目录，避免依赖具体文件系统顺序。
+assert_unmanaged_manual_runtime_entry
 
 rm -rf "${AID_DATA_ROOT}/runtime" "${AID_DATA_ROOT}/mysql-data-manual" \
   "${AID_DATA_ROOT}/mysql-files" "${AID_DATA_ROOT}/redis-data-manual" "${AID_DATA_ROOT}/run"
@@ -46,7 +60,10 @@ mkdir -p "${AID_DATA_ROOT}/other-business"
 assert_unmanaged_entry docker "${AID_DATA_ROOT}/other-business"
 
 rm -rf "${AID_DATA_ROOT}/other-business" "${AID_DATA_ROOT}/config"
-ln -s "${TMP_ROOT}" "${AID_DATA_ROOT}/config"
-assert_unmanaged_entry docker "${AID_DATA_ROOT}/config"
+if ln -s "${TMP_ROOT}" "${AID_DATA_ROOT}/config" 2>/dev/null; then
+  assert_unmanaged_entry docker "${AID_DATA_ROOT}/config"
+else
+  echo 'SKIP: filesystem does not provide POSIX symbolic links; first-install symlink check skipped'
+fi
 
 echo 'first install content tests passed'

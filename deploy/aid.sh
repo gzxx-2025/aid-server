@@ -1713,7 +1713,7 @@ install_mysql_compat_libraries() {
   fi
 }
 
-mysql_gpg_key_fingerprint() { # mysql_gpg_key_fingerprint <公钥文件>，兼容 CentOS 7 的旧版 GnuPG
+gpg_primary_key_fingerprint() { # gpg_primary_key_fingerprint <公钥文件>，兼容 CentOS 7 的旧版 GnuPG
   local keyFile="$1" inspectHome fingerprint=""
   inspectHome="$(mktemp -d)"; chmod 700 "${inspectHome}"
   if GNUPGHOME="${inspectHome}" gpg --batch --quiet --import "${keyFile}" >/dev/null 2>&1; then
@@ -1722,6 +1722,10 @@ mysql_gpg_key_fingerprint() { # mysql_gpg_key_fingerprint <公钥文件>，兼�
   fi
   rm -rf -- "${inspectHome}"
   printf '%s\n' "${fingerprint}"
+}
+
+mysql_gpg_key_fingerprint() { # mysql_gpg_key_fingerprint <公钥文件>
+  gpg_primary_key_fingerprint "$1"
 }
 
 verify_mysql_archive_signature() { # verify_mysql_archive_signature <归档> <文件名> <缓存目录> [摘要说明]
@@ -2151,86 +2155,241 @@ compiler_major_version() { # compiler_major_version <gcc路径>
   printf '%s\n' "${version%%.*}"
 }
 
+redis_compiler_pair_is_supported() { # redis_compiler_pair_is_supported <cc> <cxx>
+  local cc="$1" cxx="$2" major
+  [[ -n "${cc}" && -n "${cxx}" ]] || return 1
+  [[ "${cc}" == */* ]] || cc="$(command -v "${cc}" 2>/dev/null || true)"
+  [[ "${cxx}" == */* ]] || cxx="$(command -v "${cxx}" 2>/dev/null || true)"
+  [[ -x "${cc}" && -x "${cxx}" ]] || return 1
+  major="$(compiler_major_version "${cc}")"
+  [[ "${major}" =~ ^[0-9]+$ && "${major}" -ge 7 ]] || return 1
+  export CC="${cc}" CXX="${cxx}"
+  ok "Redis 编译器已就绪: $(${CC} --version 2>/dev/null | head -n 1)"
+}
+
 select_redis_build_compiler() {
-  local cc cxx major
-  while IFS='|' read -r cc cxx; do
-    [[ -x "${cc}" && -x "${cxx}" ]] || continue
-    major="$(compiler_major_version "${cc}")"
-    [[ "${major}" =~ ^[0-9]+$ && "${major}" -ge 7 ]] || continue
-    export CC="${cc}" CXX="${cxx}"
-    ok "Redis 编译器已就绪: $(${CC} --version 2>/dev/null | head -n 1)"
-    return 0
-  done <<EOF
-${CC:-}|${CXX:-}
-/opt/rh/gcc-toolset-13/root/usr/bin/gcc|/opt/rh/gcc-toolset-13/root/usr/bin/g++
-/opt/rh/devtoolset-7/root/usr/bin/gcc|/opt/rh/devtoolset-7/root/usr/bin/g++
-$(command -v gcc 2>/dev/null || true)|$(command -v g++ 2>/dev/null || true)
-EOF
+  local binDir
+  redis_compiler_pair_is_supported "${CC:-}" "${CXX:-}" && return 0
+  # RHEL/CentOS 的新工具链安装在 /opt/rh，动态扫描可兼容 devtoolset-7/8/9/10/11
+  # 与 gcc-toolset-9/10/11/12/13 等版本，不再写死单一目录。
+  for binDir in /opt/rh/gcc-toolset-*/root/usr/bin /opt/rh/devtoolset-*/root/usr/bin; do
+    [[ -d "${binDir}" ]] || continue
+    redis_compiler_pair_is_supported "${binDir}/gcc" "${binDir}/g++" && return 0
+  done
+  redis_compiler_pair_is_supported "$(command -v gcc 2>/dev/null || true)" \
+    "$(command -v g++ 2>/dev/null || true)" && return 0
+  redis_compiler_pair_is_supported "$(command -v clang 2>/dev/null || true)" \
+    "$(command -v clang++ 2>/dev/null || true)" && return 0
   return 1
 }
 
-install_centos7_redis_compiler() {
-  local cacheDir releaseRpm checksum downloaded=no url repoFile
-  cacheDir="${DATA_ROOT}/build-cache/toolchains"
-  releaseRpm="${cacheDir}/centos-release-scl-rh-2-3.el7.centos.noarch.rpm"
-  checksum="7941441bef911de9a9659743847aca92ea63e73d0199d53800626339f55d41d7"
-  mkdir -p "${cacheDir}"
-  if ! rpm -q centos-release-scl-rh >/dev/null 2>&1; then
-    require_download_tools
-    if [[ -f "${releaseRpm}" ]] && ! file_digest_matches "${releaseRpm}" sha256 "${checksum}"; then
-      warn "CentOS SCL 仓库引导包摘要不匹配，将重新下载"
-      rm -f -- "${releaseRpm}"
-    fi
-    if [[ ! -f "${releaseRpm}" ]]; then
-      for url in \
-        "https://mirrors.aliyun.com/centos/7.9.2009/extras/x86_64/Packages/centos-release-scl-rh-2-3.el7.centos.noarch.rpm" \
-        "https://mirrors.cloud.tencent.com/centos/7.9.2009/extras/x86_64/Packages/centos-release-scl-rh-2-3.el7.centos.noarch.rpm"; do
-        if try_download "${url}" "${releaseRpm}" "CentOS 7 SCL仓库引导包" sha256 "${checksum}"; then
-          downloaded=yes; break
-        fi
-      done
-      [[ "${downloaded}" == "yes" ]] || die "CentOS 7 SCL 仓库引导包下载失败"
-    fi
-    rpm -K "${releaseRpm}" 2>/dev/null | grep -Eqi 'rsa.*ok|pgp.*ok|digests.*ok' \
-      || die "CentOS 7 SCL 仓库引导包签名校验失败"
-    rpm -Uvh --replacepkgs "${releaseRpm}" >/dev/null \
-      || die "CentOS 7 SCL 仓库引导包安装失败"
+rpm_key_file_is_verified() { # rpm_key_file_is_verified <文件> <指纹> <SHA256>
+  local keyFile="$1" expectedFingerprint="$2" expectedSha256="$3" fingerprint=""
+  [[ -s "${keyFile}" ]] || return 1
+  file_digest_matches "${keyFile}" sha256 "${expectedSha256}" && return 0
+  # 系统自带 key 文件可能只有注释或换行不同；有 GnuPG 时再按主指纹确认其身份。
+  if command -v gpg >/dev/null 2>&1; then
+    fingerprint="$(gpg_primary_key_fingerprint "${keyFile}")"
+    [[ "${fingerprint}" == "${expectedFingerprint}" ]] && return 0
   fi
+  return 1
+}
 
-  repoFile="/etc/yum.repos.d/aid-centos-sclo-rh.repo"
-  cat > "${repoFile}" <<'EOF'
-# AID 为 EOL CentOS 7 提供的只读 SCL 国内镜像；不修改系统原有仓库文件。
-[aid-centos-sclo-rh]
-name=AID CentOS-7 SCLo rh
-baseurl=https://mirrors.aliyun.com/centos/7/sclo/$basearch/rh/
-        https://mirrors.cloud.tencent.com/centos/7/sclo/$basearch/rh/
-        https://vault.epel.cloud/centos/7/sclo/$basearch/rh/
-enabled=1
-gpgcheck=1
-gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-SCLo
-EOF
-  yum --disablerepo=centos-sclo-rh --enablerepo=aid-centos-sclo-rh \
+ensure_verified_rpm_key() { # ensure_verified_rpm_key <名称> <指纹> <SHA256> <系统路径> <缓存路径> <下载地址...>
+  local label="$1" expectedFingerprint="$2" expectedSha256="$3" target="$4" cache="$5"
+  local candidate selected="" url
+  shift 5
+  command -v rpm >/dev/null 2>&1 || die "${label}校验需要 rpm 命令"
+  require_download_tools
+  for candidate in "${target}" "${cache}"; do
+    if rpm_key_file_is_verified "${candidate}" "${expectedFingerprint}" "${expectedSha256}"; then
+      selected="${candidate}"
+      break
+    fi
+    [[ "${candidate}" != "${cache}" ]] || rm -f -- "${cache}" "${cache}.part"
+  done
+  if [[ -z "${selected}" ]]; then
+    mkdir -p "$(dirname "${cache}")"
+    for url in "$@"; do
+      rm -f -- "${cache}" "${cache}.part"
+      try_download "${url}" "${cache}" "${label}" || continue
+      if rpm_key_file_is_verified "${cache}" "${expectedFingerprint}" "${expectedSha256}"; then
+        selected="${cache}"
+        break
+      fi
+      warn "${label}指纹不匹配，拒绝当前来源并切换下一个节点"
+    done
+  fi
+  [[ -n "${selected}" ]] || die "${label}下载失败或指纹不匹配"
+  if [[ "${selected}" != "${target}" ]]; then
+    install -d -m 0755 "$(dirname "${target}")"
+    install -m 0644 "${selected}" "${target}" || die "${label}安装失败"
+  fi
+  rpm --import "${target}" >/dev/null 2>&1 || die "${label}导入 RPM 数据库失败"
+  ok "${label}已通过固定 SHA256/指纹校验"
+}
+
+append_aid_yum_repo() { # append_aid_yum_repo <文件> <ID> <名称> <GPG公钥> <baseurl...>
+  local repoFile="$1" repoId="$2" repoName="$3" gpgKey="$4" prefix="baseurl=" url
+  shift 4
+  {
+    printf '[%s]\nname=%s\n' "${repoId}" "${repoName}"
+    for url in "$@"; do
+      printf '%s%s\n' "${prefix}" "${url}"
+      prefix='        '
+    done
+    printf 'enabled=1\ngpgcheck=1\nrepo_gpgcheck=0\ngpgkey=file://%s\nsslverify=1\nskip_if_unavailable=0\n\n' "${gpgKey}"
+  } >> "${repoFile}"
+}
+
+install_centos7_redis_compiler() {
+  local cacheDir gpgDir repoDir repoFile mainKey sclKey machineArch baseRoot1 baseRoot2 baseRoot3
+  local sclRoot1 sclRoot2 sclRoot3
+  cacheDir="${DATA_ROOT}/build-cache/toolchains/centos-keys"
+  gpgDir="${AID_RPM_GPG_DIR:-/etc/pki/rpm-gpg}"
+  repoDir="${AID_YUM_REPO_DIR:-/etc/yum.repos.d}"
+  mainKey="${gpgDir}/RPM-GPG-KEY-CentOS-7"
+  sclKey="${gpgDir}/RPM-GPG-KEY-CentOS-SIG-SCLo"
+  machineArch="$(uname -m)"
+  case "${machineArch}" in
+    x86_64|amd64)
+      baseRoot1='https://mirrors.aliyun.com/centos/7.9.2009'
+      baseRoot2='https://mirrors.cloud.tencent.com/centos/7.9.2009'
+      baseRoot3='https://vault.centos.org/7.9.2009'
+      sclRoot1='https://mirrors.aliyun.com/centos/7/sclo'
+      sclRoot2='https://mirrors.cloud.tencent.com/centos/7/sclo'
+      sclRoot3='https://vault.centos.org/7.9.2009/sclo'
+      ;;
+    aarch64|arm64)
+      baseRoot1='https://mirrors.aliyun.com/centos-altarch/7.9.2009'
+      baseRoot2='https://vault.centos.org/altarch/7.9.2009'
+      baseRoot3='https://vault.centos.org/altarch/7.9.2009'
+      sclRoot1='https://mirrors.aliyun.com/centos-altarch/7/sclo'
+      sclRoot2='https://vault.centos.org/altarch/7.9.2009/sclo'
+      sclRoot3='https://vault.centos.org/altarch/7.9.2009/sclo'
+      ;;
+    *) die "CentOS 7 Redis 编译工具链暂不支持架构: ${machineArch}" ;;
+  esac
+
+  ensure_verified_rpm_key "CentOS 7 官方RPM公钥" \
+    "6341AB2753D78A78A7C27BB124C6A8A7F4A80EB5" \
+    "8b48b04b336bd725b9e611c441c65456a4168083c4febc28e88828d8ec14827f" \
+    "${mainKey}" "${cacheDir}/RPM-GPG-KEY-CentOS-7" \
+    "https://mirrors.aliyun.com/centos/RPM-GPG-KEY-CentOS-7" \
+    "https://mirrors.cloud.tencent.com/centos/RPM-GPG-KEY-CentOS-7" \
+    "https://www.centos.org/keys/RPM-GPG-KEY-CentOS-7"
+  ensure_verified_rpm_key "CentOS SCLo RPM公钥" \
+    "C4DBD535B1FBBA14F8BA64A84EB84E71F2EE9D55" \
+    "1402b1ea263cd0e51e7fe77c89ab98d64dd08fdc54e7a4afe27b2782ddfc351c" \
+    "${sclKey}" "${cacheDir}/RPM-GPG-KEY-CentOS-SIG-SCLo" \
+    "https://www.centos.org/keys/RPM-GPG-KEY-CentOS-SIG-SCLo" \
+    "https://www.dev.centos.org/keys/RPM-GPG-KEY-CentOS-SIG-SCLo"
+
+  mkdir -p "${repoDir}"
+  repoFile="${repoDir}/aid-centos7-redis-build.repo"
+  : > "${repoFile}"
+  append_aid_yum_repo "${repoFile}" aid-centos7-base "AID CentOS 7.9 Base" "${mainKey}" \
+    "${baseRoot1}/os/\$basearch/" "${baseRoot2}/os/\$basearch/" "${baseRoot3}/os/\$basearch/"
+  append_aid_yum_repo "${repoFile}" aid-centos7-updates "AID CentOS 7.9 Updates" "${mainKey}" \
+    "${baseRoot1}/updates/\$basearch/" "${baseRoot2}/updates/\$basearch/" "${baseRoot3}/updates/\$basearch/"
+  append_aid_yum_repo "${repoFile}" aid-centos7-extras "AID CentOS 7.9 Extras" "${mainKey}" \
+    "${baseRoot1}/extras/\$basearch/" "${baseRoot2}/extras/\$basearch/" "${baseRoot3}/extras/\$basearch/"
+  append_aid_yum_repo "${repoFile}" aid-centos7-sclo-rh "AID CentOS 7 SCLo RH" "${sclKey}" \
+    "${sclRoot1}/\$basearch/rh/" "${sclRoot2}/\$basearch/rh/" "${sclRoot3}/\$basearch/rh/"
+  chmod 0644 "${repoFile}"
+  yum --disablerepo='*' \
+    --enablerepo=aid-centos7-base,aid-centos7-updates,aid-centos7-extras,aid-centos7-sclo-rh \
     install -y devtoolset-7-gcc devtoolset-7-gcc-c++ \
-    || die "CentOS 7 Redis 编译工具链安装失败"
+    || die "CentOS 7 Redis 编译工具链安装失败，请检查 ${repoFile}"
+}
+
+install_centos8_redis_compiler() {
+  local variant="${1:-linux}" cacheDir gpgDir repoDir repoFile officialKey root1 root2 root3
+  local baseName appstreamName
+  cacheDir="${DATA_ROOT}/build-cache/toolchains/centos-keys"
+  gpgDir="${AID_RPM_GPG_DIR:-/etc/pki/rpm-gpg}"
+  repoDir="${AID_YUM_REPO_DIR:-/etc/yum.repos.d}"
+  officialKey="${gpgDir}/RPM-GPG-KEY-centosofficial"
+  if [[ "${variant}" == "stream" ]]; then
+    root1='https://vault.centos.org/centos/8-stream'
+    root2='https://vault.centos.org/centos/8-stream'
+    root3='https://vault.centos.org/centos/8-stream'
+    baseName='AID CentOS Stream 8 Vault BaseOS'
+    appstreamName='AID CentOS Stream 8 Vault AppStream'
+  else
+    root1='https://mirrors.aliyun.com/centos-vault/8.5.2111'
+    root2='https://mirrors.cloud.tencent.com/centos-vault/8.5.2111'
+    root3='https://vault.centos.org/8.5.2111'
+    baseName='AID CentOS Linux 8.5 Vault BaseOS'
+    appstreamName='AID CentOS Linux 8.5 Vault AppStream'
+  fi
+  ensure_verified_rpm_key "CentOS 8 官方RPM公钥" \
+    "99DB70FAE1D7CE227FB6488205B555B38483C65D" \
+    "146059788b214d7ba0dd70c1cf21111e594c6cfde201da8a9a88fe7101be8a78" \
+    "${officialKey}" "${cacheDir}/RPM-GPG-KEY-CentOS-Official" \
+    "https://mirrors.aliyun.com/centos/RPM-GPG-KEY-CentOS-Official" \
+    "https://www.centos.org/keys/RPM-GPG-KEY-CentOS-Official"
+  mkdir -p "${repoDir}"
+  repoFile="${repoDir}/aid-centos8-redis-build.repo"
+  : > "${repoFile}"
+  if [[ "${variant}" == "stream" ]]; then
+    append_aid_yum_repo "${repoFile}" aid-centos8-baseos "${baseName}" "${officialKey}" \
+      "${root1}/BaseOS/\$basearch/os/"
+    append_aid_yum_repo "${repoFile}" aid-centos8-appstream "${appstreamName}" "${officialKey}" \
+      "${root1}/AppStream/\$basearch/os/"
+  else
+    append_aid_yum_repo "${repoFile}" aid-centos8-baseos "${baseName}" "${officialKey}" \
+      "${root1}/BaseOS/\$basearch/os/" "${root2}/BaseOS/\$basearch/os/" "${root3}/BaseOS/\$basearch/os/"
+    append_aid_yum_repo "${repoFile}" aid-centos8-appstream "${appstreamName}" "${officialKey}" \
+      "${root1}/AppStream/\$basearch/os/" "${root2}/AppStream/\$basearch/os/" "${root3}/AppStream/\$basearch/os/"
+  fi
+  chmod 0644 "${repoFile}"
+  dnf --disablerepo='*' --enablerepo=aid-centos8-baseos,aid-centos8-appstream \
+    --setopt=install_weak_deps=False install -y gcc gcc-c++ \
+    || die "CentOS 8 Redis 编译工具链安装失败，请检查 ${repoFile}"
+}
+
+install_rpm_redis_compiler() {
+  if command -v dnf >/dev/null 2>&1; then
+    dnf install -y gcc gcc-c++
+  elif command -v yum >/dev/null 2>&1; then
+    yum install -y gcc gcc-c++
+  else
+    return 1
+  fi
 }
 
 ensure_redis_build_compiler() {
-  local installMode="$1" osId="" osVersion=""
+  local installMode="$1" osId="" osVersion="" osName="" osReleaseFile
   select_redis_build_compiler && return 0
   [[ "${installMode}" == "auto" ]] \
     || die "编译 Redis ${REDIS_VERSION} 需要 GCC/G++ 7+；请安装后重试"
-  if [[ -f /etc/os-release ]]; then
-    osId="$(. /etc/os-release; printf '%s' "${ID:-}")"
-    osVersion="$(. /etc/os-release; printf '%s' "${VERSION_ID:-}")"
+  osReleaseFile="${AID_OS_RELEASE_FILE:-/etc/os-release}"
+  if [[ -f "${osReleaseFile}" ]]; then
+    osId="$(. "${osReleaseFile}"; printf '%s' "${ID:-}")"
+    osVersion="$(. "${osReleaseFile}"; printf '%s' "${VERSION_ID:-}")"
+    osName="$(. "${osReleaseFile}"; printf '%s' "${NAME:-}")"
   fi
   if [[ "${osId}" == "centos" && "${osVersion%%.*}" == "7" ]]; then
     install_centos7_redis_compiler
+  elif [[ "${osId}" == "centos" && "${osVersion%%.*}" =~ ^[0-6]$ ]]; then
+    die "CentOS ${osVersion:-未知} 已不受支持；请升级至 CentOS 7+ 或使用外部 Redis 6+"
   elif command -v apt-get >/dev/null 2>&1; then
     install_os_packages "Redis GCC/G++ 7+编译器" "build-essential" "gcc gcc-c++"
-  elif command -v dnf >/dev/null 2>&1; then
-    dnf install -y gcc gcc-c++ || die "Redis GCC/G++ 编译器安装失败"
-  elif command -v yum >/dev/null 2>&1; then
-    yum install -y gcc gcc-c++ || die "Redis GCC/G++ 编译器安装失败"
+  elif command -v dnf >/dev/null 2>&1 || command -v yum >/dev/null 2>&1; then
+    if ! install_rpm_redis_compiler; then
+      if [[ "${osId}" == "centos" && "${osVersion%%.*}" == "8" ]]; then
+        if [[ "${osName}" == *Stream* ]]; then
+          warn "CentOS Stream 8 系统仓库不可用，切换至经固定公钥校验的官方 Vault 仓库"
+          install_centos8_redis_compiler stream
+        else
+          warn "CentOS Linux 8 系统仓库不可用，切换至经固定公钥校验的 8.5 Vault 仓库"
+          install_centos8_redis_compiler linux
+        fi
+      else
+        die "Redis GCC/G++ 编译器安装失败，请检查当前发行版软件源"
+      fi
+    fi
   else
     die "当前系统无法自动安装 Redis GCC/G++ 7+ 编译器"
   fi
