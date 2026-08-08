@@ -18,7 +18,7 @@ const (
 	StatusStopped = "STOPPED"
 
 	// ProtocolVersion 当前升级器协议版本
-	ProtocolVersion = 2
+	ProtocolVersion = 3
 
 	timeLayout = "2006-01-02 15:04:05"
 
@@ -35,15 +35,23 @@ const (
 
 // LastTask 记录最近一次任务的执行结果，随健康文件透出给后端。
 type LastTask struct {
-	TaskID     string `json:"taskId"`
-	Action     string `json:"action"`
-	State      string `json:"state"`
+	TaskID     string                 `json:"taskId"`
+	Action     string                 `json:"action"`
+	State      string                 `json:"state"`
+	Message    string                 `json:"message"`
+	Progress   int                    `json:"progress"`
+	Phase      string                 `json:"phase,omitempty"`
+	StartedAt  string                 `json:"startedAt,omitempty"`
+	UpdatedAt  string                 `json:"updatedAt,omitempty"`
+	FinishedAt string                 `json:"finishedAt,omitempty"`
+	Checks     map[string]CheckResult `json:"checks,omitempty"`
+}
+
+// CheckResult 是部署配置分项诊断的脱敏结果。
+type CheckResult struct {
+	Status     string `json:"status"`
 	Message    string `json:"message"`
-	Progress   int    `json:"progress"`
-	Phase      string `json:"phase,omitempty"`
-	StartedAt  string `json:"startedAt,omitempty"`
-	UpdatedAt  string `json:"updatedAt,omitempty"`
-	FinishedAt string `json:"finishedAt,omitempty"`
+	Suggestion string `json:"suggestion,omitempty"`
 }
 
 // DeploymentConfiguration 是允许后台展示的部署配置快照，不包含任何密码或密钥原文。
@@ -143,6 +151,10 @@ func (r *Reporter) SetTask(taskID, action, state, message string) {
 		progress = r.lastTask.Progress
 		phase = r.lastTask.Phase
 	}
+	var checks map[string]CheckResult
+	if r.lastTask != nil && r.lastTask.TaskID == taskID {
+		checks = cloneChecks(r.lastTask.Checks)
+	}
 	if state == TaskStateSuccess {
 		progress = 100
 		phase = "执行完成"
@@ -152,12 +164,22 @@ func (r *Reporter) SetTask(taskID, action, state, message string) {
 	}
 	task := &LastTask{
 		TaskID: taskID, Action: action, State: state, Message: message,
-		Progress: progress, Phase: phase, StartedAt: startedAt, UpdatedAt: now,
+		Progress: progress, Phase: phase, StartedAt: startedAt, UpdatedAt: now, Checks: checks,
 	}
 	if state != TaskStateRunning {
 		task.FinishedAt = now
 	}
 	r.lastTask = task
+	r.mu.Unlock()
+	r.write(StatusRunning)
+}
+
+// SetTaskChecks 保存分项诊断结果，结果只包含状态、摘要和操作建议。
+func (r *Reporter) SetTaskChecks(taskID, action string, checks map[string]CheckResult) {
+	r.mu.Lock()
+	if r.lastTask != nil && r.lastTask.TaskID == taskID && r.lastTask.Action == action {
+		r.lastTask.Checks = cloneChecks(checks)
+	}
 	r.mu.Unlock()
 	r.write(StatusRunning)
 }
@@ -233,6 +255,17 @@ func cloneConfiguration(source *DeploymentConfiguration) *DeploymentConfiguratio
 		Values:            values,
 		ConfiguredSecrets: append([]string(nil), source.ConfiguredSecrets...),
 	}
+}
+
+func cloneChecks(source map[string]CheckResult) map[string]CheckResult {
+	if source == nil {
+		return nil
+	}
+	result := make(map[string]CheckResult, len(source))
+	for key, value := range source {
+		result[key] = value
+	}
+	return result
 }
 
 // atomicWrite 通过临时文件+改名保证读方不会看到半截内容。

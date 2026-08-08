@@ -2,7 +2,9 @@ package com.aid.upgrade.service;
 
 import com.aid.upgrade.dto.DocLinksVo;
 import com.aid.upgrade.dto.DeploymentConfigSaveDto;
+import com.aid.upgrade.dto.DeploymentConfigTestDto;
 import com.aid.upgrade.dto.DeploymentConfigVo;
+import com.aid.upgrade.dto.HttpsCertificateUploadDto;
 import com.aid.upgrade.dto.OfficialApiStatusVo;
 import com.aid.upgrade.dto.OfficialGatewaySaveDto;
 import com.aid.upgrade.dto.OfficialGatewaySettingVo;
@@ -52,6 +54,12 @@ public interface ISystemUpgradeService {
 
     /** 恢复上一份部署配置并重启。 */
     String rollbackDeploymentConfig();
+
+    /** 提交部署配置分项诊断任务。 */
+    String testDeploymentConfig(DeploymentConfigTestDto testDto);
+
+    /** 安全上传并安装 HTTPS 证书对。 */
+    String installHttpsCertificate(HttpsCertificateUploadDto uploadDto);
 
     /**
      * 提交一键升级任务

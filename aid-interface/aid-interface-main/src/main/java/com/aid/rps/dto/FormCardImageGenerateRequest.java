@@ -27,6 +27,6 @@ public class FormCardImageGenerateRequest
     /** 可选：用户指定的清晰度档位（如 1K / 2K / 4K） */
     private String resolution;
 
-    /** 可选：用户指定的图片比例（设定卡默认 21:9） */
+    /** 可选：本次图片比例；不传依次读取项目配置、生成池，均为空时设定卡默认 16:9 */
     private String aspectRatio;
 }

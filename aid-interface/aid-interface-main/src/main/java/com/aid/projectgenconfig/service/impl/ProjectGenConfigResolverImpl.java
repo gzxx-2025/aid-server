@@ -56,6 +56,9 @@ public class ProjectGenConfigResolverImpl implements IProjectGenConfigResolver
     /** script_type 缺失时的默认分组（剧情演绎） */
     private static final String SCRIPT_TYPE_DEFAULT = "plot";
 
+    /** 角色设定卡未显式配置比例时的产品默认值。 */
+    private static final String DEFAULT_CHARACTER_CARD_ASPECT_RATIO = "16:9";
+
     /** capability_json 解析专用 ObjectMapper（忽略未知字段） */
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
@@ -236,8 +239,19 @@ public class ProjectGenConfigResolverImpl implements IProjectGenConfigResolver
             }
             if (!aspectRatioExplicit)
             {
-                aspectRatio = null;
+                String matrixAspectRatio = Objects.nonNull(matrix) ? StrUtil.trim(matrix.getAspectRatio()) : null;
+                aspectRatio = Objects.equals(ProjectGenConfigScene.CHARACTER_CARD_IMAGE, scene)
+                        ? StrUtil.blankToDefault(matrixAspectRatio, DEFAULT_CHARACTER_CARD_ASPECT_RATIO)
+                        : null;
             }
+        }
+
+        // 角色设定卡比例优先级：本次请求 > 项目已保存配置 > 生成池 > 产品空值兜底 16:9。
+        // 生成池或项目配置中的 21:9 等合法比例必须保留，不能被产品兜底值覆盖。
+        if (Objects.equals(ProjectGenConfigScene.CHARACTER_CARD_IMAGE, scene)
+                && StrUtil.isBlank(aspectRatio))
+        {
+            aspectRatio = DEFAULT_CHARACTER_CARD_ASPECT_RATIO;
         }
 
         AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(modelCode);

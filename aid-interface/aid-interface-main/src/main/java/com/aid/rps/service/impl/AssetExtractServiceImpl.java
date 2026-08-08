@@ -9540,8 +9540,13 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         String modelCode = resolvedModelCode;
         AgentModelDefault agentModel = new AgentModelDefault(modelCode);
 
+        // 先按最终生成配置与模型能力解析实际尺寸，保证 Provider 参数与提示词中的画布比例完全一致。
+        AiModelConfigVo cardDefaultModelConfig = aiModelConfigService.selectByModelCode(modelCode);
+        ModelCapabilityResolver.ImageSizeSpec cardSizeSpec = ModelCapabilityResolver.resolveImageSpec(
+                cardDefaultModelConfig, resolvedResolution, resolvedAspectRatio);
+
         // 组装设定卡 prompt：模板正文 + 画风，人物身份仅由白底图参考图锚定
-        String finalPrompt = buildCardImagePrompt(project);
+        String finalPrompt = buildCardImagePrompt(project, cardSizeSpec.aspectRatio());
         if (StrUtil.isBlank(finalPrompt))
         {
             log.error("设定卡生成失败，最终提示词为空: imageId={}", imageId);
@@ -9558,7 +9563,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         imageRequest.setUserId(userId);
         imageRequest.setPrompt(finalPrompt);
         // aid_media_task.prompt 列只存动态入参摘要，不存设定卡 builder 模板正文
-        imageRequest.setTaskPromptDigest(buildCardImagePromptDigest(project));
+        imageRequest.setTaskPromptDigest(buildCardImagePromptDigest(project, cardSizeSpec.aspectRatio()));
         // 白底图作为参考图
         Map<String, Object> options = imageRequest.getOptions();
         if (options == null)
@@ -9586,9 +9591,6 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         options.put("force_single", true);
         // 尺寸/比例从父任务解析后下发，入参为空时按模型 capability_json 默认档兜底；
         // 档位/比例到厂商像素尺寸的翻译由 ImageProviderClient 负责，业务层不写死设定卡尺寸
-        AiModelConfigVo cardDefaultModelConfig = aiModelConfigService.selectByModelCode(modelCode);
-        ModelCapabilityResolver.ImageSizeSpec cardSizeSpec = ModelCapabilityResolver.resolveImageSpec(
-                cardDefaultModelConfig, resolvedResolution, resolvedAspectRatio);
         if (StrUtil.isNotBlank(cardSizeSpec.aspectRatio()))
         {
             options.putIfAbsent("aspect_ratio", cardSizeSpec.aspectRatio());
@@ -9644,9 +9646,14 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
      * 【参考图驱动】人物身份完全依赖白底图参考图锚定，不再拼接 form.promptText。
      * 仅保留：模板正文（aid_character_form_image_builder）+ 画风名称 + 画风提示词。
      */
-    private String buildCardImagePrompt(AidComicProject project)
+    private String buildCardImagePrompt(AidComicProject project, String aspectRatio)
     {
-        String template = helper.loadPromptByName(PROMPT_NAME_CHARACTER_FORM_IMAGE_BUILDER);
+        String effectiveAspectRatio = StrUtil.blankToDefault(aspectRatio, "16:9");
+        String template = StrUtil.blankToDefault(
+                helper.loadPromptByName(PROMPT_NAME_CHARACTER_FORM_IMAGE_BUILDER), "")
+                .replace("{aspect_ratio}", effectiveAspectRatio)
+                .replace("21:9", effectiveAspectRatio)
+                .replace("21：9", effectiveAspectRatio);
 
         String artStyleName = Objects.nonNull(project)
                 ? StrUtil.blankToDefault(project.getVideoStyleType(), "")
@@ -9655,12 +9662,14 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
                 ? StrUtil.blankToDefault(project.getVideoStyleValue(), "")
                 : "";
 
-        StringBuilder sb = new StringBuilder(StrUtil.blankToDefault(template, ""));
+        StringBuilder sb = new StringBuilder(template);
         if (sb.length() > 0 && !sb.toString().endsWith("\n"))
         {
             sb.append("\n");
         }
-        sb.append("画风名称：").append(artStyleName).append("\n")
+        sb.append("画布比例：").append(effectiveAspectRatio)
+                .append("（以本次生成配置为唯一标准，模板中的其他比例描述无效）\n")
+                .append("画风名称：").append(artStyleName).append("\n")
                 .append("画风提示词：").append(artStylePrompt);
 
         return sb.toString();
@@ -9670,14 +9679,15 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
      * 设定卡任务存档摘要（aid_media_task.prompt 列内容）。
      * 仅打包动态入参,跳过 aid_character_form_image_builder 模板正文。
      */
-    private String buildCardImagePromptDigest(AidComicProject project)
+    private String buildCardImagePromptDigest(AidComicProject project, String aspectRatio)
     {
         String artStyleName = Objects.nonNull(project)
                 ? StrUtil.blankToDefault(project.getVideoStyleType(), "") : "";
         String artStylePrompt = Objects.nonNull(project)
                 ? StrUtil.blankToDefault(project.getVideoStyleValue(), "") : "";
         return new StringBuilder()
-                .append("[art_style_name]\n").append(artStyleName)
+                .append("[aspect_ratio]\n").append(StrUtil.blankToDefault(aspectRatio, "16:9"))
+                .append("\n[art_style_name]\n").append(artStyleName)
                 .append("\n[art_style_prompt]\n").append(artStylePrompt)
                 .toString();
     }

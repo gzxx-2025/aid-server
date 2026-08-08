@@ -36,6 +36,7 @@ class ProjectGenConfigResolverImplTest {
     private IAiModelBusinessService modelBusinessService;
     private IAiModelConfigService modelConfigService;
     private IGenAgentMatrixResolver matrixResolver;
+    private IAidAgentService agentService;
 
     @BeforeEach
     void setUp() {
@@ -45,7 +46,7 @@ class ProjectGenConfigResolverImplTest {
         modelConfigService = mock(IAiModelConfigService.class);
         matrixResolver = mock(IGenAgentMatrixResolver.class);
         IAidComicProjectService projectService = mock(IAidComicProjectService.class);
-        IAidAgentService agentService = mock(IAidAgentService.class);
+        agentService = mock(IAidAgentService.class);
 
         AidComicProject project = new AidComicProject();
         project.setId(1L);
@@ -60,6 +61,12 @@ class ProjectGenConfigResolverImplTest {
         agent.setBizCategoryCode(ProjectGenConfigScene.CHARACTER_IMAGE.getSceneCode());
         agent.setStatus(1);
         when(agentService.getByAgentCode("image-agent")).thenReturn(agent);
+
+        AidAgent cardAgent = new AidAgent();
+        cardAgent.setAgentCode("card-agent");
+        cardAgent.setBizCategoryCode(ProjectGenConfigScene.CHARACTER_CARD_IMAGE.getSceneCode());
+        cardAgent.setStatus(1);
+        when(agentService.getByAgentCode("card-agent")).thenReturn(cardAgent);
         when(matrixResolver.isAgentAllowed(anyString(), anyString(), anyString(), anyString()))
                 .thenReturn(true);
 
@@ -112,8 +119,74 @@ class ProjectGenConfigResolverImplTest {
         assertNull(result.getAspectRatio());
     }
 
+    @Test
+    void characterCardDefaultsTo16By9WhenGenerationPoolRatioIsBlank() {
+        when(configMapper.selectOne(any())).thenReturn(null);
+        when(matrixResolver.resolve(anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(cardMatrix("card-model", "2K", null));
+        when(modelBusinessService.listAvailableModelsByFuncCode(anyString()))
+                .thenReturn(List.of(modelVo("card-model")));
+        when(modelConfigService.selectByModelCode("card-model"))
+                .thenReturn(cardModel("card-model"));
+
+        ResolvedSceneConfig result = resolveCard();
+
+        assertEquals("16:9", result.getAspectRatio());
+    }
+
+    @Test
+    void characterCardUsesGenerationPool21By9() {
+        when(configMapper.selectOne(any())).thenReturn(null);
+        when(matrixResolver.resolve(anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(cardMatrix("card-model", "2K", "21:9"));
+        when(modelBusinessService.listAvailableModelsByFuncCode(anyString()))
+                .thenReturn(List.of(modelVo("card-model")));
+        when(modelConfigService.selectByModelCode("card-model"))
+                .thenReturn(cardModel("card-model"));
+
+        ResolvedSceneConfig result = resolveCard();
+
+        assertEquals("21:9", result.getAspectRatio());
+    }
+
+    @Test
+    void characterCardKeepsSaved21By9() {
+        when(configMapper.selectOne(any())).thenReturn(savedCard("card-model", "2K", "21:9"));
+        when(matrixResolver.resolve(anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(cardMatrix("card-model", "2K", "16:9"));
+        when(modelBusinessService.listAvailableModelsByFuncCode(anyString()))
+                .thenReturn(List.of(modelVo("card-model")));
+        when(modelConfigService.selectByModelCode("card-model"))
+                .thenReturn(cardModel("card-model"));
+
+        ResolvedSceneConfig result = resolveCard();
+
+        assertEquals("21:9", result.getAspectRatio());
+    }
+
+    @Test
+    void characterCardUsesPoolRatioAfterSavedModelBecomesUnavailable() {
+        when(configMapper.selectOne(any())).thenReturn(savedCard("disabled-card-model", "2K", "16:9"));
+        when(matrixResolver.resolve(anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(cardMatrix("card-model", "2K", "21:9"));
+        when(modelBusinessService.listAvailableModelsByFuncCode(anyString()))
+                .thenReturn(List.of(modelVo("card-model")));
+        when(modelConfigService.selectByModelCode("card-model"))
+                .thenReturn(cardModel("card-model"));
+
+        ResolvedSceneConfig result = resolveCard();
+
+        assertEquals("card-model", result.getModelCode());
+        assertEquals("21:9", result.getAspectRatio());
+    }
+
     private ResolvedSceneConfig resolve() {
         return resolver.resolve(1L, 9L, ProjectGenConfigScene.CHARACTER_IMAGE,
+                null, null, null, null);
+    }
+
+    private ResolvedSceneConfig resolveCard() {
+        return resolver.resolve(1L, 9L, ProjectGenConfigScene.CHARACTER_CARD_IMAGE,
                 null, null, null, null);
     }
 
@@ -126,6 +199,12 @@ class ProjectGenConfigResolverImplTest {
         return config;
     }
 
+    private AidProjectGenConfig savedCard(String modelCode, String resolution, String aspectRatio) {
+        AidProjectGenConfig config = saved(modelCode, resolution, aspectRatio);
+        config.setAgentCode("card-agent");
+        return config;
+    }
+
     private GenAgentMatrixResult matrix(String modelCode, String resolution, String aspectRatio) {
         return GenAgentMatrixResult.builder()
                 .configured(true)
@@ -134,6 +213,25 @@ class ProjectGenConfigResolverImplTest {
                 .resolution(resolution)
                 .aspectRatio(aspectRatio)
                 .build();
+    }
+
+    private GenAgentMatrixResult cardMatrix(String modelCode, String resolution, String aspectRatio) {
+        return GenAgentMatrixResult.builder()
+                .configured(true)
+                .agentCode("card-agent")
+                .modelCode(modelCode)
+                .resolution(resolution)
+                .aspectRatio(aspectRatio)
+                .build();
+    }
+
+    private AiModelConfigVo cardModel(String modelCode) {
+        return model(modelCode, true,
+                "{\"sizeOptions\":[\"1K\",\"2K\"],\"defaultSize\":\"2K\","
+                        + "\"aspectRatioOptions\":[\"16:9\",\"21:9\"],"
+                        + "\"defaultAspectRatio\":\"16:9\","
+                        + "\"sceneRules\":{\"imageToImage\":{\"sizeOptions\":[\"1K\",\"2K\"],"
+                        + "\"aspectRatioOptions\":[\"16:9\",\"21:9\"]}}}");
     }
 
     private AiModelVO modelVo(String modelCode) {

@@ -5,6 +5,7 @@ import java.net.URI;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
@@ -22,7 +23,9 @@ import com.aid.upgrade.client.UpdaterClient;
 import com.aid.upgrade.constant.UpgradeConfigKeys;
 import com.aid.upgrade.dto.DocLinksVo;
 import com.aid.upgrade.dto.DeploymentConfigSaveDto;
+import com.aid.upgrade.dto.DeploymentConfigTestDto;
 import com.aid.upgrade.dto.DeploymentConfigVo;
+import com.aid.upgrade.dto.HttpsCertificateUploadDto;
 import com.aid.upgrade.dto.OfficialApiStatusVo;
 import com.aid.upgrade.dto.OfficialGatewaySaveDto;
 import com.aid.upgrade.dto.OfficialGatewaySettingVo;
@@ -269,6 +272,64 @@ public class SystemUpgradeServiceImpl implements ISystemUpgradeService {
         updaterClient.submitTask(task);
         log.info("已受理部署配置恢复任务");
         return "配置恢复任务已受理";
+    }
+
+    @Override
+    public String testDeploymentConfig(DeploymentConfigTestDto testDto) {
+        requireConfigCapableUpdater();
+        if (Objects.isNull(testDto) || CollectionUtil.isEmpty(testDto.getTargets())) {
+            log.error("提交配置诊断失败, 诊断项为空");
+            throw new ServiceException("请选择检测项");
+        }
+        Set<String> allowedTargets = Set.of("config", "dns", "certificate", "https", "mysql", "redis", "rocketmq");
+        List<String> targets = testDto.getTargets().stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .map(String::toLowerCase)
+                .distinct()
+                .collect(Collectors.toList());
+        if (targets.isEmpty() || !allowedTargets.containsAll(targets)) {
+            log.error("提交配置诊断失败, 诊断项非法");
+            throw new ServiceException("检测项目错误");
+        }
+        JSONObject task = buildTask("CONFIG_TEST", currentVersion, currentVersion);
+        if (Objects.nonNull(testDto.getConfigPath())) {
+            task.put("configPath", testDto.getConfigPath().trim());
+        }
+        task.put("configValues", buildDeploymentConfigValues(testDto));
+        task.put("testTargets", targets);
+        updaterClient.submitTask(task);
+        log.info("已受理部署配置诊断任务, targets={}", targets);
+        return "配置诊断任务已受理";
+    }
+
+    @Override
+    public String installHttpsCertificate(HttpsCertificateUploadDto uploadDto) {
+        requireConfigCapableUpdater();
+        if (Objects.isNull(uploadDto) || Objects.isNull(uploadDto.getCertificate())
+                || Objects.isNull(uploadDto.getPrivateKey())) {
+            log.error("上传 HTTPS 证书失败, 文件不完整");
+            throw new ServiceException("证书文件不完整");
+        }
+        if (StrUtil.isBlank(uploadDto.getHttpsPublicDomain()) || StrUtil.isBlank(uploadDto.getHttpsAdminDomain())) {
+            log.error("上传 HTTPS 证书失败, 用户域名或管理域名为空");
+            throw new ServiceException("请填写HTTPS域名");
+        }
+        if (uploadDto.getHttpsPublicDomain().trim().equalsIgnoreCase(uploadDto.getHttpsAdminDomain().trim())) {
+            log.error("上传 HTTPS 证书失败, 用户域名与管理域名相同");
+            throw new ServiceException("HTTPS域名不能相同");
+        }
+        JSONObject task = buildTask("CERT_INSTALL", currentVersion, currentVersion);
+        if (StrUtil.isNotBlank(uploadDto.getConfigPath())) {
+            task.put("configPath", uploadDto.getConfigPath().trim());
+        }
+        JSONObject values = new JSONObject();
+        putDeploymentValue(values, "HTTPS_PUBLIC_DOMAIN", uploadDto.getHttpsPublicDomain(), false);
+        putDeploymentValue(values, "HTTPS_ADMIN_DOMAIN", uploadDto.getHttpsAdminDomain(), false);
+        task.put("configValues", values);
+        updaterClient.submitCertificateTask(task, uploadDto.getCertificate(), uploadDto.getPrivateKey());
+        log.info("已受理 HTTPS 证书安装任务");
+        return "证书安装任务已受理";
     }
 
     /**

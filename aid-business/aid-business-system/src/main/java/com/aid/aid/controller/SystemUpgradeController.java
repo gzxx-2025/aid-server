@@ -3,6 +3,7 @@ package com.aid.aid.controller;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -16,6 +17,8 @@ import com.aid.common.core.domain.AjaxResult;
 import com.aid.common.enums.BusinessType;
 import com.aid.upgrade.dto.OfficialGatewaySaveDto;
 import com.aid.upgrade.dto.DeploymentConfigSaveDto;
+import com.aid.upgrade.dto.DeploymentConfigTestDto;
+import com.aid.upgrade.dto.HttpsCertificateUploadDto;
 import com.aid.upgrade.dto.RollbackRequestDto;
 import com.aid.upgrade.dto.UpgradeSourceSaveDto;
 import com.aid.upgrade.service.ISystemUpgradeService;
@@ -140,6 +143,21 @@ public class SystemUpgradeController extends BaseController {
     @PostMapping("/deployment-config/rollback")
     public AjaxResult rollbackDeploymentConfig() {
         return AjaxResult.success(systemUpgradeService.rollbackDeploymentConfig());
+    }
+
+    /** 服务端执行部署配置分项诊断，测试过程不写配置。 */
+    @PreAuthorize("@ss.hasPermi('aidconfig:upgrade:source')")
+    @PostMapping("/deployment-config/test")
+    public AjaxResult testDeploymentConfig(@RequestBody DeploymentConfigTestDto testDto) {
+        return AjaxResult.success(systemUpgradeService.testDeploymentConfig(testDto));
+    }
+
+    /** 上传完整证书链与私钥，由升级器在受控目录安全安装；请求体禁止进入操作日志。 */
+    @PreAuthorize("@ss.hasPermi('aidconfig:upgrade:source')")
+    @Log(title = "HTTPS证书安装", businessType = BusinessType.UPDATE, isSaveRequestData = false)
+    @PostMapping("/deployment-config/certificate")
+    public AjaxResult installHttpsCertificate(@ModelAttribute HttpsCertificateUploadDto uploadDto) {
+        return AjaxResult.success(systemUpgradeService.installHttpsCertificate(uploadDto));
     }
 
     /**

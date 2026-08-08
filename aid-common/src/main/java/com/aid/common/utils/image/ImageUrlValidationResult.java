@@ -15,7 +15,7 @@ public final class ImageUrlValidationResult
     private final Integer httpStatus;
     /** 响应头 Content-Type；未拿到 / 无此头时为 null */
     private final String contentType;
-    /** 是否走过 GET 降级（HEAD 不支持时由工具类自动降级） */
+    /** 是否走过 GET 降级（HEAD 不支持或响应类型不可信时由工具类自动降级） */
     private final boolean fallbackGet;
 
     private ImageUrlValidationResult(boolean valid,

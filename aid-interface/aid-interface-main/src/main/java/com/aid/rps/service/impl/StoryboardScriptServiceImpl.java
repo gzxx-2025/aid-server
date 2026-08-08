@@ -4510,7 +4510,7 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
                 continue;
             }
             String entry = "[" + refName + "]";
-            // 以 _角色设定 结尾或 sourceType=ai_builder 的 form_image 是 21:9 多方位拼接卡，
+            // 以 _角色设定 结尾或 sourceType=ai_builder 的 form_image 是按生成配置比例输出的多方位拼接卡，
             // 明确标注让 LLM 优先引用
             if (StrUtil.endWith(img.getName(), CHARACTER_CARD_NAME_SUFFIX)
                     || FORM_IMAGE_SOURCE_TYPE_BUILDER.equalsIgnoreCase(img.getSourceType()))

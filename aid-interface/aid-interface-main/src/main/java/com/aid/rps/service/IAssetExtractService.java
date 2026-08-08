@@ -103,7 +103,7 @@ public interface IAssetExtractService
      * @param agentCode   智能体编码（必填，biz_category_code=main_character_card_image）
      * @param modelCode   可选，用户指定的图片模型；为空走 3 级兜底
      * @param resolution  可选，清晰度档位；为空走 3 级兜底
-     * @param aspectRatio 可选，图片比例（设定卡默认 21:9）；为空走 3 级兜底
+     * @param aspectRatio 可选，本次图片比例；为空读取项目配置、生成池，均为空时设定卡默认 16:9
      * @return 单个父任务VO（含 taskId 和 PENDING 状态）
      */
     AssetExtractTaskVO batchGenerateCardImage(List<Long> imageIds, Long userId, String agentCode,

@@ -220,6 +220,9 @@ services:
     command: sh -c "BIN=${DATA_ROOT:-/data/aid}/app/updater/aid-updater; if [ -x \"$$BIN\" ] && [ -f /etc/aid-updater/config.json ]; then exec \"$$BIN\" -config /etc/aid-updater/config.json; else echo '升级器未就绪（缺二进制 app/updater/aid-updater 或配置 /etc/aid-updater/config.json，执行 sudo aid setup-updater 修复），容器保活等待'; exec sleep infinity; fi"
     environment:
       TZ: Asia/Shanghai
+    extra_hosts:
+      # 诊断外部 MySQL/Redis/MQ 时与 aid-server 使用同一宿主机标准别名。
+      - "host.docker.internal:host-gateway"
     volumes:
       # 控制同编排的业务容器（stop/start aid-server 等）
       - /var/run/docker.sock:/var/run/docker.sock

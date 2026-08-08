@@ -152,6 +152,10 @@ func (r *Runner) PollOnce() bool {
 		runErr = r.runConfigApply(t)
 	case ActionConfigRollback:
 		runErr = r.runConfigRollback()
+	case ActionConfigTest:
+		runErr = r.runConfigTest(t)
+	case ActionCertInstall:
+		runErr = r.runCertificateInstall(t)
 	}
 
 	if runErr != nil {
@@ -175,6 +179,10 @@ func (r *Runner) PollOnce() bool {
 		message = "配置已应用并完成重启"
 	case ActionConfigRollback:
 		message = "已恢复上一份配置并完成重启"
+	case ActionConfigTest:
+		message = "配置诊断已完成"
+	case ActionCertInstall:
+		message = "HTTPS证书已安全安装，请应用配置后生效"
 	}
 	r.reporter.SetTask(t.TaskID, t.Action, health.TaskStateSuccess, message)
 	return true

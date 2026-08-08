@@ -50,7 +50,7 @@ public class AidGenAgentPoolController extends BaseController
     }
 
     /**
-     * 某业务场景下可选的智能体 + 模型（供矩阵格子下拉）
+     * 某业务场景下可选的智能体、模型及模型的场景级清晰度/比例选项（供矩阵格子联动下拉）。
      */
     @PreAuthorize("@ss.hasPermi('aid:genagentpool:list')")
     @GetMapping("/options")

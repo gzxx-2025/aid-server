@@ -8,17 +8,25 @@ import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.PosixFilePermission;
+import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+
+import org.springframework.web.multipart.MultipartFile;
 
 import org.springframework.stereotype.Component;
 
 import com.aid.common.aid.core.service.ConfigService;
 import com.aid.common.exception.ServiceException;
 import com.aid.upgrade.constant.UpgradeConfigKeys;
+import com.aid.upgrade.dto.DeploymentCheckVo;
 import com.aid.upgrade.dto.DeploymentConfigVo;
 import com.aid.upgrade.dto.UpdaterLastTaskVo;
 import com.aid.upgrade.dto.UpdaterLogVo;
@@ -56,7 +64,13 @@ public class UpdaterClient {
     public static final String STATUS_UNKNOWN = "UNKNOWN";
 
     /** 当前后端支持的升级器协议版本 */
-    private static final int SUPPORTED_PROTOCOL_VERSION = 2;
+    private static final int SUPPORTED_PROTOCOL_VERSION = 3;
+
+    /** 单个 PEM 文件最大 1 MiB。 */
+    private static final long MAX_CERTIFICATE_FILE_BYTES = 1024L * 1024L;
+
+    /** 暂存文件最长保留一小时，防止升级器长期停机造成堆积。 */
+    private static final long CERTIFICATE_STAGING_TTL_SECONDS = 3600L;
 
     /** 健康文件体积上限，防止误配大文件被整读 */
     private static final long MAX_HEALTH_FILE_BYTES = 64 * 1024L;
@@ -222,6 +236,158 @@ public class UpdaterClient {
     }
 
     /**
+     * 将证书对安全暂存到升级器收件目录并原子投递安装任务。
+     */
+    public synchronized void submitCertificateTask(JSONObject task, MultipartFile certificate, MultipartFile privateKey) {
+        Path certificateFile = null;
+        Path privateKeyFile = null;
+        byte[] privateKeyBytes = null;
+        try {
+            byte[] certificateBytes = readPemUpload(certificate, false);
+            privateKeyBytes = readPemUpload(privateKey, true);
+            prepareCertificateStagingRoot();
+            cleanupExpiredCertificateStaging();
+            Path stagingRoot = resolveCertificateStagingRoot();
+            certificateFile = stageSensitiveFile(stagingRoot, certificateBytes, "certificate-");
+            privateKeyFile = stageSensitiveFile(stagingRoot, privateKeyBytes, "private-key-");
+            task.put("certificateFile", certificateFile.toString());
+            task.put("privateKeyFile", privateKeyFile.toString());
+            submitTask(task);
+            certificateFile = null;
+            privateKeyFile = null;
+        } catch (ServiceException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("暂存 HTTPS 证书失败", e);
+            throw new ServiceException("证书上传失败");
+        } finally {
+            deleteQuietly(certificateFile);
+            deleteQuietly(privateKeyFile);
+            if (Objects.nonNull(privateKeyBytes)) {
+                Arrays.fill(privateKeyBytes, (byte) 0);
+            }
+        }
+    }
+
+    private byte[] readPemUpload(MultipartFile file, boolean privateKey) throws Exception {
+        if (Objects.isNull(file) || file.isEmpty() || file.getSize() <= 0 || file.getSize() > MAX_CERTIFICATE_FILE_BYTES) {
+            throw new ServiceException(privateKey ? "私钥大小不合规" : "证书大小不合规");
+        }
+        String filename = StrUtil.blankToDefault(file.getOriginalFilename(), "").toLowerCase();
+        if (!filename.endsWith(".pem")) {
+            throw new ServiceException("仅支持PEM文件");
+        }
+        byte[] content = file.getBytes();
+        boolean markerFound = privateKey
+                ? containsAscii(content, "-----BEGIN PRIVATE KEY-----")
+                        || containsAscii(content, "-----BEGIN RSA PRIVATE KEY-----")
+                        || containsAscii(content, "-----BEGIN EC PRIVATE KEY-----")
+                : containsAscii(content, "-----BEGIN CERTIFICATE-----");
+        if (!markerFound) {
+            throw new ServiceException(privateKey ? "私钥格式错误" : "证书格式错误");
+        }
+        return content;
+    }
+
+    private boolean containsAscii(byte[] content, String marker) {
+        byte[] expected = marker.getBytes(StandardCharsets.US_ASCII);
+        for (int offset = 0; offset <= content.length - expected.length; offset++) {
+            boolean matched = true;
+            for (int index = 0; index < expected.length; index++) {
+                if (content[offset + index] != expected[index]) {
+                    matched = false;
+                    break;
+                }
+            }
+            if (matched) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private Path resolveCertificateStagingRoot() {
+        Path taskFile = Path.of(resolveTaskFilePath()).toAbsolutePath().normalize();
+        Path parent = taskFile.getParent();
+        if (Objects.isNull(parent)) {
+            throw new ServiceException("任务路径错误");
+        }
+        return parent.resolve("cert-staging").normalize();
+    }
+
+    private void prepareCertificateStagingRoot() throws Exception {
+        Path stagingRoot = resolveCertificateStagingRoot();
+        rejectSymlinkComponents(stagingRoot);
+        Files.createDirectories(stagingRoot);
+        rejectSymlinkComponents(stagingRoot);
+        setOwnerOnlyPermissions(stagingRoot, true);
+    }
+
+    private Path stageSensitiveFile(Path stagingRoot, byte[] content, String prefix) throws Exception {
+        Path temporary = Files.createTempFile(stagingRoot, prefix, ".tmp");
+        try {
+            setOwnerOnlyPermissions(temporary, false);
+            Files.write(temporary, content);
+            setOwnerOnlyPermissions(temporary, false);
+            return temporary.toAbsolutePath().normalize();
+        } catch (Exception e) {
+            deleteQuietly(temporary);
+            throw e;
+        }
+    }
+
+    private void cleanupExpiredCertificateStaging() {
+        Path stagingRoot = resolveCertificateStagingRoot();
+        Instant threshold = Instant.now().minusSeconds(CERTIFICATE_STAGING_TTL_SECONDS);
+        try (var paths = Files.list(stagingRoot)) {
+            paths.filter(path -> !Files.isSymbolicLink(path) && Files.isRegularFile(path))
+                    .filter(path -> {
+                        try {
+                            return Files.getLastModifiedTime(path).toInstant().isBefore(threshold);
+                        } catch (Exception e) {
+                            return false;
+                        }
+                    })
+                    .forEach(this::deleteQuietly);
+        } catch (Exception e) {
+            log.warn("清理过期证书暂存文件失败");
+        }
+    }
+
+    private void rejectSymlinkComponents(Path requested) throws Exception {
+        Path current = requested.toAbsolutePath().normalize();
+        while (Objects.nonNull(current)) {
+            if (Files.isSymbolicLink(current)) {
+                throw new ServiceException("证书目录不安全");
+            }
+            current = current.getParent();
+        }
+    }
+
+    private void setOwnerOnlyPermissions(Path path, boolean directory) throws Exception {
+        try {
+            Set<PosixFilePermission> permissions = directory
+                    ? EnumSet.of(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE,
+                            PosixFilePermission.OWNER_EXECUTE)
+                    : EnumSet.of(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE);
+            Files.setPosixFilePermissions(path, permissions);
+        } catch (UnsupportedOperationException ignored) {
+            // Windows 开发环境无 POSIX 权限；Linux 生产环境必须成功收紧。
+        }
+    }
+
+    private void deleteQuietly(Path path) {
+        if (Objects.isNull(path)) {
+            return;
+        }
+        try {
+            Files.deleteIfExists(path);
+        } catch (Exception e) {
+            log.warn("清理证书暂存文件失败");
+        }
+    }
+
+    /**
      * 读取升级器最近运行日志（健康文件同目录 updater.log 尾部），供页面排查安装与升级问题
      *
      * @return 日志内容（永不为null；不可读时 lines 为空并携带原因）
@@ -303,6 +469,13 @@ public class UpdaterClient {
         vo.setStartedAt(lastTask.getString("startedAt"));
         vo.setUpdatedAt(lastTask.getString("updatedAt"));
         vo.setFinishedAt(lastTask.getString("finishedAt"));
+        JSONObject checks = lastTask.getJSONObject("checks");
+        if (Objects.nonNull(checks)) {
+            Map<String, DeploymentCheckVo> parsed = new HashMap<>();
+            checks.forEach((key, value) -> parsed.put(key,
+                    JSONObject.from(value).to(DeploymentCheckVo.class)));
+            vo.setChecks(parsed);
+        }
         return vo;
     }
 

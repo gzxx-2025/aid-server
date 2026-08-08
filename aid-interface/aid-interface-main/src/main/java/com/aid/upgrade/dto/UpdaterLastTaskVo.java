@@ -1,5 +1,7 @@
 package com.aid.upgrade.dto;
 
+import java.util.Map;
+
 import lombok.Data;
 
 /**
@@ -36,4 +38,7 @@ public class UpdaterLastTaskVo {
 
     /** 完成时间 */
     private String finishedAt;
+
+    /** 部署配置分项诊断结果 */
+    private Map<String, DeploymentCheckVo> checks;
 }

@@ -74,11 +74,24 @@ class UpdaterClientTest {
     }
 
     @Test
+    void detectRequiresProtocolThreeForConfigurationActions() throws Exception {
+        Path healthFile = tempDir.resolve("health.json");
+        String content = "{\"status\":\"RUNNING\",\"version\":\"1.0.0\",\"protocolVersion\":2,"
+                + "\"updatedAtEpochMs\":" + System.currentTimeMillis() + "}";
+        Files.writeString(healthFile, content, StandardCharsets.UTF_8);
+
+        UpdaterStatusVo status = createClient(healthFile).detect();
+
+        assertEquals(UpdaterClient.STATUS_INCOMPATIBLE, status.getStatus());
+        assertFalse(status.isReady());
+    }
+
+    @Test
     void submitTaskRejectsWhenClaimedTaskIsStillRunning() throws Exception {
         Path healthFile = tempDir.resolve("health.json");
         Path taskFile = tempDir.resolve("inbox/task.json");
         long heartbeatAt = System.currentTimeMillis();
-        String content = "{\"status\":\"RUNNING\",\"version\":\"1.0.0\",\"protocolVersion\":2,"
+        String content = "{\"status\":\"RUNNING\",\"version\":\"1.0.0\",\"protocolVersion\":3,"
                 + "\"updatedAtEpochMs\":" + heartbeatAt + ","
                 + "\"lastTask\":{\"taskId\":\"running-1\",\"action\":\"UPGRADE\",\"state\":\"RUNNING\","
                 + "\"message\":\"构建中\",\"progress\":35,\"phase\":\"构建源码\"}}";
@@ -122,7 +135,7 @@ class UpdaterClientTest {
 
     private void writeHealth(Path path, String updatedAt, Long updatedAtEpochMs) throws Exception {
         String epochField = updatedAtEpochMs == null ? "" : ",\"updatedAtEpochMs\":" + updatedAtEpochMs;
-        String content = "{\"status\":\"RUNNING\",\"version\":\"1.0.0\",\"protocolVersion\":2,"
+        String content = "{\"status\":\"RUNNING\",\"version\":\"1.0.0\",\"protocolVersion\":3,"
                 + "\"serviceManager\":\"docker\",\"updatedAt\":\"" + updatedAt + "\"" + epochField
                 + ",\"configuration\":{\"mode\":\"docker\",\"configPath\":\"/data/aid/config/docker.env\","
                 + "\"defaultConfigPath\":\"/data/aid/installer/deploy/docker/.env\","

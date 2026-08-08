@@ -74,6 +74,9 @@ public class ProjectGenConfigServiceImpl implements IProjectGenConfigService
     private static final String SOURCE_DEFAULT = "default";
     private static final String SOURCE_NONE = "none";
 
+    /** 角色设定卡没有项目级覆盖时返回给前端的默认比例。 */
+    private static final String DEFAULT_CHARACTER_CARD_ASPECT_RATIO = "16:9";
+
     /** capability_json 解析专用 ObjectMapper（忽略未知字段） */
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
@@ -191,6 +194,7 @@ public class ProjectGenConfigServiceImpl implements IProjectGenConfigService
             // 附加该场景的可选模型池（含 capability）：funcCode = sceneCode
             List<AiModelVO> availableModels = aiModelBusinessService.listAvailableModelsByFuncCode(sceneCode);
             repairUnavailableModel(vo, matrix, mode, availableModels);
+            applyCharacterCardDefaultAspectRatio(vo, scene);
             normalizeImageSceneConfig(vo, scene);
             vo.setAvailableModels(availableModels);
             result.add(vo);
@@ -573,6 +577,18 @@ public class ProjectGenConfigServiceImpl implements IProjectGenConfigService
         else
         {
             vo.setAspectRatio(null);
+        }
+    }
+
+    /** 项目配置与生成池均未给比例时，角色设定卡以 16:9 作为空值兜底。 */
+    private void applyCharacterCardDefaultAspectRatio(ProjectGenConfigVO vo, ProjectGenConfigScene scene)
+    {
+        if (Objects.equals(ProjectGenConfigScene.CHARACTER_CARD_IMAGE, scene)
+                && Objects.nonNull(vo)
+                && StrUtil.isBlank(vo.getAspectRatio())
+                && StrUtil.isNotBlank(vo.getModelCode()))
+        {
+            vo.setAspectRatio(DEFAULT_CHARACTER_CARD_ASPECT_RATIO);
         }
     }
 

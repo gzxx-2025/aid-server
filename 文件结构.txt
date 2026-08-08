@@ -3,7 +3,7 @@ aid-master/
 │   ├── aid-business-main/                C 端成片导出与进度查询接口
 │   └── aid-business-system/
 │       ├── com/aid/aid/controller/AidUserProfileController.java  后台 C 端用户管理与新增入口
-│       ├── com/aid/aid/controller/SystemUpgradeController.java  系统升级与官方资源包初始化接口
+│       ├── com/aid/aid/controller/SystemUpgradeController.java  系统升级、部署配置诊断、HTTPS证书安全安装与官方资源包初始化接口
 │       ├── com/aid/config/asr/           腾讯云语音识别后台配置与视频测试接口
 │       └── com/aid/config/test/tester/OssConnectivityTester.java  本地、OSS、COS、七牛云读写删除连通性测试
 ├── aid-common/                           公共组件（复用腾讯云 TC3 签名）
@@ -27,8 +27,9 @@ aid-master/
 │   │   │   ├── media/
 │   │   │   │   ├── dto/                  厂商无关的语音识别标准结果
 │   │   │   │   └── provider/             语音识别扩展点、腾讯云录音识别与 Vidu 音画对白字幕约束实现
+│   │   │   ├── projectgenconfig/matrix/   生成池矩阵解析、后台配置及按模型场景能力返回清晰度/比例选项
 │   │   │   ├── storyboard/               分镜视频生成与选片同步
-│   │   │   ├── upgrade/                  官方资源包状态、安全校验、原子解压与安装服务
+│   │   │   ├── upgrade/                  升级器通信、部署配置诊断、HTTPS证书安全安装及官方资源包服务
 │   │   │   └── user/                     后台 C 端用户创建、账户信息与出入参
 │   │   └── src/test/java/com/aid/
 │   │       ├── auth/service/              发码前邀请码校验测试
@@ -43,6 +44,7 @@ aid-master/
 │   └── aid-interface-system/             实体、Mapper 与领域服务
 │       ├── com/aid/aid/domain/AidEpisodeEditor.java  正式/待审成片及各自素材指纹槽位
 │       └── com/aid/aid/domain/dto/AidAiProviderStatusRequest.java  服务商启停专用入参
+├── deploy/updater/internal/task/         部署配置分项诊断、证书链校验、原子安装与失败恢复
 ├── doc/Business-API.md                   C 端接口文档
 └── sql/
     ├── aid-init.sql                      已合并全部初始化结构与配置数据

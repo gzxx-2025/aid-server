@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -47,7 +48,7 @@ var dockerDeploymentKeys = map[string]bool{
 	"DATA_ROOT": true, "MYSQL_ROOT_PASSWORD": true, "MYSQL_PORT": true,
 	"MYSQL_BUFFER_POOL": true, "MYSQL_MAX_CONNECTIONS": true,
 	"REDIS_MAXMEMORY": true, "REDIS_MAXMEMORY_POLICY": true,
-	"COMPOSE_PROFILES": true,
+	"COMPOSE_PROFILES":     true,
 	"MQ_NAMESRV_JAVA_OPTS": true, "MQ_BROKER_JAVA_OPTS": true,
 }
 
@@ -223,6 +224,128 @@ func (c *Config) BuildDeploymentConfig(targetPath string, changes map[string]str
 	}
 	state.ConfigPath = resolved
 	return raw, state, nil
+}
+
+// BuildDeploymentDiagnosticState 只为单项诊断合并显式白名单字段，不写配置文件，
+// 也不触发其他尚未完成配置项的跨项校验。
+func (c *Config) BuildDeploymentDiagnosticState(targetPath string, changes map[string]string,
+	allowedKeys map[string]bool) (*DeploymentState, error) {
+	state, err := c.ReadDeploymentState()
+	if err != nil {
+		return nil, err
+	}
+	resolved, err := c.ResolveDeploymentConfigPath(targetPath)
+	if err != nil {
+		return nil, err
+	}
+	values := make(map[string]string, len(state.Values))
+	for key, value := range state.Values {
+		values[key] = value
+	}
+	for key, value := range changes {
+		if !allowedKeys[key] || !isAllowedDeploymentKey(state.Mode, key) {
+			return nil, fmt.Errorf("诊断不支持配置项: %s", key)
+		}
+		if strings.ContainsAny(value, "\r\n\x00") {
+			return nil, fmt.Errorf("配置项 %s 包含非法字符", key)
+		}
+		if secretDeploymentKeys[key] && strings.ContainsAny(value, " #\"'$\\") {
+			return nil, fmt.Errorf("配置项 %s 包含不支持的密钥字符", key)
+		}
+		values[key] = value
+	}
+	state.Values = values
+	state.ConfigPath = resolved
+	return state, nil
+}
+
+// ValidateDeploymentDiagnostic 仅校验目标诊断真正依赖的字段，避免 DNS、数据库等
+// 单项检测被尚未完成的其他配置阻断，同时在网络探测前限制地址和路径格式。
+func ValidateDeploymentDiagnostic(target string, state *DeploymentState) error {
+	values := state.Values
+	switch target {
+	case "dns":
+		return validateHTTPSDomains(values)
+	case "certificate":
+		if err := validateHTTPSDomains(values); err != nil {
+			return err
+		}
+		certificatePath := strings.TrimSpace(values["HTTPS_CERT_PATH"])
+		privateKeyPath := strings.TrimSpace(values["HTTPS_KEY_PATH"])
+		if certificatePath == "" && privateKeyPath == "" {
+			return nil
+		}
+		if certificatePath == "" || privateKeyPath == "" {
+			return fmt.Errorf("HTTPS证书与私钥路径必须同时配置")
+		}
+		dataRoot := filepath.Clean(strings.TrimSpace(values["DATA_ROOT"]))
+		if !filepath.IsAbs(dataRoot) {
+			return fmt.Errorf("DATA_ROOT必须是绝对路径")
+		}
+		sslRoot := filepath.Join(dataRoot, "config", "ssl")
+		for _, key := range []string{"HTTPS_CERT_PATH", "HTTPS_KEY_PATH"} {
+			if err := validateTLSFile(values[key], sslRoot); err != nil {
+				return fmt.Errorf("%s校验失败: %w", key, err)
+			}
+		}
+		return nil
+	case "https":
+		enabled := values["HTTPS_ENABLED"] == "true"
+		if state.Mode == "docker" {
+			profiles, err := parseComposeProfiles(values["COMPOSE_PROFILES"])
+			if err != nil {
+				return err
+			}
+			enabled = profiles["https"]
+		}
+		if !enabled {
+			return nil
+		}
+		if !validPort(valueOr(values, "HTTPS_PORT", "443")) {
+			return fmt.Errorf("HTTPS端口格式错误")
+		}
+		return validateHTTPSValues(values)
+	case "mysql":
+		for _, key := range []string{"DB_HOST", "DB_PORT", "DB_NAME", "DB_USERNAME", "DB_PASSWORD"} {
+			if strings.TrimSpace(values[key]) == "" {
+				return fmt.Errorf("配置项 %s 不能为空", key)
+			}
+		}
+		if !validNetworkHost(values["DB_HOST"]) || !validPort(values["DB_PORT"]) {
+			return fmt.Errorf("MySQL地址或端口格式错误")
+		}
+		if !alphaNumericUnderscore(strings.TrimSpace(values["DB_NAME"])) {
+			return fmt.Errorf("DB_NAME仅允许字母数字和下划线")
+		}
+		if state.Mode == "docker" {
+			profiles, err := parseComposeProfiles(values["COMPOSE_PROFILES"])
+			if err != nil {
+				return err
+			}
+			if profiles["mysql"] && (values["DB_HOST"] != "mysql" || values["DB_PORT"] != "3306") {
+				return fmt.Errorf("内置MySQL地址必须为mysql:3306")
+			}
+		}
+		return nil
+	case "redis":
+		if !validNetworkHost(values["REDIS_HOST"]) || !validPort(values["REDIS_PORT"]) {
+			return fmt.Errorf("Redis地址或端口格式错误")
+		}
+		if database := strings.TrimSpace(values["REDIS_DATABASE"]); database != "" {
+			index, err := strconv.Atoi(database)
+			if err != nil || index < 0 {
+				return fmt.Errorf("REDIS_DATABASE 必须是非负整数")
+			}
+		}
+		return nil
+	case "rocketmq":
+		if values["ROCKETMQ_ENABLED"] != "true" {
+			return nil
+		}
+		return validateRocketMQNameServers(values["ROCKETMQ_NAMESERVER"])
+	default:
+		return fmt.Errorf("不支持的诊断项")
+	}
 }
 
 // ResolveDeploymentConfigPath 只允许默认路径或数据目录下专用配置目录，且拒绝软链接。
@@ -563,13 +686,8 @@ func validateHTTPSValues(values map[string]string) error {
 	if httpsPort == strings.TrimSpace(values["HTTP_PORT"]) || httpsPort == strings.TrimSpace(values["ADMIN_PORT"]) {
 		return fmt.Errorf("HTTPS端口与HTTP端口冲突")
 	}
-	publicDomain := strings.TrimSpace(values["HTTPS_PUBLIC_DOMAIN"])
-	adminDomain := strings.TrimSpace(values["HTTPS_ADMIN_DOMAIN"])
-	if !validServerName(publicDomain) || !validServerName(adminDomain) {
-		return fmt.Errorf("HTTPS域名格式错误")
-	}
-	if publicDomain == adminDomain {
-		return fmt.Errorf("HTTPS用户端和管理端域名不能相同")
+	if err := validateHTTPSDomains(values); err != nil {
+		return err
 	}
 	dataRootValue := strings.TrimSpace(values["DATA_ROOT"])
 	if !filepath.IsAbs(dataRootValue) {
@@ -585,22 +703,47 @@ func validateHTTPSValues(values map[string]string) error {
 	return nil
 }
 
+func validateHTTPSDomains(values map[string]string) error {
+	publicDomain := strings.TrimSpace(values["HTTPS_PUBLIC_DOMAIN"])
+	adminDomain := strings.TrimSpace(values["HTTPS_ADMIN_DOMAIN"])
+	if !validServerName(publicDomain) || !validServerName(adminDomain) {
+		return fmt.Errorf("HTTPS域名格式错误")
+	}
+	if strings.EqualFold(publicDomain, adminDomain) {
+		return fmt.Errorf("HTTPS用户端和管理端域名不能相同")
+	}
+	return nil
+}
+
+func validNetworkHost(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" || len(value) > 253 || strings.ContainsAny(value, " /\\\t\r\n@?#") {
+		return false
+	}
+	return net.ParseIP(value) != nil || validServerName(value)
+}
+
+func validPort(value string) bool {
+	port, err := strconv.Atoi(strings.TrimSpace(value))
+	return err == nil && port >= 1 && port <= 65535
+}
+
 func validServerName(value string) bool {
-	if value == "" || strings.ContainsAny(value, " /\\:\t\r\n") {
+	value = strings.TrimSpace(value)
+	if value == "" || len(value) > 253 || strings.ContainsAny(value, " /\\:\t\r\n") {
 		return false
 	}
-	first := value[0]
-	last := value[len(value)-1]
-	if !((first >= 'a' && first <= 'z') || (first >= 'A' && first <= 'Z') || (first >= '0' && first <= '9')) ||
-		!((last >= 'a' && last <= 'z') || (last >= 'A' && last <= 'Z') || (last >= '0' && last <= '9')) {
-		return false
-	}
-	for index, char := range value {
-		if (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') ||
-			(char >= '0' && char <= '9') || char == '.' || (char == '-' && index > 0) {
-			continue
+	for _, label := range strings.Split(value, ".") {
+		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
 		}
-		return false
+		for _, char := range label {
+			if (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') ||
+				(char >= '0' && char <= '9') || char == '-' {
+				continue
+			}
+			return false
+		}
 	}
 	return true
 }

@@ -13,10 +13,10 @@ import com.aid.projectgenconfig.matrix.vo.GenPoolOptionsVO;
 public interface IGenAgentPoolAdminService {
 
     /**
-     * 查询某业务场景(biz)下可选的智能体与模型（供下拉）。
+     * 查询某业务场景(biz)下可选的智能体、模型及模型在该场景下的有效清晰度/比例能力。
      *
      * @param bizCategoryCode 业务场景编码
-     * @return 智能体 + 模型选项
+     * @return 智能体选项 + 带场景能力的模型选项
      */
     GenPoolOptionsVO getOptions(String bizCategoryCode);
 

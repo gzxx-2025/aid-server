@@ -19,10 +19,13 @@ import com.aid.aid.service.IAidGenAgentPoolService;
 import com.aid.agent.IAidAgentService;
 import com.aid.common.utils.DateUtils;
 import com.aid.model.service.IAiModelBusinessService;
+import com.aid.model.vo.CapabilityVO;
 import com.aid.model.vo.AiModelVO;
+import com.aid.projectgenconfig.enums.ProjectGenConfigScene;
 import com.aid.projectgenconfig.matrix.IGenAgentPoolAdminService;
 import com.aid.projectgenconfig.matrix.dto.GenPoolSaveCellRequest;
 import com.aid.projectgenconfig.matrix.vo.GenPoolCellVO;
+import com.aid.projectgenconfig.matrix.vo.GenPoolModelOptionVO;
 import com.aid.projectgenconfig.matrix.vo.GenPoolOptionsVO;
 import com.aid.projectgenconfig.matrix.vo.SelectOption;
 import cn.hutool.core.collection.CollectionUtil;
@@ -62,7 +65,7 @@ public class GenAgentPoolAdminServiceImpl implements IGenAgentPoolAdminService {
     @Override
     public GenPoolOptionsVO getOptions(String bizCategoryCode) {
         List<SelectOption> agents = new ArrayList<>();
-        List<SelectOption> models = new ArrayList<>();
+        List<GenPoolModelOptionVO> models = new ArrayList<>();
         if (StrUtil.isNotBlank(bizCategoryCode)) {
             // 该 biz 下启用的智能体
             List<AidAgent> agentList = aidAgentService.list(
@@ -79,9 +82,10 @@ public class GenAgentPoolAdminServiceImpl implements IGenAgentPoolAdminService {
             try {
                 List<AiModelVO> modelList = aiModelBusinessService.listAvailableModelsByFuncCode(bizCategoryCode);
                 if (CollectionUtil.isNotEmpty(modelList)) {
+                    ProjectGenConfigScene scene = ProjectGenConfigScene.fromCode(bizCategoryCode);
                     for (AiModelVO m : modelList) {
                         String label = StrUtil.isBlank(m.getModelName()) ? m.getModelCode() : (m.getModelName() + "（" + m.getModelCode() + "）");
-                        models.add(new SelectOption(m.getModelCode(), label));
+                        models.add(buildModelOption(m, label, scene));
                     }
                 }
             } catch (Exception e) {
@@ -93,6 +97,67 @@ public class GenAgentPoolAdminServiceImpl implements IGenAgentPoolAdminService {
                 .agents(agents)
                 .models(models)
                 .build();
+    }
+
+    /** 构造模型选项，场景级 sceneRules 优先于模型顶层能力。 */
+    private GenPoolModelOptionVO buildModelOption(AiModelVO model, String label, ProjectGenConfigScene scene) {
+        CapabilityVO capability = model.getCapability();
+        Map<String, Object> sceneRule = null;
+        if (Objects.nonNull(capability) && Objects.nonNull(scene)
+                && StrUtil.isNotBlank(scene.getCapabilityScene())
+                && Objects.nonNull(capability.getSceneRules())) {
+            sceneRule = capability.getSceneRules().get(scene.getCapabilityScene());
+        }
+        List<String> sizeOptions = effectiveOptions(sceneRule, "sizeOptions",
+                Objects.isNull(capability) ? null : capability.getSizeOptions());
+        List<String> aspectRatioOptions = effectiveOptions(sceneRule, "aspectRatioOptions",
+                Objects.isNull(capability) ? null : capability.getAspectRatioOptions());
+        String defaultSize = effectiveText(sceneRule, "defaultSize",
+                Objects.isNull(capability) ? model.getDefaultSizeCode() :
+                        StrUtil.blankToDefault(capability.getDefaultSize(), model.getDefaultSizeCode()));
+        String defaultAspectRatio = effectiveText(sceneRule, "defaultAspectRatio",
+                Objects.isNull(capability) ? model.getDefaultAspectRatio() :
+                        StrUtil.blankToDefault(capability.getDefaultAspectRatio(), model.getDefaultAspectRatio()));
+        return GenPoolModelOptionVO.builder()
+                .value(model.getModelCode())
+                .label(label)
+                .sizeOptions(sizeOptions)
+                .aspectRatioOptions(aspectRatioOptions)
+                .defaultSize(defaultSize)
+                .defaultAspectRatio(defaultAspectRatio)
+                .supportsSizePreset(effectiveBoolean(sceneRule, "supportsSizePreset", model.getSupportsSizePreset()))
+                .supportsAspectRatio(effectiveBoolean(sceneRule, "supportsAspectRatio", model.getSupportsAspectRatio()))
+                .build();
+    }
+
+    /** 读取场景级字符串数组；场景未配置时回退顶层能力，不在代码中维护固定枚举。 */
+    private List<String> effectiveOptions(Map<String, Object> sceneRule, String key, List<String> fallback) {
+        Object value = Objects.isNull(sceneRule) ? null : sceneRule.get(key);
+        if (value instanceof Iterable<?> iterable) {
+            LinkedHashSet<String> options = new LinkedHashSet<>();
+            for (Object item : iterable) {
+                String option = StrUtil.trim(Objects.toString(item, null));
+                if (StrUtil.isNotBlank(option)) {
+                    options.add(option);
+                }
+            }
+            if (CollectionUtil.isNotEmpty(options)) {
+                return new ArrayList<>(options);
+            }
+        }
+        return CollectionUtil.isEmpty(fallback) ? List.of() : new ArrayList<>(new LinkedHashSet<>(fallback));
+    }
+
+    /** 读取场景级文本值。 */
+    private String effectiveText(Map<String, Object> sceneRule, String key, String fallback) {
+        Object value = Objects.isNull(sceneRule) ? null : sceneRule.get(key);
+        return StrUtil.blankToDefault(StrUtil.trim(Objects.toString(value, null)), fallback);
+    }
+
+    /** 读取场景级能力开关。 */
+    private Boolean effectiveBoolean(Map<String, Object> sceneRule, String key, Boolean fallback) {
+        Object value = Objects.isNull(sceneRule) ? null : sceneRule.get(key);
+        return value instanceof Boolean booleanValue ? booleanValue : Boolean.TRUE.equals(fallback);
     }
 
     @Override

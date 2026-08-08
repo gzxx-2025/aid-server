@@ -151,7 +151,8 @@ public final class ImageUrlValidator
 
     /**
      * 强校验：先做 {@link #validateImageUrlFormat(String)}，再发 HEAD 请求；
-     * 如果目标返回 405 / 400 / 501 等"HEAD 不支持"的状态，自动降级到 GET。
+     * 如果目标返回 405 / 400 / 501 等"HEAD 不支持"的状态，或 HEAD 的 2xx 响应未返回图片类型，
+     * 自动降级到 GET。部分网关会对 HEAD 返回统一 JSON/空类型，但 GET 才返回真实资源类型。
      * GET 降级只会建立连接并读取响应头（拿 status + Content-Type），
      * 响应体靠 {@link HttpURLConnection#disconnect()} 在 finally 释放，不做整流下载。
      */
@@ -185,34 +186,45 @@ public final class ImageUrlValidator
 
         if (isSuccessStatus(headStatus))
         {
-            return evaluateContentType(headStatus, headProbe.contentType, false);
+            ImageUrlValidationResult headResult = evaluateContentType(headStatus, headProbe.contentType, false);
+            if (headResult.isValid())
+            {
+                return headResult;
+            }
+            // HEAD 的 Content-Type 可能被网关改写；用 GET 响应头做最终确认。
+            if (headResult.getCode() != ImageUrlValidationCode.EMPTY_CONTENT_TYPE
+                    && headResult.getCode() != ImageUrlValidationCode.NOT_IMAGE)
+            {
+                return headResult;
+            }
         }
-        // HEAD 不支持时降级 GET。
-        if (isHeadUnsupported(headStatus))
+        else if (!isHeadUnsupported(headStatus))
         {
-            HeadProbe getProbe = probe(url, "GET", connectTimeout, readTimeout);
-            if (getProbe.ioError != null)
-            {
-                // GET 也挂了：优先用 GET 的错误码细分，保底 HEAD_AND_GET_FAILED
-                ImageUrlValidationResult ioResult = classifyIoError(getProbe.ioError);
-                if (ioResult.getCode() == ImageUrlValidationCode.UNKNOWN
-                        || ioResult.getCode() == ImageUrlValidationCode.CONNECT_FAILED)
-                {
-                    return ImageUrlValidationResult.fail(
-                            ImageUrlValidationCode.HEAD_AND_GET_FAILED, null, null, true);
-                }
-                return ioResult;
-            }
-            int getStatus = getProbe.status;
-            if (isSuccessStatus(getStatus))
-            {
-                return evaluateContentType(getStatus, getProbe.contentType, true);
-            }
             return ImageUrlValidationResult.fail(
-                    ImageUrlValidationCode.BAD_STATUS, getStatus, getProbe.contentType, true);
+                    ImageUrlValidationCode.BAD_STATUS, headStatus, headProbe.contentType, false);
+        }
+
+        // HEAD 不支持或未返回可信图片类型时，降级 GET 做最终校验。
+        HeadProbe getProbe = probe(url, "GET", connectTimeout, readTimeout);
+        if (getProbe.ioError != null)
+        {
+            // GET 也挂了：优先用 GET 的错误码细分，保底 HEAD_AND_GET_FAILED
+            ImageUrlValidationResult ioResult = classifyIoError(getProbe.ioError);
+            if (ioResult.getCode() == ImageUrlValidationCode.UNKNOWN
+                    || ioResult.getCode() == ImageUrlValidationCode.CONNECT_FAILED)
+            {
+                return ImageUrlValidationResult.fail(
+                        ImageUrlValidationCode.HEAD_AND_GET_FAILED, null, null, true);
+            }
+            return ioResult;
+        }
+        int getStatus = getProbe.status;
+        if (isSuccessStatus(getStatus))
+        {
+            return evaluateContentType(getStatus, getProbe.contentType, true);
         }
         return ImageUrlValidationResult.fail(
-                ImageUrlValidationCode.BAD_STATUS, headStatus, headProbe.contentType, false);
+                ImageUrlValidationCode.BAD_STATUS, getStatus, getProbe.contentType, true);
     }
     /**
      * 发一次 HTTP 探测请求，只取 responseCode + Content-Type；不读响应体。

@@ -2,9 +2,14 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+COMPOSE_FILE="${ROOT_DIR}/deploy/docker/docker-compose.yml"
 export AID_SH_LIBRARY_MODE=1
 # shellcheck source=../aid.sh
 source "${ROOT_DIR}/deploy/aid.sh"
+
+# 后端与升级器都必须能通过同一别名诊断宿主机上的外部依赖。
+[[ "$(grep -c 'host.docker.internal:host-gateway' "${COMPOSE_FILE}")" -ge 2 ]] \
+  || { echo 'aid-server and aid-updater must both declare the Docker host gateway alias' >&2; exit 1; }
 
 TMP_ROOT="$(mktemp -d)"
 trap 'rm -rf "${TMP_ROOT}"' EXIT

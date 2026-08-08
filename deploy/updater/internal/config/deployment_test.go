@@ -279,3 +279,15 @@ func TestValidateManualHTTPS(t *testing.T) {
 		t.Fatal("manual HTTPS certificate outside DATA_ROOT/config/ssl should be rejected")
 	}
 }
+
+func TestValidateHTTPSDiagnosticRejectsInvalidPort(t *testing.T) {
+	state := &DeploymentState{Mode: "systemd", Values: map[string]string{
+		"HTTPS_ENABLED":       "true",
+		"HTTPS_PORT":          "not-a-port",
+		"HTTPS_PUBLIC_DOMAIN": "www.example.com",
+		"HTTPS_ADMIN_DOMAIN":  "admin.example.com",
+	}}
+	if err := ValidateDeploymentDiagnostic("https", state); err == nil {
+		t.Fatal("HTTPS diagnostic should reject a non-numeric port before network probing")
+	}
+}

@@ -19,6 +19,6 @@ public class GenPoolOptionsVO {
     /** 该 biz 下启用的智能体（value=agentCode, label=名称） */
     private List<SelectOption> agents;
 
-    /** 该 biz(func_code) 模型池中的模型（value=modelCode, label=模型名） */
-    private List<SelectOption> models;
+    /** 该 biz(func_code) 模型池中的模型及当前场景有效能力 */
+    private List<GenPoolModelOptionVO> models;
 }
