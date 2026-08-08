@@ -78,6 +78,10 @@ public class AidComicProject extends BaseEntity implements Serializable
     @Excel(name = "视频风格值")
     private String videoStyleValue;
 
+    /** 项目隐藏风格提示词快照 JSON（character / scene / prop） */
+    @ToString.Exclude
+    private String hiddenStylePromptJson;
+
     /** 默认生成模式(economy经济, performance性能) */
     @Excel(name = "默认生成模式(economy经济, performance性能)")
     private String defaultGenMode;

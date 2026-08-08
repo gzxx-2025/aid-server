@@ -11,6 +11,7 @@ import com.aid.aid.domain.AidUserComicAsset;
 import com.aid.aid.domain.AidComicAsset;
 import com.aid.aid.service.IAidUserComicAssetService;
 import com.aid.aid.service.IAidComicAssetService;
+import com.aid.aid.util.HiddenStylePromptJsonUtils;
 import com.aid.asset.constants.UserAssetTypeConstants;
 import com.aid.asset.dto.MergedAssetPageRequest;
 import com.aid.asset.dto.UserComicAssetCreateRequest;
@@ -59,6 +60,7 @@ public class UserComicAssetServiceImpl implements IUserComicAssetService {
     private static final String ASSET_TYPE_STYLE = "style";
     /** 资产名称最大长度 */
     private static final int ASSET_NAME_MAX_LENGTH = 100;
+
     /** 图片URL最大长度（对齐 aid_user_comic_asset.image_url VARCHAR(500)） */
     private static final int IMAGE_URL_MAX_LENGTH = 500;
     /** 备注最大长度（对齐 aid_user_comic_asset.remark VARCHAR(500)） */
@@ -155,6 +157,11 @@ public class UserComicAssetServiceImpl implements IUserComicAssetService {
         entity.setAssetName(assetName);
         entity.setPersonalityDesc(request.getPersonalityDesc());
         entity.setPromptText(request.getPromptText());
+        if (Objects.equals(ASSET_TYPE_STYLE, assetType)) {
+            // 用户公开提示词同时作为一期角色隐藏模板，项目选中后会复制为独立快照。
+            entity.setHiddenStylePromptJson(
+                    HiddenStylePromptJsonUtils.fromCharacterPrompt(request.getPromptText()));
+        }
         entity.setImageUrl(StrUtil.isBlank(imageUrl) ? null : imageUrl);
         entity.setSourceType(SOURCE_TYPE_USER);
         entity.setStatus(STATUS_NORMAL);
@@ -411,7 +418,9 @@ public class UserComicAssetServiceImpl implements IUserComicAssetService {
         }
 
         LambdaQueryWrapper<AidUserComicAsset> queryWrapper = Wrappers.lambdaQuery();
-        queryWrapper.select(AidUserComicAsset::getId);
+        // 查询字段精简：同步角色模板需知道资产类型与当前隐藏模板。
+        queryWrapper.select(AidUserComicAsset::getId, AidUserComicAsset::getAssetType,
+                AidUserComicAsset::getHiddenStylePromptJson);
         queryWrapper.eq(AidUserComicAsset::getId, request.getId());
         queryWrapper.eq(AidUserComicAsset::getUserId, userId);
         queryWrapper.eq(AidUserComicAsset::getDelFlag, DEL_FLAG_NORMAL);
@@ -421,6 +430,11 @@ public class UserComicAssetServiceImpl implements IUserComicAssetService {
         if (Objects.isNull(existed)) {
             log.error("C端参考资产修改-不存在: userId={}, id={}", userId, request.getId());
             throw new ServiceException("数据不存在");
+        }
+        if (Objects.equals(ASSET_TYPE_STYLE, existed.getAssetType())
+                && Objects.nonNull(request.getPromptText()) && StrUtil.isBlank(request.getPromptText())) {
+            log.error("C端参考资产修改-风格提示词为空: userId={}, id={}", userId, request.getId());
+            throw new ServiceException("提示词不能为空");
         }
 
         String trimmedName = null;
@@ -467,6 +481,11 @@ public class UserComicAssetServiceImpl implements IUserComicAssetService {
         }
         if (Objects.nonNull(request.getPromptText())) {
             update.set(AidUserComicAsset::getPromptText, request.getPromptText());
+            if (Objects.equals(ASSET_TYPE_STYLE, existed.getAssetType())) {
+                update.set(AidUserComicAsset::getHiddenStylePromptJson,
+                        HiddenStylePromptJsonUtils.withCharacterPrompt(
+                                existed.getHiddenStylePromptJson(), request.getPromptText()));
+            }
         }
         // 图片URL：仅在非空白时更新，避免传 "   " 时意外清空
         if (StrUtil.isNotBlank(normalizedImageUrl)) {

@@ -183,8 +183,12 @@ public class RpsBusinessServiceImpl implements IRpsBusinessService {
         // 校验资产类型
         validateMainAssetType(request.getAssetType());
 
-        // 查询项目，判断项目类型
-        AidComicProject project = projectService.selectAidComicProjectById(request.getProjectId());
+        // 与项目风格切换、资产提取任务建档共用项目行锁，锁持有到资产事务提交。
+        AidComicProject project = projectService.getOne(Wrappers.<AidComicProject>lambdaQuery()
+                .eq(AidComicProject::getId, request.getProjectId())
+                .eq(AidComicProject::getUserId, userId)
+                .eq(AidComicProject::getDelFlag, DEL_FLAG_NORMAL)
+                .last("FOR UPDATE"));
         // 归属校验：项目存在 + 未删除 + 归属当前用户；统一返回"项目不存在"，
         // 不区分"不存在/越权"，避免通过文案差异枚举他人 projectId。
         if (Objects.isNull(project)

@@ -20,11 +20,15 @@ import com.aid.aid.domain.AidComicEpisode;
 import com.aid.aid.domain.AidComicAuditRecord;
 import com.aid.aid.domain.AidComicProject;
 import com.aid.aid.domain.AidEpisodeEditor;
+import com.aid.aid.domain.AidExtractTask;
+import com.aid.aid.domain.AidRolePropScene;
 import com.aid.aid.domain.AidUserComicAsset;
 import com.aid.aid.service.IAidComicAuditRecordService;
 import com.aid.aid.service.IAidComicEpisodeService;
 import com.aid.aid.service.IAidComicProjectService;
 import com.aid.aid.service.IAidEpisodeEditorService;
+import com.aid.aid.service.IAidExtractTaskService;
+import com.aid.aid.service.IAidRolePropSceneService;
 import com.aid.aid.service.IAidStoryboardService;
 import com.aid.aid.service.IAidUserComicAssetService;
 import com.aid.common.aid.oss.util.MediaUrlResolver;
@@ -47,6 +51,8 @@ import com.aid.project.dto.UserProjectPublishRequest;
 import com.aid.project.dto.UserProjectQueryRequest;
 import com.aid.project.dto.UserProjectUpdateRequest;
 import com.aid.project.service.IUserProjectBusinessService;
+import com.aid.project.service.ProjectStyleSnapshotService;
+import com.aid.project.service.ProjectStyleSnapshotService.ResolvedProjectStyle;
 import com.aid.project.vo.UserProjectVO;
 import com.aid.projectgenconfig.service.IProjectGenConfigService;
 import cn.hutool.core.collection.CollectionUtil;
@@ -80,6 +86,13 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
     /** 资产类型：风格（风格图禁止作为项目封面） */
     private static final String ASSET_TYPE_STYLE = "style";
 
+    /** 资产提取父任务类型 */
+    private static final String TASK_TYPE_ASSET_EXTRACT = "asset_extract";
+
+    /** 会锁定项目风格的提取任务状态 */
+    private static final List<String> ACTIVE_EXTRACT_STATUSES = List.of(
+            "PENDING", "QUEUED", "PROCESSING", "FINALIZING", "RECOVERING");
+
     @Autowired
     private IAidComicProjectService aidComicProjectService;
 
@@ -105,6 +118,15 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
     /** 用户风格图查询：项目封面禁止复用风格图（防止删项目/风格图相互牵连） */
     @Autowired
     private IAidUserComicAssetService aidUserComicAssetService;
+
+    @Autowired
+    private IAidRolePropSceneService rolePropSceneService;
+
+    @Autowired
+    private IAidExtractTaskService extractTaskService;
+
+    @Autowired
+    private ProjectStyleSnapshotService projectStyleSnapshotService;
 
     /** 媒体URL统一解析器：封面URL归一化为相对路径/全URL，避免存储格式不一致漏匹配 */
     @Autowired
@@ -133,6 +155,18 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
     public List<AidComicProject> selectUserProjectList(UserProjectQueryRequest request, Long userId)
     {
         LambdaQueryWrapper<AidComicProject> wrapper = Wrappers.lambdaQuery();
+        // 查询字段精简：C端列表禁止读取隐藏风格快照；新增展示字段时必须同步补充。
+        wrapper.select(AidComicProject::getId, AidComicProject::getUserId,
+                AidComicProject::getProjectName, AidComicProject::getProjectDesc,
+                AidComicProject::getPendingProjectName, AidComicProject::getPendingProjectDesc,
+                AidComicProject::getProjectType, AidComicProject::getCoverUrl,
+                AidComicProject::getPendingCoverUrl, AidComicProject::getAspectRatio,
+                AidComicProject::getScriptType, AidComicProject::getVideoStyleType,
+                AidComicProject::getVideoStyleValue, AidComicProject::getDefaultGenMode,
+                AidComicProject::getDefaultCreationMode, AidComicProject::getCurrentStep,
+                AidComicProject::getStatus, AidComicProject::getStatusReason,
+                AidComicProject::getIsPublic, AidComicProject::getPublishTime,
+                AidComicProject::getCreateTime, AidComicProject::getUpdateTime);
         // 只查询当前用户的项目
         wrapper.eq(AidComicProject::getUserId, userId);
         // 过滤已删除的记录
@@ -167,10 +201,34 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
     public AidComicProject selectUserProjectById(Long id, Long userId)
     {
         LambdaQueryWrapper<AidComicProject> wrapper = Wrappers.lambdaQuery();
+        // 查询字段精简：C端详情不读取隐藏风格快照，避免内部模板进入序列化上下文。
+        wrapper.select(AidComicProject::getId, AidComicProject::getUserId,
+                AidComicProject::getProjectName, AidComicProject::getProjectDesc,
+                AidComicProject::getPendingProjectName, AidComicProject::getPendingProjectDesc,
+                AidComicProject::getProjectType, AidComicProject::getCoverUrl,
+                AidComicProject::getPendingCoverUrl, AidComicProject::getAspectRatio,
+                AidComicProject::getScriptType, AidComicProject::getVideoStyleType,
+                AidComicProject::getVideoStyleValue, AidComicProject::getDefaultGenMode,
+                AidComicProject::getDefaultCreationMode, AidComicProject::getCurrentStep,
+                AidComicProject::getStatus, AidComicProject::getStatusReason,
+                AidComicProject::getIsPublic, AidComicProject::getPublishTime,
+                AidComicProject::getCreateTime, AidComicProject::getUpdateTime);
         wrapper.eq(AidComicProject::getId, id);
         wrapper.eq(AidComicProject::getUserId, userId);
         wrapper.eq(AidComicProject::getDelFlag, "0");
         return aidComicProjectService.getOne(wrapper);
+    }
+
+    /**
+     * 更新事务内锁定项目主行。资产创建/提取任务建档使用同一行锁，消除风格切换竞态。
+     */
+    private AidComicProject selectUserProjectByIdForUpdate(Long id, Long userId)
+    {
+        return aidComicProjectService.getOne(Wrappers.<AidComicProject>lambdaQuery()
+                .eq(AidComicProject::getId, id)
+                .eq(AidComicProject::getUserId, userId)
+                .eq(AidComicProject::getDelFlag, DEL_FLAG_NORMAL)
+                .last("FOR UPDATE"));
     }
 
     /**
@@ -294,10 +352,23 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
             }
         }
 
-        // 视频风格必填校验：项目必须选择风格，后续形态图/镜头/视频生成全链需要画风一致
-        if (StrUtil.isBlank(request.getVideoStyleType()) || StrUtil.isBlank(request.getVideoStyleValue())) {
+        ResolvedProjectStyle resolvedStyle = null;
+        boolean hasStyleSelector = StrUtil.isNotBlank(request.getStyleSource())
+                || Objects.nonNull(request.getStyleAssetId());
+        if (hasStyleSelector) {
+            // 新协议：只信任来源和资产ID，公开描述及隐藏模板均由后端读取。
+            resolvedStyle = projectStyleSnapshotService.resolve(
+                    request.getStyleSource(), request.getStyleAssetId(), userId);
+        }
+        String styleName = Objects.nonNull(resolvedStyle)
+                ? resolvedStyle.styleName() : request.getVideoStyleType();
+        String stylePrompt = Objects.nonNull(resolvedStyle)
+                ? resolvedStyle.publicPrompt() : request.getVideoStyleValue();
+
+        // 兼容旧客户端：未传来源和ID时仍沿用公开风格字段，隐藏角色模板运行时回退公开描述。
+        if (StrUtil.isBlank(styleName) || StrUtil.isBlank(stylePrompt)) {
             log.info("创建项目失败，未设置视频风格: userId={}, styleType={}, styleValue={}",
-                    userId, request.getVideoStyleType(), request.getVideoStyleValue());
+                    userId, styleName, stylePrompt);
             throw new ServiceException("请选择风格");
         }
 
@@ -309,9 +380,10 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
         project.setCoverUrl(request.getCoverUrl());
         project.setAspectRatio(request.getAspectRatio());
         project.setScriptType(request.getScriptType());
-        // 风格名称 + 风格值直接取前端传入值落库，不从字典/枚举二次获取
-        project.setVideoStyleType(request.getVideoStyleType());
-        project.setVideoStyleValue(request.getVideoStyleValue());
+        project.setVideoStyleType(styleName);
+        project.setVideoStyleValue(stylePrompt);
+        project.setHiddenStylePromptJson(Objects.nonNull(resolvedStyle)
+                ? resolvedStyle.hiddenPromptJson() : null);
         project.setDefaultGenMode(request.getDefaultGenMode());
         project.setDefaultCreationMode(request.getDefaultCreationMode());
         // 初始化当前步骤：电影从1开始，剧集固定-1（步骤由episode表管理）
@@ -339,8 +411,8 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
     @Transactional(rollbackFor = Exception.class)
     public AidComicProject updateUserProject(UserProjectUpdateRequest request, Long userId)
     {
-        // 先查询并校验归属
-        AidComicProject project = this.selectUserProjectById(request.getId(), userId);
+        // 与资产创建/提取任务建档共用项目行锁，直至本事务提交，消除风格切换 TOCTOU。
+        AidComicProject project = this.selectUserProjectByIdForUpdate(request.getId(), userId);
         if (project == null) {
             throw new RuntimeException("项目不存在或无权限操作");
         }
@@ -349,9 +421,38 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
             log.info("修改项目失败，内容审核中: projectId={}", project.getId());
             throw new ServiceException("内容审核中");
         }
+        boolean styleSelectorTouched = request.getStyleSource() != null || request.getStyleAssetId() != null;
+        boolean legacyStyleTouched = request.getVideoStyleType() != null || request.getVideoStyleValue() != null;
+        ResolvedProjectStyle resolvedStyle = null;
+        String candidateStyleName = null;
+        String candidateStylePrompt = null;
+        if (styleSelectorTouched) {
+            if (StrUtil.isBlank(request.getStyleSource()) || Objects.isNull(request.getStyleAssetId())) {
+                log.info("修改项目拒绝：风格来源与ID必须同时传: projectId={}, source={}, assetId={}",
+                        project.getId(), request.getStyleSource(), request.getStyleAssetId());
+                throw new ServiceException("请选择风格");
+            }
+            resolvedStyle = projectStyleSnapshotService.resolve(
+                    request.getStyleSource(), request.getStyleAssetId(), userId);
+            candidateStyleName = resolvedStyle.styleName();
+            candidateStylePrompt = resolvedStyle.publicPrompt();
+        } else if (legacyStyleTouched) {
+            candidateStyleName = request.getVideoStyleType();
+            candidateStylePrompt = request.getVideoStyleValue();
+            if (StrUtil.isBlank(candidateStyleName) || StrUtil.isBlank(candidateStylePrompt)) {
+                log.info("修改项目拒绝：风格名称与描述必须同时传: projectId={}", project.getId());
+                throw new ServiceException("请选择风格");
+            }
+        }
+        boolean changingStyle = (styleSelectorTouched || legacyStyleTouched)
+                && (!Objects.equals(candidateStyleName, project.getVideoStyleType())
+                || !Objects.equals(candidateStylePrompt, project.getVideoStyleValue())
+                || (Objects.nonNull(resolvedStyle)
+                && !Objects.equals(resolvedStyle.hiddenPromptJson(), project.getHiddenStylePromptJson())));
+
         // 公开锁：公开期间展示信息（名称/介绍/封面）随时可改，内容参数字段仍锁定
         boolean touchingContentFields = request.getAspectRatio() != null || request.getScriptType() != null
-                || request.getVideoStyleType() != null || request.getVideoStyleValue() != null
+                || changingStyle
                 || request.getDefaultGenMode() != null || request.getDefaultCreationMode() != null;
         if (touchingContentFields) {
             projectContentGuardService.assertProjectEditable(project);
@@ -369,8 +470,7 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
         boolean lockFields = isSeries && hasEpisodes;
         if (lockFields) {
             // 剧集已创建集数，画面比例/剧本类型/视频风格等内容参数不允许修改
-            if (request.getAspectRatio() != null || request.getScriptType() != null
-                    || request.getVideoStyleType() != null || request.getVideoStyleValue() != null) {
+            if (request.getAspectRatio() != null || request.getScriptType() != null || changingStyle) {
                 log.info("项目已创建剧集，内容参数禁止修改, projectId={}", request.getId());
                 throw new ServiceException("已建集不可改");
             }
@@ -448,22 +548,13 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
             if (request.getScriptType() != null) {
                 project.setScriptType(request.getScriptType());
             }
-            // 风格修改必须成对：只要请求里出现 videoStyleType 或 videoStyleValue 任一字段，
-            // 就视为本次要改风格，两个字段必须同时传、同时非空，且与 type 语义匹配，避免出现
-            // type=custom 但 value 仍是上次的中文提示词这种半更新不一致状态。
-            boolean touchStyleType = request.getVideoStyleType() != null;
-            boolean touchStyleValue = request.getVideoStyleValue() != null;
-            if (touchStyleType || touchStyleValue) {
-                String newStyleType = request.getVideoStyleType();
-                String newStyleValue = request.getVideoStyleValue();
-                if (StrUtil.isBlank(newStyleType) || StrUtil.isBlank(newStyleValue)) {
-                    log.info("修改项目拒绝：风格类型与风格值必须同时传且非空: projectId={}, styleType={}, styleValue={}",
-                            project.getId(), newStyleType, newStyleValue);
-                    throw new ServiceException("请选择风格");
-                }
-                // 风格名称 + 风格值直接取前端传入值落库，不做格式校验、不从字典/枚举二次获取
-                project.setVideoStyleType(newStyleType);
-                project.setVideoStyleValue(newStyleValue);
+            if (changingStyle) {
+                assertStyleSwitchAllowed(project.getId());
+                project.setVideoStyleType(candidateStyleName);
+                project.setVideoStyleValue(candidateStylePrompt);
+                // 新协议复制源模板；旧协议切换清空旧快照，角色链路安全回退新的公开风格。
+                project.setHiddenStylePromptJson(Objects.nonNull(resolvedStyle)
+                        ? resolvedStyle.hiddenPromptJson() : null);
             }
         }
         if (request.getDefaultGenMode() != null) {
@@ -484,6 +575,10 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
             needClearGenConfig = changingCreationMode && CreationModeEnum.isCrossGroupSwitch(oldMode, newMode);
             project.setDefaultCreationMode(newMode);
         }
+        if (!changingStyle) {
+            // 普通保存不重复写入隐藏长快照；MyBatis-Plus 会忽略实体中的 null。
+            project.setHiddenStylePromptJson(null);
+        }
         project.setUpdateTime(DateUtils.getNowDate());
         project.setUpdateBy(String.valueOf(userId));
         // 剧本类型 × 创作模式兼容性（用合并后的最终值校验）：专业版/宫格不支持真人解说，直接拒绝
@@ -492,6 +587,11 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
         updateWrapper.eq(AidComicProject::getId, project.getId());
         updateWrapper.eq(AidComicProject::getUserId, userId);
         updateWrapper.eq(AidComicProject::getStatus, beforeStatus);
+        if (changingStyle && (Objects.isNull(resolvedStyle)
+                || Objects.isNull(resolvedStyle.hiddenPromptJson()))) {
+            // MyBatis-Plus 默认忽略 null，需显式清除旧项目隐藏快照，防止串用上一风格。
+            updateWrapper.set(AidComicProject::getHiddenStylePromptJson, null);
+        }
         if (reviewMetadata) {
             // 实体更新默认忽略 null，需显式清空上一次驳回原因。
             updateWrapper.set(AidComicProject::getStatusReason, null);
@@ -528,6 +628,35 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
                 Wrappers.<com.aid.aid.domain.AidStoryboard>lambdaQuery()
                         .eq(com.aid.aid.domain.AidStoryboard::getProjectId, projectId)
                         .eq(com.aid.aid.domain.AidStoryboard::getDelFlag, "0")) > 0;
+    }
+
+    /**
+     * 项目行锁持有期间校验是否允许真正切换风格。
+     */
+    private void assertStyleSwitchAllowed(Long projectId)
+    {
+        // 查询字段精简：仅判断是否存在任一有效角色/场景/道具主资产。
+        boolean hasAsset = rolePropSceneService.getOne(Wrappers.<AidRolePropScene>lambdaQuery()
+                .select(AidRolePropScene::getId)
+                .eq(AidRolePropScene::getProjectId, projectId)
+                .eq(AidRolePropScene::getDelFlag, DEL_FLAG_NORMAL)
+                .last("LIMIT 1"), false) != null;
+        if (hasAsset) {
+            log.info("修改项目拒绝：已有资产，风格锁定: projectId={}", projectId);
+            throw new ServiceException("已有资产不可改");
+        }
+        // 查询字段精简：仅判断是否存在会与风格切换冲突的资产提取任务。
+        boolean hasActiveTask = extractTaskService.getOne(Wrappers.<AidExtractTask>lambdaQuery()
+                .select(AidExtractTask::getId)
+                .eq(AidExtractTask::getProjectId, projectId)
+                .eq(AidExtractTask::getTaskType, TASK_TYPE_ASSET_EXTRACT)
+                .in(AidExtractTask::getStatus, ACTIVE_EXTRACT_STATUSES)
+                .eq(AidExtractTask::getDelFlag, DEL_FLAG_NORMAL)
+                .last("LIMIT 1"), false) != null;
+        if (hasActiveTask) {
+            log.info("修改项目拒绝：资产提取中，风格锁定: projectId={}", projectId);
+            throw new ServiceException("资产提取中");
+        }
     }
 
     /** 是否已有审核通过的线上基线，后续公开元数据只能写入待审槽。 */
@@ -943,9 +1072,14 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
         }
         // 剧集类型项目批量统计有效集数（一条 GROUP BY 查询），无集的项目在 Map 中缺失，组装时补 0
         Map<Long, Long> episodeCountMap = countEpisodesByProjectIds(seriesProjectIds, userId);
+        Set<Long> allProjectIds = new LinkedHashSet<>();
+        for (AidComicProject project : projects) {
+            allProjectIds.add(project.getId());
+        }
+        Set<Long> styleLockedProjectIds = findStyleLockedProjectIds(allProjectIds);
         for (AidComicProject project : projects) {
             result.add(buildProjectVO(project, editorMap.get(project.getId()),
-                    resolveEpisodeCount(project, episodeCountMap)));
+                    resolveEpisodeCount(project, episodeCountMap), styleLockedProjectIds.contains(project.getId())));
         }
         return result;
     }
@@ -996,6 +1130,36 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
         return episodeCountMap.getOrDefault(project.getId(), 0L);
     }
 
+    /**
+     * 批量计算风格锁，固定两条 GROUP BY 查询，避免项目列表逐行 count。
+     */
+    private Set<Long> findStyleLockedProjectIds(Set<Long> projectIds)
+    {
+        Set<Long> lockedIds = new LinkedHashSet<>();
+        if (CollectionUtil.isEmpty(projectIds)) {
+            return lockedIds;
+        }
+        LambdaQueryWrapper<AidRolePropScene> assetWrapper = Wrappers.lambdaQuery();
+        assetWrapper.select(AidRolePropScene::getProjectId)
+                .in(AidRolePropScene::getProjectId, projectIds)
+                .eq(AidRolePropScene::getDelFlag, DEL_FLAG_NORMAL)
+                .groupBy(AidRolePropScene::getProjectId);
+        for (AidRolePropScene asset : rolePropSceneService.list(assetWrapper)) {
+            lockedIds.add(asset.getProjectId());
+        }
+        LambdaQueryWrapper<AidExtractTask> taskWrapper = Wrappers.lambdaQuery();
+        taskWrapper.select(AidExtractTask::getProjectId)
+                .in(AidExtractTask::getProjectId, projectIds)
+                .eq(AidExtractTask::getTaskType, TASK_TYPE_ASSET_EXTRACT)
+                .in(AidExtractTask::getStatus, ACTIVE_EXTRACT_STATUSES)
+                .eq(AidExtractTask::getDelFlag, DEL_FLAG_NORMAL)
+                .groupBy(AidExtractTask::getProjectId);
+        for (AidExtractTask task : extractTaskService.list(taskWrapper)) {
+            lockedIds.add(task.getProjectId());
+        }
+        return lockedIds;
+    }
+
     @Override
     public UserProjectVO convertToVO(AidComicProject project)
     {
@@ -1012,9 +1176,11 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
      * @param project      项目实体
      * @param editor       项目级剪辑记录（仅电影模式可能非 null）
      * @param episodeCount 剧集总集数（仅剧集类型非 null，无集为 0）
+     * @param styleLocked  是否已锁定风格切换
      * @return 项目 VO
      */
-    private UserProjectVO buildProjectVO(AidComicProject project, AidEpisodeEditor editor, Long episodeCount)
+    private UserProjectVO buildProjectVO(AidComicProject project, AidEpisodeEditor editor,
+                                         Long episodeCount, boolean styleLocked)
     {
         UserProjectVO.UserProjectVOBuilder builder = UserProjectVO.builder()
                 .id(project.getId())
@@ -1027,6 +1193,7 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
                 .scriptType(project.getScriptType())
                 .videoStyleType(project.getVideoStyleType())
                 .videoStyleValue(project.getVideoStyleValue())
+                .styleLocked(styleLocked)
                 .defaultGenMode(project.getDefaultGenMode())
                 .defaultCreationMode(project.getDefaultCreationMode())
                 .status(project.getStatus())

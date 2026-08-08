@@ -66,6 +66,7 @@ public class AidRolePropSceneFormImage extends BaseEntity implements Serializabl
     private Integer descriptionIndex;
 
     /** 本次实际使用的提示词快照 */
+    @ToString.Exclude
     private String promptSnapshot;
 
     /**

@@ -41,8 +41,14 @@ public class UserProjectCreateRequest {
     private String videoStyleType;
 
     /** 视频风格值字符串（前端传什么存什么） */
-    @Size(max = 500, message = "风格值过长")
     private String videoStyleValue;
+
+    /** 风格来源：official 官方风格 / custom 用户自定义风格 */
+    @Size(max = 20, message = "风格来源过长")
+    private String styleSource;
+
+    /** 风格资产ID，按 styleSource 定位官方或用户风格 */
+    private Long styleAssetId;
 
     /** 默认生成模式(economy经济, performance性能) */
     private String defaultGenMode;

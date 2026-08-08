@@ -345,7 +345,7 @@ public class RpsController extends BaseController
 
     /**
      * 接口15：编辑形态图片实例（仅改 form_image 单行）。
-     * 支持改 name / imageUrl / descriptionIndex / promptSnapshot / referenceImages；
+     * 支持改 name / imageUrl / descriptionIndex / referenceImages；内部生成提示词快照不可由C端读写。
      * 不修改主资产、不修改 form。
      */
     @PostMapping("/form-image/update")

@@ -12,6 +12,9 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.aid.aid.mapper.AidComicAssetMapper;
 import com.aid.aid.domain.AidComicAsset;
 import com.aid.aid.service.IAidComicAssetService;
+import com.aid.aid.util.HiddenStylePromptJsonUtils;
+import com.aid.common.exception.ServiceException;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * 项目提取资产Service业务层处理
@@ -19,6 +22,7 @@ import com.aid.aid.service.IAidComicAssetService;
  * @author 视觉AID
  */
 @Service
+@Slf4j
 public class AidComicAssetServiceImpl extends ServiceImpl<AidComicAssetMapper, AidComicAsset> implements IAidComicAssetService
 {
     @Autowired
@@ -46,6 +50,13 @@ public class AidComicAssetServiceImpl extends ServiceImpl<AidComicAssetMapper, A
     public List<AidComicAsset> selectAidComicAssetList(AidComicAsset aidComicAsset)
     {
         LambdaQueryWrapper<AidComicAsset> lambdaQueryWrapper = Wrappers.lambdaQuery();
+        // 查询字段精简：后台列表不加载隐藏长模板，详情接口按主键读取完整记录。
+        lambdaQueryWrapper.select(AidComicAsset::getId, AidComicAsset::getAssetType,
+                AidComicAsset::getAssetName, AidComicAsset::getPersonalityDesc,
+                AidComicAsset::getPromptText, AidComicAsset::getImageUrl,
+                AidComicAsset::getDelFlag, AidComicAsset::getCreateTime,
+                AidComicAsset::getCreateBy, AidComicAsset::getUpdateTime,
+                AidComicAsset::getUpdateBy, AidComicAsset::getRemark);
         // 动态查询条件
         if (StringUtils.isNotEmpty(aidComicAsset.getAssetType())) {
             lambdaQueryWrapper.eq(AidComicAsset::getAssetType, aidComicAsset.getAssetType());
@@ -67,6 +78,8 @@ public class AidComicAssetServiceImpl extends ServiceImpl<AidComicAssetMapper, A
     @Override
     public int insertAidComicAsset(AidComicAsset aidComicAsset)
     {
+        aidComicAsset.setHiddenStylePromptJson(normalizeHiddenStylePrompt(
+                aidComicAsset.getHiddenStylePromptJson(), aidComicAsset.getId()));
         aidComicAsset.setCreateTime(DateUtils.getNowDate());
         return this.save(aidComicAsset) ? 1 : 0;
     }
@@ -80,6 +93,8 @@ public class AidComicAssetServiceImpl extends ServiceImpl<AidComicAssetMapper, A
     @Override
     public int updateAidComicAsset(AidComicAsset aidComicAsset)
     {
+        aidComicAsset.setHiddenStylePromptJson(normalizeHiddenStylePrompt(
+                aidComicAsset.getHiddenStylePromptJson(), aidComicAsset.getId()));
         aidComicAsset.setUpdateTime(DateUtils.getNowDate());
         return this.updateById(aidComicAsset) ? 1 : 0;
     }
@@ -114,5 +129,18 @@ public class AidComicAssetServiceImpl extends ServiceImpl<AidComicAssetMapper, A
             return 0;
         }
         return this.removeById(id) ? 1 : 0;
+    }
+
+    private String normalizeHiddenStylePrompt(String json, Long id)
+    {
+        try
+        {
+            return HiddenStylePromptJsonUtils.normalize(json);
+        }
+        catch (IllegalArgumentException e)
+        {
+            log.error("官方风格隐藏模板格式错误: id={}", id, e);
+            throw new ServiceException("隐藏风格格式错误");
+        }
     }
 }

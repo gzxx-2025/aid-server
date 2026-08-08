@@ -53,9 +53,6 @@ public class RpsFormImageDetailVO
     /** 提示词下标（0-based） */
     private Integer descriptionIndex;
 
-    /** 提示词快照 */
-    private String promptSnapshot;
-
     /** 是否使用中（0/1） */
     private Integer isUse;
 

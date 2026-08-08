@@ -32,6 +32,7 @@ import com.aid.common.aid.oss.util.MediaPayloadUrlNormalizer;
 import com.aid.common.core.controller.BaseController;
 import com.aid.common.core.domain.AjaxResult;
 import com.aid.common.core.redis.RedisCache;
+import com.aid.common.error.TaskErrorPresentation;
 import com.aid.common.exception.ServiceException;
 import com.aid.common.utils.SecurityUtils;
 import com.aid.notify.wechat.service.IWechatNotifyService;
@@ -268,6 +269,15 @@ public class UserTaskController extends BaseController
 
         // 分页查询，返回 data + total + pageNum + pageSize（与其它 C 端分页接口一致）
         IPage<AidExtractTask> page = extractTaskService.page(new Page<>(pageNum, pageSize), wrapper);
+        for (AidExtractTask task : page.getRecords())
+        {
+            if (StrUtil.isNotBlank(task.getErrorMessage()))
+            {
+                // C端列表只返回统一友好文案，禁止透传上游原始错误及可能回显的请求内容。
+                task.setErrorMessage(TaskErrorPresentation.toUserMessage(
+                        task.getModelCode(), task.getErrorMessage(), "任务执行异常"));
+            }
+        }
         AjaxResult ajax = AjaxResult.success();
         ajax.put("data", page.getRecords());
         ajax.put("total", page.getTotal());

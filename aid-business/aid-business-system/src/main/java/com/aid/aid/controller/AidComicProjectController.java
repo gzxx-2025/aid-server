@@ -72,10 +72,12 @@ public class AidComicProjectController extends BaseController
      * 新增漫剧项目主
      */
     @PreAuthorize("@ss.hasPermi('aid:aidproject:add')")
-    @Log(title = "漫剧项目主", businessType = BusinessType.INSERT)
+    @Log(title = "漫剧项目主", businessType = BusinessType.INSERT,
+            excludeParamNames = {"hiddenStylePromptJson"})
     @PostMapping
     public AjaxResult add(@RequestBody AidComicProject aidComicProject)
     {
+        aidComicProject.setCreateBy(getUsername());
         return toAjax(aidComicProjectService.insertAidComicProject(aidComicProject));
     }
 
@@ -83,10 +85,12 @@ public class AidComicProjectController extends BaseController
      * 修改漫剧项目主
      */
     @PreAuthorize("@ss.hasPermi('aid:aidproject:edit')")
-    @Log(title = "漫剧项目主", businessType = BusinessType.UPDATE)
+    @Log(title = "漫剧项目主", businessType = BusinessType.UPDATE,
+            excludeParamNames = {"hiddenStylePromptJson"})
     @PutMapping
     public AjaxResult edit(@RequestBody AidComicProject aidComicProject)
     {
+        aidComicProject.setUpdateBy(getUsername());
         return toAjax(aidComicProjectService.updateAidComicProject(aidComicProject));
     }
 

@@ -46,6 +46,10 @@ public class UserAssetBusinessServiceImpl implements IUserAssetBusinessService
         String assetName = Objects.isNull(request.getAssetName()) ? null : request.getAssetName().trim();
 
         LambdaQueryWrapper<AidComicAsset> wrapper = Wrappers.lambdaQuery();
+        // 查询字段精简：C端官方素材不读取隐藏风格模板。
+        wrapper.select(AidComicAsset::getId, AidComicAsset::getAssetType,
+                AidComicAsset::getAssetName, AidComicAsset::getPromptText,
+                AidComicAsset::getImageUrl);
         wrapper.eq(AidComicAsset::getDelFlag, "0");
         if (StringUtils.isNotEmpty(assetType)) {
             wrapper.eq(AidComicAsset::getAssetType, assetType);

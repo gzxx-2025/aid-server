@@ -27,6 +27,7 @@ aid-master/
 │   │   │   ├── media/
 │   │   │   │   ├── dto/                  厂商无关的语音识别标准结果
 │   │   │   │   └── provider/             语音识别扩展点、腾讯云录音识别与 Vidu 音画对白字幕约束实现
+│   │   │   ├── project/service/ProjectStyleSnapshotService.java  官方/自定义风格解析、项目隐藏模板快照与角色提示词回退
 │   │   │   ├── projectgenconfig/matrix/   生成池矩阵解析、后台配置及按模型场景能力返回清晰度/比例选项
 │   │   │   ├── storyboard/               分镜视频生成与选片同步
 │   │   │   ├── upgrade/                  升级器通信、部署配置诊断、HTTPS证书安全安装及官方资源包服务
@@ -37,12 +38,14 @@ aid-master/
 │   │       ├── compose/                   无人声字幕检查点复用与陈旧成片回调隔离测试
 │   │       ├── media/provider/            腾讯云真实视频语音识别诊断测试（凭证环境变量控制）
 │   │       ├── promotion/service/impl/    邀请码严格校验与注册绑定测试
+│   │       ├── project/service/            隐藏风格 JSON 固定协议、非法值与兼容回退测试
 │   │       ├── rps/queue/                 批量任务终态分类测试
 │   │       ├── storyboard/service/impl/   上传分镜视频秒数必传校验测试
 │   │       ├── upgrade/service/impl/      官方资源包校验安装与失败保留旧资源测试
 │   │       └── user/service/impl/         后台新增用户与账户查询测试
 │   └── aid-interface-system/             实体、Mapper 与领域服务
 │       ├── com/aid/aid/domain/AidEpisodeEditor.java  正式/待审成片及各自素材指纹槽位
+│       ├── com/aid/aid/util/HiddenStylePromptJsonUtils.java  character/scene/prop 隐藏风格 JSON 校验与规范化
 │       └── com/aid/aid/domain/dto/AidAiProviderStatusRequest.java  服务商启停专用入参
 ├── deploy/updater/internal/task/         部署配置分项诊断、证书链校验、原子安装与失败恢复
 ├── doc/Business-API.md                   C 端接口文档
@@ -50,7 +53,8 @@ aid-master/
     ├── aid-init.sql                      已合并全部初始化结构与配置数据
     ├── alter_account_amount_precision.sql 账户账本与任务计费金额四位小数迁移
     ├── v1.0.0-beta.2.sql                上一测试版本的幂等数据库迁移脚本
-    ├── v1.0.0-beta.3.sql                当前测试版本的幂等数据库迁移脚本
+    ├── v1.0.0-beta.3.sql                上一测试版本的幂等数据库迁移脚本
+    ├── v1.0.0-beta.4.sql                隐藏风格字段、查询索引与 51 个官方风格的幂等迁移脚本
     └── update_creation_flow_step_names.sql  已有引导配置的流程名称更新脚本
 
 version/

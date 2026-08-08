@@ -46,6 +46,10 @@ public class AidComicAsset extends BaseEntity implements Serializable
     @Excel(name = "提示词")
     private String promptText;
 
+    /** 隐藏风格提示词 JSON（character / scene / prop） */
+    @ToString.Exclude
+    private String hiddenStylePromptJson;
+
     /** 主图（相对路径） */
     @Excel(name = "主图")
     @MediaUrl

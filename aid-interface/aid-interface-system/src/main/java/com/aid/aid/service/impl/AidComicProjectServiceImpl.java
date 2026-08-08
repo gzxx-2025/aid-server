@@ -14,6 +14,9 @@ import com.aid.aid.domain.AidComicProject;
 import com.aid.aid.domain.vo.AidPublicProjectVo;
 import com.aid.aid.domain.vo.AidPublishItemVo;
 import com.aid.aid.service.IAidComicProjectService;
+import com.aid.aid.util.HiddenStylePromptJsonUtils;
+import com.aid.common.exception.ServiceException;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * 漫剧项目主Service业务层处理
@@ -21,6 +24,7 @@ import com.aid.aid.service.IAidComicProjectService;
  * @author 视觉AID
  */
 @Service
+@Slf4j
 public class AidComicProjectServiceImpl extends ServiceImpl<AidComicProjectMapper, AidComicProject> implements IAidComicProjectService
 {
     @Autowired
@@ -48,6 +52,20 @@ public class AidComicProjectServiceImpl extends ServiceImpl<AidComicProjectMappe
     public List<AidComicProject> selectAidComicProjectList(AidComicProject aidComicProject)
     {
         LambdaQueryWrapper<AidComicProject> wrapper = Wrappers.lambdaQuery();
+        // 查询字段精简：后台列表不加载隐藏快照，详情接口按主键读取完整记录。
+        wrapper.select(AidComicProject::getId, AidComicProject::getUserId,
+                AidComicProject::getProjectName, AidComicProject::getProjectDesc,
+                AidComicProject::getPendingProjectName, AidComicProject::getPendingProjectDesc,
+                AidComicProject::getProjectType, AidComicProject::getCoverUrl,
+                AidComicProject::getPendingCoverUrl, AidComicProject::getAspectRatio,
+                AidComicProject::getScriptType, AidComicProject::getVideoStyleType,
+                AidComicProject::getVideoStyleValue, AidComicProject::getDefaultGenMode,
+                AidComicProject::getDefaultCreationMode, AidComicProject::getCurrentStep,
+                AidComicProject::getStatus, AidComicProject::getStatusReason,
+                AidComicProject::getIsPublic, AidComicProject::getPublishTime,
+                AidComicProject::getDelFlag, AidComicProject::getCreateTime,
+                AidComicProject::getCreateBy, AidComicProject::getUpdateTime,
+                AidComicProject::getUpdateBy, AidComicProject::getRemark);
         if (aidComicProject != null)
         {
             if (aidComicProject.getUserId() != null)
@@ -108,6 +126,8 @@ public class AidComicProjectServiceImpl extends ServiceImpl<AidComicProjectMappe
     @Override
     public int insertAidComicProject(AidComicProject aidComicProject)
     {
+        aidComicProject.setHiddenStylePromptJson(normalizeHiddenStylePrompt(
+                aidComicProject.getHiddenStylePromptJson(), aidComicProject.getId()));
         aidComicProject.setCreateTime(DateUtils.getNowDate());
         return this.save(aidComicProject) ? 1 : 0;
     }
@@ -121,6 +141,10 @@ public class AidComicProjectServiceImpl extends ServiceImpl<AidComicProjectMappe
     @Override
     public int updateAidComicProject(AidComicProject aidComicProject)
     {
+        // 项目公开风格与隐藏模板共同组成不可漂移快照，后台普通编辑不可改写其中任一部分。
+        aidComicProject.setVideoStyleType(null);
+        aidComicProject.setVideoStyleValue(null);
+        aidComicProject.setHiddenStylePromptJson(null);
         aidComicProject.setUpdateTime(DateUtils.getNowDate());
         return this.updateById(aidComicProject) ? 1 : 0;
     }
@@ -155,6 +179,19 @@ public class AidComicProjectServiceImpl extends ServiceImpl<AidComicProjectMappe
             return 0;
         }
         return this.removeById(id) ? 1 : 0;
+    }
+
+    private String normalizeHiddenStylePrompt(String json, Long id)
+    {
+        try
+        {
+            return HiddenStylePromptJsonUtils.normalize(json);
+        }
+        catch (IllegalArgumentException e)
+        {
+            log.error("项目隐藏风格快照格式错误: id={}", id, e);
+            throw new ServiceException("隐藏风格格式错误");
+        }
     }
 
     /**

@@ -30,9 +30,6 @@ public class RpsFormImageUpdateRequest
     /** 提示词下标（0-based） */
     private Integer descriptionIndex;
 
-    /** 提示词快照（生图时使用的最终提示词文本） */
-    private String promptSnapshot;
-
     /** 参考图列表（序列化为 JSON 写入 reference_images 列，元素不自动剥离域名） */
     private List<String> referenceImages;
 }

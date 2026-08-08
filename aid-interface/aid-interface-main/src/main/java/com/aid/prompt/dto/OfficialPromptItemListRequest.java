@@ -16,7 +16,7 @@ public class OfficialPromptItemListRequest {
     /** 分页页码，从 1 起，默认 1 */
     private Integer pageNum;
 
-    /** 分页条数，范围 1..50，默认 20 */
+    /** 分页条数，正整数，默认 20，不限制最大值 */
     private Integer pageSize;
 
     /** 单分类代码（可选，与 categoryCodes 二选一） */

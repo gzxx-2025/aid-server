@@ -72,10 +72,12 @@ public class AidUserComicAssetController extends BaseController
      * 新增用户自定义漫画参考资产
      */
     @PreAuthorize("@ss.hasPermi('aid:assetuser:add')")
-    @Log(title = "用户自定义漫画参考资产", businessType = BusinessType.INSERT)
+    @Log(title = "用户自定义漫画参考资产", businessType = BusinessType.INSERT,
+            excludeParamNames = {"hiddenStylePromptJson"})
     @PostMapping
     public AjaxResult add(@RequestBody AidUserComicAsset aidUserComicAsset)
     {
+        aidUserComicAsset.setCreateBy(getUsername());
         return toAjax(aidUserComicAssetService.insertAidUserComicAsset(aidUserComicAsset));
     }
 
@@ -83,10 +85,12 @@ public class AidUserComicAssetController extends BaseController
      * 修改用户自定义漫画参考资产
      */
     @PreAuthorize("@ss.hasPermi('aid:assetuser:edit')")
-    @Log(title = "用户自定义漫画参考资产", businessType = BusinessType.UPDATE)
+    @Log(title = "用户自定义漫画参考资产", businessType = BusinessType.UPDATE,
+            excludeParamNames = {"hiddenStylePromptJson"})
     @PutMapping
     public AjaxResult edit(@RequestBody AidUserComicAsset aidUserComicAsset)
     {
+        aidUserComicAsset.setUpdateBy(getUsername());
         return toAjax(aidUserComicAssetService.updateAidUserComicAsset(aidUserComicAsset));
     }
 

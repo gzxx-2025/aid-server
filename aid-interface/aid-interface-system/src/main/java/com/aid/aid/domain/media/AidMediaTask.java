@@ -8,6 +8,7 @@ import com.aid.common.aid.oss.annotation.MediaUrl;
 import com.aid.common.core.domain.BaseEntity;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+import lombok.ToString;
 
 import java.io.Serial;
 
@@ -52,9 +53,11 @@ public class AidMediaTask extends BaseEntity {
     private String requestHash;
 
     // 请求原文 JSON 快照。
+    @ToString.Exclude
     private String requestJson;
 
     // 上游响应原文 JSON 快照。
+    @ToString.Exclude
     private String responseJson;
 
     // 上游 provider 任务ID。

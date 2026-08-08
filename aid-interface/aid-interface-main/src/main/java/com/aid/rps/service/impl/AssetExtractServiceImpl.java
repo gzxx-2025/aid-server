@@ -65,6 +65,7 @@ import com.aid.rps.helper.SceneExtractionNormalizer.NormalizedScene;
 import com.aid.rps.model.ExistingAssetLib;
 import com.aid.rps.exception.PartialExtractionException;
 import com.aid.projectgenconfig.enums.ProjectGenConfigScene;
+import com.aid.project.service.ProjectStyleSnapshotService;
 import com.aid.agent.AgentDefaultParamsApplier;
 import com.aid.agent.AgentModelDefault;
 import com.aid.agent.IAidAgentService;
@@ -494,6 +495,10 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
     @Autowired
     private TransactionTemplate transactionTemplate;
 
+    /** 角色隐藏风格快照解析，仅用于角色白底图与角色设定卡。 */
+    @Autowired
+    private ProjectStyleSnapshotService projectStyleSnapshotService;
+
     /** 媒体URL拼接器：DB相对路径 → 完整URL，用于参考图传给媒体服务 */
     @Autowired
     private MediaUrlResolver mediaUrlResolver;
@@ -650,10 +655,14 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
 
             // 先仅持久化任务，保证账户独立冻结后始终能按 task + trace 补偿。
             List<String> committedExtractTypes = extractTypes;
-            task = transactionTemplate.execute(status -> createTaskRecord(
-                    request.getProjectId(), episodeId, userId, committedExtractTypes,
-                    request.getAgentCodes(), modelCodesByType, primaryModelCode, extractScope,
-                    lockToken, Boolean.TRUE.equals(request.getOverwrite())));
+            task = transactionTemplate.execute(status -> {
+                // 与项目风格切换共用项目主行锁；锁内复核风格并插入任务，事务提交后才释放。
+                AidComicProject lockedProject = lockProjectForExtract(request.getProjectId(), userId);
+                requireProjectStyle(lockedProject);
+                return createTaskRecord(request.getProjectId(), episodeId, userId, committedExtractTypes,
+                        request.getAgentCodes(), modelCodesByType, primaryModelCode, extractScope,
+                        lockToken, Boolean.TRUE.equals(request.getOverwrite()));
+            });
             if (task == null)
             {
                 throw new ServiceException("任务创建失败");
@@ -1778,6 +1787,27 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         if (Objects.isNull(project))
         {
             log.info("项目不存在或无权操作, projectId={}, userId={}", projectId, userId);
+            throw new ServiceException("项目不存在");
+        }
+        return project;
+    }
+
+    /**
+     * 资产提取父任务建档事务内锁定项目行，与风格切换使用同一互斥点。
+     */
+    private AidComicProject lockProjectForExtract(Long projectId, Long userId)
+    {
+        // 查询字段精简：锁内只复核归属与项目公开风格。
+        AidComicProject project = projectService.getOne(Wrappers.<AidComicProject>lambdaQuery()
+                .select(AidComicProject::getId, AidComicProject::getProjectType,
+                        AidComicProject::getVideoStyleType, AidComicProject::getVideoStyleValue)
+                .eq(AidComicProject::getId, projectId)
+                .eq(AidComicProject::getUserId, userId)
+                .eq(AidComicProject::getDelFlag, DEL_FLAG_NORMAL)
+                .last("FOR UPDATE"));
+        if (Objects.isNull(project))
+        {
+            log.info("锁定提取项目失败，项目不存在: projectId={}, userId={}", projectId, userId);
             throw new ServiceException("项目不存在");
         }
         return project;
@@ -6321,7 +6351,8 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
                 log.error("批量形态生成单项失败: taskId={}, assetId={}", taskId, assetId, e);
                 Map<String, Object> item = new LinkedHashMap<>();
                 item.put("assetId", assetId);
-                item.put("message", StrUtil.sub(e.getMessage(), 0, 50));
+                item.put("message", TaskErrorPresentation.toUserMessage(
+                        modelCode, e.getMessage(), "图片生成失败"));
                 failedItems.add(item);
                 failCount++;
             }
@@ -6440,7 +6471,8 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
                 log.error("批量形态图单项失败: taskId={}, formId={}", taskId, formId, e);
                 Map<String, Object> item = new LinkedHashMap<>();
                 item.put("formId", formId);
-                item.put("message", StrUtil.sub(e.getMessage(), 0, 50));
+                item.put("message", TaskErrorPresentation.toUserMessage(
+                        modelCode, e.getMessage(), "图片生成失败"));
                 failedItems.add(item);
                 failCount++;
             }
@@ -9506,7 +9538,8 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
                 log.error("批量设定卡单项失败: taskId={}, imageId={}", taskId, imageId, e);
                 Map<String, Object> item = new LinkedHashMap<>();
                 item.put("imageId", imageId);
-                item.put("message", StrUtil.sub(e.getMessage(), 0, 50));
+                item.put("message", TaskErrorPresentation.toUserMessage(
+                        modelCode, e.getMessage(), "图片生成失败"));
                 failedItems.add(item);
                 failCount++;
             }
@@ -9658,9 +9691,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         String artStyleName = Objects.nonNull(project)
                 ? StrUtil.blankToDefault(project.getVideoStyleType(), "")
                 : "";
-        String artStylePrompt = Objects.nonNull(project)
-                ? StrUtil.blankToDefault(project.getVideoStyleValue(), "")
-                : "";
+        String artStylePrompt = projectStyleSnapshotService.resolveCharacterPrompt(project);
 
         StringBuilder sb = new StringBuilder(template);
         if (sb.length() > 0 && !sb.toString().endsWith("\n"))
@@ -10022,7 +10053,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         //   - 风格名称 ← video_style_type（custom/脏值时按空串处理，避免输出"风格名称：custom"）
         //   - 风格描述 ← resolveProjectArtStylePrompt（统一兼容 official/custom/脏值，与场景一致）
         String artStyleName = resolveProjectArtStyleName(project);
-        String artStylePrompt = resolveProjectArtStylePrompt(project);
+        String artStylePrompt = projectStyleSnapshotService.resolveCharacterPrompt(project);
         // descriptions 现在是单条字符串，直接从 prompt_text JSON 取 descriptions 字段；
         // 纯文本 / 解析失败则原文兜底
         String formPromptText = resolveCharacterDescriptions(form.getPromptText());
@@ -10033,13 +10064,18 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         {
             sb.append("\n");
         }
+        sb.append("人物提示词：").append("\n")
+                .append(formPromptText);
         String styleLine = buildArtStyleLine(artStyleName, artStylePrompt);
         if (StrUtil.isNotBlank(styleLine))
         {
-            sb.append(styleLine).append("\n");
+            // 人物描述可能携带旧图片风格，项目隐藏风格必须最后追加并拥有最终约束权。
+            if (sb.length() > 0 && !sb.toString().endsWith("\n"))
+            {
+                sb.append("\n");
+            }
+            sb.append(styleLine);
         }
-        sb.append("人物提示词：").append("\n")
-                .append(formPromptText);
 
         return sb.toString();
     }

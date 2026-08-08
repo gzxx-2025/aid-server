@@ -93,10 +93,10 @@ public class OfficialPromptServiceImpl implements IOfficialPromptService {
             throw new RuntimeException("参数错误");
         }
 
-        // 分页参数归一化：缺省第 1 页，每页 20 条，单页最大 50
+        // 分页参数归一化：缺省第 1 页，每页 20 条；正整数 pageSize 原样使用，不限制单页数量
         int pageNum = Objects.isNull(request.getPageNum()) || request.getPageNum() < 1 ? 1 : request.getPageNum();
         int pageSize = Objects.isNull(request.getPageSize()) || request.getPageSize() < 1
-                ? 20 : Math.min(request.getPageSize(), 50);
+                ? 20 : request.getPageSize();
 
         // 合并 categoryCode / categoryCodes，并强校验白名单
         Set<String> codes = resolveCategoryCodes(request.getCategoryCode(), request.getCategoryCodes());

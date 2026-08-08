@@ -839,6 +839,13 @@ public class AssetCenterServiceImpl implements IAssetCenterService {
     private AssetCenterDetailVO detailFormImage(AssetCenterCategoryEnum cat, Long id, Long userId) {
         AidRolePropSceneFormImage img = aidRolePropSceneFormImageService.getOne(
                 Wrappers.<AidRolePropSceneFormImage>lambdaQuery()
+                        // 查询字段精简：资产中心不读取内部生成提示词快照。
+                        .select(AidRolePropSceneFormImage::getId, AidRolePropSceneFormImage::getFormId,
+                                AidRolePropSceneFormImage::getAssetId, AidRolePropSceneFormImage::getProjectId,
+                                AidRolePropSceneFormImage::getEpisodeId, AidRolePropSceneFormImage::getName,
+                                AidRolePropSceneFormImage::getImageUrl, AidRolePropSceneFormImage::getSourceType,
+                                AidRolePropSceneFormImage::getReferenceImages, AidRolePropSceneFormImage::getIsUse,
+                                AidRolePropSceneFormImage::getImageStatus, AidRolePropSceneFormImage::getCreateTime)
                         .eq(AidRolePropSceneFormImage::getId, id)
                         .eq(AidRolePropSceneFormImage::getUserId, userId)
                         .eq(AidRolePropSceneFormImage::getDelFlag, DEL_FLAG_NORMAL)
@@ -848,7 +855,6 @@ public class AssetCenterServiceImpl implements IAssetCenterService {
         content.put("formId", img.getFormId());
         content.put("assetId", img.getAssetId());
         content.put("sourceType", img.getSourceType());
-        content.put("promptSnapshot", img.getPromptSnapshot());
         content.put("referenceImages", img.getReferenceImages());
         content.put("isUse", img.getIsUse());
         content.put("imageStatus", img.getImageStatus());

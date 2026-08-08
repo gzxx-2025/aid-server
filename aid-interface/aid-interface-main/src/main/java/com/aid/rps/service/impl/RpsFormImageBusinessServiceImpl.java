@@ -305,6 +305,8 @@ public class RpsFormImageBusinessServiceImpl implements IRpsFormImageBusinessSer
     public void deleteImage(Long imageId, Long userId)
     {
         LambdaQueryWrapper<AidRolePropSceneFormImage> q = Wrappers.lambdaQuery();
+        // 查询字段精简：归属校验只需主键，不加载内部提示词快照。
+        q.select(AidRolePropSceneFormImage::getId);
         q.eq(AidRolePropSceneFormImage::getId, imageId);
         q.eq(AidRolePropSceneFormImage::getUserId, userId);
         q.eq(AidRolePropSceneFormImage::getDelFlag, DEL_FLAG_NORMAL);
@@ -435,6 +437,8 @@ public class RpsFormImageBusinessServiceImpl implements IRpsFormImageBusinessSer
     public RpsFormImageDetailVO updateImage(RpsFormImageUpdateRequest request, Long userId)
     {
         LambdaQueryWrapper<AidRolePropSceneFormImage> q = Wrappers.lambdaQuery();
+        // 归属校验只读取主键，禁止加载内部提示词快照等大字段。
+        q.select(AidRolePropSceneFormImage::getId);
         q.eq(AidRolePropSceneFormImage::getId, request.getImageId());
         q.eq(AidRolePropSceneFormImage::getUserId, userId);
         q.eq(AidRolePropSceneFormImage::getDelFlag, DEL_FLAG_NORMAL);
@@ -463,12 +467,6 @@ public class RpsFormImageBusinessServiceImpl implements IRpsFormImageBusinessSer
         if (Objects.nonNull(request.getDescriptionIndex()))
         {
             upd.set(AidRolePropSceneFormImage::getDescriptionIndex, request.getDescriptionIndex());
-            anyField = true;
-        }
-        if (Objects.nonNull(request.getPromptSnapshot()))
-        {
-            // 允许显式置空：promptSnapshot 是文本快照，可由用户清理
-            upd.set(AidRolePropSceneFormImage::getPromptSnapshot, request.getPromptSnapshot());
             anyField = true;
         }
         if (Objects.nonNull(request.getReferenceImages()))
@@ -500,11 +498,12 @@ public class RpsFormImageBusinessServiceImpl implements IRpsFormImageBusinessSer
         upd.set(AidRolePropSceneFormImage::getUpdateBy, String.valueOf(userId));
         rpsFormImageService.update(upd);
 
-        AidRolePropSceneFormImage updated = rpsFormImageService.getById(request.getImageId());
+        // 查询字段精简：C端更新结果不加载内部提示词快照。
+        AidRolePropSceneFormImage updated = rpsFormImageService.getOne(
+                detailImageSelectWrapper().eq(AidRolePropSceneFormImage::getId, request.getImageId()));
         AidRolePropSceneForm form = rpsFormService.getById(updated.getFormId());
         AidRolePropScene asset = Objects.nonNull(form) ? rpsService.getById(form.getAssetId()) : null;
-        // form-image/update 详情需要输出 promptSnapshot，传 true
-        return buildDetailVO(updated, form, asset, true);
+        return buildDetailVO(updated, form, asset);
     }
 
     /**
@@ -563,6 +562,15 @@ public class RpsFormImageBusinessServiceImpl implements IRpsFormImageBusinessSer
         }
 
         LambdaQueryWrapper<AidRolePropSceneFormImage> imgQuery = Wrappers.lambdaQuery();
+        // 查询字段精简：C端列表明确排除 prompt_snapshot。
+        imgQuery.select(AidRolePropSceneFormImage::getId, AidRolePropSceneFormImage::getFormId,
+                AidRolePropSceneFormImage::getAssetId, AidRolePropSceneFormImage::getProjectId,
+                AidRolePropSceneFormImage::getEpisodeId, AidRolePropSceneFormImage::getName,
+                AidRolePropSceneFormImage::getImageUrl, AidRolePropSceneFormImage::getSourceType,
+                AidRolePropSceneFormImage::getDescriptionIndex, AidRolePropSceneFormImage::getReferenceImages,
+                AidRolePropSceneFormImage::getSortOrder, AidRolePropSceneFormImage::getIsUse,
+                AidRolePropSceneFormImage::getImageStatus, AidRolePropSceneFormImage::getFailReason,
+                AidRolePropSceneFormImage::getIsSplitSource, AidRolePropSceneFormImage::getIsSplitChild);
         imgQuery.eq(AidRolePropSceneFormImage::getUserId, userId);
         imgQuery.eq(AidRolePropSceneFormImage::getDelFlag, DEL_FLAG_NORMAL);
         if (Objects.nonNull(request.getFormId()))
@@ -625,21 +633,18 @@ public class RpsFormImageBusinessServiceImpl implements IRpsFormImageBusinessSer
         //    主资产 ID 收敛阶段下推到 SQL，此处不再做 assetType 内存裁剪。
         Map<Long, AidRolePropSceneForm> finalFormMap = formMap;
         Map<Long, AidRolePropScene> finalAssetMap = assetMap;
-        // form-image/list 出参不输出 promptSnapshot（提示词快照体积大且列表无需展示），传 false 屏蔽
         return imgs.stream()
-                .map(i -> buildDetailVO(i, finalFormMap.get(i.getFormId()), finalAssetMap.get(i.getAssetId()), false))
+                .map(i -> buildDetailVO(i, finalFormMap.get(i.getFormId()), finalAssetMap.get(i.getAssetId())))
                 .collect(Collectors.toList());
     }
 
     /**
      * 组装图片详情 VO（含归属信息）。
      *
-     * @param includePromptSnapshot 是否输出 promptSnapshot：form-image/update 详情需要(true)，form-image/list 列表不需要(false)
      */
     private RpsFormImageDetailVO buildDetailVO(AidRolePropSceneFormImage img,
                                                AidRolePropSceneForm form,
-                                               AidRolePropScene asset,
-                                               boolean includePromptSnapshot)
+                                               AidRolePropScene asset)
     {
         // canSplit：仅 scene 类型 + 未被拆过(is_split_source=0) + 非拆分产物(is_split_child=0) 才可拆
         String assetType = Objects.nonNull(asset) ? asset.getAssetType() : null;
@@ -659,8 +664,6 @@ public class RpsFormImageBusinessServiceImpl implements IRpsFormImageBusinessSer
                 .imageUrl(img.getImageUrl())
                 .sourceType(img.getSourceType())
                 .descriptionIndex(img.getDescriptionIndex())
-                // promptSnapshot 仅在需要时输出（list 不输出，update 详情输出）
-                .promptSnapshot(includePromptSnapshot ? img.getPromptSnapshot() : null)
                 .isUse(img.getIsUse())
                 .imageStatus(img.getImageStatus())
                 .failReason(img.getFailReason())
@@ -668,6 +671,22 @@ public class RpsFormImageBusinessServiceImpl implements IRpsFormImageBusinessSer
                 .sortOrder(img.getSortOrder())
                 .canSplit(canSplit)                                 // 是否可拆分四宫格
                 .build();
+    }
+
+    /** C端单图详情查询字段，明确排除内部 prompt_snapshot。 */
+    private LambdaQueryWrapper<AidRolePropSceneFormImage> detailImageSelectWrapper()
+    {
+        return Wrappers.<AidRolePropSceneFormImage>lambdaQuery()
+                .select(AidRolePropSceneFormImage::getId, AidRolePropSceneFormImage::getFormId,
+                        AidRolePropSceneFormImage::getAssetId, AidRolePropSceneFormImage::getProjectId,
+                        AidRolePropSceneFormImage::getEpisodeId, AidRolePropSceneFormImage::getName,
+                        AidRolePropSceneFormImage::getImageUrl, AidRolePropSceneFormImage::getSourceType,
+                        AidRolePropSceneFormImage::getDescriptionIndex,
+                        AidRolePropSceneFormImage::getReferenceImages,
+                        AidRolePropSceneFormImage::getSortOrder, AidRolePropSceneFormImage::getIsUse,
+                        AidRolePropSceneFormImage::getImageStatus, AidRolePropSceneFormImage::getFailReason,
+                        AidRolePropSceneFormImage::getIsSplitSource,
+                        AidRolePropSceneFormImage::getIsSplitChild);
     }
 
     /**

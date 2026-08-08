@@ -72,10 +72,12 @@ public class AidComicAssetController extends BaseController
      * 新增项目提取资产
      */
     @PreAuthorize("@ss.hasPermi('aid:aidcomicasset:add')")
-    @Log(title = "项目提取资产", businessType = BusinessType.INSERT)
+    @Log(title = "项目提取资产", businessType = BusinessType.INSERT,
+            excludeParamNames = {"hiddenStylePromptJson"})
     @PostMapping
     public AjaxResult add(@RequestBody AidComicAsset aidComicAsset)
     {
+        aidComicAsset.setCreateBy(getUsername());
         return toAjax(aidComicAssetService.insertAidComicAsset(aidComicAsset));
     }
 
@@ -83,10 +85,12 @@ public class AidComicAssetController extends BaseController
      * 修改项目提取资产
      */
     @PreAuthorize("@ss.hasPermi('aid:aidcomicasset:edit')")
-    @Log(title = "项目提取资产", businessType = BusinessType.UPDATE)
+    @Log(title = "项目提取资产", businessType = BusinessType.UPDATE,
+            excludeParamNames = {"hiddenStylePromptJson"})
     @PutMapping
     public AjaxResult edit(@RequestBody AidComicAsset aidComicAsset)
     {
+        aidComicAsset.setUpdateBy(getUsername());
         return toAjax(aidComicAssetService.updateAidComicAsset(aidComicAsset));
     }
 

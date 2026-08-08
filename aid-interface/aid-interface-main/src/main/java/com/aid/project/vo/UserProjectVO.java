@@ -43,6 +43,9 @@ public class UserProjectVO {
     /** 视频风格值字符串（前端传什么存什么） */
     private String videoStyleValue;
 
+    /** 是否已因资产或提取任务锁定风格切换 */
+    private Boolean styleLocked;
+
     /** 默认生成模式(economy经济, performance性能) */
     private String defaultGenMode;
 

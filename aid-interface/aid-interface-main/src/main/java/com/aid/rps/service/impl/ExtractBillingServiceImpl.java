@@ -21,12 +21,14 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.core.toolkit.support.SFunction;
+import com.aid.aid.domain.AidComicProject;
 import com.aid.aid.domain.AidExtractTask;
 import com.aid.aid.domain.AidExtractTaskBillingSnapshot;
 import com.aid.aid.domain.media.AidMediaTask;
 import com.aid.aid.mapper.AidMediaTaskMapper;
 import com.aid.aid.service.IAidExtractTaskBillingSnapshotService;
 import com.aid.aid.service.IAidExtractTaskService;
+import com.aid.aid.service.IAidComicProjectService;
 import com.aid.billing.dto.BillingCalcResult;
 import com.aid.billing.enums.BillingConstants;
 import com.aid.billing.enums.BillingMode;
@@ -119,6 +121,9 @@ public class ExtractBillingServiceImpl implements IExtractBillingService
 
     @Autowired
     private IAidExtractTaskService extractTaskService;
+
+    @Autowired
+    private IAidComicProjectService comicProjectService;
 
     @Autowired
     private AidMediaTaskMapper aidMediaTaskMapper;
@@ -337,11 +342,30 @@ public class ExtractBillingServiceImpl implements IExtractBillingService
                 ? BillingConstants.normalizeAccountAmount(BigDecimal.ZERO)
                 : BillingConstants.normalizeAccountAmount(frozenAmount);
         String traceId = IdUtil.fastSimpleUUID();
+        AidExtractTask preflightTask = extractTaskService.selectAidExtractTaskById(taskId);
+        Long assetExtractProjectId = Objects.nonNull(preflightTask)
+                && Objects.equals(TASK_TYPE_ASSET_EXTRACT, preflightTask.getTaskType())
+                ? preflightTask.getProjectId() : null;
         AidExtractTask[] metadataTask = new AidExtractTask[1];
         ResumeBillingContext preparedContext;
         try
         {
             preparedContext = transactionTemplate.execute(status -> {
+                if (Objects.nonNull(assetExtractProjectId))
+                {
+                    // 续跑置活前先锁项目，再锁任务；与风格切换保持统一锁顺序且不覆盖后续资金冻结/派发。
+                    AidComicProject lockedProject = comicProjectService.getOne(
+                            Wrappers.<AidComicProject>lambdaQuery()
+                                    .select(AidComicProject::getId)
+                                    .eq(AidComicProject::getId, assetExtractProjectId)
+                                    .eq(AidComicProject::getUserId, userId)
+                                    .eq(AidComicProject::getDelFlag, "0")
+                                    .last("FOR UPDATE"));
+                    if (Objects.isNull(lockedProject))
+                    {
+                        throw new ServiceException("项目不存在");
+                    }
+                }
                 AidExtractTask lockedTask = selectTaskForUpdate(taskId);
                 if (lockedTask == null || !Objects.equals(userId, lockedTask.getUserId())
                         || !"0".equals(lockedTask.getDelFlag()))

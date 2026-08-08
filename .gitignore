@@ -35,6 +35,8 @@ out/
 
 # Other files and folders
 *.log
+__pycache__/
+*.py[cod]
 *.class
 *.jar
 *.war
