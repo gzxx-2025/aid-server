@@ -4346,8 +4346,17 @@ prepare_install_package() { # prepare_install_package [本地包]
 }
 
 first_install_unmanaged_entry() { # first_install_unmanaged_entry <docker|manual>
-  local mode="$1" entry name
+  local mode="$1" entry name rootOwned="no"
+  case "${mode}" in
+    docker|manual) ;;
+    *) die "未知部署方式，无法检查数据目录: ${mode}" ;;
+  esac
   [[ -d "${DATA_ROOT}" ]] || return 1
+  # 配置确认阶段已经为数据根写入强所有权证据。后续源码构建、依赖准备或上一次
+  # 失败重试可能留下另一种部署方式也会复用的标准目录；这些都属于 AID，不能
+  # 因当前选择 docker/manual 不同而误报。没有所有权证据时仍只放行安装器在
+  # 确认前创建的最小缓存集合，防止把任意现有目录冒充成 AID 数据。
+  aid_data_root_has_ownership_evidence && rootOwned="yes"
   while IFS= read -r -d '' entry; do
     name="${entry##*/}"
     case "${name}" in
@@ -4357,9 +4366,15 @@ first_install_unmanaged_entry() { # first_install_unmanaged_entry <docker|manual
       aid-deploy.conf)
         [[ -f "${entry}" && ! -L "${entry}" ]] && continue
         ;;
-      runtime|mysql-data-manual|mysql-files|redis-data-manual|run)
-        # 手动部署会在首次确认前准备受管 MySQL/Redis；这些目录仍属于 AID。
-        [[ "${mode}" == "manual" && -d "${entry}" && ! -L "${entry}" ]] && continue
+      aid-nginx.conf)
+        [[ "${rootOwned}" == "yes" && -f "${entry}" && ! -L "${entry}" ]] && continue
+        ;;
+      app|backups|runtime|run|mysql-data|redis-data|rocketmq|uploadPath|uploadPath-private|mysql-data-manual|mysql-files|redis-data-manual)
+        [[ "${rootOwned}" == "yes" && -d "${entry}" && ! -L "${entry}" ]] && continue
+        ;;
+      .installer-extract.*)
+        # 进程被中断时可能留下受限安装器解压临时目录；仅在数据根归属已确认时复用。
+        [[ "${rootOwned}" == "yes" && -d "${entry}" && ! -L "${entry}" ]] && continue
         ;;
     esac
     printf '%s\n' "${entry}"

@@ -28,34 +28,30 @@ assert_unmanaged_entry() {
   }
 }
 
-assert_unmanaged_manual_runtime_entry() {
-  local actual
-  actual="$(first_install_unmanaged_entry docker || true)"
-  case "${actual}" in
-    "${AID_DATA_ROOT}/runtime"|"${AID_DATA_ROOT}/mysql-data-manual"|\
-    "${AID_DATA_ROOT}/mysql-files"|"${AID_DATA_ROOT}/redis-data-manual"|"${AID_DATA_ROOT}/run") ;;
-    *)
-      echo "FAIL: docker 模式未识别手动部署目录，实际: ${actual:-<空>}" >&2
-      exit 1
-      ;;
-  esac
-}
-
 # Docker 在确认部署前会完成配置、源码构建、镜像准备与安装器提取。
 mkdir -p "${AID_DATA_ROOT}"/{packages,installer,config,source-build,build-cache,logs}
 touch "${AID_DATA_ROOT}/aid-deploy.conf"
 assert_no_unmanaged_entry docker
 
-# 手动部署还会提前准备受管 MySQL/Redis 的运行目录。
-mkdir -p "${AID_DATA_ROOT}"/{runtime,mysql-data-manual,mysql-files,redis-data-manual,run}
+# 没有 AID 所有权证据时，单独存在的 runtime 仍必须按未知内容处理。
+mkdir -p "${AID_DATA_ROOT}/runtime"
+assert_unmanaged_entry docker "${AID_DATA_ROOT}/runtime"
+assert_unmanaged_entry manual "${AID_DATA_ROOT}/runtime"
+rm -rf "${AID_DATA_ROOT}/runtime"
+
+# 配置阶段写入强所有权证据后，Docker/手动部署都必须允许 AID 的标准目录。
+# 这保证源码构建、失败重试或部署方式切换留下的受管内容不会被误报。
+mkdir -p "${AID_DATA_ROOT}/config"
+cat > "${AID_DATA_ROOT}/config/.aid-managed" <<EOF
+AID_MANAGED_ROOT=1
+AID_DATA_ROOT=${AID_DATA_ROOT}
+AID_MANAGER_SCRIPT=${AID_DATA_ROOT}/installer/deploy/aid.sh
+EOF
+mkdir -p "${AID_DATA_ROOT}"/{app,backups,runtime,run,mysql-data,redis-data,rocketmq,uploadPath,uploadPath-private,mysql-data-manual,mysql-files,redis-data-manual,.installer-extract.retry}
+touch "${AID_DATA_ROOT}/aid-nginx.conf"
+assert_no_unmanaged_entry docker
 assert_no_unmanaged_entry manual
 
-# Docker 不应把仅属于手动部署的运行目录静默放行。find 的目录返回顺序不固定，
-# 因此接受任意一个被正确识别出的手动部署目录，避免依赖具体文件系统顺序。
-assert_unmanaged_manual_runtime_entry
-
-rm -rf "${AID_DATA_ROOT}/runtime" "${AID_DATA_ROOT}/mysql-data-manual" \
-  "${AID_DATA_ROOT}/mysql-files" "${AID_DATA_ROOT}/redis-data-manual" "${AID_DATA_ROOT}/run"
 mkdir -p "${AID_DATA_ROOT}/other-business"
 assert_unmanaged_entry docker "${AID_DATA_ROOT}/other-business"
 
