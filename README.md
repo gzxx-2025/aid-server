@@ -16,9 +16,9 @@
   在线体验 AID，了解 AI 漫剧、AI 电影、AI 漫画三大创作方向及官方运营服务。
 </p>
 
-AID 是一套面向 **AI 漫剧、AI 电影、AI 漫画** 的开源内容创作平台，覆盖 **剧本创作 → 角色/道具/场景管理 → 分镜设计 → 文生图 → 图生视频 → 配音 → 成片** 的完整生产流程，内置多 AI 厂商统一编排、任务调度、计费支付与运营管理能力。
+AID 是一套面向 **AI 漫剧、AI 电影、AI 漫画** 的开源内容生产平台，覆盖 **故事与剧本 → 分集 → 角色/道具/场景 → 分镜 → 图片 → 视频 → 配音 → 成片** 的完整工作流，并提供多 AI 厂商编排、任务调度、计费支付、运营管理、生产部署和在线升级能力。
 
-本仓库为 **服务端（aid-server）**，同时是三端统一的发布入口（版本清单、源码构建脚本和小型升级器均从本仓库发布）。
+本仓库是 **服务端（aid-server）**，也是三端统一的部署与发布入口。公开版本清单、一键部署脚本、增量 SQL 和独立升级器均由这里提供；用户创作端与运营管理端会按同一版本标签一起构建，避免三端版本不一致。
 
 ## 交流与反馈
 
@@ -95,13 +95,15 @@ AID 的初始化数据会引用一组官方媒体资源，用于首次部署后�
 
 **平台能力**
 
-- 多厂商编排：DashScope、火山方舟、即梦、Vidu、Gemini、MiniMax 等厂商统一接入，新增厂商实现 `ImageProviderClient` / `VideoProviderClient` 即插即用
+- 多厂商编排：文本、图片、视频和语音模型通过统一 Provider 接入，模型能力、参考图数量、分辨率、时长和比例均可配置
 - 官方 API 统一网关：一个地址 + 一个 Key 替代全部厂商配置，支持按模型设置例外
-- 统一任务系统：生成任务排队、并发调度、SSE 进度推送、失败补偿与自愈
+- 统一任务系统：生成任务排队、并发调度、进度推送、失败重试、补偿和结果回收
+- 视觉一致性：角色、道具、场景资产复用，官方/自定义风格与项目风格快照，参考图按模型能力安全编排
 - 计费体系：按模型/SKU 计费、余额冻结与结算、充值套餐、支付宝/微信支付
 - 用户体系：账号/短信/邮箱/微信扫码登录、实名认证、邀请激励
-- 运营管理：模型/供应商/提示词/内容/订单/用户全后台管理
-- **在线升级**：内置版本检查、页面一键升级、版本回退，配套独立升级器 aid-updater
+- 运营管理：模型、供应商、智能体、提示词、内容、订单、用户、存储和平台配置统一管理
+- 生产运维：Docker 与 systemd 两种部署方式、内外部中间件、HTTPS、配置备份、状态诊断和完整卸载
+- 在线升级：页面与命令行均可检查更新、查看实时进度和执行回退，配套独立升级器 `aid-updater`
 
 ## 系统架构
 
@@ -142,17 +144,49 @@ aid-server（Maven 多模块单体）
 
 ## 快速开始
 
-### 生产部署（推荐 Docker 一键部署）
+### 生产部署
 
-普通用户不需要预先下载 `aid.sh`，复制下面一条命令即可。命令会优先用 `curl`、不可用时改用 `wget`，先把官方脚本保存到本机再执行，不采用难以审计的 `curl | bash`：
+推荐在一台全新的 64 位 Linux 服务器上使用统一安装器。下面的命令会把脚本保存到 `/root/aid-install.sh`，优先从 Gitee 下载，失败后自动切换 GitHub；下载成功后才执行脚本，不会把网络响应直接通过管道交给 Shell。
 
 ```bash
-if command -v curl >/dev/null 2>&1; then curl -fL --retry 3 -o aid-install.sh https://gitee.com/gzxx-2025/aid-server/raw/master/deploy/aid.sh; elif command -v wget >/dev/null 2>&1; then wget -O aid-install.sh https://gitee.com/gzxx-2025/aid-server/raw/master/deploy/aid.sh; else echo '请先安装 curl 或 wget'; false; fi && sudo env AID_REMOTE_BOOTSTRAP=1 bash aid-install.sh install
+cd /root && if command -v curl >/dev/null 2>&1; then curl -fL --retry 3 --connect-timeout 15 -o /root/aid-install.sh https://gitee.com/gzxx-2025/aid-server/raw/master/deploy/aid.sh || curl -fL --retry 3 --connect-timeout 15 -o /root/aid-install.sh https://raw.githubusercontent.com/gzxx-2025/aid-server/master/deploy/aid.sh; elif command -v wget >/dev/null 2>&1; then wget -O /root/aid-install.sh https://gitee.com/gzxx-2025/aid-server/raw/master/deploy/aid.sh || wget -O /root/aid-install.sh https://raw.githubusercontent.com/gzxx-2025/aid-server/master/deploy/aid.sh; else echo '请先安装 curl 或 wget'; exit 1; fi && sudo env AID_REMOTE_BOOTSTRAP=1 AID_RELEASE_CHANNEL=beta bash /root/aid-install.sh install
 ```
 
-脚本会自动发现当前渠道最新版本，优先检测 Gitee 三端的同一版本标签；Gitee 不通时整组切到 GitHub，在服务器临时目录完成服务端、后台管理端、Web 用户端和升级器构建，校验通过后再生成安全配置、部署中间件、初始化空数据库。Maven 固定优先使用国内镜像，失败后用 Maven Central 官方仓库重新构建；Docker 镜像支持多个国内 Registry 候选，先测速排序、再按真实拉取结果逐源回退，并对固定镜像校验官方摘要。三端编译过程会实时打印，并将完整日志保存到 `/data/aid/logs/`。同一条远程命令在已部署机器上会自动改为检查更新，不会重复初始化数据库；将末尾的 `install` 改为 `install-manual` 可进行手动 systemd 首次部署，改为 `update` 可明确执行 Docker/手动部署通用更新。每次更新都会先在原配置同目录生成时间戳备份，再保持已有内容和值完全不变，仅追加目标版本模板新增而本地缺失的参数。部署成功后也可直接使用 `sudo aid update`。完整流程、命令与风险说明见[部署指南](deploy/README.md)。
+`install` 是智能入口：未部署时默认进入 Docker 首次安装，已经部署时转入更新检查。也可以明确选择部署方式：
 
-Docker 与手动 systemd 部署均支持可选 HTTPS：配置用户端与管理端两个域名、443 端口及 `DATA_ROOT/config/ssl` 下的证书即可启用 TLS；未启用时不会占用 443。Docker 可在内置 MySQL 5.7 与外部 MySQL 5.7 之间明确切换，外部模式不会启动内置数据库；Redis 支持可选 ACL 用户名、密码和数据库索引；内置及外部 RocketMQ 均支持可选 AccessKey/SecretKey，内置 Broker 还可选择同步/异步刷盘。依赖统一遵循“存在且版本匹配就跳过”：Docker 缺失或过旧时单独询问是否自动安装，手动模式会准备 JDK/Git/Maven/Node/Go/Nginx，以及缺失的本机 MySQL 5.7/Redis；外部中间件只校验不安装，RocketMQ 始终由管理员准备。不要把 `HTTP_PORT` 直接设置为 443，这不会产生 HTTPS。完整配置、Nginx 路径与切换保护见[部署指南](deploy/README.md#内置或外部-mysqlredisrocketmq)。
+```bash
+sudo env AID_REMOTE_BOOTSTRAP=1 AID_RELEASE_CHANNEL=beta bash /root/aid-install.sh install-docker
+sudo env AID_REMOTE_BOOTSTRAP=1 AID_RELEASE_CHANNEL=beta bash /root/aid-install.sh install-manual
+```
+
+| 部署方式 | 适合场景 | 配置真源 | 运行方式 |
+|---------|---------|---------|---------|
+| Docker（推荐） | 新服务器、希望中间件与运行环境隔离 | `/data/aid/config/docker.env` | Docker Compose |
+| 手动部署 | 已有主机环境、宝塔或 systemd 运维体系 | `/data/aid/aid-deploy.conf` | systemd + Nginx |
+
+首次部署会先生成配置并要求管理员检查确认；**配置未确认前不会拉取三端源码、构建程序、初始化数据库或启动服务**。部署器会优先使用国内源码、依赖和镜像线路，失败时回退官方地址；服务端、管理端、Web 端与升级器使用同一版本标签构建，完整日志写入 `/data/aid/logs/`。已存在且版本符合的依赖会直接复用，未完整下载的缓存会重新校验和下载。
+
+Docker 模式支持内置或外部 MySQL 5.7、内置或外部 Redis、可选 RocketMQ、可选 HTTPS；配置外部 MySQL 后不会启动内置 MySQL。Redis 用户名、密码和数据库索引均可为空，RocketMQ 关闭时不会启动或校验 MQ，启用后可配置外部 NameServer 与 ACL。手动模式会按需准备 JDK、Git、Maven、Node.js、Go、Nginx、MySQL 5.7 和 Redis；外部中间件只做连通性校验，RocketMQ 由管理员自行准备。
+
+HTTPS 需要用户域名、管理域名、443 端口以及完整证书链和私钥。证书默认放在 `/data/aid/config/ssl/`，也可在管理端「项目升级配置 → 运行配置」中上传证书、配置域名并分别测试 DNS、证书和 HTTPS。仅设置 `HTTP_PORT=443` 不会自动启用 TLS。
+
+部署完成后使用统一命令管理两种安装方式：
+
+| 命令 | 作用 |
+|------|------|
+| `sudo aid` | 打开交互式管理菜单 |
+| `sudo aid default` | 查看公网/内网用户端、管理端地址及初始化账号说明 |
+| `sudo aid status` | 检查服务、中间件和升级器状态 |
+| `sudo aid logs` | 查看运行日志 |
+| `sudo aid config` | 编辑当前部署配置并按提示生效 |
+| `sudo aid restart` | 重新加载配置并重启服务 |
+| `sudo aid update` | 检查并执行当前渠道更新 |
+| `sudo aid progress` | 查看升级、升级器更新或回退的实时进度 |
+| `sudo aid rollback` | 选择官方允许回退的历史版本 |
+| `sudo aid backup` | 创建部署备份 |
+| `sudo aid mysql` | 查看当前 MySQL 连接信息 |
+| `sudo aid uninstall --keep` | 卸载程序但保留数据与配置 |
+| `sudo aid uninstall --purge` | 经二次确认后完整清除 AID 数据 |
 
 **服务器配置要求**（安装脚本自动检查，低于配置时提示当前配置并使用 `y/n` 确认）：
 
@@ -182,13 +216,13 @@ mvn clean package -DskipTests
 java -jar aid-admin/target/aid-admin.jar
 ```
 
-访问 `http://localhost:8080` 验证服务；默认管理员 `admin / admin123`（首次登录后立即修改密码）。
+访问 `http://localhost:8080` 验证服务；数据库初始化管理员为 `admin / admin123`，首次登录后必须立即修改密码。
 
 后端全部环境参数支持环境变量覆盖：`DB_*`、`REDIS_*`、`TOKEN_SECRET`（**生产必须注入强随机值**）、`AID_PROFILE`、`ROCKETMQ_ENABLED`（未部署 RocketMQ 时设 `false` 可完全关闭 MQ 装配，系统走本地任务模式）、`ROCKETMQ_NAMESERVER`。
 
 ### 默认访问与后台访问码
 
-生产部署完成后，默认访问地址如下：
+生产部署完成后，默认访问地址如下（实际端口和随机访问码以 `sudo aid default` 输出为准）：
 
 | 入口 | 默认地址 | 说明 |
 |------|---------|------|
@@ -196,7 +230,7 @@ java -jar aid-admin/target/aid-admin.jar
 | 管理端 | `http://服务器IP:8089/<随机访问码>` | 默认 8089 端口，首次部署生成12位随机访问码并打印完整地址 |
 | 后端接口 | `http://服务器IP:8080/` | 默认 8080 端口，通常由 Nginx 反向代理访问 |
 
-管理端数据库初始化账号为 `admin / admin123`。首次部署不会使用公开的固定入口，安装器会生成12位随机访问码；首次登录后请立即修改管理员密码，并可在「全局业务配置 → 登录与认证 → 后台登录入口」重新生成访问码。需要重新查看完整公网/内网、用户端和管理端地址时执行 `sudo aid default`。该命令读取数据库中的实际访问码，但只展示初始化账号说明，不会反查或重置已修改的管理员密码。Docker 和手动部署均可通过 `sudo aid uninstall --keep` 保留数据卸载；需要完整清除时执行 `sudo aid uninstall --purge` 或 `sudo aid uninstall-all`，并人工输入 `DELETE-AID`。交互菜单 13 也会直接进入完整清除流程。
+管理端数据库初始化账号为 `admin / admin123`。首次部署不会使用公开的固定入口，安装器会生成 12 位随机访问码；首次登录后请立即修改管理员密码，并可在「全局业务配置 → 登录与认证 → 后台登录入口」重新生成访问码。`sudo aid default` 只展示初始化账号说明，不会反查或重置已经修改的管理员密码。
 
 启用后台随机入口后，后台登录地址按下面规则拼接：
 
@@ -226,12 +260,16 @@ https://admin.example.com/Ab12Cd34Ef56
 
 | 文档 | 说明 |
 |------|------|
-| [部署指南](deploy/README.md) | Docker / 手动部署、生产参数调优、升级器安装、在线升级说明 |
+| [部署指南](deploy/README.md) | Docker / systemd 部署、配置项、HTTPS、中间件、升级、回退与卸载 |
 | Swagger 接口文档 | 启动后访问 `http://localhost:8080/swagger-ui.html`（生产环境默认关闭） |
 
 ## 在线升级
 
-系统内置完整升级体系：管理端左上角实时显示版本状态，检测到新版本后可页面一键升级；配套的独立升级器（`deploy/updater`，Go 实现）负责签名版本校验、同标签源码构建、自动备份、停服替换、增量 SQL 执行、健康检查与失败自动回滚，并支持回退到官方允许的历史版本。安装与使用详见[部署指南](deploy/README.md)。
+管理端「系统管理 → 项目升级配置」和命令行使用同一套独立升级器。页面会展示当前版本、线上版本、双语版本说明、升级器状态、可回退版本以及黑色实时终端；任务执行期间禁止重复提交，低于 4 核 4G 时会在确认升级前给出高风险提醒。
+
+升级流程会先确认升级器版本，升级器落后时必须先升级升级器；随后校验签名清单和三端同版本源码，完成配置与数据库备份、本机源码构建、增量 SQL、程序替换和健康检查。新增配置只会补入缺失项，原有配置值保持不变并在同目录生成备份；失败时按安全边界自动恢复程序与配置。升级期间可在页面或执行 `sudo aid progress` 查看同一份实时日志，按 `q` 退出查看不会中断后台任务。
+
+更新会进行三端编译、数据库备份和健康检查，短时间内可能明显占用 CPU、内存和磁盘 I/O。生产环境应先做异机备份并在业务低峰执行；Beta 版本建议先在测试环境验证。完整升级、SQL 与回退规则见[部署指南](deploy/README.md)。
 
 ## 产品预览
 
