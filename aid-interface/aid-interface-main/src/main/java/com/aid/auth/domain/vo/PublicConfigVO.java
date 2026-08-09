@@ -31,6 +31,9 @@ public class PublicConfigVO
     /** 邮箱验证码策略（aid_config category=mail） */
     private CodePolicy emailPolicy;
 
+    /** 登录渠道开关（来自短信、邮箱与微信公众号登录的当前生效配置） */
+    private LoginChannels login;
+
     /** 服务端时间戳（毫秒），便于前端排查时差与缓存命中调试 */
     private Long serverTime;
 
@@ -123,6 +126,23 @@ public class PublicConfigVO
 
         /** 同 target/IP 每日上限（≤0 表示不限） */
         private int dailyLimit;
+    }
+
+    /**
+     * 登录渠道开关块。
+     */
+    @Data
+    @Builder
+    public static class LoginChannels
+    {
+        /** 短信验证码登录是否可用 */
+        private boolean smsEnabled;
+
+        /** 邮箱验证码登录是否可用 */
+        private boolean emailEnabled;
+
+        /** 微信扫码登录是否可用 */
+        private boolean wechatEnabled;
     }
 
     /**

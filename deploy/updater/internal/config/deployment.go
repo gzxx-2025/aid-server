@@ -88,6 +88,9 @@ func (c *Config) ReadDeploymentState() (*DeploymentState, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := c.validateDeploymentDataRoot(values); err != nil {
+		return nil, err
+	}
 	normalizeLegacyDockerDatabase(mode, values)
 	if err := validateDeploymentValues(mode, values); err != nil {
 		return nil, err
@@ -116,6 +119,54 @@ func (c *Config) ReadDeploymentState() (*DeploymentState, error) {
 		SafeValues:        safe,
 		ConfiguredSecrets: configuredSecrets,
 	}, nil
+}
+
+// validateDeploymentDataRoot 保证业务配置、升级器产物路径和白名单配置目录属于
+// 同一个数据根。Docker Compose 会按 DATA_ROOT 挂载宿主机目录，若只提示不阻断，
+// 升级器可能备份一套目录却重启另一套容器。
+func (c *Config) validateDeploymentDataRoot(values map[string]string) error {
+	configured := strings.TrimSpace(values["DATA_ROOT"])
+	configured = trimTrailingPathSeparators(configured)
+	if !filepath.IsAbs(configured) || filepath.Clean(configured) != configured {
+		return fmt.Errorf("DATA_ROOT必须是绝对路径")
+	}
+	allowedConfigured := trimTrailingPathSeparators(strings.TrimSpace(c.Deployment.AllowedConfigRoot))
+	if !filepath.IsAbs(allowedConfigured) || filepath.Clean(allowedConfigured) != allowedConfigured {
+		return fmt.Errorf("升级器配置目录非法")
+	}
+	allowedRoot, err := filepath.Abs(allowedConfigured)
+	if err != nil {
+		return fmt.Errorf("升级器配置目录非法")
+	}
+	expectedRoot := filepath.Dir(filepath.Clean(allowedRoot))
+	if isFilesystemRoot(expectedRoot) {
+		return fmt.Errorf("升级器受管目录不能位于文件系统根")
+	}
+	configuredRoot, err := filepath.Abs(configured)
+	if err != nil {
+		return fmt.Errorf("DATA_ROOT路径非法: %w", err)
+	}
+	if filepath.Clean(configuredRoot) != expectedRoot {
+		return fmt.Errorf("DATA_ROOT与升级器受管目录不一致")
+	}
+	if err := rejectSymlinkComponents(expectedRoot); err != nil {
+		return fmt.Errorf("DATA_ROOT路径非法: %w", err)
+	}
+	return nil
+}
+
+func trimTrailingPathSeparators(path string) string {
+	minimumLength := len(filepath.VolumeName(path)) + 1
+	for len(path) > minimumLength && os.IsPathSeparator(path[len(path)-1]) {
+		path = path[:len(path)-1]
+	}
+	return path
+}
+
+func isFilesystemRoot(path string) bool {
+	clean := filepath.Clean(path)
+	volumeRoot := filepath.Clean(filepath.VolumeName(clean) + string(os.PathSeparator))
+	return clean == string(os.PathSeparator) || clean == volumeRoot
 }
 
 // normalizeLegacyDockerDatabase 兼容旧版“固定内置 MySQL”的配置。只有 DB_HOST
@@ -461,10 +512,7 @@ func mergeEnvFile(sourcePath string, allValues, changes map[string]string) ([]by
 }
 
 func validateDeploymentValues(mode string, values map[string]string) error {
-	required := []string{"HTTP_PORT", "ADMIN_PORT", "BACKEND_PORT", "DB_HOST", "DB_PORT", "DB_NAME", "DB_USERNAME", "DB_PASSWORD", "TOKEN_SECRET", "REDIS_HOST", "REDIS_PORT"}
-	if mode == "docker" {
-		required = append(required, "DATA_ROOT")
-	}
+	required := []string{"DATA_ROOT", "HTTP_PORT", "ADMIN_PORT", "BACKEND_PORT", "DB_HOST", "DB_PORT", "DB_NAME", "DB_USERNAME", "DB_PASSWORD", "TOKEN_SECRET", "REDIS_HOST", "REDIS_PORT"}
 	for _, key := range required {
 		if strings.TrimSpace(values[key]) == "" {
 			return fmt.Errorf("配置项 %s 不能为空", key)

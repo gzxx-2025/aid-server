@@ -10,7 +10,7 @@ import (
 func TestRefreshDeploymentUsesRuntimeConfigAndHidesSecrets(t *testing.T) {
 	root := t.TempDir()
 	configPath := filepath.Join(root, "aid-deploy.conf")
-	raw := []byte("HTTP_PORT=80\nADMIN_PORT=8090\nBACKEND_PORT=9090\n" +
+	raw := []byte("DATA_ROOT=" + root + "\nHTTP_PORT=80\nADMIN_PORT=8090\nBACKEND_PORT=9090\n" +
 		"DB_HOST=10.0.0.8\nDB_PORT=3307\nDB_NAME=aid\nDB_USERNAME=aid\nDB_PASSWORD=db-secret\n" +
 		"REDIS_HOST=127.0.0.1\nREDIS_PORT=6379\nREDIS_USERNAME=acl-user\nREDIS_PASSWORD=redis-secret\n" +
 		"TOKEN_SECRET=token-secret\nJAVA_OPTS=-Xmx2g\nDEPENDENCY_INSTALL_MODE=manual\nDEPENDENCY_REGION=cn\n" +
@@ -53,8 +53,12 @@ func TestRefreshDeploymentUsesRuntimeConfigAndHidesSecrets(t *testing.T) {
 
 func TestRefreshDockerExternalMySQLUsesEphemeralClient(t *testing.T) {
 	root := t.TempDir()
-	configPath := filepath.Join(root, "docker.env")
-	raw := []byte("DATA_ROOT=/data/aid\nHTTP_PORT=80\nADMIN_PORT=8090\nBACKEND_PORT=8080\n" +
+	allowedRoot := filepath.Join(root, "config")
+	if err := os.MkdirAll(allowedRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(allowedRoot, "docker.env")
+	raw := []byte("DATA_ROOT=" + root + "\nHTTP_PORT=80\nADMIN_PORT=8090\nBACKEND_PORT=8080\n" +
 		"DB_HOST=db.internal\nDB_PORT=3307\nDB_NAME=aid\nDB_USERNAME=aid\nDB_PASSWORD=db-secret\n" +
 		"REDIS_HOST=redis\nREDIS_PORT=6379\nTOKEN_SECRET=token-secret\n" +
 		"COMPOSE_PROFILES=redis\nROCKETMQ_ENABLED=false\n")
@@ -65,8 +69,8 @@ func TestRefreshDockerExternalMySQLUsesEphemeralClient(t *testing.T) {
 		Install: Install{ServiceManager: "docker", HealthCheckURL: "http://aid-server:8080"},
 		Deployment: Deployment{
 			ConfigPath: configPath, DefaultConfigPath: configPath,
-			AllowedConfigRoot: root,
-			DescriptorFile:    filepath.Join(root, "deployment.json"),
+			AllowedConfigRoot: allowedRoot,
+			DescriptorFile:    filepath.Join(allowedRoot, "deployment.json"),
 		},
 	}
 	if _, err := cfg.RefreshDeployment(); err != nil {
@@ -83,8 +87,12 @@ func TestRefreshDockerExternalMySQLUsesEphemeralClient(t *testing.T) {
 
 func TestRefreshLegacyDockerConfigKeepsInternalMySQL(t *testing.T) {
 	root := t.TempDir()
-	configPath := filepath.Join(root, "docker.env")
-	raw := []byte("DATA_ROOT=/data/aid\nHTTP_PORT=80\nADMIN_PORT=8090\nBACKEND_PORT=8080\n" +
+	allowedRoot := filepath.Join(root, "config")
+	if err := os.MkdirAll(allowedRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(allowedRoot, "docker.env")
+	raw := []byte("DATA_ROOT=" + root + "\nHTTP_PORT=80\nADMIN_PORT=8090\nBACKEND_PORT=8080\n" +
 		"DB_NAME=aid\nDB_USERNAME=aid\nDB_PASSWORD=db-secret\nMYSQL_ROOT_PASSWORD=root-secret\nMYSQL_PORT=3306\n" +
 		"REDIS_HOST=redis\nREDIS_PORT=6379\nTOKEN_SECRET=token-secret\n" +
 		"COMPOSE_PROFILES=redis\nROCKETMQ_ENABLED=false\n")
@@ -95,8 +103,8 @@ func TestRefreshLegacyDockerConfigKeepsInternalMySQL(t *testing.T) {
 		Install: Install{ServiceManager: "docker", HealthCheckURL: "http://aid-server:8080"},
 		Deployment: Deployment{
 			ConfigPath: configPath, DefaultConfigPath: configPath,
-			AllowedConfigRoot: root,
-			DescriptorFile:    filepath.Join(root, "deployment.json"),
+			AllowedConfigRoot: allowedRoot,
+			DescriptorFile:    filepath.Join(allowedRoot, "deployment.json"),
 		},
 	}
 	state, err := cfg.RefreshDeployment()
@@ -118,7 +126,7 @@ func TestBuildDeploymentConfigRestrictsPathAndPreservesComments(t *testing.T) {
 		t.Fatal(err)
 	}
 	configPath := filepath.Join(allowedRoot, "runtime.conf")
-	raw := []byte("# keep this comment\nHTTP_PORT=80\nADMIN_PORT=8090\nBACKEND_PORT=8080\n" +
+	raw := []byte("# keep this comment\nDATA_ROOT=" + root + "\nHTTP_PORT=80\nADMIN_PORT=8090\nBACKEND_PORT=8080\n" +
 		"DB_HOST=127.0.0.1\nDB_PORT=3306\nDB_NAME=aid\nDB_USERNAME=root\nDB_PASSWORD=secret\n" +
 		"REDIS_HOST=127.0.0.1\nREDIS_PORT=6379\nTOKEN_SECRET=secret\nROCKETMQ_ENABLED=false\n")
 	if err := os.WriteFile(configPath, raw, 0o600); err != nil {
@@ -142,6 +150,70 @@ func TestBuildDeploymentConfigRestrictsPathAndPreservesComments(t *testing.T) {
 	outside := filepath.Join(root, "outside.conf")
 	if _, _, err := cfg.BuildDeploymentConfig(outside, map[string]string{"BACKEND_PORT": "9090"}); err == nil {
 		t.Fatal("outside path should be rejected")
+	}
+}
+
+func TestReadDeploymentStateRejectsDataRootMismatch(t *testing.T) {
+	root := t.TempDir()
+	allowedRoot := filepath.Join(root, "config")
+	if err := os.MkdirAll(allowedRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(allowedRoot, "docker.env")
+	raw := []byte("DATA_ROOT=" + filepath.Join(root, "other") + "\nHTTP_PORT=80\nADMIN_PORT=8090\nBACKEND_PORT=8080\n" +
+		"DB_HOST=mysql\nDB_PORT=3306\nDB_NAME=aid\nDB_USERNAME=aid\nDB_PASSWORD=dbsecret\n" +
+		"MYSQL_ROOT_PASSWORD=rootsecret\nMYSQL_PORT=3306\nREDIS_HOST=redis\nREDIS_PORT=6379\n" +
+		"TOKEN_SECRET=tokensecret\nCOMPOSE_PROFILES=mysql,redis\nROCKETMQ_ENABLED=false\n")
+	if err := os.WriteFile(configPath, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &Config{Install: Install{ServiceManager: "docker"}, Deployment: Deployment{
+		ConfigPath: configPath, DefaultConfigPath: configPath,
+		AllowedConfigRoot: allowedRoot, DescriptorFile: filepath.Join(allowedRoot, "deployment.json"),
+	}}
+	if _, err := cfg.ReadDeploymentState(); err == nil {
+		t.Fatal("DATA_ROOT mismatch must be rejected")
+	}
+}
+
+func TestValidateDeploymentDataRootRejectsNonCanonicalPathAndFilesystemRoot(t *testing.T) {
+	root := t.TempDir()
+	cfg := &Config{Deployment: Deployment{AllowedConfigRoot: filepath.Join(root, "config")}}
+	nonCanonical := filepath.Join(root, "nested") + string(os.PathSeparator) + ".."
+	if err := cfg.validateDeploymentDataRoot(map[string]string{"DATA_ROOT": nonCanonical}); err == nil {
+		t.Fatal("DATA_ROOT containing .. must be rejected")
+	}
+	if err := cfg.validateDeploymentDataRoot(map[string]string{"DATA_ROOT": root + string(os.PathSeparator)}); err != nil {
+		t.Fatalf("a single trailing separator should be normalized: %v", err)
+	}
+
+	filesystemRoot := filepath.Clean(filepath.VolumeName(root) + string(os.PathSeparator))
+	cfg.Deployment.AllowedConfigRoot = filepath.Join(filesystemRoot, "config")
+	if err := cfg.validateDeploymentDataRoot(map[string]string{"DATA_ROOT": filesystemRoot}); err == nil {
+		t.Fatal("filesystem root must not become the updater data root")
+	}
+}
+
+func TestReadDeploymentStateRejectsSymlinkConfigPath(t *testing.T) {
+	root := t.TempDir()
+	allowedRoot := filepath.Join(root, "config")
+	if err := os.MkdirAll(allowedRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	realPath := filepath.Join(allowedRoot, "real.env")
+	linkPath := filepath.Join(allowedRoot, "runtime.env")
+	if err := os.WriteFile(realPath, []byte("DATA_ROOT="+root+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realPath, linkPath); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	cfg := &Config{Install: Install{ServiceManager: "docker"}, Deployment: Deployment{
+		ConfigPath: linkPath, DefaultConfigPath: filepath.Join(allowedRoot, "docker.env"),
+		AllowedConfigRoot: allowedRoot, DescriptorFile: filepath.Join(allowedRoot, "deployment.json"),
+	}}
+	if _, err := cfg.ReadDeploymentState(); err == nil {
+		t.Fatal("symlink deployment config must be rejected")
 	}
 }
 

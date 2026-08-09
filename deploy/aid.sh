@@ -47,13 +47,28 @@ AID_OWNED_MANUAL_GROUPS=()
 AID_OWNED_MANUAL_GROUP_COUNT=0
 
 is_safe_aid_data_root_candidate() { # is_safe_aid_data_root_candidate <absolute path>
-  local candidate="$1" resolved=""
+  local candidate="$1" resolved="" probe parent component
+  local -a candidateComponents=()
   [[ "${candidate}" == /* && "${candidate}" != "/" ]] || return 1
+  [[ "${candidate}" != *//* ]] || return 1
+  IFS='/' read -r -a candidateComponents <<< "${candidate#/}"
+  for component in "${candidateComponents[@]+"${candidateComponents[@]}"}"; do
+    [[ "${component}" != "." && "${component}" != ".." ]] || return 1
+  done
   case "${candidate}" in
     /bin|/boot|/data|/dev|/etc|/home|/opt|/root|/run|/srv|/tmp|/usr|/var) return 1 ;;
   esac
   [[ "${candidate#/}" == */* ]] || return 1
-  [[ ! -L "${candidate}" ]] || return 1
+  # 目标尚不存在时 readlink -f 无法证明父链安全，因此逐级 Lstat 语义检查；
+  # `/tmp/link/new/aid` 即使 new/aid 尚未创建，也会在 link 层被拒绝。
+  probe="${candidate}"
+  while :; do
+    [[ ! -L "${probe}" ]] || return 1
+    parent="${probe%/*}"
+    [[ -n "${parent}" ]] || parent="/"
+    [[ "${parent}" != "${probe}" ]] || break
+    probe="${parent}"
+  done
   if [[ -e "${candidate}" ]]; then
     resolved="$(readlink -f -- "${candidate}" 2>/dev/null || true)"
     [[ -n "${resolved}" && "${resolved}" == "${candidate}" ]] || return 1
@@ -82,9 +97,13 @@ add_aid_data_root_candidate() { # add_aid_data_root_candidate <candidate>
 }
 
 aid_root_candidate_has_strong_evidence() { # aid_root_candidate_has_strong_evidence <candidate>
-  local candidate="$1" marker="${candidate}/config/.aid-managed" state="${candidate}/config/install-state.conf"
-  local descriptor="${candidate}/config/deployment.json" manualConfig="${candidate}/aid-deploy.conf"
-  local dockerConfig="${candidate}/config/docker.env" managedScript="${candidate}/installer/deploy/aid.sh"
+  local candidate="$1" marker state descriptor manualConfig dockerConfig managedScript
+  marker="${candidate}/config/.aid-managed"
+  state="${candidate}/config/install-state.conf"
+  descriptor="${candidate}/config/deployment.json"
+  manualConfig="${candidate}/aid-deploy.conf"
+  dockerConfig="${candidate}/config/docker.env"
+  managedScript="${candidate}/installer/deploy/aid.sh"
   [[ -f "${marker}" && ! -L "${marker}" ]] \
     && grep -Fxq 'AID_MANAGED_ROOT=1' "${marker}" 2>/dev/null \
     && grep -Fxq "AID_DATA_ROOT=${candidate}" "${marker}" 2>/dev/null \
@@ -200,6 +219,13 @@ if [[ "${AID_DATA_ROOT_EXPLICIT}" == "0" ]]; then
     [[ "${inferStatus}" -eq 2 ]] && exit 1
   fi
 fi
+# 去掉非根路径末尾的分隔符后再做完整安全校验。数据根本身及任一既有父级
+# 不能通过软链接跳转，也不能是文件系统根或过浅的系统目录。
+while [[ "${DATA_ROOT}" != "/" && "${DATA_ROOT}" == */ ]]; do DATA_ROOT="${DATA_ROOT%/}"; done
+if ! is_safe_aid_data_root_candidate "${DATA_ROOT}"; then
+  echo "[失败] AID_DATA_ROOT 不是安全的独立绝对目录（禁止软链接、.. 和系统根）: ${DATA_ROOT}" >&2
+  exit 1
+fi
 # 数据根目录必须是绝对路径：conf/systemd/compose 挂载全部依赖它可寻址
 case "${DATA_ROOT}" in
   /*) ;;
@@ -239,6 +265,20 @@ if [[ "${descriptorMode}" == "docker" && "${descriptorPath}" == /* ]]; then
   elif [[ "${descriptorPath}" != "${DEFAULT_DOCKER_CONFIG}" ]]; then
     LEGACY_DOCKER_CONFIG_PATH="${descriptorPath}"
   fi
+fi
+
+# 必须在本轮安装创建目录、补齐配置或写入受管标记之前保留数据根的原始状态。
+# 否则一个原本属于其他业务的 runtime/config 等目录，会被本轮刚写入的
+# deployment.json/.aid-managed 反向“证明”为 AID 目录，首次确认便失去保护作用。
+AID_DATA_ROOT_OWNED_ON_ENTRY=0
+AID_DATA_ROOT_UNMANAGED_ON_ENTRY=""
+if aid_root_candidate_has_strong_evidence "${DATA_ROOT}"; then
+  AID_DATA_ROOT_OWNED_ON_ENTRY=1
+elif [[ -d "${DATA_ROOT}" && ! -L "${DATA_ROOT}" ]]; then
+  while IFS= read -r -d '' preexistingEntry; do
+    AID_DATA_ROOT_UNMANAGED_ON_ENTRY="${preexistingEntry}"
+    break
+  done < <(find "${DATA_ROOT}" -mindepth 1 -maxdepth 1 -print0 2>/dev/null)
 fi
 HEALTH_WAIT_SECONDS=300
 
@@ -4352,6 +4392,14 @@ first_install_unmanaged_entry() { # first_install_unmanaged_entry <docker|manual
     *) die "未知部署方式，无法检查数据目录: ${mode}" ;;
   esac
   [[ -d "${DATA_ROOT}" ]] || return 1
+  # 启动时没有强 AID 证据的既有内容，不能被本轮稍后生成的配置或标记静默认领。
+  # 用户仍可在首次确认页明确选择继续；若本轮随后失败，下一次则可凭已经落盘的
+  # 强证据进入幂等恢复，不会反复误报。
+  if [[ "${AID_DATA_ROOT_OWNED_ON_ENTRY:-0}" != "1" \
+      && -n "${AID_DATA_ROOT_UNMANAGED_ON_ENTRY:-}" ]]; then
+    printf '%s\n' "${AID_DATA_ROOT_UNMANAGED_ON_ENTRY}"
+    return 0
+  fi
   # 配置确认阶段已经为数据根写入强所有权证据。后续源码构建、依赖准备或上一次
   # 失败重试可能留下另一种部署方式也会复用的标准目录；这些都属于 AID，不能
   # 因当前选择 docker/manual 不同而误报。没有所有权证据时仍只放行安装器在
@@ -4916,9 +4964,8 @@ EOF
   # 提醒 DATA_ROOT 与脚本运行目录保持一致
   local envDataRoot
   envDataRoot="$(env_get DATA_ROOT /data/aid)"
-  if [[ "${envDataRoot}" != "${DATA_ROOT}" ]]; then
-    warn ".env 的 DATA_ROOT(${envDataRoot}) 与脚本数据目录(${DATA_ROOT}) 不一致，以 .env 为准需同步设置 AID_DATA_ROOT 环境变量"
-  fi
+  [[ "${envDataRoot}" == "${DATA_ROOT}" ]] \
+    || die "Docker 配置 DATA_ROOT(${envDataRoot}) 与本次受管目录(${DATA_ROOT}) 不一致；请使用 AID_DATA_ROOT=${envDataRoot} 重新运行，或修正 ${ENV_FILE}"
   write_deployment_descriptor docker "${ENV_FILE}"
   return 0
 }
@@ -5331,11 +5378,48 @@ EOF
   write_aid_updater_markers
 }
 
+stop_conflicting_updater_runtime() { # stop_conflicting_updater_runtime <docker|manual>
+  local targetMode="$1" unitPath="${AID_SYSTEMD_UNIT_DIR}/aid-updater.service" running="false"
+  if [[ "${targetMode}" == "docker" ]]; then
+    if aid_systemd_unit_belongs_to_current_install "${unitPath}"; then
+      systemctl disable --now aid-updater >/dev/null 2>&1 \
+        || { err "停止旧手动部署升级器失败"; return 1; }
+      ok "已停止旧手动部署升级器，避免与 Docker 升级器重复消费任务"
+    elif command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet aid-updater; then
+      err "检测到活动的同名 systemd 升级器，但无法确认属于当前 AID 数据目录"
+      echo "  请先核对: systemctl status aid-updater" >&2
+      echo "  确认归属后由管理员停止该服务，再重新执行部署；脚本不会处理未知服务" >&2
+      return 1
+    fi
+    return 0
+  fi
+  [[ "${targetMode}" == "manual" ]] || { err "未知升级器部署方式: ${targetMode}"; return 1; }
+  if aid_docker_daemon_available \
+      && docker inspect aid-updater >/dev/null 2>&1; then
+    if aid_docker_container_belongs_to_current_install aid-updater; then
+      # 删除而不只 stop：容器的 restart=always 不能在 daemon 重启后重新参与任务竞争；
+      # 后续切回 Docker 时 Compose 会按当前配置重新创建。
+      docker rm -f aid-updater >/dev/null 2>&1 \
+        || { err "停止旧 Docker 升级器失败"; return 1; }
+      ok "已移除旧 Docker 升级器，避免与手动部署升级器重复消费任务"
+    else
+      running="$(docker inspect --format '{{.State.Running}}' aid-updater 2>/dev/null || true)"
+      if [[ "${running}" == "true" ]]; then
+        err "检测到活动的同名 Docker 升级器，但无法确认属于当前 AID 数据目录"
+        echo "  请先核对: docker inspect aid-updater" >&2
+        echo "  确认归属后由管理员停止该容器，再重新执行部署；脚本不会处理未知容器" >&2
+        return 1
+      fi
+    fi
+  fi
+}
+
 # 安装/修复升级器（幂等；两种部署方式通用）
 setup_updater() { # setup_updater <docker|manual>
   local mode="$1" deadline
   [[ -x "${DATA_ROOT}/app/updater/aid-updater" ]] \
     || { err "缺少升级器二进制: ${DATA_ROOT}/app/updater/aid-updater"; return 1; }
+  stop_conflicting_updater_runtime "${mode}" || return 1
   write_updater_config "${mode}"
   # 清除旧心跳，本次必须由新进程重新上报，避免 60 秒窗口内将启动失败误判为健康。
   rm -f -- "${UPDATER_DATA_DIR}/health.json"

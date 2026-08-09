@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -15,6 +16,8 @@ import (
 	"aid-updater/internal/config"
 	"aid-updater/internal/dbexec"
 )
+
+var managedBackupNamePattern = regexp.MustCompile(`^[0-9]{14}\.[0-9]{9}-(upgrade|rollback)-[\p{L}\p{N}._-]+$`)
 
 // Snapshot 描述一次备份的内容与位置。
 type Snapshot struct {
@@ -47,8 +50,14 @@ func RestoreDatabase(cfg *config.Config, s *Snapshot) error {
 
 // Create 备份当前部署的三端产物与（可选）数据库，并按保留份数清理过期备份。
 func Create(cfg *config.Config, tag string) (snapshot *Snapshot, err error) {
-	dir := filepath.Join(cfg.BackupDir, fmt.Sprintf("%s-%s", time.Now().Format("20060102150405.000000000"), safeTag(tag)))
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	backupRoot, err := prepareBackupRoot(cfg.BackupDir)
+	if err != nil {
+		return nil, fmt.Errorf("备份目录不安全: %w", err)
+	}
+	dir := filepath.Join(backupRoot, fmt.Sprintf("%s-%s", time.Now().Format("20060102150405.000000000"), safeTag(tag)))
+	// 备份候选必须由本进程新建。使用 Mkdir 而不是 MkdirAll，避免跟随同名软链接
+	// 或复用来源不明的既有目录。
+	if err := os.Mkdir(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("创建备份目录失败: %w", err)
 	}
 	// 备份中途失败时删除半成品目录：残留会被当作有效备份挤占保留份数
@@ -94,7 +103,7 @@ func Create(cfg *config.Config, tag string) (snapshot *Snapshot, err error) {
 		snapshot.DBDumpFile = dumpFile
 	}
 	// 本次备份完整落盘后才清理过期备份：备份中途失败不能折损既有备份存量
-	pruneOldBackups(cfg.BackupDir, cfg.KeepBackups)
+	pruneOldBackups(backupRoot, cfg.KeepBackups)
 	return snapshot, nil
 }
 
@@ -231,13 +240,20 @@ func pruneOldBackups(backupRoot string, keep int) {
 	if keep <= 0 {
 		return
 	}
+	backupRoot, err := validateExistingBackupRoot(backupRoot)
+	if err != nil {
+		log.Printf("跳过备份清理，备份目录不安全: %v", err)
+		return
+	}
 	entries, err := os.ReadDir(backupRoot)
 	if err != nil {
 		return
 	}
 	var dirs []string
 	for _, entry := range entries {
-		if entry.IsDir() {
+		// 只管理本升级器生成的时间戳目录。用户自建目录、软链接和其他文件永不
+		// 计入保留份数，也不会被清理。
+		if entry.Type().IsDir() && managedBackupNamePattern.MatchString(entry.Name()) {
 			dirs = append(dirs, entry.Name())
 		}
 	}
@@ -248,11 +264,70 @@ func pruneOldBackups(backupRoot string, keep int) {
 	sort.Strings(dirs)
 	for _, name := range dirs[:len(dirs)-keep] {
 		target := filepath.Join(backupRoot, name)
+		info, statErr := os.Lstat(target)
+		if statErr != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			log.Printf("跳过非受管备份候选: %s", target)
+			continue
+		}
 		if err := os.RemoveAll(target); err != nil {
 			log.Printf("清理过期备份失败 %s: %v", target, err)
 			continue
 		}
 		log.Printf("已清理过期备份: %s", target)
+	}
+}
+
+func prepareBackupRoot(path string) (string, error) {
+	if !filepath.IsAbs(strings.TrimSpace(path)) {
+		return "", fmt.Errorf("必须使用绝对路径")
+	}
+	clean := filepath.Clean(path)
+	if err := rejectSymlinkComponents(clean); err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(clean, 0o755); err != nil {
+		return "", err
+	}
+	return validateExistingBackupRoot(clean)
+}
+
+func validateExistingBackupRoot(path string) (string, error) {
+	if !filepath.IsAbs(strings.TrimSpace(path)) {
+		return "", fmt.Errorf("必须使用绝对路径")
+	}
+	clean := filepath.Clean(path)
+	volumeRoot := filepath.Clean(filepath.VolumeName(clean) + string(os.PathSeparator))
+	if clean == string(os.PathSeparator) || clean == volumeRoot {
+		return "", fmt.Errorf("禁止使用文件系统根目录")
+	}
+	if err := rejectSymlinkComponents(clean); err != nil {
+		return "", err
+	}
+	info, err := os.Lstat(clean)
+	if err != nil {
+		return "", err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return "", fmt.Errorf("必须是非软链接目录")
+	}
+	return clean, nil
+}
+
+func rejectSymlinkComponents(path string) error {
+	current := filepath.Clean(path)
+	for {
+		info, err := os.Lstat(current)
+		if err == nil && info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("路径禁止使用软链接: %s", current)
+		}
+		if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return nil
+		}
+		current = parent
 	}
 }
 

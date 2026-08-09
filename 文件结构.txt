@@ -33,7 +33,7 @@ aid-master/
 │   │   │   ├── upgrade/                  升级器通信、部署配置诊断、HTTPS证书安全安装及官方资源包服务
 │   │   │   └── user/                     后台 C 端用户创建、账户信息与出入参
 │   │   └── src/test/java/com/aid/
-│   │       ├── auth/service/              发码前邀请码校验测试
+│   │       ├── auth/service/              发码前邀请码校验与 public-config 登录渠道独立开关/异常降级测试
 │   │       ├── common/error/rule/         错误样本转规则草稿、命中校验与状态回写测试
 │   │       ├── compose/                   无人声字幕检查点复用与陈旧成片回调隔离测试
 │   │       ├── media/provider/            腾讯云真实视频语音识别诊断测试（凭证环境变量控制）
@@ -55,6 +55,7 @@ aid-master/
     ├── v1.0.0-beta.2.sql                上一测试版本的幂等数据库迁移脚本
     ├── v1.0.0-beta.3.sql                上一测试版本的幂等数据库迁移脚本
     ├── v1.0.0-beta.4.sql                隐藏风格字段、查询索引与 51 个官方风格的幂等迁移脚本
+    ├── v1.0.0-beta.5.sql                登录渠道开关补齐且保留已有配置值的幂等迁移脚本
     └── update_creation_flow_step_names.sql  已有引导配置的流程名称更新脚本
 
 version/

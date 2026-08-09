@@ -24,10 +24,13 @@ import com.aid.aid.domain.AidUserProfile;
 import com.aid.aid.domain.AidUserSocial;
 import com.aid.aid.mapper.AidUserProfileMapper;
 import com.aid.aid.mapper.AidUserSocialMapper;
+import com.aid.common.aid.mail.config.MailConfigManager;
 import com.aid.common.aid.mail.utils.MailUtils;
 import com.aid.common.aid.oss.core.OssTemplate;
 import com.aid.common.aid.oss.vo.OssUploadLimitsVO;
+import com.aid.common.aid.sms.config.SmsConfigManager;
 import com.aid.common.aid.sms.utils.SmsUtils;
+import com.aid.common.aid.wxlogin.config.WxLoginConfigManager;
 import com.aid.common.constant.AuthConstants;
 import com.aid.common.core.domain.entity.SysUser;
 import com.aid.common.core.domain.model.LoginUser;
@@ -91,6 +94,18 @@ public class AuthService {
     /** 验证码策略读取器：长度 / 有效期 / 间隔 / 日上限均由 aid_config 动态读取 */
     @Resource
     private AuthCodePolicyService authCodePolicyService;
+
+    /** 短信登录开关：读取短信渠道当前生效配置。 */
+    @Resource
+    private SmsConfigManager smsConfigManager;
+
+    /** 邮箱登录开关：读取邮箱渠道当前生效配置。 */
+    @Resource
+    private MailConfigManager mailConfigManager;
+
+    /** 微信扫码登录开关：读取微信公众号登录当前生效配置。 */
+    @Resource
+    private WxLoginConfigManager wxLoginConfigManager;
 
     /** 多端在线策略执行器：按 aid_config(login_policy) 裁剪同账号会话 */
     @Resource
@@ -308,7 +323,7 @@ public class AuthService {
     }
 
     /** publicConfig Redis 缓存 key（全局共享，不区分用户/IP）。结构变更时更换键名避免旧缓存。 */
-    private static final String PUBLIC_CONFIG_CACHE_KEY = "auth:public_config:with_brand";
+    private static final String PUBLIC_CONFIG_CACHE_KEY = "auth:public_config:login_channels";
 
     /** publicConfig 缓存 TTL（秒）：30s 是 aid_config 改完到全局生效的最大延迟，业务可接受。 */
     private static final int PUBLIC_CONFIG_CACHE_TTL_SECONDS = 30;
@@ -358,6 +373,8 @@ public class AuthService {
         AuthCodePolicy smsRaw = authCodePolicyService.getPolicy(AuthConstants.BIND_TYPE_SMS);
         AuthCodePolicy mailRaw = authCodePolicyService.getPolicy(AuthConstants.BIND_TYPE_EMAIL);
 
+        PublicConfigVO.LoginChannels login = buildLoginChannels();
+
         PublicConfigVO.CryptoStatus crypto = buildCryptoStatus();
 
         Map<String, String> basic = buildBasicConfig();
@@ -383,6 +400,7 @@ public class AuthService {
                 .captcha(captcha)
                 .smsPolicy(toCodePolicyVo(smsRaw))
                 .emailPolicy(toCodePolicyVo(mailRaw))
+                .login(login)
                 .crypto(crypto)
                 .wechatNotify(wechatNotify)
                 .basic(basic)
@@ -401,6 +419,37 @@ public class AuthService {
             log.warn("publicConfig 缓存写入失败（不影响响应）: err={}", e.getMessage());
         }
         return vo;
+    }
+
+    /**
+     * 构建登录渠道开关块。
+     *
+     * @return 登录渠道当前可用状态
+     */
+    private PublicConfigVO.LoginChannels buildLoginChannels() {
+        boolean smsEnabled = false;
+        boolean emailEnabled = false;
+        boolean wechatEnabled = false;
+        try {
+            smsEnabled = smsConfigManager.isEnabled();
+        } catch (Exception e) {
+            log.error("读取短信登录开关失败", e);
+        }
+        try {
+            emailEnabled = mailConfigManager.isEnabled();
+        } catch (Exception e) {
+            log.error("读取邮箱登录开关失败", e);
+        }
+        try {
+            wechatEnabled = wxLoginConfigManager.isEnabled();
+        } catch (Exception e) {
+            log.error("读取微信登录开关失败", e);
+        }
+        return PublicConfigVO.LoginChannels.builder()
+                .smsEnabled(smsEnabled)
+                .emailEnabled(emailEnabled)
+                .wechatEnabled(wechatEnabled)
+                .build();
     }
 
     private PublicConfigVO.CodePolicy toCodePolicyVo(AuthCodePolicy raw) {

@@ -16,6 +16,18 @@ func TestSafeTagRemovesPathSeparators(t *testing.T) {
 	}
 }
 
+func TestManagedBackupNameMatchesCreatedTags(t *testing.T) {
+	for _, tag := range []string{"upgrade-v1.0.0-beta.5", "rollback-v1.0.0-beta.4"} {
+		name := "20260809010101.123456789-" + safeTag(tag)
+		if !managedBackupNamePattern.MatchString(name) {
+			t.Fatalf("managed backup name was not recognized: %s", name)
+		}
+	}
+	if managedBackupNamePattern.MatchString("20260809010101.123456789-manual-backup") {
+		t.Fatal("unknown timestamp directory must not be treated as managed")
+	}
+}
+
 func TestCreateAndRestoreBuildInfo(t *testing.T) {
 	root := t.TempDir()
 	appDir := filepath.Join(root, "app")
@@ -86,5 +98,63 @@ func TestRestoreLegacySnapshotRemovesNewBuildInfo(t *testing.T) {
 	}
 	if _, err := os.Stat(buildInfoPath); !os.IsNotExist(err) {
 		t.Fatalf("legacy rollback should remove stale build info, stat error: %v", err)
+	}
+}
+
+func TestPruneOldBackupsKeepsUnknownDirectoriesAndSymlinks(t *testing.T) {
+	root := t.TempDir()
+	unknown := filepath.Join(root, "manual-backup")
+	if err := os.Mkdir(unknown, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{
+		"20260809010101.000000001-upgrade-a",
+		"20260809010102.000000002-upgrade-b",
+		"20260809010103.000000003-rollback-c",
+	} {
+		if err := os.Mkdir(filepath.Join(root, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	external := t.TempDir()
+	link := filepath.Join(root, "20260809010100.000000000-upgrade-link")
+	if err := os.Symlink(external, link); err != nil {
+		t.Logf("symlink unavailable: %v", err)
+		link = ""
+	}
+
+	pruneOldBackups(root, 2)
+	if _, err := os.Stat(unknown); err != nil {
+		t.Fatalf("unknown backup directory must be preserved: %v", err)
+	}
+	if link != "" {
+		if _, err := os.Lstat(link); err != nil {
+			t.Fatalf("backup symlink must be preserved: %v", err)
+		}
+		if _, err := os.Stat(external); err != nil {
+			t.Fatalf("symlink target must remain untouched: %v", err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, "20260809010101.000000001-upgrade-a")); !os.IsNotExist(err) {
+		t.Fatalf("oldest managed backup should be pruned, stat error: %v", err)
+	}
+}
+
+func TestCreateRejectsSymlinkBackupRoot(t *testing.T) {
+	realRoot := t.TempDir()
+	linkRoot := filepath.Join(t.TempDir(), "backups")
+	if err := os.Symlink(realRoot, linkRoot); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	cfg := &config.Config{BackupDir: linkRoot, KeepBackups: 3}
+	if _, err := Create(cfg, "upgrade"); err == nil {
+		t.Fatal("symlink backup root must be rejected")
+	}
+}
+
+func TestPrepareBackupRootRejectsFilesystemRoot(t *testing.T) {
+	root := filepath.Clean(filepath.VolumeName(t.TempDir()) + string(os.PathSeparator))
+	if _, err := prepareBackupRoot(root); err == nil {
+		t.Fatalf("filesystem root must be rejected: %s", root)
 	}
 }
