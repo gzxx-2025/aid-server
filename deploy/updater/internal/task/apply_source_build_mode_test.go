@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"aid-updater/internal/manifest"
 )
@@ -205,20 +206,26 @@ func TestInstallDockerSourceBuildToolsFallsBackToDomesticMirror(t *testing.T) {
 		sourceBuildRun = previousRun
 		sourceBuildAlpineVersion = previousAlpineVersion
 	})
+	installed := false
 	sourceBuildLookPath = func(command string) (string, error) {
-		if command == "apk" {
+		if command == "apk" || installed {
 			return "/sbin/apk", nil
 		}
 		return "", errors.New("not found")
 	}
 	sourceBuildAlpineVersion = func() string { return "v3.21" }
 	var calls [][]string
-	sourceBuildRun = func(_ context.Context, name string, args ...string) error {
+	sourceBuildRun = func(ctx context.Context, name string, args ...string) error {
+		deadline, ok := ctx.Deadline()
+		if !ok || time.Until(deadline) < 14*time.Minute {
+			t.Fatalf("installer attempt deadline = %v, want approximately 15 minutes", deadline)
+		}
 		call := append([]string{name}, args...)
 		calls = append(calls, call)
 		if len(calls) == 1 {
 			return errors.New("current mirror unavailable")
 		}
+		installed = true
 		return nil
 	}
 
@@ -242,6 +249,33 @@ func TestInstallDockerSourceBuildToolsFallsBackToDomesticMirror(t *testing.T) {
 		if !strings.Contains(" "+second+" ", " "+packageName+" ") {
 			t.Fatalf("fallback command %q does not contain package %q", second, packageName)
 		}
+	}
+}
+
+func TestInstallDockerSourceBuildToolsAcceptsCompletedPartialInstall(t *testing.T) {
+	previousLookPath := sourceBuildLookPath
+	previousRun := sourceBuildRun
+	previousAlpineVersion := sourceBuildAlpineVersion
+	t.Cleanup(func() {
+		sourceBuildLookPath = previousLookPath
+		sourceBuildRun = previousRun
+		sourceBuildAlpineVersion = previousAlpineVersion
+	})
+	installed := false
+	sourceBuildLookPath = func(command string) (string, error) {
+		if command == "apk" || installed {
+			return "/usr/bin/" + command, nil
+		}
+		return "", errors.New("not found")
+	}
+	sourceBuildAlpineVersion = func() string { return "v3.21" }
+	sourceBuildRun = func(context.Context, string, ...string) error {
+		installed = true
+		return context.DeadlineExceeded
+	}
+
+	if err := installDockerSourceBuildTools(context.Background()); err != nil {
+		t.Fatalf("completed partial install was rejected: %v", err)
 	}
 }
 

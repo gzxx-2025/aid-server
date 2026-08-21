@@ -533,9 +533,10 @@ var sourceBuildEnvironmentKeys = map[string]struct{}{
 }
 
 const (
-	sourceBuildModeCapability     = "AID_SOURCE_BUILD_MODE_CAPABILITY=explicit-v1"
-	sourceBuildGovernorCapability = "AID_BUILD_RESOURCE_CONTROL_CAPABILITY=governor-v1"
-	maxSourceBuildScriptSize      = 1024 * 1024
+	sourceBuildModeCapability           = "AID_SOURCE_BUILD_MODE_CAPABILITY=explicit-v1"
+	sourceBuildGovernorCapability       = "AID_BUILD_RESOURCE_CONTROL_CAPABILITY=governor-v1"
+	maxSourceBuildScriptSize            = 1024 * 1024
+	dockerSourceBuildToolAttemptTimeout = 15 * time.Minute
 )
 
 var (
@@ -566,28 +567,29 @@ func ensureSourceBuildInterpreter(ctx context.Context, serviceManager string) (s
 		return "", fmt.Errorf("源码构建环境缺少 Bash，请先通过最新 aid.sh 修复部署依赖")
 	}
 
+	missing := missingDockerSourceBuildCommands()
+	if len(missing) == 0 {
+		return sourceBuildLookPath("bash")
+	}
+
+	log.Printf("Docker 升级器构建环境缺少 %s，正在为受管升级器容器补齐必要工具", strings.Join(missing, ", "))
+	if err := sourceBuildInstallDockerTools(ctx); err != nil {
+		return "", fmt.Errorf("准备 Docker 源码构建工具失败: %w", err)
+	}
+	if missing = missingDockerSourceBuildCommands(); len(missing) > 0 {
+		return "", fmt.Errorf("Docker 源码构建工具安装后仍缺少 %s", strings.Join(missing, ", "))
+	}
+	return sourceBuildLookPath("bash")
+}
+
+func missingDockerSourceBuildCommands() []string {
 	missing := make([]string, 0, len(dockerSourceBuildCommands))
 	for _, command := range dockerSourceBuildCommands {
 		if _, err := sourceBuildLookPath(command); err != nil {
 			missing = append(missing, command)
 		}
 	}
-	if len(missing) == 0 {
-		return sourceBuildLookPath("bash")
-	}
-
-	log.Printf("Docker 升级器构建环境缺少 %s，正在为受管升级器容器补齐必要工具", strings.Join(missing, ", "))
-	installCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-	defer cancel()
-	if err := sourceBuildInstallDockerTools(installCtx); err != nil {
-		return "", fmt.Errorf("准备 Docker 源码构建工具失败: %w", err)
-	}
-	for _, command := range dockerSourceBuildCommands {
-		if _, err := sourceBuildLookPath(command); err != nil {
-			return "", fmt.Errorf("Docker 源码构建工具安装后仍缺少 %s", command)
-		}
-	}
-	return sourceBuildLookPath("bash")
+	return missing
 }
 
 func installDockerSourceBuildTools(ctx context.Context) error {
@@ -619,13 +621,29 @@ func installDockerSourceBuildTools(ctx context.Context) error {
 		} else {
 			log.Printf("切换 Alpine 备用软件源准备源码构建工具（第 %d/%d 路）", index, len(attempts)-1)
 		}
-		if err := sourceBuildRun(ctx, apk, args...); err == nil {
+		attemptCtx, cancel := context.WithTimeout(ctx, dockerSourceBuildToolAttemptTimeout)
+		runErr := sourceBuildRun(attemptCtx, apk, args...)
+		attemptErr := attemptCtx.Err()
+		cancel()
+		missing := missingDockerSourceBuildCommands()
+		if len(missing) == 0 {
+			if runErr != nil {
+				log.Printf("Alpine 安装命令结束时返回 %v，但必要工具均已就绪，继续源码构建", runErr)
+			}
 			return nil
-		} else {
-			lastErr = err
 		}
 		if ctx.Err() != nil {
 			return ctx.Err()
+		}
+		if attemptErr == context.DeadlineExceeded {
+			lastErr = fmt.Errorf("当前软件源安装超过 %s，仍缺少 %s", dockerSourceBuildToolAttemptTimeout, strings.Join(missing, ", "))
+			log.Printf("%v，自动切换下一条软件源", lastErr)
+			continue
+		}
+		if runErr != nil {
+			lastErr = runErr
+		} else {
+			lastErr = fmt.Errorf("安装命令完成后仍缺少 %s", strings.Join(missing, ", "))
 		}
 	}
 	return fmt.Errorf("所有 Alpine 软件源均不可用: %w", lastErr)
