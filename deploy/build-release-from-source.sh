@@ -374,6 +374,14 @@ read_swap_disk_metrics() {
 
 ensure_managed_swap() {
   read_memory_metrics
+  # 在线Docker升级会在aid-updater容器内运行本构建器。该容器刻意不授予
+  # SYS_ADMIN，不能也不应修改宿主机Swap；构建阶段仍由容器硬限制、进程数
+  # 限制和15%动态压力治理共同保护宿主机。直接在宿主机运行时仍准备受管Swap。
+  if [ "$USE_DOCKER" = yes ] && { [ -f /.dockerenv ] || grep -Eqa '(docker|containerd|kubepods)' /proc/1/cgroup 2>/dev/null; }; then
+    [ "$SYSTEM_SWAP_TOTAL_MB" -ge "$MANAGED_SWAP_TARGET_MB" ] \
+      || warn "在线Docker升级不接管宿主机Swap；当前Swap ${SYSTEM_SWAP_TOTAL_MB}MiB，将使用容器硬限制与动态降速保护整机"
+    return 0
+  fi
   if [ "$MANAGED_SWAP_MODE" = no ]; then
     [ "$SYSTEM_SWAP_TOTAL_MB" -ge "$MANAGED_SWAP_TARGET_MB" ] \
       || warn "受管Swap已禁用；当前Swap ${SYSTEM_SWAP_TOTAL_MB}MiB，低于建议值 ${MANAGED_SWAP_TARGET_MB}MiB"

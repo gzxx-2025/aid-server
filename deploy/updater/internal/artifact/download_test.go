@@ -3,6 +3,8 @@ package artifact
 import (
 	"crypto/sha256"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -45,5 +47,35 @@ func TestUniqueSourcesKeepsOrderAndRemovesDuplicates(t *testing.T) {
 	actual := uniqueSources([]string{" https://primary.example/a ", "", "https://primary.example/a", "https://mirror.example/a"})
 	if len(actual) != 2 || actual[0] != "https://primary.example/a" || actual[1] != "https://mirror.example/a" {
 		t.Fatalf("unexpected sources: %#v", actual)
+	}
+}
+
+func TestDownloadFileWithLimitRejectsInvalidLimitBeforeNetwork(t *testing.T) {
+	dst := filepath.Join(t.TempDir(), "artifact")
+	if _, err := DownloadFileWithLimit("https://example.com/artifact", dst, time.Second, 0); err == nil {
+		t.Fatal("zero byte limit unexpectedly accepted")
+	}
+	if _, err := DownloadFileWithLimit("https://example.com/artifact", dst, time.Second, maxDownloadBytes+1); err == nil {
+		t.Fatal("oversized caller limit unexpectedly accepted")
+	}
+}
+
+func TestDownloadFileWithLimitRejectsChunkedOversizeBody(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.(http.Flusher).Flush()
+		_, _ = w.Write([]byte("0123456789"))
+	}))
+	defer server.Close()
+	previousTransport := http.DefaultTransport
+	http.DefaultTransport = server.Client().Transport
+	defer func() { http.DefaultTransport = previousTransport }()
+
+	dst := filepath.Join(t.TempDir(), "small-artifact")
+	written, err := DownloadFileWithLimit(server.URL, dst, time.Second, 5)
+	if err == nil {
+		t.Fatal("chunked body larger than the hard limit unexpectedly accepted")
+	}
+	if written != 6 {
+		t.Fatalf("limited reader wrote %d bytes, want 6", written)
 	}
 }

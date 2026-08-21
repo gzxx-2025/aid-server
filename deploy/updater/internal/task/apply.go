@@ -34,6 +34,7 @@ const (
 func (r *Runner) runApply(t *Task, isRollback bool) error {
 	r.reportProgress(t, 3, "校验任务", "正在校验签名清单、版本与升级参数")
 	var mirrors []string
+	var sourceBuilder *manifest.SourceBuilderArtifact
 	var err error
 	buildFromSource := t.BuildFromSource
 	if !buildFromSource && !isRollback {
@@ -49,7 +50,7 @@ func (r *Runner) runApply(t *Task, isRollback bool) error {
 		if isRollback {
 			return fmt.Errorf("源码构建暂不支持版本回退")
 		}
-		if err = verifySourceBuildTask(t); err != nil {
+		if sourceBuilder, err = verifySourceBuildTask(t); err != nil {
 			return err
 		}
 	} else {
@@ -66,11 +67,15 @@ func (r *Runner) runApply(t *Task, isRollback bool) error {
 	archivePath := filepath.Join(r.cfg.WorkDir, fmt.Sprintf("pkg-%s.tar.gz", t.TaskID))
 	extractDir := filepath.Join(r.cfg.WorkDir, fmt.Sprintf("extract-%s", t.TaskID))
 	sourceWorkDir := filepath.Join(r.cfg.WorkDir, fmt.Sprintf("source-%s", t.TaskID))
-	defer r.cleanupWork(archivePath, extractDir, sourceWorkDir)
+	sourceBuilderPath := filepath.Join(r.cfg.WorkDir, fmt.Sprintf("source-builder-%s.sh", t.TaskID))
+	defer r.cleanupWork(archivePath, extractDir, sourceWorkDir, sourceBuilderPath, sourceBuilderPath+".part")
 
 	if buildFromSource {
 		r.reportProgress(t, 8, "构建源码", "正在拉取三端版本标签并编译，期间 CPU 占用会明显升高")
-		if err := r.buildSourcePackage(t, archivePath, sourceWorkDir); err != nil {
+		if err := prepareTargetSourceBuilder(sourceBuilder, sourceBuilderPath); err != nil {
+			return err
+		}
+		if err := r.buildSourcePackage(t, archivePath, sourceWorkDir, sourceBuilderPath); err != nil {
 			return err
 		}
 	} else {
@@ -528,8 +533,9 @@ var sourceBuildEnvironmentKeys = map[string]struct{}{
 }
 
 const (
-	sourceBuildModeCapability = "AID_SOURCE_BUILD_MODE_CAPABILITY=explicit-v1"
-	maxSourceBuildScriptSize  = 1024 * 1024
+	sourceBuildModeCapability     = "AID_SOURCE_BUILD_MODE_CAPABILITY=explicit-v1"
+	sourceBuildGovernorCapability = "AID_BUILD_RESOURCE_CONTROL_CAPABILITY=governor-v1"
+	maxSourceBuildScriptSize      = 1024 * 1024
 )
 
 func sourceBuildEnvironment(base []string, dataRoot, sourceBuildMode, dependencyMode, dependencyRegion, dockerMirrors string) []string {
@@ -573,6 +579,7 @@ func sourceBuildScriptSupportsExplicitMode(path string) (bool, error) {
 	}
 	requiredMarkers := [][]byte{
 		[]byte(sourceBuildModeCapability),
+		[]byte(sourceBuildGovernorCapability),
 		[]byte(`SOURCE_BUILD_MODE="${AID_SOURCE_BUILD_MODE:-auto}"`),
 		[]byte(`case "$SOURCE_BUILD_MODE" in`),
 	}
@@ -584,12 +591,44 @@ func sourceBuildScriptSupportsExplicitMode(path string) (bool, error) {
 	return true, nil
 }
 
-// buildSourcePackage 调用部署时随安装器落盘的受控脚本，在独立目录构建目标版本。
-func (r *Runner) buildSourcePackage(t *Task, archivePath, sourceWorkDir string) error {
-	script := strings.TrimSpace(r.cfg.SourceBuildScript)
-	if script == "" {
-		return fmt.Errorf("升级器未配置源码构建脚本")
+// prepareTargetSourceBuilder downloads the exact builder covered by the signed
+// target manifest. The installed builder may belong to the current/old release
+// and is intentionally never used as an online-upgrade fallback.
+func prepareTargetSourceBuilder(builder *manifest.SourceBuilderArtifact, script string) error {
+	if builder == nil {
+		return fmt.Errorf("签名清单缺少目标版本源码构建器")
 	}
+	if err := os.MkdirAll(filepath.Dir(script), 0o700); err != nil {
+		return fmt.Errorf("创建源码构建器目录失败: %w", err)
+	}
+	temporary := script + ".part"
+	_ = os.Remove(temporary)
+	sources := append([]string{builder.URL}, builder.Mirrors...)
+	selected, _, err := artifact.DownloadAndVerifyWithLimit(sources, temporary, builder.SHA256, 2*time.Minute, maxSourceBuildScriptSize)
+	if err != nil {
+		return fmt.Errorf("下载目标版本源码构建器失败: %w", err)
+	}
+	defer os.Remove(temporary)
+	if err := os.Chmod(temporary, 0o700); err != nil {
+		return fmt.Errorf("设置目标版本源码构建器权限失败: %w", err)
+	}
+	supported, err := sourceBuildScriptSupportsExplicitMode(temporary)
+	if err != nil {
+		return fmt.Errorf("读取目标版本源码构建器失败: %w", err)
+	}
+	if !supported {
+		return fmt.Errorf("目标版本源码构建器缺少显式模式或资源治理能力")
+	}
+	if err := os.Rename(temporary, script); err != nil {
+		return fmt.Errorf("落盘目标版本源码构建器失败: %w", err)
+	}
+	log.Printf("目标版本源码构建器已通过签名清单与 SHA256 校验: %s", selected)
+	return nil
+}
+
+// buildSourcePackage executes the already verified target-release builder in
+// an isolated work directory.
+func (r *Runner) buildSourcePackage(t *Task, archivePath, sourceWorkDir, script string) error {
 	info, err := os.Lstat(script)
 	if err != nil {
 		return fmt.Errorf("源码构建脚本不可用: %w", err)
@@ -602,7 +641,7 @@ func (r *Runner) buildSourcePackage(t *Task, archivePath, sourceWorkDir string) 
 		return fmt.Errorf("读取源码构建脚本失败: %w", err)
 	}
 	if !supported {
-		return fmt.Errorf("源码构建脚本不支持显式构建模式；请先使用最新远程 aid.sh 执行 sudo aid setup-updater 后重试")
+		return fmt.Errorf("目标版本源码构建器缺少显式模式或资源治理能力")
 	}
 	if err := os.MkdirAll(r.cfg.WorkDir, 0o700); err != nil {
 		return fmt.Errorf("创建源码构建目录失败: %w", err)
@@ -669,18 +708,19 @@ func verifyApplyTask(t *Task, isRollback bool) ([]string, error) {
 	return nil, fmt.Errorf("回退任务不在签名清单中")
 }
 
-func verifySourceBuildTask(t *Task) error {
+func verifySourceBuildTask(t *Task) (*manifest.SourceBuilderArtifact, error) {
 	if strings.TrimSpace(t.ManifestURL) == "" {
-		return fmt.Errorf("任务缺少签名清单地址")
+		return nil, fmt.Errorf("任务缺少签名清单地址")
 	}
 	m, err := manifest.Fetch(t.ManifestURL, 30*time.Second)
 	if err != nil {
-		return fmt.Errorf("验证升级清单失败: %w", err)
+		return nil, fmt.Errorf("验证升级清单失败: %w", err)
 	}
-	if !m.MatchSourceBuildVersion(t.TargetVersion) {
-		return fmt.Errorf("签名清单未授权源码构建")
+	builder, err := m.SelectSourceBuilderForVersion(t.TargetVersion)
+	if err != nil {
+		return nil, err
 	}
-	return nil
+	return builder, nil
 }
 
 // sourceBuildFromSignedManifest 兼容旧版后台生成的任务。只有清单签名有效且目标

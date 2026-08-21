@@ -20,6 +20,16 @@ const maxDownloadBytes = 2 << 30
 
 // DownloadFile 下载 url 到 dst（覆盖写），返回实际写入字节数。
 func DownloadFile(url, dst string, timeout time.Duration) (int64, error) {
+	return DownloadFileWithLimit(url, dst, timeout, maxDownloadBytes)
+}
+
+// DownloadFileWithLimit downloads a small signed artifact with a caller-owned
+// hard size limit. It is used for executable release metadata such as the
+// target source builder, which must never inherit the 2 GiB package allowance.
+func DownloadFileWithLimit(url, dst string, timeout time.Duration, maxBytes int64) (int64, error) {
+	if maxBytes <= 0 || maxBytes > maxDownloadBytes {
+		return 0, fmt.Errorf("非法下载大小上限")
+	}
 	if !isSecureURL(url) {
 		return 0, fmt.Errorf("非法下载地址: %s", url)
 	}
@@ -32,6 +42,9 @@ func DownloadFile(url, dst string, timeout time.Duration) (int64, error) {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return 0, fmt.Errorf("下载响应异常: HTTP %d", resp.StatusCode)
 	}
+	if resp.ContentLength > maxBytes {
+		return 0, fmt.Errorf("制品超过大小上限")
+	}
 
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return 0, fmt.Errorf("创建下载目录失败: %w", err)
@@ -42,11 +55,11 @@ func DownloadFile(url, dst string, timeout time.Duration) (int64, error) {
 	}
 	defer out.Close()
 
-	written, err := io.Copy(out, io.LimitReader(resp.Body, maxDownloadBytes+1))
+	written, err := io.Copy(out, io.LimitReader(resp.Body, maxBytes+1))
 	if err != nil {
 		return written, fmt.Errorf("写入下载文件失败: %w", err)
 	}
-	if written > maxDownloadBytes {
+	if written > maxBytes {
 		return written, fmt.Errorf("制品超过大小上限")
 	}
 	return written, nil
@@ -56,6 +69,14 @@ func DownloadFile(url, dst string, timeout time.Duration) (int64, error) {
 // 只有下载与校验同时成功才会返回，失败来源留下的文件会在切换前清理。
 func DownloadAndVerify(urls []string, dst, expectedSHA256 string, timeout time.Duration) (string, int64, error) {
 	return downloadAndVerify(urls, dst, expectedSHA256, timeout, DownloadFile)
+}
+
+// DownloadAndVerifyWithLimit applies mirror fallback, SHA256 verification and
+// a strict byte limit to small signed artifacts.
+func DownloadAndVerifyWithLimit(urls []string, dst, expectedSHA256 string, timeout time.Duration, maxBytes int64) (string, int64, error) {
+	return downloadAndVerify(urls, dst, expectedSHA256, timeout, func(source, target string, requestTimeout time.Duration) (int64, error) {
+		return DownloadFileWithLimit(source, target, requestTimeout, maxBytes)
+	})
 }
 
 type downloadFunc func(string, string, time.Duration) (int64, error)

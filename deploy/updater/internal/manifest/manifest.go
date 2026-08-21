@@ -4,6 +4,7 @@ package manifest
 import (
 	"crypto/ed25519"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -20,6 +21,10 @@ var trustedPublicKey string
 // maxManifestBytes 清单大小上限，防异常源。
 const maxManifestBytes = 256 * 1024
 
+// SourceBuilderCapability is the minimum resource-governance contract required
+// for an online source build. The value is signed as part of latest.json.
+const SourceBuilderCapability = "governor-v1"
+
 // UpdaterPackage 升级器制品（按架构区分）。
 type UpdaterPackage struct {
 	URL     string   `json:"url"`
@@ -27,15 +32,25 @@ type UpdaterPackage struct {
 	SHA256  string   `json:"sha256"`
 }
 
+// SourceBuilderArtifact describes the target release's source-build driver.
+// It is downloaded only after the manifest signature has been verified.
+type SourceBuilderArtifact struct {
+	URL        string   `json:"url"`
+	Mirrors    []string `json:"mirrors,omitempty"`
+	SHA256     string   `json:"sha256"`
+	Capability string   `json:"capability"`
+}
+
 // ChannelRelease 单渠道发行信息（正式版在顶层，测试版在 beta 字段）。
 type ChannelRelease struct {
-	ProductVersion   string            `json:"productVersion"`
-	SourceBuild      bool              `json:"sourceBuild"`
-	PackageURL       string            `json:"packageUrl"`
-	PackageMirrors   []string          `json:"packageMirrors,omitempty"`
-	PackageSHA256    string            `json:"packageSha256"`
-	Updater          ChannelUpdater    `json:"updater"`
-	RollbackReleases []RollbackRelease `json:"rollbackReleases"`
+	ProductVersion   string                 `json:"productVersion"`
+	SourceBuild      bool                   `json:"sourceBuild"`
+	SourceBuilder    *SourceBuilderArtifact `json:"sourceBuilder,omitempty"`
+	PackageURL       string                 `json:"packageUrl"`
+	PackageMirrors   []string               `json:"packageMirrors,omitempty"`
+	PackageSHA256    string                 `json:"packageSha256"`
+	Updater          ChannelUpdater         `json:"updater"`
+	RollbackReleases []RollbackRelease      `json:"rollbackReleases"`
 }
 
 // ChannelUpdater 渠道内升级器制品信息。
@@ -46,15 +61,16 @@ type ChannelUpdater struct {
 
 // Manifest 仅包含升级器关心的清单字段。
 type Manifest struct {
-	ProductVersion   string            `json:"productVersion"`
-	SourceBuild      bool              `json:"sourceBuild"`
-	PackageURL       string            `json:"packageUrl"`
-	PackageMirrors   []string          `json:"packageMirrors,omitempty"`
-	PackageSHA256    string            `json:"packageSha256"`
-	Updater          ChannelUpdater    `json:"updater"`
-	RollbackReleases []RollbackRelease `json:"rollbackReleases"`
-	Beta             *ChannelRelease   `json:"beta"`
-	Signature        Signature         `json:"signature"`
+	ProductVersion   string                 `json:"productVersion"`
+	SourceBuild      bool                   `json:"sourceBuild"`
+	SourceBuilder    *SourceBuilderArtifact `json:"sourceBuilder,omitempty"`
+	PackageURL       string                 `json:"packageUrl"`
+	PackageMirrors   []string               `json:"packageMirrors,omitempty"`
+	PackageSHA256    string                 `json:"packageSha256"`
+	Updater          ChannelUpdater         `json:"updater"`
+	RollbackReleases []RollbackRelease      `json:"rollbackReleases"`
+	Beta             *ChannelRelease        `json:"beta"`
+	Signature        Signature              `json:"signature"`
 }
 
 type RollbackRelease struct {
@@ -174,6 +190,47 @@ func (m *Manifest) MatchSourceBuildVersion(version string) bool {
 		return m.SourceBuild
 	}
 	return m.Beta != nil && strings.TrimSpace(m.Beta.ProductVersion) == target && m.Beta.SourceBuild
+}
+
+// SelectSourceBuilderForVersion returns the signed source builder for the exact
+// target release. An installed builder from an older release is never accepted
+// as a fallback because it may not contain the current resource governor.
+func (m *Manifest) SelectSourceBuilderForVersion(version string) (*SourceBuilderArtifact, error) {
+	target := strings.TrimSpace(version)
+	var enabled bool
+	var builder *SourceBuilderArtifact
+	switch {
+	case target != "" && strings.TrimSpace(m.ProductVersion) == target:
+		enabled, builder = m.SourceBuild, m.SourceBuilder
+	case target != "" && m.Beta != nil && strings.TrimSpace(m.Beta.ProductVersion) == target:
+		enabled, builder = m.Beta.SourceBuild, m.Beta.SourceBuilder
+	default:
+		return nil, fmt.Errorf("目标版本不在签名清单中")
+	}
+	if !enabled {
+		return nil, fmt.Errorf("签名清单未授权源码构建")
+	}
+	if builder == nil {
+		return nil, fmt.Errorf("签名清单缺少目标版本源码构建器")
+	}
+	if strings.TrimSpace(builder.Capability) != SourceBuilderCapability {
+		return nil, fmt.Errorf("源码构建器资源治理能力不符合要求")
+	}
+	if !isSecureURL(builder.URL) {
+		return nil, fmt.Errorf("源码构建器主地址不是安全 HTTPS 地址")
+	}
+	for _, mirror := range builder.Mirrors {
+		if !isSecureURL(mirror) {
+			return nil, fmt.Errorf("源码构建器镜像不是安全 HTTPS 地址")
+		}
+	}
+	digest, err := hex.DecodeString(strings.TrimSpace(builder.SHA256))
+	if err != nil || len(digest) != 32 {
+		return nil, fmt.Errorf("源码构建器 SHA256 非法")
+	}
+	copyBuilder := *builder
+	copyBuilder.Mirrors = append([]string(nil), builder.Mirrors...)
+	return &copyBuilder, nil
 }
 
 // ProductPackageMirrors 返回已签名清单中与任务匹配的产品包镜像地址。

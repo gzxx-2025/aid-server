@@ -1,10 +1,17 @@
 package task
 
 import (
+	"crypto/sha256"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+
+	"aid-updater/internal/manifest"
 )
 
 func TestSourceBuildModeForServiceManager(t *testing.T) {
@@ -96,6 +103,7 @@ func TestSourceBuildScriptSupportsExplicitMode(t *testing.T) {
 	current := filepath.Join(dir, "current.sh")
 	content := strings.Join([]string{
 		"# " + sourceBuildModeCapability,
+		"# " + sourceBuildGovernorCapability,
 		"SOURCE_BUILD_MODE=\"${AID_SOURCE_BUILD_MODE:-auto}\"",
 		"case \"$SOURCE_BUILD_MODE\" in",
 	}, "\n")
@@ -107,7 +115,24 @@ func TestSourceBuildScriptSupportsExplicitMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !supported {
-		t.Fatal("explicit-mode source builder was rejected")
+		t.Fatal("governed explicit-mode source builder was rejected")
+	}
+
+	missingGovernor := filepath.Join(dir, "missing-governor.sh")
+	missingGovernorContent := strings.Join([]string{
+		"# " + sourceBuildModeCapability,
+		"SOURCE_BUILD_MODE=\"${AID_SOURCE_BUILD_MODE:-auto}\"",
+		"case \"$SOURCE_BUILD_MODE\" in",
+	}, "\n")
+	if err := os.WriteFile(missingGovernor, []byte(missingGovernorContent), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	supported, err = sourceBuildScriptSupportsExplicitMode(missingGovernor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if supported {
+		t.Fatal("source builder without resource governor unexpectedly accepted")
 	}
 
 	link := filepath.Join(dir, "builder-link.sh")
@@ -133,6 +158,55 @@ func TestSourceBuildScriptSupportsExplicitMode(t *testing.T) {
 	}
 	if supported {
 		t.Fatal("oversized source builder unexpectedly accepted")
+	}
+}
+
+func TestPrepareTargetSourceBuilderDownloadsVerifiedGovernor(t *testing.T) {
+	content := []byte(strings.Join([]string{
+		"#!/bin/sh",
+		"# " + sourceBuildModeCapability,
+		"# " + sourceBuildGovernorCapability,
+		"SOURCE_BUILD_MODE=\"${AID_SOURCE_BUILD_MODE:-auto}\"",
+		"case \"$SOURCE_BUILD_MODE\" in",
+	}, "\n"))
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(content)
+	}))
+	defer server.Close()
+	previousTransport := http.DefaultTransport
+	http.DefaultTransport = server.Client().Transport
+	defer func() { http.DefaultTransport = previousTransport }()
+
+	digest := fmt.Sprintf("%x", sha256.Sum256(content))
+	builder := &manifest.SourceBuilderArtifact{
+		URL: server.URL, SHA256: digest, Capability: manifest.SourceBuilderCapability,
+	}
+	target := filepath.Join(t.TempDir(), "target-builder.sh")
+	if err := prepareTargetSourceBuilder(builder, target); err != nil {
+		t.Fatalf("prepareTargetSourceBuilder() error = %v", err)
+	}
+	actual, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(actual) != string(content) {
+		t.Fatal("downloaded builder content changed")
+	}
+	info, err := os.Stat(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o700 {
+		t.Fatalf("builder mode = %o, want 700", info.Mode().Perm())
+	}
+
+	badTarget := filepath.Join(t.TempDir(), "bad-builder.sh")
+	builder.SHA256 = strings.Repeat("0", 64)
+	if err := prepareTargetSourceBuilder(builder, badTarget); err == nil {
+		t.Fatal("builder with a bad SHA256 unexpectedly accepted")
+	}
+	if _, err := os.Stat(badTarget); !os.IsNotExist(err) {
+		t.Fatalf("bad builder final path must not exist, stat err = %v", err)
 	}
 }
 

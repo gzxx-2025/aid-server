@@ -87,3 +87,49 @@ func TestMatchProductVersionSupportsStableAndBeta(t *testing.T) {
 		t.Fatal("unexpected source-build version match")
 	}
 }
+
+func TestSelectSourceBuilderForVersion(t *testing.T) {
+	stableBuilder := &SourceBuilderArtifact{
+		URL:        "https://gitee.example/project/raw/v1.0.0/builder.sh",
+		Mirrors:    []string{"https://github.example/project/raw/v1.0.0/builder.sh"},
+		SHA256:     "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Capability: SourceBuilderCapability,
+	}
+	betaBuilder := &SourceBuilderArtifact{
+		URL:        "https://gitee.example/project/raw/v1.1.0-beta.1/builder.sh",
+		SHA256:     "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		Capability: SourceBuilderCapability,
+	}
+	m := &Manifest{
+		ProductVersion: "1.0.0",
+		SourceBuild:    true,
+		SourceBuilder:  stableBuilder,
+		Beta: &ChannelRelease{
+			ProductVersion: "1.1.0-beta.1",
+			SourceBuild:    true,
+			SourceBuilder:  betaBuilder,
+		},
+	}
+
+	selected, err := m.SelectSourceBuilderForVersion("1.1.0-beta.1")
+	if err != nil {
+		t.Fatalf("expected beta builder: %v", err)
+	}
+	if selected.URL != betaBuilder.URL || selected == betaBuilder {
+		t.Fatalf("unexpected or non-copied builder: %#v", selected)
+	}
+
+	m.Beta.SourceBuilder = nil
+	if _, err := m.SelectSourceBuilderForVersion("1.1.0-beta.1"); err == nil {
+		t.Fatal("source-build release without signed builder unexpectedly accepted")
+	}
+	m.SourceBuilder.Capability = "legacy"
+	if _, err := m.SelectSourceBuilderForVersion("1.0.0"); err == nil {
+		t.Fatal("legacy builder capability unexpectedly accepted")
+	}
+	m.SourceBuilder.Capability = SourceBuilderCapability
+	m.SourceBuilder.URL = "http://insecure.example/builder.sh"
+	if _, err := m.SelectSourceBuilderForVersion("1.0.0"); err == nil {
+		t.Fatal("insecure builder URL unexpectedly accepted")
+	}
+}
