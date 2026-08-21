@@ -100,6 +100,12 @@ func (r *Runner) runApply(t *Task, isRollback bool) error {
 		return err
 	}
 	r.reportProgress(t, 58, "检查发布包", "三端发布包结构校验通过")
+	if !isRollback {
+		r.reportProgress(t, 59, "检查运行环境", "正在按目标版本校验并准备运行环境")
+		if err := r.preflightTargetRuntime(packageRoot); err != nil {
+			return fmt.Errorf("目标版本运行环境检查失败，尚未执行SQL或切换程序: %w", err)
+		}
+	}
 
 	// 3. 数据库前置校验：需要执行 SQL 但未启用数据库配置时，提前失败（此时尚未停服，无损）
 	sqlDir := filepath.Join(packageRoot, pkgSQLDir)
@@ -244,6 +250,137 @@ func (r *Runner) runApply(t *Task, isRollback bool) error {
 		return auxErr
 	}
 	return nil
+}
+
+// preflightTargetRuntime 使用目标升级包内的管理脚本准备运行环境。它必须在创建
+// 升级备份、执行 SQL 和替换产物之前完成，不能依赖升级完成后的最终重启兜底。
+func (r *Runner) preflightTargetRuntime(packageRoot string) error {
+	managerScript := filepath.Join(packageRoot, "installer", "deploy", "aid.sh")
+	info, err := os.Lstat(managerScript)
+	if err != nil {
+		return fmt.Errorf("目标版本缺少部署管理脚本: %w", err)
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o022 != 0 {
+		return fmt.Errorf("目标版本部署管理脚本类型或权限非法")
+	}
+
+	state, err := r.cfg.ReadDeploymentState()
+	if err != nil {
+		return fmt.Errorf("读取部署配置失败: %w", err)
+	}
+	dataRoot := filepath.Clean(filepath.Dir(filepath.Dir(r.cfg.Install.BackendJar)))
+	dependencyMode := strings.TrimSpace(state.Values["DEPENDENCY_INSTALL_MODE"])
+	if dependencyMode == "" {
+		dependencyMode = "auto"
+	}
+
+	baseEnv := environmentWithOverride(os.Environ(), "AID_DATA_ROOT", dataRoot)
+	baseEnv = environmentWithOverride(baseEnv, "AID_DEPENDENCY_INSTALL_MODE", dependencyMode)
+	baseEnv = environmentWithOverride(baseEnv, "AID_REMOTE_BOOTSTRAP", "0")
+
+	var cmd *exec.Cmd
+	switch r.cfg.Install.ServiceManager {
+	case sysctl.ManagerSystemd:
+		cmd = exec.Command("bash", managerScript, "__upgrade-runtime-preflight", "manual")
+		cmd.Env = baseEnv
+	case sysctl.ManagerDocker:
+		runtimeImage, imageErr := targetDockerRuntimeImage(packageRoot)
+		if imageErr != nil {
+			return imageErr
+		}
+		if targetDockerRuntimeReady(runtimeImage, managerScript, packageRoot, dataRoot) {
+			log.Printf("目标版本 Docker 运行镜像已通过 JDK、FFmpeg 与中文字体校验: %s", runtimeImage)
+			return nil
+		}
+		log.Printf("目标版本 Docker 运行镜像缺失或能力不完整，开始前置准备: %s", runtimeImage)
+		// 当前升级器运行在 docker:27-cli 中。使用同镜像启动一次性工具容器，
+		// 仅补齐 Bash/下载工具后执行目标版本脚本；数据根和 Docker Socket 均
+		// 保持原路径，生成的固定运行镜像直接落到宿主机 Docker daemon。
+		helperScript := `apk add --no-cache bash xz curl tar coreutils findutils >/dev/null && exec bash "$1" __upgrade-runtime-preflight docker`
+		args := []string{
+			"run", "--rm", "--network", "host",
+			"-v", "/var/run/docker.sock:/var/run/docker.sock",
+			"-v", dataRoot + ":" + dataRoot,
+			"-v", packageRoot + ":" + packageRoot + ":ro",
+			"-e", "AID_DATA_ROOT=" + dataRoot,
+			"-e", "AID_DEPENDENCY_INSTALL_MODE=" + dependencyMode,
+			"-e", "AID_REMOTE_BOOTSTRAP=0",
+		}
+		if dependencyRegion := strings.TrimSpace(state.Values["DEPENDENCY_REGION"]); dependencyRegion != "" {
+			args = append(args, "-e", "AID_DEPENDENCY_REGION="+dependencyRegion)
+		}
+		if dockerMirrors := strings.TrimSpace(state.Values["DOCKER_MIRRORS"]); dockerMirrors != "" {
+			args = append(args, "-e", "AID_DOCKER_MIRRORS="+dockerMirrors)
+		}
+		args = append(args, "docker:27-cli", "sh", "-eu", "-c", helperScript,
+			"aid-runtime-preflight", managerScript)
+		cmd = exec.Command("docker", args...)
+		cmd.Env = baseEnv
+	default:
+		return fmt.Errorf("不支持的服务管理方式: %s", r.cfg.Install.ServiceManager)
+	}
+
+	cmd.Stdout = log.Writer()
+	cmd.Stderr = log.Writer()
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("目标版本运行环境准备失败: %w", err)
+	}
+	if r.cfg.Install.ServiceManager == sysctl.ManagerDocker {
+		runtimeImage, imageErr := targetDockerRuntimeImage(packageRoot)
+		if imageErr != nil {
+			return imageErr
+		}
+		if !targetDockerRuntimeReady(runtimeImage, managerScript, packageRoot, dataRoot) {
+			return fmt.Errorf("目标版本 Docker 运行镜像准备后复检失败")
+		}
+	}
+	return nil
+}
+
+// targetDockerRuntimeImage 从目标包的 aid-server 服务读取固定运行镜像。
+func targetDockerRuntimeImage(packageRoot string) (string, error) {
+	composePath := filepath.Join(packageRoot, "installer", "deploy", "docker", "docker-compose.yml")
+	raw, err := os.ReadFile(composePath)
+	if err != nil {
+		return "", fmt.Errorf("目标版本缺少 Docker 编排文件: %w", err)
+	}
+	inServer := false
+	for _, line := range strings.Split(string(raw), "\n") {
+		line = strings.TrimRight(line, "\r")
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(line, "  ") && !strings.HasPrefix(line, "    ") && strings.HasSuffix(trimmed, ":") {
+			inServer = trimmed == "aid-server:"
+			continue
+		}
+		if !inServer || !strings.HasPrefix(line, "    image:") {
+			continue
+		}
+		image := strings.TrimSpace(strings.TrimPrefix(line, "    image:"))
+		image = strings.Trim(image, "'\"")
+		if image == "" || strings.ContainsAny(image, " \t\r\n") || strings.Contains(image, "${") ||
+			!strings.HasPrefix(image, "aid/openjdk:") {
+			return "", fmt.Errorf("目标版本 Docker 运行镜像配置非法")
+		}
+		return image, nil
+	}
+	return "", fmt.Errorf("目标版本 Docker 编排缺少 aid-server 运行镜像")
+}
+
+// targetDockerRuntimeReady 使用目标版本校验器检查镜像内的完整运行能力。
+func targetDockerRuntimeReady(image, managerScript, packageRoot, dataRoot string) bool {
+	if err := exec.Command("docker", "image", "inspect", image).Run(); err != nil {
+		return false
+	}
+	checkScript := `source "$1"; java -version 2>&1 | head -n 1 | grep -F "$JDK_VERSION" >/dev/null; configure_ffmpeg_runtime_paths; ffmpeg_runtime_usable >/dev/null; "$AID_FONT_ROOT/check-font.sh" validate >/dev/null`
+	cmd := exec.Command("docker", "run", "--rm",
+		"-v", packageRoot+":"+packageRoot+":ro",
+		"-v", dataRoot+":"+dataRoot+":ro",
+		"-e", "AID_SH_LIBRARY_MODE=1",
+		"-e", "AID_DATA_ROOT="+dataRoot,
+		image, "bash", "-eu", "-c", checkScript, "aid-runtime-check", managerScript)
+	cmd.Stdout = log.Writer()
+	cmd.Stderr = log.Writer()
+	return cmd.Run() == nil
 }
 
 // activateRefreshedDeploymentAssets 让刚刷新的部署模板立即生效。手动模式必须

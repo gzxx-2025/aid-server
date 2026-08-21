@@ -3438,6 +3438,40 @@ ensure_manual_host_dependencies() {
   check_external_rocketmq_connectivity manual
 }
 
+# 供在线升级器在备份、执行增量 SQL 和切换程序前调用。目标版本的部署脚本
+# 必须先把对应部署方式需要的运行环境准备完整，避免新版本已经切换后才发现
+# FFmpeg、中文字体或运行镜像缺失。
+do_upgrade_runtime_preflight() {
+  require_root
+  local expectedMode="${1:-}" mode installMode
+  mode="$(detect_mode)"
+  [[ "${mode}" != "none" ]] || die "尚未部署，无法执行升级运行环境检查"
+  case "${expectedMode}" in
+    '') ;;
+    docker|manual)
+      [[ "${mode}" == "${expectedMode}" ]] \
+        || die "升级运行环境检查方式不一致：当前 ${mode}，要求 ${expectedMode}"
+      ;;
+    *) die "升级运行环境检查方式仅支持 docker 或 manual" ;;
+  esac
+
+  installMode="$(dependency_install_mode "${mode}")"
+  export AID_DEPENDENCY_INSTALL_MODE="${installMode}"
+  section "升级前运行环境检查"
+  case "${mode}" in
+    docker)
+      [[ -f "${ENV_FILE}" ]] || die "Docker 配置文件不存在: ${ENV_FILE}"
+      require_docker_runtime
+      prepare_docker_runtime_images
+      ;;
+    manual)
+      [[ -f "${CONF}" ]] || die "手动部署配置文件不存在: ${CONF}"
+      ensure_manual_host_dependencies
+      ;;
+  esac
+  ok "目标版本运行环境检查通过（${mode}）"
+}
+
 # 当前部署版本优先读取升级器同步维护的 build-info.json，旧环境回退到配置记录。
 current_version() {
   local buildInfo="${DATA_ROOT}/app/build-info.json" version=""
@@ -9111,6 +9145,12 @@ show_menu() {
 }
 
 main() {
+  # 内部升级前置入口必须执行当前目标包中的脚本，不能交接回旧版受管脚本。
+  # 该入口不展示在用户菜单，仅由签名升级包解压后的升级器调用。
+  if [[ "${1:-}" == "__upgrade-runtime-preflight" ]]; then
+    do_upgrade_runtime_preflight "${2:-}"
+    return $?
+  fi
   # 用户以后仍执行最初下载的单文件时，自动切换到源码构建包持久化安装的最新版管理脚本。
   handoff_to_managed_installer "$@"
   case "${1:-}" in
