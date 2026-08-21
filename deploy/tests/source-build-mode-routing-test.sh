@@ -10,6 +10,34 @@ export AID_DATA_ROOT="${TMP_ROOT}/data"
 # shellcheck source=../aid.sh
 source "${ROOT_DIR}/deploy/aid.sh"
 
+# Alpine/musl 控制容器不能直接执行 glibc JDK。固定归档元数据必须可独立校验，
+# 同时禁止把错误文本路径中的版本号误当成成功的 java -version 输出。
+fakeJdk="${TMP_ROOT}/temurin-17.0.20-x64"
+mkdir -p "${fakeJdk}/bin"
+cat > "${fakeJdk}/release" <<'EOF'
+IMPLEMENTOR="Eclipse Adoptium"
+IMPLEMENTOR_VERSION="Temurin-17.0.20+8"
+JAVA_VERSION="17.0.20"
+OS_ARCH="x86_64"
+OS_NAME="Linux"
+EOF
+cat > "${fakeJdk}/bin/java" <<'EOF'
+#!/usr/bin/env bash
+echo "$0: cannot execute: required file not found" >&2
+exit 127
+EOF
+chmod 755 "${fakeJdk}/bin/java"
+jdk_home_metadata_matches "${fakeJdk}" x64 \
+  || { echo 'FAIL: valid pinned JDK metadata was rejected' >&2; exit 1; }
+if jdk_runtime_matches "${fakeJdk}"; then
+  echo 'FAIL: a failed JDK execution was accepted because its path contained the version' >&2
+  exit 1
+fi
+if jdk_home_metadata_matches "${fakeJdk}" aarch64; then
+  echo 'FAIL: JDK metadata accepted the wrong CPU architecture' >&2
+  exit 1
+fi
+
 # 首次确认文案必须按部署方式区分；非 Docker 不能再误报“拉取 Docker 镜像”。
 RESOLVED_VERSION=1.0.0-test
 RESOLVED_CHANNEL=beta
@@ -111,6 +139,11 @@ assert_before "$(declare -f ensure_source_package)" 'bootstrap_source_builder "$
 assert_before "$(declare -f do_setup_updater)" 'set_source_build_mode "${mode}"' 'bootstrap_source_builder "${AID_SOURCE_BUILD_MODE}"'
 
 builder_file="${ROOT_DIR}/deploy/build-release-from-source.sh"
+prepareJdkLine="$(grep -n '^prepare_exact_jdk$' "${builder_file}" | cut -d: -f1)"
+detectArchLine="$(grep -n '^detect_current_updater_arch$' "${builder_file}" | cut -d: -f1)"
+[[ "${prepareJdkLine}" =~ ^[0-9]+$ && "${detectArchLine}" =~ ^[0-9]+$ \
+    && "${prepareJdkLine}" -lt "${detectArchLine}" ]] \
+  || { echo 'FAIL: pinned JDK must be prepared before Docker/host source-build routing' >&2; exit 1; }
 grep -Fqx '# AID_SOURCE_BUILD_MODE_CAPABILITY=explicit-v1' "${builder_file}" \
   || { echo 'FAIL: source builder lacks the explicit-mode capability marker' >&2; exit 1; }
 grep -Fq 'SOURCE_BUILD_MODE="${AID_SOURCE_BUILD_MODE:-auto}"' "${builder_file}" \

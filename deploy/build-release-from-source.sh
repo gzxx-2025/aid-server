@@ -1788,6 +1788,37 @@ download_file() {
   mv -f "$part" "$target"
 }
 
+jdk_home_metadata_matches() { # jdk_home_metadata_matches <JDK目录> <x64|aarch64>
+  jdk_meta_home="$1"
+  jdk_meta_arch="$2"
+  jdk_meta_release="$jdk_meta_home/release"
+  case "$jdk_meta_arch" in
+    x64) jdk_meta_os_arch=x86_64 ;;
+    aarch64) jdk_meta_os_arch=aarch64 ;;
+    *) return 1 ;;
+  esac
+  [ -d "$jdk_meta_home" ] && [ ! -L "$jdk_meta_home" ] \
+    && [ -x "$jdk_meta_home/bin/java" ] && [ -f "$jdk_meta_release" ] \
+    && grep -Fxq "JAVA_VERSION=\"$JDK_VERSION\"" "$jdk_meta_release" \
+    && grep -Fxq 'IMPLEMENTOR="Eclipse Adoptium"' "$jdk_meta_release" \
+    && grep -Fxq "IMPLEMENTOR_VERSION=\"Temurin-$JDK_VERSION+$JDK_BUILD\"" "$jdk_meta_release" \
+    && grep -Fxq "OS_ARCH=\"$jdk_meta_os_arch\"" "$jdk_meta_release" \
+    && grep -Fxq 'OS_NAME="Linux"' "$jdk_meta_release"
+}
+
+jdk_runtime_matches() { # jdk_runtime_matches <JDK目录>
+  jdk_runtime_home="$1"
+  [ -x "$jdk_runtime_home/bin/java" ] || return 1
+  jdk_runtime_output="$($jdk_runtime_home/bin/java -version 2>&1)" || return 1
+  jdk_runtime_output="$(printf '%s' "$jdk_runtime_output" | tr -d '\r')"
+  jdk_runtime_first="${jdk_runtime_output%%
+*}"
+  case "$jdk_runtime_first" in
+    "openjdk version \"$JDK_VERSION\""*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 prepare_exact_jdk() {
   case "$(uname -m)" in
     x86_64|amd64)
@@ -1802,7 +1833,8 @@ prepare_exact_jdk() {
   jdk_cache_dir="$CACHE_DIR/toolchains"
   jdk_archive="$jdk_cache_dir/$jdk_name"
   JDK_HOME="$jdk_cache_dir/temurin-${JDK_VERSION}-${jdk_arch}"
-  if [ -x "$JDK_HOME/bin/java" ] && "$JDK_HOME/bin/java" -version 2>&1 | head -n 1 | grep -Fq '17.0.20'; then
+  if jdk_home_metadata_matches "$JDK_HOME" "$jdk_arch" \
+      && { [ "$USE_DOCKER" = yes ] || jdk_runtime_matches "$JDK_HOME"; }; then
     log "Temurin OpenJDK $JDK_VERSION 已存在，跳过下载: $JDK_HOME"
     return 0
   fi
@@ -1856,9 +1888,10 @@ $cn_url"
     rm -rf -- "$jdk_tmp"
     die 'OpenJDK 压缩包解压失败'
   fi
-  if [ ! -x "$jdk_tmp/bin/java" ] || ! "$jdk_tmp/bin/java" -version 2>&1 | head -n 1 | grep -Fq '17.0.20'; then
+  if ! jdk_home_metadata_matches "$jdk_tmp" "$jdk_arch" \
+      || { [ "$USE_DOCKER" != yes ] && ! jdk_runtime_matches "$jdk_tmp"; }; then
     rm -rf -- "$jdk_tmp"
-    die 'OpenJDK 实际版本不是17.0.20'
+    die "OpenJDK $JDK_VERSION 固定归档元数据、架构或运行能力不匹配"
   fi
   rm -rf -- "$JDK_HOME"
   mv "$jdk_tmp" "$JDK_HOME"

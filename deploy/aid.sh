@@ -3921,8 +3921,36 @@ node_runtime_matches() { # node_runtime_matches <node二进制>
   return 0
 }
 
+jdk_home_metadata_matches() { # jdk_home_metadata_matches <JDK目录> <x64|aarch64>
+  local home="$1" archiveArch="$2" releaseFile expectedOsArch
+  releaseFile="${home}/release"
+  case "${archiveArch}" in
+    x64) expectedOsArch="x86_64" ;;
+    aarch64) expectedOsArch="aarch64" ;;
+    *) return 1 ;;
+  esac
+  [[ -d "${home}" && ! -L "${home}" && -x "${home}/bin/java" && -f "${releaseFile}" ]] \
+    || return 1
+  grep -Fxq "JAVA_VERSION=\"${JDK_VERSION}\"" "${releaseFile}" \
+    && grep -Fxq 'IMPLEMENTOR="Eclipse Adoptium"' "${releaseFile}" \
+    && grep -Fxq "IMPLEMENTOR_VERSION=\"Temurin-${JDK_VERSION}+${JDK_BUILD}\"" "${releaseFile}" \
+    && grep -Fxq "OS_ARCH=\"${expectedOsArch}\"" "${releaseFile}" \
+    && grep -Fxq 'OS_NAME="Linux"' "${releaseFile}"
+}
+
+jdk_runtime_matches() { # jdk_runtime_matches <JDK目录>
+  local home="$1" output="" firstLine=""
+  [[ -x "${home}/bin/java" ]] || return 1
+  if ! output="$("${home}/bin/java" -version 2>&1)"; then
+    return 1
+  fi
+  output="${output//$'\r'/}"
+  firstLine="${output%%$'\n'*}"
+  [[ "${firstLine}" == "openjdk version \"${JDK_VERSION}\""* ]]
+}
+
 prepare_exact_jdk() {
-  local arch checksum name cacheDir archive actual officialUrl cnUrl downloaded="no" url tmp installMode
+  local arch checksum name cacheDir archive officialUrl cnUrl downloaded="no" url tmp installMode
   case "$(uname -m)" in
     x86_64|amd64)
       arch=x64
@@ -3936,9 +3964,10 @@ prepare_exact_jdk() {
   cacheDir="${DATA_ROOT}/build-cache/toolchains"
   archive="${cacheDir}/${name}"
   JDK_HOME="${cacheDir}/temurin-${JDK_VERSION}-${arch}"
-  if [[ -x "${JDK_HOME}/bin/java" ]] \
-      && "${JDK_HOME}/bin/java" -version 2>&1 | head -n 1 | grep -Fq '17.0.20'; then
-    ok "Temurin OpenJDK ${JDK_VERSION} 已存在，跳过下载: ${JDK_HOME}"
+  # Docker 控制面可能运行在 Alpine/musl 中，不能在这里直接执行 glibc JDK。
+  # 固定归档先由 SHA256 与 release 元数据确认，真实执行能力在 Debian 目标镜像内复检。
+  if jdk_home_metadata_matches "${JDK_HOME}" "${arch}"; then
+    ok "Temurin OpenJDK ${JDK_VERSION} 固定运行时元数据已匹配，跳过下载: ${JDK_HOME}"
     return 0
   fi
   require_download_tools
@@ -3988,10 +4017,9 @@ prepare_exact_jdk() {
     rm -rf -- "${tmp}"
     die "OpenJDK 压缩包解压失败"
   fi
-  if [[ ! -x "${tmp}/bin/java" ]] \
-      || ! "${tmp}/bin/java" -version 2>&1 | head -n 1 | grep -Fq '17.0.20'; then
+  if ! jdk_home_metadata_matches "${tmp}" "${arch}"; then
     rm -rf -- "${tmp}"
-    die "OpenJDK 实际版本不是17.0.20"
+    die "OpenJDK ${JDK_VERSION} 固定归档元数据或架构不匹配"
   fi
   rm -rf -- "${JDK_HOME}"
   mv "${tmp}" "${JDK_HOME}" || die "OpenJDK 安装目录就位失败"
@@ -4299,14 +4327,23 @@ prepare_exact_go() {
   ok "Go ${GO_VERSION} 已通过官方 SHA256 校验: ${GO_HOME}"
 }
 
+docker_jdk_runtime_matches() { # docker_jdk_runtime_matches <镜像>
+  local image="$1" output="" firstLine=""
+  if ! output="$(docker run --rm "${image}" java -version 2>&1)"; then
+    return 1
+  fi
+  output="${output//$'\r'/}"
+  firstLine="${output%%$'\n'*}"
+  [[ "${firstLine}" == "openjdk version \"${JDK_VERSION}\""* ]]
+}
+
 prepare_jdk_runtime_image() {
-  local baseImage="debian:bookworm-slim" dockerfile actual context imageRuntime fontManager
+  local baseImage="debian:bookworm-slim" dockerfile context imageRuntime fontManager
   prepare_exact_jdk
   prepare_ffmpeg_runtime "${AID_DEPENDENCY_INSTALL_MODE:-auto}"
   imageRuntime="${FFMPEG_RUNTIME_ROOT}/ffmpeg-${FFMPEG_RUNTIME_VERSION}-${FFMPEG_RUNTIME_ARCH}"
   if docker image inspect "${JAVA_RUNTIME_IMAGE}" >/dev/null 2>&1; then
-    actual="$(docker run --rm "${JAVA_RUNTIME_IMAGE}" java -version 2>&1 | head -n 1 || true)"
-    if [[ "${actual}" == *'17.0.20'* ]] \
+    if docker_jdk_runtime_matches "${JAVA_RUNTIME_IMAGE}" \
         && docker run --rm "${JAVA_RUNTIME_IMAGE}" \
           "${imageRuntime}/check-runtime.sh" "${imageRuntime}/ffmpeg" "${imageRuntime}/ffprobe" /tmp \
           "${FFMPEG_MIN_VERSION}" "${FFMPEG_REQUIRED_ENCODERS}" "${FFMPEG_REQUIRED_FILTERS}" \
@@ -4374,8 +4411,8 @@ EOF
     die "OpenJDK ${JDK_VERSION}、FFmpeg ${FFMPEG_RUNTIME_VERSION} 与中文字体运行镜像构建失败"
   fi
   rm -rf -- "${context}"
-  actual="$(docker run --rm "${JAVA_RUNTIME_IMAGE}" java -version 2>&1 | head -n 1 || true)"
-  [[ "${actual}" == *'17.0.20'* ]] || die "OpenJDK运行镜像版本校验失败"
+  docker_jdk_runtime_matches "${JAVA_RUNTIME_IMAGE}" \
+    || die "OpenJDK运行镜像版本校验失败"
   docker run --rm "${JAVA_RUNTIME_IMAGE}" \
     "${imageRuntime}/check-runtime.sh" "${imageRuntime}/ffmpeg" "${imageRuntime}/ffprobe" /tmp \
     "${FFMPEG_MIN_VERSION}" "${FFMPEG_REQUIRED_ENCODERS}" "${FFMPEG_REQUIRED_FILTERS}" \
