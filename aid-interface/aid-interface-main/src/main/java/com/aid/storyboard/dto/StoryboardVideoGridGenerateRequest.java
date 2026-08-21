@@ -30,7 +30,7 @@ public class StoryboardVideoGridGenerateRequest
      */
     private String videoPrompt;
 
-    /** 宽高比（可选，如 16:9 / 9:16 / 1:1）；为空按模型默认。 */
+    /** 出片宽高比。 */
     private String aspectRatio;
 
     /**

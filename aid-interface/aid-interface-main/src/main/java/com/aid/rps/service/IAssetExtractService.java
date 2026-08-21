@@ -78,17 +78,12 @@ public interface IAssetExtractService
     /**
      * 批量形态生成核心逻辑（由 Consumer 调用），逐项处理并返回结果 JSON。
      */
-    String doFormGenerateBatch(Long taskId, Long userId);
+    String doFormGenerateBatch(Long taskId, Long userId, String dispatchToken);
 
     /**
      * 批量形态图生成核心逻辑（由 Consumer 调用），逐项处理并返回结果 JSON。
      */
-    String doFormImageBatch(Long taskId, Long userId);
-
-    /**
-     * 释放批量形态生成父任务的所有项目锁（供 Consumer / cancel 调用）
-     */
-    void releaseBatchFormLocks(Long taskId, String taskType);
+    String doFormImageBatch(Long taskId, Long userId, String dispatchToken);
 
     /**
      * 仅释放指定派发周期持有的批量任务锁。
@@ -112,7 +107,7 @@ public interface IAssetExtractService
     /**
      * 批量角色设定卡生成核心逻辑（由 Consumer 调用），逐张处理并返回结果 JSON。
      */
-    String doFormCardImageBatch(Long taskId, Long userId);
+    String doFormCardImageBatch(Long taskId, Long userId, String dispatchToken);
 
     /**
      * 素材批量任务继续生成：支持 form_generate_batch / form_image_batch / form_card_image_batch，
@@ -156,20 +151,20 @@ public interface IAssetExtractService
     void setCancelFlag(Long taskId);
 
     /**
-     * 释放提取防重锁（供 Consumer 调用）
+     * 仅当任务仍属于指定计费周期时，按该周期快照中的令牌 CAS 释放提取防重锁。
      *
-     * @param projectId 项目ID
-     * @param episodeId 剧集ID
+     * @param taskId 任务ID
+     * @param expectedTraceId 调用方捕获的计费周期；允许为 null（匹配旧任务的 null 周期）
      */
-    /** 按任务快照中的本轮令牌 CAS 释放提取防重锁。 */
-    void releaseExtractLockForTask(Long taskId);
+    void releaseExtractLockForTask(Long taskId, String expectedTraceId);
 
     /**
      * 清除 Redis 取消标记（供 Consumer 调用）
      *
      * @param taskId 任务ID
      */
-    void clearCancelFlag(Long taskId);
+    /** 仅清除指定派发周期的取消标记。 */
+    void clearCancelFlag(Long taskId, String dispatchToken);
 
     /**
      * 扫描提取/形态/图片任务的僵尸态并自愈（定时兜底）。
@@ -188,13 +183,6 @@ public interface IAssetExtractService
      * @return 续跑提交后的任务 VO
      */
     AssetExtractTaskVO resumeExtract(Long taskId, Long userId);
-    /**
-     * 释放任务的多维并发名额 + 执行租约（终态 / 取消 / 僵尸回收统一调用，幂等）。
-     *
-     * @param taskId 任务ID
-     */
-    void releaseTaskSlots(Long taskId);
-
     /**
      * 仅释放指定派发周期占用的多维并发名额与执行租约。
      *

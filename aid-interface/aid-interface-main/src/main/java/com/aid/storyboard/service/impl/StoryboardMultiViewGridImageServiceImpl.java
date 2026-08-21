@@ -624,6 +624,7 @@ public class StoryboardMultiViewGridImageServiceImpl implements IStoryboardMulti
                           String taskType, boolean isGrid,
                           String genParamsJson, String lockKey, String lockToken)
     {
+        String dispatchToken = taskQueueService.currentLocalDispatchToken(taskId);
         try
         {
             // 取消检查点①：异步启动后
@@ -723,7 +724,7 @@ public class StoryboardMultiViewGridImageServiceImpl implements IStoryboardMulti
             releaseLockSafely(lockKey, lockToken);
             try
             {
-                assetExtractService.clearCancelFlag(taskId);
+                assetExtractService.clearCancelFlag(taskId, dispatchToken);
             }
             catch (Exception ignore)
             {
@@ -731,7 +732,7 @@ public class StoryboardMultiViewGridImageServiceImpl implements IStoryboardMulti
             // 释放多维并发名额 + 执行租约（幂等）
             try
             {
-                assetExtractService.releaseTaskSlots(taskId);
+                assetExtractService.releaseTaskSlots(taskId, dispatchToken);
             }
             catch (Exception ignore)
             {

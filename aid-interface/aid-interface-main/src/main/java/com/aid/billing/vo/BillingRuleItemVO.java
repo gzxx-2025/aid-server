@@ -39,6 +39,21 @@ public class BillingRuleItemVO implements Serializable
 
     /** 输入 Token 区间上限，仅文本按 Token 计费时有效 */
     private Integer inputTokensMax;
+
+    /** 参考图片数量下限，null 表示不限制 */
+    private Integer referenceImageCountMin;
+
+    /** 参考图片数量上限，null 表示不限制 */
+    private Integer referenceImageCountMax;
+
+    /** 输入视频数量下限，null 表示不限制 */
+    private Integer inputVideoCountMin;
+
+    /** 输入视频数量上限，null 表示不限制 */
+    private Integer inputVideoCountMax;
+
+    /** 音频模式条件（如 off / native），无则为 null */
+    private String audioMode;
     /** 单价：按张计费=每张价；固定计费=每次价；其它口径为 null */
     private BigDecimal unitPrice;
 
@@ -54,12 +69,13 @@ public class BillingRuleItemVO implements Serializable
     /** 输出单价（Credits/百万Token）：文本按 Token 计费时有效 */
     private BigDecimal outputPricePerMillion;
 
-    /** 输入图片单价（Credits/张，本档位覆盖值，已乘折算倍率）；null = 用模型级 inputPricing 或免费 */
+    /** 输入图片单价（Credits/张，本档位覆盖值，已乘折算倍率）；null = 回退模型级 inputPricing */
     private BigDecimal inputImagePrice;
 
-    /** 输入视频单价（Credits/秒，本档位覆盖值，已乘折算倍率）；null = 用模型级 inputPricing 或免费 */
+    /** 输入图片免费张数（本档位覆盖值）；null = 用模型级 inputPricing */
+    private Integer inputImageFreeCount;
+
+    /** 输入视频单价（Credits/秒，本档位覆盖值，已乘折算倍率）；null = 回退模型级 inputPricing */
     private BigDecimal inputVideoPricePerSecond;
 
-    /** 档位备注（运营在计费规则中填写的说明，如「系列图按10倍计费」） */
-    private String remark;
 }

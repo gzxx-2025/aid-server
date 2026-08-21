@@ -343,8 +343,10 @@ public class StoryboardGenerationController extends BaseController {
 
     /**
      * 批量生成分镜脚本
-     * 按项目+剧集维度，遍历所有已提取场景，逐场景调用分镜脚本 LLM 智能体，
-     * 将输出写入 aid_storyboard 表。返回父任务 taskId 供 SSE 追踪进度。
+     * 按项目和剧集维度使用当前有效剧本生成分镜脚本。
+     *
+     * @param request 分镜脚本批量生成请求
+     * @return 异步任务信息
      */
     @PostMapping("/generate/script")
     public AjaxResult batchGenerateScript(@Valid @RequestBody StoryboardScriptBatchRequest request) {
@@ -433,6 +435,8 @@ public class StoryboardGenerationController extends BaseController {
                 request.getAgentCode(),
                 request.getModelCode(),
                 request.getOverwrite(),
+                request.getContinuityMode(),
+                request.getPreviousStoryboardId(),
                 null);
         wechatNotifyService.notifyTaskStarted(vo.getTaskId());
         return success(vo);
@@ -467,7 +471,9 @@ public class StoryboardGenerationController extends BaseController {
                 request.getStoryboardIds(),
                 request.getAgentCode(),
                 request.getModelCode(),
-                request.getOverwrite());
+                request.getOverwrite(),
+                request.getContinuityMode(),
+                request.getPreviousStoryboardId());
         wechatNotifyService.notifyTaskStarted(vo.getTaskId());
         return success(vo);
     }
@@ -489,7 +495,9 @@ public class StoryboardGenerationController extends BaseController {
                 request.getStoryboardIds(),
                 request.getAgentCode(),
                 request.getModelCode(),
-                request.getOverwrite());
+                request.getOverwrite(),
+                request.getContinuityMode(),
+                request.getPreviousStoryboardId());
         wechatNotifyService.notifyTaskStarted(vo.getTaskId());
         return success(vo);
     }

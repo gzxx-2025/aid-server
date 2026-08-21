@@ -17,11 +17,6 @@ public final class OpenAiImageConstants {
 
     /** 兜底默认模型（生产应在 aid_ai_model 配置 real_model_code） */
     public static final String DEFAULT_IMAGE_MODEL = "gpt-image-2";
-    /** 文生图端点（base_url 之后拼接） */
-    public static final String PATH_GENERATIONS = "/v1/images/generations";
-
-    /** 图生图 / 参考图编辑端点 */
-    public static final String PATH_EDITS = "/v1/images/edits";
     public static final String JSON_MODEL = "model";
     public static final String JSON_PROMPT = "prompt";
     public static final String JSON_N = "n";

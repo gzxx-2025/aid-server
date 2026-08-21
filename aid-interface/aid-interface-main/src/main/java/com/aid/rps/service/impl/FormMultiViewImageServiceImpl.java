@@ -546,6 +546,7 @@ public class FormMultiViewImageServiceImpl implements IFormMultiViewImageService
         // 入队 + 多维并发调度（LOCAL 派发），名额放行后由本地派发执行器执行此 job。
         Runnable multiViewJob = () ->
         {
+            String dispatchToken = taskQueueService.currentLocalDispatchToken(taskId);
             try
             {
                 // 取消检查点①：异步启动后先看 Redis cancel flag；用户在 PENDING 阶段取消时会更新任务状态 + 写 flag，
@@ -659,7 +660,7 @@ public class FormMultiViewImageServiceImpl implements IFormMultiViewImageService
                 // 清掉 Redis cancel flag，避免同一 taskId 的标记遗留
                 try
                 {
-                    assetExtractService.clearCancelFlag(taskId);
+                    assetExtractService.clearCancelFlag(taskId, dispatchToken);
                 }
                 catch (Exception ignore)
                 {
@@ -668,7 +669,7 @@ public class FormMultiViewImageServiceImpl implements IFormMultiViewImageService
                 // 释放多维并发名额 + 执行租约（幂等）
                 try
                 {
-                    assetExtractService.releaseTaskSlots(taskId);
+                    assetExtractService.releaseTaskSlots(taskId, dispatchToken);
                 }
                 catch (Exception ignore)
                 {

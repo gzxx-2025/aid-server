@@ -25,6 +25,8 @@ import com.aid.compose.domain.ComposeBillingSnapshot;
 import com.aid.compose.domain.ComposeCommand;
 import com.aid.compose.domain.ComposeFileInfo;
 import com.aid.compose.domain.ComposeGroup;
+import com.aid.compose.domain.ComposeJobPlan;
+import com.aid.compose.domain.ComposeStorageSnapshot;
 import com.aid.compose.domain.ComposeSubmitResult;
 import com.aid.compose.domain.ComposeTrackItem;
 import com.aid.compose.domain.ComposeTrackItemType;
@@ -40,6 +42,8 @@ import com.aid.media.enums.MediaBillingStatus;
 import com.aid.media.enums.MediaTaskStatus;
 import com.aid.media.service.IMediaGenerationService;
 import com.aid.media.util.MediaTaskPayloadSanitizer;
+import com.aid.common.aid.oss.config.OssConfigManager;
+import com.aid.common.aid.oss.properties.OssProperties;
 
 import cn.hutool.core.collection.CollectionUtil;
 import cn.hutool.core.util.IdUtil;
@@ -55,11 +59,8 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
+@RequiredArgsConstructor(onConstructor_ = @org.springframework.beans.factory.annotation.Autowired)
 public class CoreComposeServiceImpl implements CoreComposeService {
-
-    /** 协议标识：按 protocol 路由到 MPS Provider */
-    private static final String PROTOCOL_MPS = "tencent-mps";
 
     /** 媒体类型：合成任务 */
     private static final String MEDIA_TYPE_COMPOSE = "COMPOSE";
@@ -97,6 +98,9 @@ public class CoreComposeServiceImpl implements CoreComposeService {
     /** MPS 配置管理器 */
     private final MpsConfigManager mpsConfigManager;
 
+    /** 当前文件存储配置，用于绑定云端输出桶并冻结存储归属。 */
+    private final OssConfigManager ossConfigManager;
+
     /** 统一媒体生成服务：复用其并发/排队/异步提交机制提交 COMPOSE 任务 */
     private final IMediaGenerationService mediaGenerationService;
 
@@ -105,6 +109,17 @@ public class CoreComposeServiceImpl implements CoreComposeService {
 
     /** REQUIRES_NEW 短事务模板：任务落库独立提交，不并入调用方事务，提交后任务行立即对异步提交线程可见 */
     private TransactionTemplate requiresNewTxTemplate;
+
+    /** 保留模块内既有直接构造调用的源兼容；完整合成仍要求容器注入文件存储管理器。 */
+    CoreComposeServiceImpl(AidMediaTaskMapper aidMediaTaskMapper,
+                           ComposeUrlNormalizer composeUrlNormalizer,
+                           ComposeBillingService composeBillingService,
+                           MpsConfigManager mpsConfigManager,
+                           IMediaGenerationService mediaGenerationService,
+                           TransactionTemplate transactionTemplate) {
+        this(aidMediaTaskMapper, composeUrlNormalizer, composeBillingService, mpsConfigManager,
+                null, mediaGenerationService, transactionTemplate);
+    }
 
     @PostConstruct
     void initShortTxTemplate() {
@@ -115,28 +130,36 @@ public class CoreComposeServiceImpl implements CoreComposeService {
     @Override
     public ComposeSubmitResult compose(ComposeCommand command) {
         validate(command);
+        MpsProperties mediaConfig = mpsConfigManager.getMpsProperties();
+        OssProperties storageConfig = ossConfigManager == null ? null : ossConfigManager.getOssProperties();
+        validateRuntimeConfig(mediaConfig, storageConfig);
         // 合成任务也只允许对象存储 URL，冻结费用前先拒绝 Base64/data URI 文件内容。
         MediaTaskPayloadSanitizer.serializeRequest(command);
         normalizeCommandUrls(command);
+        if (MpsConfigManager.MODE_ALIYUN_IMS.equals(mediaConfig.getProcessMode())) {
+            validateAliyunInputOwnership(command, storageConfig);
+        }
         long estimatedSeconds = estimateSeconds(command);
         if (estimatedSeconds > MAX_OUTPUT_SECONDS) {
             log.error("合成估算时长超限, estimatedSeconds={}, max={}", estimatedSeconds, MAX_OUTPUT_SECONDS);
             throw new RuntimeException("时长超限");
         }
-        String resolution = resolveResolution(command.getResolution());
+        String resolution = resolveResolution(command.getResolution(), mediaConfig.getOutputResolution());
         ComposeTracks tracks = buildTracks(command);
         String traceId = "compose_" + IdUtil.fastSimpleUUID();
         // 预冻结通过统一账户执行器独立事务提交（内部 REQUIRES_NEW），成功后立即生效
         ComposeBillingSnapshot snapshot = composeBillingService.freeze(
                 command.getUserId(), estimatedSeconds, resolution, traceId);
-        AidMediaTask task = buildTask(command, resolution, estimatedSeconds, traceId, snapshot);
+        AidMediaTask task = buildTask(command, resolution, estimatedSeconds, traceId, snapshot,
+                mediaConfig.getProcessMode());
         try {
             // 短事务独立提交任务行：不受调用方事务牵连，提交后 submitComposeTaskAsync 必能读到任务
             requiresNewTxTemplate.executeWithoutResult(s -> {
                 aidMediaTaskMapper.insert(task);
-                Map<String, Object> editMediaRequest =
-                        assembleEditMediaRequest(command, tracks, resolution, task.getId());
-                task.setRequestJson(MediaTaskPayloadSanitizer.serializeRequest(editMediaRequest));
+                Map<String, Object> composeRequest =
+                        assembleComposeRequest(command, tracks, resolution, task.getId(),
+                                mediaConfig, storageConfig);
+                task.setRequestJson(MediaTaskPayloadSanitizer.serializeRequest(composeRequest));
                 task.setUpdateTime(new Date());
                 aidMediaTaskMapper.updateById(task);
             });
@@ -472,6 +495,61 @@ public class CoreComposeServiceImpl implements CoreComposeService {
         }
     }
 
+    /** 冻结费用前确认当前媒体处理开关、处理方式与文件存储归属一致。 */
+    private void validateRuntimeConfig(MpsProperties media, OssProperties storage) {
+        if (media == null || !Boolean.TRUE.equals(media.getEnabled())) {
+            log.error("媒体处理未启用");
+            throw new RuntimeException("媒体处理未启用");
+        }
+        if (storage == null || !Boolean.TRUE.equals(storage.getEnabled())) {
+            log.error("文件存储配置缺失");
+            throw new RuntimeException("存储未配置");
+        }
+        String resourceDomain = storage.getResourceAccessDomain();
+        if (StrUtil.isBlank(resourceDomain)
+                || !StrUtil.startWithAnyIgnoreCase(resourceDomain, "http://", "https://")) {
+            log.error("资源访问地址未配置或格式错误");
+            throw new RuntimeException("资源地址未配置");
+        }
+        String mode = media.getProcessMode();
+        if (MpsConfigManager.MODE_TENCENT_MPS.equals(mode)) {
+            if (StrUtil.hasBlank(media.getSecretId(), media.getSecretKey(), media.getRegion())) {
+                log.error("腾讯MPS访问凭证未配置");
+                throw new RuntimeException("媒体处理未配置");
+            }
+            if (!"cos".equalsIgnoreCase(storage.getUploadMode())
+                    || !StrUtil.equalsIgnoreCase(media.getRegion(), storage.getCosRegion())) {
+                log.error("腾讯MPS与COS存储归属不一致, mpsRegion={}, cosRegion={}, storageMode={}",
+                        media.getRegion(), storage.getCosRegion(), storage.getUploadMode());
+                throw new RuntimeException("存储不匹配");
+            }
+            return;
+        }
+        if (MpsConfigManager.MODE_ALIYUN_IMS.equals(mode)) {
+            if (StrUtil.hasBlank(media.getAliyunAccessKeyId(), media.getAliyunAccessKeySecret(),
+                    media.getAliyunRegion())) {
+                log.error("阿里IMS访问凭证未配置");
+                throw new RuntimeException("媒体处理未配置");
+            }
+            String ossRegion = resolveOssRegion(storage.getEndpoint());
+            if (!"oss".equalsIgnoreCase(storage.getUploadMode())
+                    || !StrUtil.equalsIgnoreCase(media.getAliyunRegion(), ossRegion)) {
+                log.error("阿里IMS与OSS存储归属不一致, imsRegion={}, ossRegion={}, storageMode={}",
+                        media.getAliyunRegion(), ossRegion, storage.getUploadMode());
+                throw new RuntimeException("存储不匹配");
+            }
+            return;
+        }
+        if (!MpsConfigManager.MODE_LOCAL_FFMPEG.equals(mode)) {
+            log.error("媒体处理方式不支持, mode={}", mode);
+            throw new RuntimeException("方式错误");
+        }
+        if (StrUtil.hasBlank(media.getFfmpegPath(), media.getFfprobePath())) {
+            log.error("本地FFmpeg可执行文件未配置");
+            throw new RuntimeException("媒体处理未配置");
+        }
+    }
+
     /**
      * 对 command 内所有素材 URL 规范化 + 可用性校验，就地替换为规范化结果。
      * 同一 URL（如整片各段复用同一 BGM）只探测一次，避免重复 HEAD 开销。
@@ -494,6 +572,63 @@ public class CoreComposeServiceImpl implements CoreComposeService {
                         group.getBgmUrl(), ComposeConstants.MATERIAL_LABEL_BGM, normalizedCache));
             }
         }
+    }
+
+    /** 阿里 IMS Timeline 只接受当前同地域 OSS 素材；在冻结费用前拒绝外部/CDN 地址。 */
+    private void validateAliyunInputOwnership(ComposeCommand command, OssProperties storage) {
+        List<String> urls = new ArrayList<>();
+        if (StrUtil.isNotBlank(command.getGlobalBgmUrl())) {
+            urls.add(command.getGlobalBgmUrl());
+        }
+        for (ComposeGroup group : command.getGroups()) {
+            if (CollectionUtil.isNotEmpty(group.getVideoUrls())) {
+                urls.addAll(group.getVideoUrls());
+            }
+            if (CollectionUtil.isNotEmpty(group.getAudioUrls())) {
+                urls.addAll(group.getAudioUrls());
+            }
+            if (StrUtil.isNotBlank(group.getBgmUrl())) {
+                urls.add(group.getBgmUrl());
+            }
+        }
+        for (String url : urls) {
+            if (!isOwnedOssResource(url, storage)) {
+                log.error("阿里IMS素材不属于当前OSS, url={}", url);
+                throw new RuntimeException("素材不在OSS");
+            }
+        }
+    }
+
+    private boolean isOwnedOssResource(String url, OssProperties storage) {
+        if (StrUtil.isBlank(url) || storage == null || !"oss".equalsIgnoreCase(storage.getUploadMode())) {
+            return false;
+        }
+        if (url.startsWith("/")) {
+            return isSafeObjectPath(url);
+        }
+        try {
+            java.net.URI uri = java.net.URI.create(url);
+            String resourceHost = java.net.URI.create(storage.getEffectiveResourceAccessDomain()).getHost();
+            String endpoint = StrUtil.removeSuffix(StrUtil.blankToDefault(storage.getEndpoint(), "")
+                    .replaceFirst("(?i)^https?://", ""), "/")
+                    .toLowerCase(java.util.Locale.ROOT);
+            String publicEndpoint = endpoint.replace("-internal", "").replace("-intranet", "");
+            String host = uri.getHost();
+            return StrUtil.equalsIgnoreCase(host, resourceHost)
+                    || StrUtil.equalsIgnoreCase(host, storage.getBucketName() + "." + endpoint)
+                    || StrUtil.equalsIgnoreCase(host, storage.getBucketName() + "." + publicEndpoint);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private boolean isSafeObjectPath(String value) {
+        return StrUtil.isNotBlank(value)
+                && !value.contains("..")
+                && !value.contains("\\")
+                && !value.contains("?")
+                && !value.contains("#")
+                && value.chars().noneMatch(Character::isISOControl);
     }
 
     /**
@@ -550,14 +685,17 @@ public class CoreComposeServiceImpl implements CoreComposeService {
     }
 
     /**
-     * 解析分辨率档：空则默认 FHD，统一大写。
+     * 解析分辨率档：请求未指定时使用后台默认档，非法后台值回退 FHD。
      *
      * @param resolution 入参分辨率
+     * @param configuredDefault 后台默认分辨率档
      * @return 规范化分辨率档
      */
-    private String resolveResolution(String resolution) {
+    private String resolveResolution(String resolution, String configuredDefault) {
         if (StrUtil.isBlank(resolution)) {
-            return DEFAULT_RESOLUTION;
+            String fallback = StrUtil.blankToDefault(configuredDefault, DEFAULT_RESOLUTION)
+                    .trim().toUpperCase();
+            return VALID_RESOLUTIONS.contains(fallback) ? fallback : DEFAULT_RESOLUTION;
         }
         return resolution.trim().toUpperCase();
     }
@@ -676,16 +814,17 @@ public class CoreComposeServiceImpl implements CoreComposeService {
      * @return 任务实体
      */
     private AidMediaTask buildTask(ComposeCommand command, String resolution, long estimatedSeconds,
-                                   String traceId, ComposeBillingSnapshot snapshot) {
+                                   String traceId, ComposeBillingSnapshot snapshot, String processMode) {
         AidMediaTask task = new AidMediaTask();
         task.setUserId(command.getUserId());
         task.setProjectId(command.getProjectId());
         task.setEpisodeId(command.getEpisodeId());
         task.setMediaType(MEDIA_TYPE_COMPOSE);
-        task.setProtocol(PROTOCOL_MPS);
-        task.setModelName(PROTOCOL_MPS);
+        task.setProtocol(processMode);
+        task.setModelName(processMode);
         task.setStatus(MediaTaskStatus.QUEUED.name());
-        task.setDispatchMode(DispatchMode.CALLBACK_FIRST.name());
+        task.setDispatchMode(MpsConfigManager.MODE_LOCAL_FFMPEG.equals(processMode)
+                ? DispatchMode.POLL_ONLY.name() : DispatchMode.CALLBACK_FIRST.name());
         task.setBillingTraceId(traceId);
         BigDecimal frozen = Objects.isNull(snapshot) ? null : snapshot.getFrozenCredits();
         task.setFrozenAmount(frozen);
@@ -713,20 +852,30 @@ public class CoreComposeServiceImpl implements CoreComposeService {
      * @return EditMedia 请求体
      */
     private Map<String, Object> assembleEditMediaRequest(ComposeCommand command, ComposeTracks tracks,
-                                                         String resolution, Long taskId) {
-        MpsProperties props = mpsConfigManager.getMpsProperties();
+                                                         String resolution, Long taskId,
+                                                         MpsProperties props, OssProperties storage) {
         Map<String, Object> request = new LinkedHashMap<>();
 
-        // FileInfos：每个素材 Type=URL
+        // 当前 COS 自有素材使用原生 Bucket/Region/Object，外部合法链接保留 URL 输入。
         List<Map<String, Object>> fileInfos = new ArrayList<>();
         for (ComposeFileInfo file : tracks.getFileInfos()) {
             Map<String, Object> fi = new LinkedHashMap<>();
             fi.put("Id", file.getFileId());
             Map<String, Object> inputInfo = new LinkedHashMap<>();
-            inputInfo.put("Type", "URL");
-            Map<String, Object> urlInput = new LinkedHashMap<>();
-            urlInput.put("Url", file.getUrl());
-            inputInfo.put("UrlInputInfo", urlInput);
+            String objectPath = resolveOwnedObjectPath(file.getUrl(), storage);
+            if (StrUtil.isNotBlank(objectPath) && "cos".equalsIgnoreCase(storage.getUploadMode())) {
+                inputInfo.put("Type", "COS");
+                Map<String, Object> cosInput = new LinkedHashMap<>();
+                cosInput.put("Bucket", storage.getCosBucketName());
+                cosInput.put("Region", storage.getCosRegion());
+                cosInput.put("Object", objectPath);
+                inputInfo.put("CosInputInfo", cosInput);
+            } else {
+                inputInfo.put("Type", "URL");
+                Map<String, Object> urlInput = new LinkedHashMap<>();
+                urlInput.put("Url", file.getUrl());
+                inputInfo.put("UrlInputInfo", urlInput);
+            }
             fi.put("InputInfo", inputInfo);
             fileInfos.add(fi);
         }
@@ -758,8 +907,8 @@ public class CoreComposeServiceImpl implements CoreComposeService {
         Map<String, Object> outputStorage = new LinkedHashMap<>();
         outputStorage.put("Type", "COS");
         Map<String, Object> cos = new LinkedHashMap<>();
-        cos.put("Bucket", props.getOutputBucket());
-        cos.put("Region", props.getOutputRegion());
+        cos.put("Bucket", storage.getCosBucketName());
+        cos.put("Region", storage.getCosRegion());
         outputStorage.put("CosOutputStorage", cos);
         request.put("OutputStorage", outputStorage);
 
@@ -772,10 +921,10 @@ public class CoreComposeServiceImpl implements CoreComposeService {
         request.put("OutputObjectPath", dir + "compose_" + taskId + ".{format}");
 
         // TaskNotifyConfig（回调）
-        if (StrUtil.isNotBlank(props.getCallbackUrl())) {
+        if (StrUtil.isNotBlank(props.getTencentCallbackUrl())) {
             Map<String, Object> notify = new LinkedHashMap<>();
             notify.put("NotifyType", "URL");
-            notify.put("NotifyUrl", props.getCallbackUrl());
+            notify.put("NotifyUrl", props.getTencentCallbackUrl());
             request.put("TaskNotifyConfig", notify);
         }
 
@@ -783,6 +932,85 @@ public class CoreComposeServiceImpl implements CoreComposeService {
         request.put("SessionContext", String.valueOf(taskId));
         request.put("SessionId", "compose_" + taskId);
         return request;
+    }
+
+    /** 构建带通用计划、存储快照及腾讯兼容请求体的任务载荷。 */
+    private Map<String, Object> assembleComposeRequest(ComposeCommand command, ComposeTracks tracks,
+                                                       String resolution, Long taskId,
+                                                       MpsProperties media, OssProperties storage) {
+        String dir = normalizeOutputDir(media.getOutputDir());
+
+        ComposeStorageSnapshot snapshot = new ComposeStorageSnapshot();
+        snapshot.setMode(storage.getUploadMode());
+        snapshot.setResourceAccessDomain(storage.getEffectiveResourceAccessDomain());
+        if ("cos".equalsIgnoreCase(storage.getUploadMode())) {
+            snapshot.setBucket(storage.getCosBucketName());
+            snapshot.setRegion(storage.getCosRegion());
+            snapshot.setPrefix(storage.getCosPrefix());
+        } else if ("oss".equalsIgnoreCase(storage.getUploadMode())) {
+            snapshot.setBucket(storage.getBucketName());
+            snapshot.setRegion(resolveOssRegion(storage.getEndpoint()));
+            snapshot.setEndpoint(storage.getEndpoint());
+            snapshot.setPrefix(storage.getPrefix());
+        } else if ("qiniu".equalsIgnoreCase(storage.getUploadMode())) {
+            snapshot.setBucket(storage.getQiniuBucketName());
+            snapshot.setPrefix(storage.getQiniuPrefix());
+        }
+
+        ComposeJobPlan plan = new ComposeJobPlan();
+        plan.setTaskId(taskId);
+        plan.setResolution(resolution);
+        plan.setCodec(media.getCodec());
+        plan.setOutputObjectPath(dir + "compose_" + taskId + ".mp4");
+        plan.setTracks(tracks);
+        plan.setStorage(snapshot);
+
+        Map<String, Object> request = new LinkedHashMap<>();
+        request.put("version", 2);
+        request.put("composePlan", plan);
+        request.put("storageSnapshot", snapshot);
+        if (MpsConfigManager.MODE_TENCENT_MPS.equals(media.getProcessMode())) {
+            request.put("editMediaRequest", assembleEditMediaRequest(
+                    command, tracks, resolution, taskId, media, storage));
+        }
+        return request;
+    }
+
+    private String normalizeOutputDir(String configured) {
+        String dir = StrUtil.blankToDefault(configured, "/compose_result/").trim().replace('\\', '/');
+        if (!dir.startsWith("/")) {
+            dir = "/" + dir;
+        }
+        return dir.endsWith("/") ? dir : dir + "/";
+    }
+
+    private String resolveOwnedObjectPath(String url, OssProperties storage) {
+        if (StrUtil.isBlank(url) || storage == null) {
+            return null;
+        }
+        try {
+            if (url.startsWith("/")) {
+                return isSafeObjectPath(url) ? url : null;
+            }
+            String resourceDomain = StrUtil.removeSuffix(storage.getEffectiveResourceAccessDomain(), "/");
+            String cosOrigin = "https://" + storage.getCosBucketName() + ".cos."
+                    + storage.getCosRegion() + ".myqcloud.com";
+            if ((StrUtil.isNotBlank(resourceDomain) && url.startsWith(resourceDomain + "/"))
+                    || url.startsWith(cosOrigin + "/")) {
+                return java.net.URI.create(url).getPath();
+            }
+        } catch (Exception e) {
+            log.warn("合成素材对象路径解析失败, url={}", url);
+        }
+        return null;
+    }
+
+    private String resolveOssRegion(String endpoint) {
+        String value = StrUtil.blankToDefault(endpoint, "").toLowerCase().replaceFirst("^https?://", "");
+        int dot = value.indexOf('.');
+        String host = dot >= 0 ? value.substring(0, dot) : value;
+        host = host.replace("-internal", "").replace("-intranet", "");
+        return host.startsWith("oss-") ? host.substring(4) : "";
     }
 
     /**
@@ -931,6 +1159,7 @@ public class CoreComposeServiceImpl implements CoreComposeService {
     private Map<String, Object> buildTargetInfo() {
         Map<String, Object> target = new LinkedHashMap<>();
         target.put("Container", "mp4");
+        target.put("VideoStream", Map.of("Codec", "H.264"));
         return target;
     }
 

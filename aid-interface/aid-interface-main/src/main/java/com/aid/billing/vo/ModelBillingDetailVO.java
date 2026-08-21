@@ -4,7 +4,6 @@ import lombok.Data;
 
 import java.io.Serial;
 import java.io.Serializable;
-import java.math.BigDecimal;
 import java.util.List;
 
 /**
@@ -47,17 +46,14 @@ public class ModelBillingDetailVO implements Serializable
     /** 计费模式：FIXED-固定价、SKU-按规则 */
     private String billingMode;
 
+    /** 是否免费 */
+    private Boolean isFree;
+
     /** 计费口径：TOKEN / PER_IMAGE / PER_SECOND / SKU_PACKAGE / FIXED */
     private String meterType;
 
     /** 计费口径中文名：按Token阶梯计费 / 按张计费 / 按秒计费 / 按套餐计费 / 固定单价 */
     private String meterTypeName;
-
-    /**
-     * 价格折算倍率（模型基础倍率 × 单模型倍率）。
-     * 明细中的价格已乘以本倍率，此处单独暴露用于前端展示「当前加价/折扣」。
-     */
-    private BigDecimal priceMultiplier;
 
     /** 计费整体说明（按计费口径自动生成的可读文案，用于表格上方一句话说明） */
     private String billingDesc;
@@ -77,11 +73,9 @@ public class ModelBillingDetailVO implements Serializable
 
     /**
      * 输入媒体计费说明（图片/视频输入附加费，价格已乘折算倍率）。
-     * null = 模型未配置输入计费（输入免费）；单价 0 亦为免费。
-     * SKU 级差异化输入价见 rules[].inputImagePrice / inputVideoPricePerSecond。
+     * 模型级单价为空时继续查看 SKU 级差异化输入价；两级均无正价时输入免费。
+     * SKU 级输入价见 rules[].inputImagePrice / inputVideoPricePerSecond。
      */
     private InputPricingVO inputPricing;
 
-    /** 模型备注（运营在模型上填写的说明） */
-    private String remark;
 }

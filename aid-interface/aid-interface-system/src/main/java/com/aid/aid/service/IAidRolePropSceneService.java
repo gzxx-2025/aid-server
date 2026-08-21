@@ -12,6 +12,26 @@ import com.aid.aid.domain.AidRolePropScene;
 public interface IAidRolePropSceneService extends IService<AidRolePropScene>
 {
     /**
+     * 生成资产名称业务键。
+     *
+     * @param name 展示名称
+     * @return 名称业务键
+     */
+    String normalizeAssetName(String name);
+
+    /**
+     * 校验有效资产名称是否可用。
+     *
+     * @param projectId 项目ID
+     * @param userId 用户ID
+     * @param assetType 资产类型
+     * @param name 展示名称
+     * @param excludeId 更新时排除的资产ID
+     */
+    void validateActiveNameAvailable(Long projectId, Long userId, String assetType,
+                                     String name, Long excludeId);
+
+    /**
      * 查询角色道具场景
      *
      * @param id 角色道具场景主键

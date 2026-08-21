@@ -1,6 +1,7 @@
 package com.aid.rps.service.impl;
 
 import cn.hutool.json.JSONUtil;
+import cn.hutool.json.JSONObject;
 import com.aid.aid.domain.AidExtractTask;
 import com.aid.aid.domain.AidComicProject;
 import com.aid.aid.domain.media.AidMediaTask;
@@ -249,7 +250,10 @@ class ExtractMultiModelBillingTest {
         String snapshot = batchSnapshot(List.of(item("flash", "8", 4, "2", fixedSnapshot())));
         AidExtractTask task = new AidExtractTask();
         task.setId(TASK_ID);
+        task.setUserId(7L);
+        task.setStatus("SUCCEEDED");
         task.setBillingStatus("FROZEN");
+        task.setBillingTraceId("trace-incomplete-usage");
         task.setFrozenAmount(new BigDecimal("8"));
         task.setBillingSnapshotJson(snapshot);
         when(taskService.selectAidExtractTaskById(TASK_ID)).thenReturn(task);
@@ -258,7 +262,7 @@ class ExtractMultiModelBillingTest {
         usage.put("aggregation_complete", false);
         usage.put("model_usages", Map.of());
 
-        assertFalse(service.settleBilling(TASK_ID, 7L, usage));
+        assertFalse(service.settleBilling(TASK_ID, 7L, usage, task.getBillingTraceId()));
         verify(taskService, never()).getBaseMapper();
     }
 
@@ -444,6 +448,74 @@ class ExtractMultiModelBillingTest {
     }
 
     @Test
+    void shouldSnapshotEachModelAndChargeOnlyPaidItemsInMixedBatch() {
+        AssetExtractServiceImpl service = new AssetExtractServiceImpl();
+        IAiModelConfigService modelConfigService = mock(IAiModelConfigService.class);
+        IAidExtractTaskService taskService = mock(IAidExtractTaskService.class);
+        IAidComicProjectService projectService = mock(IAidComicProjectService.class);
+        AssetExtractHelper helper = mock(AssetExtractHelper.class);
+        BillingAmountCalculator calculator = mock(BillingAmountCalculator.class);
+        ReflectionTestUtils.setField(service, "aiModelConfigService", modelConfigService);
+        ReflectionTestUtils.setField(service, "extractTaskService", taskService);
+        ReflectionTestUtils.setField(service, "projectService", projectService);
+        ReflectionTestUtils.setField(service, "helper", helper);
+        ReflectionTestUtils.setField(service, "billingAmountCalculator", calculator);
+
+        AiModelConfigVo freeModel = new AiModelConfigVo();
+        freeModel.setModelCode("free-model");
+        freeModel.setBillingMode("SKU");
+        freeModel.setIsFree(true);
+        AiModelConfigVo paidModel = new AiModelConfigVo();
+        paidModel.setModelCode("paid-model");
+        paidModel.setBillingMode("SKU");
+        paidModel.setIsFree(false);
+        when(modelConfigService.selectByModelCode("free-model")).thenReturn(freeModel);
+        when(modelConfigService.selectByModelCode("paid-model")).thenReturn(paidModel);
+
+        AidExtractTask task = new AidExtractTask();
+        task.setId(TASK_ID);
+        task.setProjectId(1L);
+        task.setEpisodeId(0L);
+        task.setUserId(7L);
+        task.setInputSnapshot("{\"extractTypes\":[\"scene\",\"prop\"],"
+                + "\"agentCodes\":{\"scene\":\"scene_agent\",\"prop\":\"prop_agent\"}}");
+        when(taskService.selectAidExtractTaskById(TASK_ID)).thenReturn(task);
+        AidComicProject project = new AidComicProject();
+        project.setId(1L);
+        project.setProjectType("movie");
+        when(projectService.selectAidComicProjectById(1L)).thenReturn(project);
+        when(helper.loadExistingAssets(1L, null)).thenReturn(new ExistingAssetLib());
+        when(helper.loadScriptContent(1L, 0L, 7L)).thenReturn("script");
+        when(helper.chunkContent("script", 3000)).thenReturn(List.of("chunk-1", "chunk-2"));
+        when(helper.loadPromptByName("scene_agent")).thenReturn("scene prompt");
+        when(helper.loadPromptByName("prop_agent")).thenReturn("prop prompt");
+        when(helper.estimateLlmInputCharsWithInputs(any(), any(), any())).thenReturn(100);
+        when(calculator.calculatePreHoldAmount(any(), any())).thenAnswer(invocation -> {
+            AiModelConfigVo model = invocation.getArgument(0);
+            BillingSnapshot snapshot = tokenSnapshot();
+            snapshot.setIsFree(Boolean.TRUE.equals(model.getIsFree()));
+            BigDecimal amount = Boolean.TRUE.equals(model.getIsFree()) ? BigDecimal.ZERO : BigDecimal.ONE;
+            return BillingCalcResult.sku("tier", "tier", amount, snapshot);
+        });
+
+        Object estimate = ReflectionTestUtils.invokeMethod(service, "estimateExtractBilling",
+                TASK_ID, Map.of("scene", "free-model", "prop", "paid-model"), 11L);
+        BigDecimal amount = ReflectionTestUtils.invokeMethod(estimate, "amount");
+        String snapshotJson = ReflectionTestUtils.invokeMethod(estimate, "snapshotJson");
+        List<JSONObject> items = JSONUtil.parseObj(snapshotJson).getJSONArray("items").toList(JSONObject.class);
+        JSONObject freeItem = items.stream()
+                .filter(item -> "free-model".equals(item.getStr("modelCode"))).findFirst().orElseThrow();
+        JSONObject paidItem = items.stream()
+                .filter(item -> "paid-model".equals(item.getStr("modelCode"))).findFirst().orElseThrow();
+
+        assertEquals(0, amount.compareTo(new BigDecimal("2")));
+        assertTrue(freeItem.getBool("isFree"));
+        assertEquals(0, freeItem.getBigDecimal("preHoldAmount").compareTo(BigDecimal.ZERO));
+        assertFalse(paidItem.getBool("isFree"));
+        assertEquals(0, paidItem.getBigDecimal("preHoldAmount").compareTo(new BigDecimal("2")));
+    }
+
+    @Test
     void shouldFillLegacyAndPartialModelMapsWithoutOverwritingModernValues() {
         AssetExtractServiceImpl service = new AssetExtractServiceImpl();
         IAidExtractTaskService taskService = mock(IAidExtractTaskService.class);
@@ -477,14 +549,14 @@ class ExtractMultiModelBillingTest {
         AidExtractTask task = new AidExtractTask();
         task.setId(TASK_ID);
         task.setUserId(7L);
+        task.setBillingTraceId("trace-stale-settle");
         task.setBillingSnapshotJson(snapshot);
         when(snapshotService.getSnapshotJson(TASK_ID, "FROZEN")).thenReturn(null);
         doReturn(usage).when(service).aggregateTokenUsage(TASK_ID);
-        doReturn(true).when(service).settleBilling(TASK_ID, 7L, usage);
+        doReturn(true).when(service).settleBilling(TASK_ID, 7L, usage, task.getBillingTraceId());
 
         assertTrue(service.settleStaleBilling(task));
-        verify(service).settleBilling(TASK_ID, 7L, usage);
-        verify(service, never()).settleBilling(eq(TASK_ID), eq(7L));
+        verify(service).settleBilling(TASK_ID, 7L, usage, task.getBillingTraceId());
     }
 
     @Test

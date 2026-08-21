@@ -36,6 +36,9 @@ class AssetExtractCardPromptTest
         assertTrue(prompt.contains("生成 16:9 超宽角色设定卡"));
         assertTrue(prompt.contains("比例占位 16:9"));
         assertTrue(prompt.contains("画布比例：16:9"));
+        assertTrue(prompt.contains("[art_style_prompt]\n赛璐璐风格"));
+        assertFalse(prompt.contains("二维动画"));
+        assertFalse(prompt.contains("画风名称："));
         assertFalse(prompt.contains("21:9"));
     }
 
@@ -68,12 +71,18 @@ class AssetExtractCardPromptTest
 
         assertTrue(cardPrompt.contains("hidden pastoral 3D"));
         assertFalse(cardPrompt.contains("公开中文田园风格"));
+        assertFalse(cardPrompt.contains("田园经营3D"));
+        assertFalse(cardPrompt.contains("画风名称："));
         assertTrue(whiteBackgroundPrompt.contains("hidden pastoral 3D"));
         assertFalse(whiteBackgroundPrompt.contains("公开中文田园风格"));
+        assertFalse(whiteBackgroundPrompt.contains("田园经营3D"));
+        assertTrue(whiteBackgroundPrompt.contains("[art_style_prompt]\nhidden pastoral 3D"));
         assertTrue(whiteBackgroundPrompt.indexOf("hidden pastoral 3D")
                 > whiteBackgroundPrompt.indexOf("旧院线电影风格"));
         assertTrue(cardDigest.contains("公开中文田园风格"));
         assertFalse(cardDigest.contains("hidden pastoral 3D"));
+        assertFalse(cardDigest.contains("[art_style_name]"));
+        assertFalse(cardDigest.contains("田园经营3D"));
     }
 
     @Test
@@ -94,5 +103,6 @@ class AssetExtractCardPromptTest
                 "buildCardImagePrompt", project, "16:9");
 
         assertTrue(prompt.contains("公开回退提示词"));
+        assertFalse(prompt.contains("旧项目风格"));
     }
 }

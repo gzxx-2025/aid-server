@@ -79,8 +79,8 @@ public class AidStoryboardServiceImpl extends ServiceImpl<AidStoryboardMapper, A
         }
         wrapper.orderByAsc(AidStoryboard::getProjectId)
                 .orderByAsc(AidStoryboard::getEpisodeId)
-                .orderByAsc(AidStoryboard::getSourceSceneCode)
-                .orderByAsc(AidStoryboard::getSortOrder);
+                .orderByAsc(AidStoryboard::getSortOrder)
+                .orderByAsc(AidStoryboard::getId);
         return this.list(wrapper);
     }
 

@@ -14,8 +14,13 @@ aid:
   captchaType: math
   # 系统升级（AID产品版本，发布构建时注入；更新清单地址等动态配置存于 aid_config(category=system_upgrade)）
   upgrade:
-    current-version: 1.0.0-beta.5
+    current-version: 1.0.0-beta.6
     manifest-public-key: 9Ez/VMofgjCU0CNmE6Jq8LKLNyfDQqbbvNTTGV5BYrk=
+  billing:
+    text:
+      # 多调用文本任务默认逐次先冻后结；false 仅回退新计费周期，已创建周期仍使用快照中的归属。
+      # 配置值无法解析为布尔值时启动失败，避免静默切换计费口径。
+      rolling-enabled: ${AID_BILLING_TEXT_ROLLING_ENABLED:true}
   # 媒体任务补偿调度（aid.chat.media.compensation.*）
   chat:
     media:
@@ -34,6 +39,14 @@ aid:
     sub-path: media-task-archive/request-response
     # 单文件大小（MiB）；代码硬限制不超过 100 MiB。
     max-file-size-mb: 100
+  # 自动覆盖资产墓碑延迟清理
+  asset-cleanup:
+    # 关闭后定时触发不会获取锁、查询数据库或删除文件
+    enabled: true
+    # 保留期范围 1~3650 天
+    retention-days: 7
+    # 单次处理范围 1~1000 个主资产
+    batch-size: 200
   extract:
     # 工作线程池
     executor:
@@ -53,6 +66,11 @@ aid:
       # 65536 token 约能放 100000 汉字，覆盖单次提取 / 单场景分镜的极限场景。
       # doubao-seed-2-0-pro 支持 64K 输出，方舟 / DashScope / Qwen 等主流模型均支持 ≥32K。
       max-tokens: 65536
+      # 角色、场景、道具、表单及提示词等短结构化输出不再占用全局 64K 上限。
+      structured-max-tokens: 8192
+      # 分镜正文已按最多 6000 字切批，按批次正文长度动态计算，并限制在以下区间。
+      storyboard-script-min-tokens: 16384
+      storyboard-script-max-tokens: 49152
   # 任务排队 / 并发调度 / 运行期自愈配置
   taskq:
     # 启动自愈是否强清遗留 PROCESSING 任务的租约：

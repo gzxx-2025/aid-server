@@ -8,6 +8,11 @@ public interface TextStreamCallbacks {
     // 业务含义：模型输出的可见正文增量片段（多段拼接即为完整回复）。
     void onDelta(String textDelta);
 
+    /**
+     * 上游明确公开的思考内容增量，仅用于本次实时响应，不得写入任务快照或业务记录。
+     */
+    default void onReasoningDelta(String reasoningDelta) {}
+
     // 业务含义：单条 SSE data 行原文（不含 "data: " 前缀），用于审计或排障时落库截断快照。
     void onSseDataLine(String dataLine);
 

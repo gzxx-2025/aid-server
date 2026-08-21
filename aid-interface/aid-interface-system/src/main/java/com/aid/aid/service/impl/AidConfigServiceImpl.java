@@ -153,13 +153,16 @@ public class AidConfigServiceImpl extends ServiceImpl<AidConfigMapper, AidConfig
      */
     @Override
     public String getConfigValue(String category, String configKey) {
-        ChatConfigVO bo = new ChatConfigVO();
-        bo.setCategory(category);
-        bo.setConfigName(configKey);
-        LambdaQueryWrapper<AidConfig> lqw = buildQueryWrapper(bo);
-        AidConfig aidConfig = this.getOne(lqw);
+        LambdaQueryWrapper<AidConfig> lqw = Wrappers.lambdaQuery();
+        lqw.select(AidConfig::getId, AidConfig::getConfigValue);
+        lqw.eq(AidConfig::getCategory, category);
+        lqw.eq(AidConfig::getConfigName, configKey);
+        lqw.eq(AidConfig::getDelFlag, "0");
+        lqw.orderByDesc(AidConfig::getId);
+        lqw.last("LIMIT 1");
+        AidConfig aidConfig = this.getOne(lqw, false);
         if (Objects.isNull(aidConfig)) {
-            throw new RuntimeException(category + ":" + configKey+"||未配置");
+            return null;
         }
         return aidConfig.getConfigValue();
     }
@@ -203,12 +206,15 @@ public class AidConfigServiceImpl extends ServiceImpl<AidConfigMapper, AidConfig
         LambdaQueryWrapper<AidConfig> lqw = Wrappers.lambdaQuery();
         lqw.eq(AidConfig::getCategory, category);
         lqw.eq(AidConfig::getConfigName, configName);
-        // 多条时不抛异常，取第一条
+        lqw.orderByDesc(AidConfig::getId);
+        lqw.last("LIMIT 1");
+        // 历史软删除记录仍复用原行，避免唯一键冲突。
         AidConfig existing = this.getOne(lqw, false);
         String operator = currentOperator();
         if (Objects.nonNull(existing)) {
             // 已存在：更新值与更新者/更新时间
             existing.setConfigValue(configValue);
+            existing.setDelFlag("0");
             existing.setUpdateBy(operator);
             existing.setUpdateTime(DateUtils.getNowDate());
             this.updateById(existing);
@@ -266,6 +272,8 @@ public class AidConfigServiceImpl extends ServiceImpl<AidConfigMapper, AidConfig
         lqw.like(StringUtils.isNotBlank(vo.getConfigName()), AidConfig::getConfigName, vo.getConfigName());
         lqw.eq(StringUtils.isNotBlank(vo.getConfigValue()), AidConfig::getConfigValue, vo.getConfigValue());
         lqw.eq(StringUtils.isNotBlank(vo.getConfigDict()), AidConfig::getConfigDict, vo.getConfigDict());
+        lqw.eq(AidConfig::getDelFlag, "0");
+        lqw.orderByAsc(AidConfig::getId);
         return lqw;
     }
 }

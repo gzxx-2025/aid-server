@@ -1,6 +1,7 @@
 package com.aid.rps.service.impl;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -15,6 +16,7 @@ import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -54,7 +56,12 @@ import com.aid.model.vo.AiModelVO;
 import com.aid.rps.dto.AssetExtractTaskVO;
 import com.aid.rps.dto.StoryboardVideoWithPromptRequest;
 import com.aid.enums.CreationModeEnum;
+import com.aid.rps.assembler.StoryboardSceneContextAssembler;
+import com.aid.rps.assembler.StoryboardVideoPromptContinuityAssembler;
+import com.aid.rps.assembler.StoryboardVideoPromptContinuityAssembler.ContinuityContext;
+import com.aid.rps.enums.VideoPromptContinuityMode;
 import com.aid.rps.helper.AssetExtractHelper;
+import com.aid.rps.model.StoryboardSceneContext;
 import com.aid.rps.helper.ProjectGenerateLockGuard;
 import com.aid.rps.queue.TaskQueueService;
 import com.aid.rps.queue.BatchTaskLocalOrchestrator;
@@ -76,6 +83,7 @@ import com.aid.storyboard.service.IStoryboardVideoGenerationService;
 
 import cn.hutool.core.collection.CollectionUtil;
 import cn.hutool.core.convert.Convert;
+import cn.hutool.core.util.IdUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
 import lombok.extern.slf4j.Slf4j;
@@ -95,6 +103,7 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
     private static final String TASK_STATUS_PENDING = "PENDING";
     private static final String TASK_STATUS_QUEUED = "QUEUED";
     private static final String TASK_STATUS_PROCESSING = "PROCESSING";
+    private static final String TASK_STATUS_FINALIZING = "FINALIZING";
     private static final String TASK_STATUS_SUCCEEDED = "SUCCEEDED";
     private static final String TASK_STATUS_FAILED = "FAILED";
     private static final String TASK_STATUS_PARTIAL_FAILED = "PARTIAL_FAILED";
@@ -110,6 +119,7 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
             "PENDING", "QUEUED", "PROCESSING", "SUCCEEDED", "PARTIAL_FAILED");
 
     /** 计费状态：已完整结算（= ExtractBillingStatus.SUCCESS，续生前置校验用） */
+    private static final String BILLING_STATUS_FROZEN = "FROZEN";
     private static final String BILLING_STATUS_SUCCESS = "SUCCESS";
     /** 计费状态：已退款（ExtractBillingStatus.FAILED），排队期停止后允许重新预冻结续生 */
     private static final String BILLING_STATUS_REFUNDED = "FAILED";
@@ -149,6 +159,9 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
     /** 模型把契约数组包进外壳对象（键名自选，如 result / data / shots）时，向内探测元素数组的层数上限。 */
     private static final int OUTPUT_ENVELOPE_MAX_DEPTH = 3;
 
+    /** 整批视频提示词为每个镜头预留的输出 token；短批次仍由统一 8K 下限兜底。 */
+    private static final int OUTPUT_TOKENS_PER_STORYBOARD = 2048;
+
     /**
      * 失败原因文案。任务级原因会交由 ErrorNormalizer 归一化成错误码，取值必须落在其可识别的业务失败词表内，
      * 否则会被兜底成通用异常码，前端拿不到「模型格式异常」这类精确提示。
@@ -185,6 +198,9 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
     /** LLM 输出 prompt 平均字符数（用于预估输出 token） */
     private static final int ESTIMATED_OUTPUT_CHARS = 600;
 
+    /** aid_extract_task.input_snapshot 为 MySQL TEXT，按 UTF-8 字节数守住存储上限。 */
+    private static final int INPUT_SNAPSHOT_MAX_BYTES = 65_535;
+
     /**
      * 视频提示词格式校验必须命中的标签——多参方向（agent=aid_visual_director）。
      * 对齐该智能体输出契约（其 prompt_content 第七/九节）：每条 prompt 为固定三段式
@@ -215,6 +231,9 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
+    private record VideoPromptWrite(AidStoryboard storyboard, String prompt,
+                                    String mergedScriptParams, int index) { }
+
     /** 视频提示词中的业务私有图片占位，输出落库前按当前资产白名单做文字降级。 */
     private static final Pattern IMAGE_REFERENCE_PATTERN = Pattern.compile("@图片(\\d+)\\[([^\\]]+)\\]");
     @Autowired
@@ -227,6 +246,8 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
     private IAidExtractTaskService extractTaskService;
     @Autowired
     private IAidAgentService aidAgentService;
+    @Autowired
+    private StoryboardVideoPromptContinuityAssembler continuityAssembler;
     @Autowired
     private IAiModelConfigService aiModelConfigService;
 
@@ -294,10 +315,17 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
     @Autowired
     private StoryboardRoleAudioReferenceResolver roleAudioReferenceResolver;
 
+    @Autowired
+    private StoryboardSceneContextAssembler storyboardSceneContextAssembler;
+
     /** aid_media_task 直读：结算阶段聚合 LLM 真实 token（provider usage 落在 billing_snapshot_json）。
      *  aid_media_task 无独立 Service，沿用现有直读 Mapper 的统一做法（参考 AssetExtractServiceImpl）。 */
     @Autowired
     private AidMediaTaskMapper aidMediaTaskMapper;
+
+    /** Provider 整批成功后的分镜写回必须原子提交，消除 child 已结算但只落库部分镜头的崩溃窗。 */
+    @Autowired
+    private TransactionTemplate transactionTemplate;
     /**
      * 按方向与智能体校验视频提示词格式。
      * 标准多参输出三段式 {@code # 主题/# 运镜/# 风格}；专业版多参输出 SD2.0 扁平结构；
@@ -404,34 +432,41 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
     public AssetExtractTaskVO batchGenerateVideoPrompt(Long projectId, Long episodeId, Long userId,
                                                        List<Long> storyboardIds,
                                                        String agentCode, String modelCode,
-                                                       Boolean overwrite, Map<String, Object> chainNext)
+                                                       Boolean overwrite, String continuityMode,
+                                                       Long previousStoryboardId,
+                                                       Map<String, Object> chainNext)
     {
         // 多参方向：回填 aid_storyboard.video_prompt
         return batchGenerateInternal(DIRECTION_MULTI, projectId, episodeId, userId,
-                storyboardIds, agentCode, modelCode, overwrite, chainNext);
+                storyboardIds, agentCode, modelCode, overwrite,
+                continuityMode, previousStoryboardId, chainNext);
     }
 
     @Override
     public AssetExtractTaskVO batchGenerateVideoPromptImage(Long projectId, Long episodeId, Long userId,
                                                             List<Long> storyboardIds,
                                                             String agentCode, String modelCode,
-                                                            Boolean overwrite)
+                                                            Boolean overwrite, String continuityMode,
+                                                            Long previousStoryboardId)
     {
         // 图生方向（漫剧版）：回填 aid_storyboard.video_prompt_image，与多参物理隔离
         return batchGenerateInternal(DIRECTION_IMAGE, projectId, episodeId, userId,
-                storyboardIds, agentCode, modelCode, overwrite, null);
+                storyboardIds, agentCode, modelCode, overwrite,
+                continuityMode, previousStoryboardId, null);
     }
 
     @Override
     public AssetExtractTaskVO batchGenerateVideoPromptGrid(Long projectId, Long episodeId, Long userId,
                                                            List<Long> storyboardIds,
                                                            String agentCode, String modelCode,
-                                                           Boolean overwrite)
+                                                           Boolean overwrite, String continuityMode,
+                                                           Long previousStoryboardId)
     {
         // 宫格方向（auto_grid 专业版）：biz=main_storyboard_video_prompt_grid，agent=aid_visual_director_grid，
         // 复用图生列 video_prompt_image 回填（不新增列），与图生/多参共用任务/计费/锁/队列骨架。
         return batchGenerateInternal(DIRECTION_GRID, projectId, episodeId, userId,
-                storyboardIds, agentCode, modelCode, overwrite, null);
+                storyboardIds, agentCode, modelCode, overwrite,
+                continuityMode, previousStoryboardId, null);
     }
 
     /** chainNext 链路类型常量（与 StoryboardStepChainService 协议一致）。 */
@@ -484,7 +519,8 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
                 userId, request.getProjectId(), request.getEpisodeId(), creationMode, direction, chainType);
         return batchGenerateInternal(direction, request.getProjectId(), request.getEpisodeId(), userId,
                 request.getStoryboardIds(), request.getAgentCode(), request.getModelCode(),
-                request.getOverwrite(), chainNext);
+                request.getOverwrite(), request.getContinuityMode(),
+                request.getPreviousStoryboardId(), chainNext);
     }
 
     /**
@@ -519,7 +555,9 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
     private AssetExtractTaskVO batchGenerateInternal(String direction, Long projectId, Long episodeId, Long userId,
                                                      List<Long> storyboardIds,
                                                      String agentCode, String modelCode,
-                                                     Boolean overwrite, Map<String, Object> chainNext)
+                                                     Boolean overwrite, String continuityMode,
+                                                     Long previousStoryboardId,
+                                                     Map<String, Object> chainNext)
     {
         boolean imageDir = DIRECTION_IMAGE.equals(direction);
         boolean gridDir = DIRECTION_GRID.equals(direction);
@@ -605,24 +643,31 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
             validateShotForVideoPrompt(sb, imageColumn, groupStructure);
         }
 
+        boolean singleSelection = explicitShots && uniqueIds.size() == 1;
+        ContinuityContext continuityContext = continuityAssembler.resolve(
+                projectId, episodeId, userId, targetList, continuityMode,
+                previousStoryboardId, singleSelection, imageColumn);
+
         //    校验前置：预估金额与余额预检提前到建任务之前，
         //    余额不足时直接拦截，不再产生「先建任务再冻结失败回滚成 FAILED」的废任务记录。
         //    结算阶段按 provider 真实 token 重算实际金额（TOKEN 口径多退少补，与统一计费机制一致）。
         String styleType = StrUtil.nullToEmpty(project.getVideoStyleType());
         String styleValue = StrUtil.nullToEmpty(project.getVideoStyleValue());
         int batchInputChars = estimateBatchInputChars(direction, agentCode, resolvedModelCode,
-                styleType, styleValue, targetList, projectId, episodeId, userId);
+                styleType, styleValue, targetList, projectId, episodeId, userId,
+                continuityContext);
         int batchOutputChars = ESTIMATED_OUTPUT_CHARS * targetList.size();
         Map<String, Object> billingParams = new HashMap<>();
         billingParams.put("inputChars", batchInputChars);
         billingParams.put("inputTokens", BillingConstants.charsToTokens(batchInputChars));
         billingParams.put("outputTokens", BillingConstants.charsToTokens(batchOutputChars));
         billingParams.put("totalChars", batchInputChars + batchOutputChars);
+        helper.applyLlmBillingLimits(billingParams, 1);
         BillingInput billingInput = new BillingInput("TEXT", billingParams);
         BillingCalcResult calc = billingAmountCalculator.calculatePreHoldAmount(modelConfig, billingInput);
         BigDecimal totalFrozen = (calc != null && calc.isMatched() && calc.getAmount() != null)
                 ? calc.getAmount() : BigDecimal.ZERO;
-        // 余额前置预检（只读）：不足直接抛「余额不足」，最终仍以 prepareBilling 锁内冻结为准
+        // 余额前置预检（只读）：不足直接抛「预扣余额不足」，最终仍以 prepareBilling 锁内冻结为准
         accountUpdateService.precheckBalance(userId, totalFrozen);
 
         // 抢锁失败时走僵尸锁自愈：DB 复核 + 锁年龄检查 + CAS 清理 + 重抢，
@@ -657,6 +702,16 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
             inputMap.put("overwrite", overwriteFlag);
             inputMap.put("projectLockToken", lockResult.getToken());
             inputMap.put("storyboardIds", targetList.stream().map(AidStoryboard::getId).collect(Collectors.toList()));
+            if (continuityContext.enabled())
+            {
+                inputMap.put("continuityMode", VideoPromptContinuityMode.PREVIOUS_PROMPT.getValue());
+                inputMap.put("continuitySingleSelection", singleSelection);
+                inputMap.put("continuityContext", continuityContext);
+                if (singleSelection)
+                {
+                    inputMap.put("previousStoryboardId", previousStoryboardId);
+                }
+            }
             // 合并接口：链式触发下一步（出视频）规格，提示词终态后由 StoryboardStepChainService 自动发起
             if (chainNext != null && !chainNext.isEmpty())
             {
@@ -664,7 +719,14 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
             }
             try
             {
-                task.setInputSnapshot(OBJECT_MAPPER.writeValueAsString(inputMap));
+                String inputSnapshot = OBJECT_MAPPER.writeValueAsString(inputMap);
+                assertContinuitySnapshotCapacity(inputSnapshot, continuityContext.enabled(),
+                        projectId, episodeId);
+                task.setInputSnapshot(inputSnapshot);
+            }
+            catch (ServiceException e)
+            {
+                throw e;
             }
             catch (Exception e)
             {
@@ -704,20 +766,42 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
             projectLockGuard.releaseIfMatch(lockKey, lockResult.getToken());
             if (task != null && task.getId() != null)
             {
-                // 先退回已冻结金额（幂等：未冻结/未到 FROZEN 则 no-op），再标 FAILED，杜绝冻结款悬挂
-                try { extractBillingService.refundBilling(task.getId(), userId); }
-                catch (Exception ignore) { }
+                AidExtractTask current = extractTaskService.selectAidExtractTaskById(task.getId());
+                String expectedTraceId = current == null ? null : current.getBillingTraceId();
+                int failedRows = 0;
                 try
                 {
                     LambdaUpdateWrapper<AidExtractTask> upd = Wrappers.lambdaUpdate();
                     upd.eq(AidExtractTask::getId, task.getId());
+                    upd.eq(AidExtractTask::getUserId, userId);
                     upd.eq(AidExtractTask::getStatus, TASK_STATUS_PENDING);
+                    if (expectedTraceId == null)
+                    {
+                        upd.isNull(AidExtractTask::getBillingTraceId);
+                    }
+                    else
+                    {
+                        upd.eq(AidExtractTask::getBillingTraceId, expectedTraceId);
+                    }
                     upd.set(AidExtractTask::getStatus, "FAILED");
                     upd.set(AidExtractTask::getErrorMessage, "提交失败");
                     upd.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
-                    extractTaskService.update(upd);
+                    failedRows = extractTaskService.getBaseMapper().update(null, upd);
                 }
-                catch (Exception ignore) { }
+                catch (Exception updateEx)
+                {
+                    log.error("视频提示词任务提交失败状态收口异常: taskId={}, traceId={}",
+                            task.getId(), expectedTraceId, updateEx);
+                }
+                if (failedRows > 0)
+                {
+                    try { extractBillingService.refundBilling(task.getId(), userId, expectedTraceId); }
+                    catch (Exception refundEx)
+                    {
+                        log.error("视频提示词任务提交失败退款异常，等待补偿收口: taskId={}, traceId={}",
+                                task.getId(), expectedTraceId, refundEx);
+                    }
+                }
             }
             if (e instanceof ServiceException) { throw (ServiceException) e; }
             throw new ServiceException("提交失败，请重试");
@@ -778,13 +862,14 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
                 .build();
     }
     @Override
-    public String doStoryboardVideoPromptBatch(Long taskId, Long userId)
+    public String doStoryboardVideoPromptBatch(Long taskId, Long userId, String dispatchToken)
     {
         AidExtractTask cycleTask = extractTaskService.selectAidExtractTaskById(taskId);
         String executionTraceId = cycleTask == null ? null : cycleTask.getBillingTraceId();
-        if (StrUtil.isBlank(executionTraceId))
+        if (StrUtil.isBlank(dispatchToken) || StrUtil.isBlank(executionTraceId)
+                || !Objects.equals(dispatchToken, executionTraceId))
         {
-            throw new ServiceException("任务状态异常");
+            throw new TextTaskExecutionRejectedException();
         }
         try
         {
@@ -795,7 +880,11 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
             // 运行期早失败兜底退款（快照解析 / 智能体 / 模型 / LLM 前置异常等在结算块之前抛出时，冻结款本会等补偿才退）。
             // refundBilling 幂等：正常路径已结算(billing=SUCCESS)或已退款则 no-op，仅 FROZEN 时真正退回；不阻断异常上抛
             try { extractBillingService.refundBilling(taskId, userId, executionTraceId); }
-            catch (Exception ignore) { }
+            catch (Exception refundEx)
+            {
+                log.error("视频提示词任务运行期早失败退款异常，等待补偿收口: taskId={}, traceId={}",
+                        taskId, executionTraceId, refundEx);
+            }
             throw e;
         }
     }
@@ -822,6 +911,7 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
         String agentCode = StrUtil.blankToDefault(String.valueOf(input.getOrDefault("agentCode", defaultAgent)), defaultAgent);
         String modelCode = String.valueOf(input.getOrDefault("modelCode", task.getModelCode()));
         boolean overwriteFlag = Boolean.TRUE.equals(input.get("overwrite"));
+        String continuityMode = Convert.toStr(input.get("continuityMode"), null);
         String projectLockToken = StrUtil.trim(String.valueOf(
                 input.getOrDefault("projectLockToken", "")));
 
@@ -838,7 +928,8 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
         List<AidStoryboard> storyboardList = storyboardService.list(
                 Wrappers.<AidStoryboard>lambdaQuery()
                         .select(AidStoryboard::getId, AidStoryboard::getProjectId, AidStoryboard::getEpisodeId,
-                                AidStoryboard::getUserId, AidStoryboard::getSortOrder,
+                                AidStoryboard::getSourceSceneId, AidStoryboard::getUserId,
+                                AidStoryboard::getSortOrder,
                                 AidStoryboard::getScriptParams, AidStoryboard::getImagePrompt,
                                 AidStoryboard::getVideoPrompt, AidStoryboard::getVideoPromptImage,
                                 AidStoryboard::getDelFlag)
@@ -885,9 +976,13 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
 
         if (CollectionUtil.isNotEmpty(targetList) && !assetExtractService.isTaskCancelled(taskId))
         {
+            ContinuityContext continuityContext = continuityAssembler.restore(
+                    continuityMode, input.get("continuityContext"), targetList);
             List<String> referenceAssetNames = loadReferenceableAssetNames(projectId, userId);
             List<String> referenceAudioNames = roleAudioReferenceResolver.loadAvailableReferenceNames(
                     projectId, episodeId, userId);
+            Map<Long, StoryboardSceneContext> sceneContexts = storyboardSceneContextAssembler.assemble(
+                    targetList, projectId, userId);
             // 整段批量：一次调用产出带 shotKey、业务编号、prompt、duration 的 JSON 数组。
             // 入参分叉：
             //   · 宫格方向（grid）：吃「中文镜头组」script_params + 宫格图提示词（image_prompt），走 buildBatchLlmInputGroup(含图)
@@ -900,27 +995,29 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
             if (gridDir)
             {
                 userContent = buildBatchLlmInputGroup(styleType, styleValue, targetList, true,
-                        referenceAssetNames, referenceAudioNames);
+                        referenceAssetNames, referenceAudioNames, sceneContexts);
                 unitLabel = UNIT_LABEL_GROUP;
             }
             else if (imageDir)
             {
                 userContent = buildBatchLlmInputImage(styleType, styleValue, targetList,
-                        projectId, episodeId, userId, referenceAssetNames, referenceAudioNames);
+                        projectId, episodeId, userId, referenceAssetNames, referenceAudioNames,
+                        sceneContexts);
                 unitLabel = UNIT_LABEL_SHOT;
             }
             else if (AGENT_CODE_MULTIREF.equals(agentCode))
             {
                 userContent = buildBatchLlmInputGroup(styleType, styleValue, targetList, false,
-                        referenceAssetNames, referenceAudioNames);
+                        referenceAssetNames, referenceAudioNames, sceneContexts);
                 unitLabel = UNIT_LABEL_GROUP;
             }
             else
             {
                 userContent = buildBatchLlmInput(styleType, styleValue, targetList,
-                        referenceAssetNames, referenceAudioNames);
+                        referenceAssetNames, referenceAudioNames, sceneContexts);
                 unitLabel = UNIT_LABEL_SHOT;
             }
+            userContent = continuityAssembler.appendContext(userContent, continuityContext);
             // 整段批量的输出与镜头按「相关键」绑定，相关键即入参每段标题里的不透明标识。
             // 输出契约在此统一收口追加，四个方向共用，避免新增方向漏加。
             userContent = appendBatchOutputContract(userContent, targetList, unitLabel);
@@ -933,17 +1030,28 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
             {
                 if (!isCurrentExecutionCycle(taskId, executionTraceId))
                 {
-                    throw new ServiceException("任务已失效");
+                    throw new TextTaskExecutionRejectedException();
                 }
                 // 取终态媒体响应：据本次实际返回的 mediaTaskId 回读真实 token，
                 // 即使命中媒体层幂等复用（不产生新行）也能定位被复用的那条媒体任务，避免漏算
+                int outputTokenCap = helper.resolveStructuredOutputTokens(
+                        targetList.size(), OUTPUT_TOKENS_PER_STORYBOARD);
                 MediaTaskResponse llmResp = helper.callLlmRawForResponse(
-                        systemPrompt, userContent, modelCode, taskId, userId, null, BIZ_TASK_TYPE);
+                        systemPrompt, userContent, modelCode, taskId, userId, null, BIZ_TASK_TYPE,
+                        // 整批是一个原子业务交付槽位。续生会把 storyboardIds 收缩为 remaining，
+                        // 因此 stable slot 禁止携带本轮 count/index；实际目标集合由 messages SHA 区分。
+                        "stage=video_prompt,direction=" + direction + ",item=batch",
+                        raw -> isReplayVideoOutputValid(raw, targetList, unitLabel,
+                                direction, agentCode), executionTraceId, outputTokenCap);
                 if (llmResp != null)
                 {
                     llmRaw = llmResp.getTextContent();
                     llmMediaTaskId = llmResp.getTaskId();
                 }
+            }
+            catch (TextTaskExecutionRejectedException e)
+            {
+                throw e;
             }
             catch (Exception e)
             {
@@ -971,6 +1079,7 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
                     firstFailureMessage = FAILURE_BATCH_CONTRACT;
                 }
             }
+            List<VideoPromptWrite> promptWrites = new ArrayList<>();
             for (int i = 0; i < targetList.size(); i++)
             {
                 AidStoryboard sb = targetList.get(i);
@@ -1010,40 +1119,64 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
                 }
                 if (!isCurrentExecutionCycle(taskId, executionTraceId))
                 {
-                    throw new ServiceException("任务已失效");
-                }
-                LambdaUpdateWrapper<AidStoryboard> upd = Wrappers.lambdaUpdate();
-                upd.eq(AidStoryboard::getId, sb.getId());
-                upd.eq(AidStoryboard::getUserId, userId);
-                upd.eq(AidStoryboard::getDelFlag, DEL_FLAG_NORMAL);
-                if (imageColumn)
-                {
-                    upd.set(AidStoryboard::getVideoPromptImage, prompt);
-                }
-                else
-                {
-                    upd.set(AidStoryboard::getVideoPrompt, prompt);
+                    throw new TextTaskExecutionRejectedException();
                 }
                 // 保存视觉导演建议的视频时长（秒）到 script_params，留给后续「按建议时长出片」消费。
                 // 多参数、专业版、宫格版已在上方强制要求 duration；图生方向返回有效值时同样保存。
+                String mergedParams = null;
                 if (suggestDuration > 0)
                 {
-                    String mergedParams = mergeVideoDurationIntoScriptParams(sb.getScriptParams(), suggestDuration);
-                    if (StrUtil.isNotBlank(mergedParams))
-                    {
-                        upd.set(AidStoryboard::getScriptParams, mergedParams);
-                    }
+                    mergedParams = mergeVideoDurationIntoScriptParams(
+                            sb.getScriptParams(), suggestDuration);
                 }
-                upd.set(AidStoryboard::getUpdateTime, DateUtils.getNowDate());
-                upd.set(AidStoryboard::getUpdateBy, String.valueOf(userId));
-                storyboardService.update(upd);
+                promptWrites.add(new VideoPromptWrite(sb, prompt, mergedParams, i));
+            }
 
+            // 同一条已结算 child 的整批业务交付必须原子落库：崩溃只能发生在
+            // 全部提交之前或之后，不能留下部分镜头导致续生的 stable slot 改变。
+            if (!promptWrites.isEmpty())
+            {
+                transactionTemplate.executeWithoutResult(status -> {
+                    extractBillingService.assertTextTaskBusinessCommit(
+                            taskId, userId, executionTraceId);
+                    for (VideoPromptWrite write : promptWrites)
+                    {
+                        LambdaUpdateWrapper<AidStoryboard> upd = Wrappers.lambdaUpdate();
+                        upd.eq(AidStoryboard::getId, write.storyboard().getId());
+                        upd.eq(AidStoryboard::getProjectId, projectId);
+                        upd.eq(AidStoryboard::getEpisodeId, episodeId);
+                        upd.eq(AidStoryboard::getUserId, userId);
+                        upd.eq(AidStoryboard::getDelFlag, DEL_FLAG_NORMAL);
+                        if (imageColumn)
+                        {
+                            upd.set(AidStoryboard::getVideoPromptImage, write.prompt());
+                        }
+                        else
+                        {
+                            upd.set(AidStoryboard::getVideoPrompt, write.prompt());
+                        }
+                        if (StrUtil.isNotBlank(write.mergedScriptParams()))
+                        {
+                            upd.set(AidStoryboard::getScriptParams, write.mergedScriptParams());
+                        }
+                        upd.set(AidStoryboard::getUpdateTime, DateUtils.getNowDate());
+                        upd.set(AidStoryboard::getUpdateBy, String.valueOf(userId));
+                        if (!storyboardService.update(upd))
+                        {
+                            throw new ServiceException("写入失败");
+                        }
+                    }
+                });
+            }
+            for (VideoPromptWrite write : promptWrites)
+            {
                 log.info("视频提示词归位落库: taskId={}, storyboardId={}, 序位={}, shotKey={}, promptLen={}",
-                        taskId, sb.getId(), i + 1, StoryboardPromptBatchAligner.buildShotKey(sb.getId()),
-                        StrUtil.length(prompt));
-
+                        taskId, write.storyboard().getId(), write.index() + 1,
+                        StoryboardPromptBatchAligner.buildShotKey(write.storyboard().getId()),
+                        StrUtil.length(write.prompt()));
                 successCount++;
-                successItems.add(Map.of("storyboardId", sb.getId(), "promptLength", StrUtil.length(prompt)));
+                successItems.add(Map.of("storyboardId", write.storyboard().getId(),
+                        "promptLength", StrUtil.length(write.prompt())));
             }
             sseManager.sendStepProgress(taskId, "generating", 98, "batch",
                     "批量生成完成", skipCount + successCount + failCount, total);
@@ -1135,8 +1268,9 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
 
         // 续生防重锁
         String resumeLockKey = "storyboard:video_prompt:resume:lock:" + taskId;
+        String resumeLockToken = IdUtil.fastSimpleUUID();
         Boolean resumeLocked = redisCache.redisTemplate.opsForValue()
-                .setIfAbsent(resumeLockKey, "1", 30L * 60L, TimeUnit.SECONDS);
+                .setIfAbsent(resumeLockKey, resumeLockToken, 30L * 60L, TimeUnit.SECONDS);
         if (resumeLocked == null || !resumeLocked) { throw new ServiceException("任务处理中"); }
 
         try
@@ -1153,12 +1287,16 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
             try { input = OBJECT_MAPPER.readValue(task.getInputSnapshot(), Map.class); }
             catch (Exception e) { projectLockGuard.releaseIfMatch(projectLockKey, resumeProjectLockResult.getToken()); throw new ServiceException("解析失败"); }
 
-            boolean imageDir = DIRECTION_IMAGE.equals(String.valueOf(input.getOrDefault("direction", DIRECTION_MULTI)));
-            boolean gridDir = DIRECTION_GRID.equals(String.valueOf(input.getOrDefault("direction", DIRECTION_MULTI)));
+            String direction = String.valueOf(input.getOrDefault("direction", DIRECTION_MULTI));
+            boolean imageDir = DIRECTION_IMAGE.equals(direction);
+            boolean gridDir = DIRECTION_GRID.equals(direction);
             boolean imageColumn = imageDir || gridDir; // 图生 + 宫格都用 video_prompt_image 列
             String resumeAgentCode = String.valueOf(input.getOrDefault("agentCode", gridDir ? DEFAULT_AGENT_CODE_GRID : (imageDir ? DEFAULT_AGENT_CODE_IMAGE : DEFAULT_AGENT_CODE)));
             boolean groupStructure = gridDir || AGENT_CODE_MULTIREF.equals(resumeAgentCode);
             String modelCode = StrUtil.blankToDefault(String.valueOf(input.getOrDefault("modelCode", task.getModelCode())), task.getModelCode());
+            String continuityMode = Convert.toStr(input.get("continuityMode"), null);
+            Long previousStoryboardId = Convert.toLong(input.get("previousStoryboardId"));
+            boolean continuitySingleSelection = Boolean.TRUE.equals(input.get("continuitySingleSelection"));
             @SuppressWarnings("unchecked")
             List<Object> rawIds = (List<Object>) input.get("storyboardIds");
             List<Long> originalIds = CollectionUtil.isEmpty(rawIds) ? new ArrayList<>()
@@ -1204,6 +1342,20 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
                 throw ve;
             }
 
+            ContinuityContext continuityContext;
+            try
+            {
+                continuityContext = continuityAssembler.resolve(
+                        task.getProjectId(), task.getEpisodeId(), userId, remaining,
+                        continuityMode, previousStoryboardId,
+                        continuitySingleSelection, imageColumn);
+            }
+            catch (ServiceException ve)
+            {
+                projectLockGuard.releaseIfMatch(projectLockKey, resumeProjectLockResult.getToken());
+                throw ve;
+            }
+
             // 预冻结：整批一次按估算 token 计算（charsToTokens 仅预冻结）+ 保存可结算快照；
             // 续生与首跑走同一计费链路：rearmBillingForResume 把已完整结算（仅 SUCCESS）任务重置为新一轮 FROZEN
             // → 消费端 settleBilling 按真实 token 多退少补。
@@ -1212,15 +1364,16 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
             AidComicProject project = projectService.selectAidComicProjectById(task.getProjectId());
             String styleType = Objects.isNull(project) ? "" : StrUtil.nullToEmpty(project.getVideoStyleType());
             String styleValue = Objects.isNull(project) ? "" : StrUtil.nullToEmpty(project.getVideoStyleValue());
-            String direction = String.valueOf(input.getOrDefault("direction", DIRECTION_MULTI));
             int batchInputChars = estimateBatchInputChars(direction, resumeAgentCode, modelCode,
-                    styleType, styleValue, remaining, task.getProjectId(), task.getEpisodeId(), userId);
+                    styleType, styleValue, remaining, task.getProjectId(), task.getEpisodeId(), userId,
+                    continuityContext);
             int batchOutputChars = ESTIMATED_OUTPUT_CHARS * remaining.size();
             Map<String, Object> billingParams = new HashMap<>();
             billingParams.put("inputChars", batchInputChars);
             billingParams.put("inputTokens", BillingConstants.charsToTokens(batchInputChars));
             billingParams.put("outputTokens", BillingConstants.charsToTokens(batchOutputChars));
             billingParams.put("totalChars", batchInputChars + batchOutputChars);
+            helper.applyLlmBillingLimits(billingParams, 1);
             BillingInput billingInput = new BillingInput("TEXT", billingParams);
             BillingCalcResult calc = billingAmountCalculator.calculatePreHoldAmount(modelConfig, billingInput);
             BigDecimal totalRetryFrozen = (calc != null && calc.isMatched() && calc.getAmount() != null)
@@ -1242,17 +1395,36 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
             resumeInput.put("overwrite", Boolean.TRUE);
             resumeInput.put("modelCode", modelCode);
             resumeInput.put("projectLockToken", resumeProjectLockResult.getToken());
+            if (continuityContext.enabled())
+            {
+                resumeInput.put("continuityContext", continuityContext);
+            }
             String resumeInputJson;
-            try { resumeInputJson = OBJECT_MAPPER.writeValueAsString(resumeInput); }
-            catch (Exception e) { projectLockGuard.releaseIfMatch(projectLockKey, resumeProjectLockResult.getToken()); throw new ServiceException("续生失败，请重试"); }
+            try
+            {
+                resumeInputJson = OBJECT_MAPPER.writeValueAsString(resumeInput);
+                assertContinuitySnapshotCapacity(resumeInputJson, continuityContext.enabled(),
+                        task.getProjectId(), task.getEpisodeId());
+            }
+            catch (ServiceException e)
+            {
+                projectLockGuard.releaseIfMatch(projectLockKey, resumeProjectLockResult.getToken());
+                throw e;
+            }
+            catch (Exception e)
+            {
+                log.error("视频提示词续生快照序列化失败: taskId={}", taskId, e);
+                projectLockGuard.releaseIfMatch(projectLockKey, resumeProjectLockResult.getToken());
+                throw new ServiceException("续生失败，请重试");
+            }
 
             String retryBillingSnapshotJson = resumeSnapshotJson;
             String dispatchMode = dualModeTaskDispatcher.resolveDispatchMode();
             try
             {
                 taskQueueService.executeWithTaskDispatchLock(taskId, () -> {
-                    taskQueueService.clearCancelRequested(taskId);
-                    assetExtractService.clearCancelFlag(taskId);
+                    taskQueueService.clearCancelRequested(taskId, task.getBillingTraceId());
+                    assetExtractService.clearCancelFlag(taskId, task.getBillingTraceId());
 
                     ResumeBillingContext billingContext = null;
                     try
@@ -1295,7 +1467,7 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
             if (e instanceof ServiceException) { throw e; }
             throw new ServiceException("续生失败，请重试");
         }
-        finally { redisCache.deleteObject(resumeLockKey); }
+        finally { projectLockGuard.releaseIfMatch(resumeLockKey, resumeLockToken); }
     }
 
     private void attachUsageWatermark(BillingSnapshot snapshot, long usageStartMediaTaskId)
@@ -1312,7 +1484,8 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
 
     private boolean hasBillableUsage(Map<String, Object> usageData)
     {
-        return usageCount(usageData.get("successful_call_count")) > 0
+        return usageCount(usageData.get("billable_call_count")) > 0
+                || usageCount(usageData.get("successful_call_count")) > 0
                 || usageCount(usageData.get("usage_call_count")) > 0;
     }
 
@@ -1331,7 +1504,9 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
                 Wrappers.<AidExtractTask>lambdaQuery()
                         .select(AidExtractTask::getId)
                         .eq(AidExtractTask::getId, taskId)
-                        .eq(AidExtractTask::getStatus, TASK_STATUS_PROCESSING)
+                        .in(AidExtractTask::getStatus,
+                                TASK_STATUS_PROCESSING, TASK_STATUS_FINALIZING)
+                        .eq(AidExtractTask::getBillingStatus, BILLING_STATUS_FROZEN)
                         .eq(AidExtractTask::getBillingTraceId, executionTraceId)
                         .last("LIMIT 1"), false));
     }
@@ -1358,7 +1533,8 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
                     ? ChainTriggerResult.failed("提交失败") : chain;
             String resultJson = appendChainFailure(task.getResultData(), failed);
             List<Long> chainChildTaskIds = chainChildTaskIdsFromResult(resultJson);
-            updatePromptChainTerminal(task.getId(), TASK_STATUS_PARTIAL_FAILED, resultJson, chainMessage(failed, "提交失败"));
+            updatePromptChainTerminal(task.getId(), task.getBillingTraceId(),
+                    TASK_STATUS_PARTIAL_FAILED, resultJson, chainMessage(failed, "提交失败"));
             sendPartialFailedSafely(task.getId(), resultJson, chainMessage(failed, "提交失败"),
                     chainChildTaskIds, failed.getChildTaskType());
             throw new ServiceException(chainMessage(failed, "提交失败"));
@@ -1367,7 +1543,8 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
         String resultJson = appendChainSuccess(task.getResultData(), chain);
         List<Long> chainChildTaskIds = chainChildTaskIdsFromResult(resultJson);
         String nextStatus = hasPromptFailedItems(resultJson) ? TASK_STATUS_PARTIAL_FAILED : TASK_STATUS_SUCCEEDED;
-        updatePromptChainTerminal(task.getId(), nextStatus, resultJson, null);
+        updatePromptChainTerminal(task.getId(), task.getBillingTraceId(),
+                nextStatus, resultJson, null);
         if (TASK_STATUS_SUCCEEDED.equals(nextStatus))
         {
             sendCompleteSafely(task.getId(), resultJson, chainChildTaskIds, chain.getChildTaskType());
@@ -1558,15 +1735,20 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
         return Objects.nonNull(chain) ? StrUtil.blankToDefault(chain.getMessage(), fallback) : fallback;
     }
 
-    private void updatePromptChainTerminal(Long taskId, String status, String resultJson, String errorMessage)
+    private void updatePromptChainTerminal(Long taskId, String expectedTraceId,
+                                           String status, String resultJson, String errorMessage)
     {
         LambdaUpdateWrapper<AidExtractTask> update = Wrappers.lambdaUpdate();
         update.eq(AidExtractTask::getId, taskId);
+        update.eq(AidExtractTask::getBillingTraceId, expectedTraceId);
         update.set(AidExtractTask::getStatus, status);
         update.set(AidExtractTask::getResultData, resultJson);
         update.set(AidExtractTask::getErrorMessage, errorMessage);
         update.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
-        extractTaskService.update(update);
+        if (!extractTaskService.update(update))
+        {
+            throw new TextTaskExecutionRejectedException();
+        }
     }
 
     private void sendCompleteSafely(Long taskId, String resultJson, List<Long> chainChildTaskIds, String chainChildTaskType)
@@ -1590,7 +1772,7 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
             log.error("视频提示词续生未能抢回任务，跳过退款: taskId={}", taskId);
             return;
         }
-        taskQueueService.releaseSlots(taskId);
+        taskQueueService.releaseSlots(taskId, billingContext.resumeTraceId());
         try
         {
             extractBillingService.rollbackResumeBilling(taskId, userId, billingContext);
@@ -1599,8 +1781,8 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
         {
             log.error("视频提示词续生计费回滚失败: taskId={}", taskId, rollbackEx);
         }
-        taskQueueService.clearCancelRequested(taskId);
-        assetExtractService.clearCancelFlag(taskId);
+        taskQueueService.clearCancelRequested(taskId, billingContext.resumeTraceId());
+        assetExtractService.clearCancelFlag(taskId, billingContext.resumeTraceId());
     }
 
     private String buildLockKey(Long projectId, Long episodeId)
@@ -1720,7 +1902,8 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
         List<AidStoryboard> matched = storyboardService.list(
                 Wrappers.<AidStoryboard>lambdaQuery()
                         .select(AidStoryboard::getId, AidStoryboard::getProjectId, AidStoryboard::getEpisodeId,
-                                AidStoryboard::getUserId, AidStoryboard::getSortOrder,
+                                AidStoryboard::getSourceSceneId, AidStoryboard::getUserId,
+                                AidStoryboard::getSortOrder,
                                 AidStoryboard::getScriptParams, AidStoryboard::getImagePrompt,
                                 AidStoryboard::getVideoPrompt, AidStoryboard::getVideoPromptImage,
                                 AidStoryboard::getDelFlag)
@@ -1746,7 +1929,8 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
         return storyboardService.list(
                 Wrappers.<AidStoryboard>lambdaQuery()
                         .select(AidStoryboard::getId, AidStoryboard::getProjectId, AidStoryboard::getEpisodeId,
-                                AidStoryboard::getUserId, AidStoryboard::getSortOrder,
+                                AidStoryboard::getSourceSceneId, AidStoryboard::getUserId,
+                                AidStoryboard::getSortOrder,
                                 AidStoryboard::getScriptParams, AidStoryboard::getImagePrompt,
                                 AidStoryboard::getVideoPrompt, AidStoryboard::getVideoPromptImage,
                                 AidStoryboard::getDelFlag)
@@ -1789,6 +1973,23 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
             ordered.add(storyboard);
         }
         return ordered;
+    }
+
+    /** 校验启用连续性后的任务快照不会超过数据库 TEXT 字段容量。 */
+    private void assertContinuitySnapshotCapacity(String inputSnapshot, boolean continuityEnabled,
+                                                  Long projectId, Long episodeId)
+    {
+        if (!continuityEnabled)
+        {
+            return;
+        }
+        int snapshotBytes = StrUtil.nullToEmpty(inputSnapshot).getBytes(StandardCharsets.UTF_8).length;
+        if (snapshotBytes > INPUT_SNAPSHOT_MAX_BYTES)
+        {
+            log.error("视频提示词连续性快照过长: projectId={}, episodeId={}, bytes={}, maxBytes={}",
+                    projectId, episodeId, snapshotBytes, INPUT_SNAPSHOT_MAX_BYTES);
+            throw new ServiceException("连续上下文过长");
+        }
     }
 
     /**
@@ -1864,39 +2065,43 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
     /** 按执行阶段的真实分支组装 system + user，用于首跑和续生的整批预冻结。 */
     private int estimateBatchInputChars(String direction, String agentCode, String modelCode,
                                         String styleType, String styleValue, List<AidStoryboard> shots,
-                                        Long projectId, Long episodeId, Long userId)
+                                        Long projectId, Long episodeId, Long userId,
+                                        ContinuityContext continuityContext)
     {
         boolean imageDir = DIRECTION_IMAGE.equals(direction);
         boolean gridDir = DIRECTION_GRID.equals(direction);
         List<String> referenceAssetNames = loadReferenceableAssetNames(projectId, userId);
         List<String> referenceAudioNames = roleAudioReferenceResolver.loadAvailableReferenceNames(
                 projectId, episodeId, userId);
+        Map<Long, StoryboardSceneContext> sceneContexts = storyboardSceneContextAssembler.assemble(
+                shots, projectId, userId);
         String userContent;
         String unitLabel;
         if (gridDir)
         {
             userContent = buildBatchLlmInputGroup(styleType, styleValue, shots, true,
-                    referenceAssetNames, referenceAudioNames);
+                    referenceAssetNames, referenceAudioNames, sceneContexts);
             unitLabel = UNIT_LABEL_GROUP;
         }
         else if (imageDir)
         {
             userContent = buildBatchLlmInputImage(styleType, styleValue, shots, projectId, episodeId, userId,
-                    referenceAssetNames, referenceAudioNames);
+                    referenceAssetNames, referenceAudioNames, sceneContexts);
             unitLabel = UNIT_LABEL_SHOT;
         }
         else if (AGENT_CODE_MULTIREF.equals(agentCode))
         {
             userContent = buildBatchLlmInputGroup(styleType, styleValue, shots, false,
-                    referenceAssetNames, referenceAudioNames);
+                    referenceAssetNames, referenceAudioNames, sceneContexts);
             unitLabel = UNIT_LABEL_GROUP;
         }
         else
         {
             userContent = buildBatchLlmInput(styleType, styleValue, shots,
-                    referenceAssetNames, referenceAudioNames);
+                    referenceAssetNames, referenceAudioNames, sceneContexts);
             unitLabel = UNIT_LABEL_SHOT;
         }
+        userContent = continuityAssembler.appendContext(userContent, continuityContext);
         // 预冻结必须与实际下发消息同源，身份契约的字符数不能漏算。
         userContent = appendBatchOutputContract(userContent, shots, unitLabel);
         String systemPrompt = helper.loadPromptByName(agentCode);
@@ -1909,7 +2114,8 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
      */
     private String buildBatchLlmInput(String styleType, String styleValue, List<AidStoryboard> shots,
                                       List<String> referenceAssetNames,
-                                      List<String> referenceAudioNames)
+                                      List<String> referenceAudioNames,
+                                      Map<Long, StoryboardSceneContext> sceneContexts)
     {
         StringBuilder out = new StringBuilder(16384);
         // 全局风格（固定格式）
@@ -1921,9 +2127,12 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
             for (AidStoryboard sb : shots)
             {
                 Map<String, Object> shot = parseScriptParams(sb.getScriptParams());
+                StoryboardSceneContext sceneContext = sceneContexts.get(sb.getId());
+                storyboardSceneContextAssembler.applyReferenceInfo(shot, sceneContext);
                 sanitizeReferenceInfoInPlace(shot, referenceAssetNames, referenceAudioNames, sb.getId());
                 out.append("--- ").append(UNIT_LABEL_SHOT).append(' ')
                         .append(StoryboardPromptBatchAligner.buildShotKey(sb.getId())).append(" ---\n");
+                appendSceneContext(out, sceneContext);
             appendShotField(out, shot, FIELD_BIZ_NO_SHOT);
             appendShotField(out, shot, "剧本内容");
             appendShotField(out, shot, "画面描述");
@@ -2118,7 +2327,8 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
      */
     private String buildBatchLlmInputGroup(String styleType, String styleValue, List<AidStoryboard> shots,
                                            boolean includeImagePrompt, List<String> referenceAssetNames,
-                                           List<String> referenceAudioNames)
+                                           List<String> referenceAudioNames,
+                                           Map<Long, StoryboardSceneContext> sceneContexts)
     {
         StringBuilder out = new StringBuilder(16384);
         out.append("【全局风格】\n");
@@ -2128,9 +2338,12 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
         for (AidStoryboard sb : shots)
         {
             Map<String, Object> group = parseScriptParams(sb.getScriptParams());
+            StoryboardSceneContext sceneContext = sceneContexts.get(sb.getId());
+            storyboardSceneContextAssembler.applyReferenceInfo(group, sceneContext);
             sanitizeReferenceInfoInPlace(group, referenceAssetNames, referenceAudioNames, sb.getId());
             out.append("--- ").append(UNIT_LABEL_GROUP).append(' ')
                     .append(StoryboardPromptBatchAligner.buildShotKey(sb.getId())).append(" ---\n");
+            appendSceneContext(out, sceneContext);
             appendShotField(out, group, FIELD_BIZ_NO_GROUP);
             appendShotField(out, group, "剧本内容");
             appendShotField(out, group, "画面说明");
@@ -2212,7 +2425,8 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
     private String buildBatchLlmInputImage(String styleType, String styleValue, List<AidStoryboard> shots,
                                            Long projectId, Long episodeId, Long userId,
                                            List<String> referenceAssetNames,
-                                           List<String> referenceAudioNames)
+                                           List<String> referenceAudioNames,
+                                           Map<Long, StoryboardSceneContext> sceneContexts)
     {
         StringBuilder out = new StringBuilder(16384);
         // 全局风格
@@ -2226,9 +2440,12 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
         for (AidStoryboard sb : shots)
         {
             Map<String, Object> shot = parseScriptParams(sb.getScriptParams());
+            StoryboardSceneContext sceneContext = sceneContexts.get(sb.getId());
+            storyboardSceneContextAssembler.applyReferenceInfo(shot, sceneContext);
             sanitizeReferenceInfoInPlace(shot, referenceAssetNames, referenceAudioNames, sb.getId());
             out.append("--- ").append(UNIT_LABEL_SHOT).append(' ')
                     .append(StoryboardPromptBatchAligner.buildShotKey(sb.getId())).append(" ---\n");
+            appendSceneContext(out, sceneContext);
             appendShotField(out, shot, FIELD_BIZ_NO_SHOT);
             appendShotField(out, shot, "画面描述");
             appendShotField(out, shot, "台词");
@@ -2240,6 +2457,15 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
             out.append('\n');
         }
         return out.toString();
+    }
+
+    private void appendSceneContext(StringBuilder out, StoryboardSceneContext context)
+    {
+        String text = storyboardSceneContextAssembler.formatPromptContext(context);
+        if (StrUtil.isNotBlank(text))
+        {
+            out.append("【确定性场景上下文】\n").append(text);
+        }
     }
 
     /**
@@ -2325,6 +2551,30 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
         return result;
     }
 
+    private boolean isReplayVideoOutputValid(String llmRaw, List<AidStoryboard> targetList,
+                                             String unitLabel, String direction, String agentCode)
+    {
+        List<JsonNode> elements = parseLlmOutputArray(llmRaw);
+        StoryboardPromptBatchAligner.AlignmentResult alignment =
+                alignLlmElementsToShots(elements, targetList, unitLabel);
+        if (!alignment.valid())
+        {
+            return false;
+        }
+        boolean durationRequired = Objects.equals(DIRECTION_MULTI, direction)
+                || Objects.equals(DIRECTION_GRID, direction);
+        for (JsonNode element : alignment.elements())
+        {
+            String prompt = Objects.isNull(element) ? "" : element.path(FIELD_PROMPT).asText("");
+            if (StrUtil.isBlank(prompt) || !isVideoPromptFormatValid(prompt, direction, agentCode)
+                    || (durationRequired && element.path(FIELD_DURATION).asInt(0) <= 0))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
     /**
      * 从模型输出节点中取出契约元素列表。
      * 数组节点即元素列表原样展开（缺字段留给逐镜校验，保证「元素数＝镜头数」的契约判定口径不变）；
@@ -2387,7 +2637,8 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
         boolean enqueued = dualModeTaskDispatcher.dispatch(taskId, projectId, episodeId, userId, modelCode,
                 TASK_TYPE_STORYBOARD_VIDEO_PROMPT_BATCH,
                 () -> batchTaskLocalOrchestrator.run(taskId, userId, LOCAL_SPEC,
-                        () -> doStoryboardVideoPromptBatch(taskId, userId),
+                        () -> doStoryboardVideoPromptBatch(taskId, userId,
+                                taskQueueService.currentLocalDispatchToken(taskId)),
                         () -> assetExtractService.releaseBatchFormLocks(
                                 taskId, TASK_TYPE_STORYBOARD_VIDEO_PROMPT_BATCH,
                                 taskQueueService.currentLocalDispatchToken(taskId))));
@@ -2406,7 +2657,8 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
         boolean enqueued = dualModeTaskDispatcher.dispatchNow(taskId, projectId, episodeId, userId,
                 modelCode, TASK_TYPE_STORYBOARD_VIDEO_PROMPT_BATCH,
                 () -> batchTaskLocalOrchestrator.run(taskId, userId, LOCAL_SPEC,
-                        () -> doStoryboardVideoPromptBatch(taskId, userId),
+                        () -> doStoryboardVideoPromptBatch(taskId, userId,
+                                taskQueueService.currentLocalDispatchToken(taskId)),
                         () -> assetExtractService.releaseBatchFormLocks(
                                 taskId, TASK_TYPE_STORYBOARD_VIDEO_PROMPT_BATCH,
                                 taskQueueService.currentLocalDispatchToken(taskId))),

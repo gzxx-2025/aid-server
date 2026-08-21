@@ -100,7 +100,7 @@ services:
 
   aid-server:
     # 由 aid.sh 使用已校验的 Temurin OpenJDK 17.0.20 压缩包在本机生成，禁止浮动版本。
-    image: aid/openjdk:17.0.20
+    image: aid/openjdk:17.0.20-ffmpeg7.0.2-font2.004
     pull_policy: never
     container_name: aid-server
     labels:
@@ -132,6 +132,9 @@ services:
       TOKEN_SECRET: ${TOKEN_SECRET:?请在 .env 中设置 TOKEN_SECRET}
       AID_PROFILE: /data/uploadPath
       LOG_PATH: /home/aid/logs
+      # 与手动部署使用完全相同的 AID 受管固定路径；后台自定义绝对路径时仍以后台配置为准。
+      AID_FFMPEG_PATH: /opt/aid-ffmpeg/current/ffmpeg
+      AID_FFPROBE_PATH: /opt/aid-ffmpeg/current/ffprobe
       ROCKETMQ_ENABLED: ${ROCKETMQ_ENABLED:-false}
       # 默认连内置 MQ 容器；使用外部 MQ 时在 .env 覆盖为外部 NameServer 地址
       ROCKETMQ_NAMESERVER: ${ROCKETMQ_NAMESERVER:-rocketmq-nameserver:9876}

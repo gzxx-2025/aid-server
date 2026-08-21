@@ -8,7 +8,10 @@ package com.aid.common.error;
  * @author 视觉AID
  */
 public enum TaskErrorCode {
-    /** 用户余额不足（预冻结失败） */
+    /** 用户预扣余额不足（预检或预冻结失败） */
+    USER_PREHOLD_BALANCE_NOT_ENOUGH("USER", "BALANCE", "预扣余额不足，充值后可继续生成", true, "USER", true),
+
+    /** 用户余额不足（直接消费或非预扣扣减失败） */
     USER_BALANCE_NOT_ENOUGH("USER", "BALANCE", "余额不足，充值后可继续生成", true, "USER", true),
 
     /** 用户输入参数非法 */

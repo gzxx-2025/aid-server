@@ -16,10 +16,12 @@ import com.aid.aid.support.ModelInputRequirementResolver;
 import com.aid.common.exception.ServiceException;
 import com.aid.common.utils.DateUtils;
 import com.aid.common.utils.SecurityUtils;
+import com.aid.common.utils.ProviderEndpointUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
+import com.aid.aid.service.support.ModelBillingActivationValidator;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
@@ -146,6 +148,8 @@ public class AidAiModelServiceImpl extends ServiceImpl<AidAiModelMapper, AidAiMo
     public int insertAidAiModel(AidAiModel aidAiModel)
     {
         validateModelCodeNotBlank(aidAiModel.getModelCode());
+        validateAndNormalizeApiSuffix(aidAiModel);
+        ModelBillingActivationValidator.validateIfRequiredAndEnabled(aidAiModel);
         // 模型身份由「真实模型 + 模型代码」共同决定，模型代码全表唯一即可保证身份唯一，
         // 同一真实模型下允许多个模型代码（不同生成模式）同时启用
         validateModelCodeUnique(aidAiModel.getModelCode(), null);
@@ -169,11 +173,14 @@ public class AidAiModelServiceImpl extends ServiceImpl<AidAiModelMapper, AidAiMo
     public int updateAidAiModel(AidAiModel aidAiModel)
     {
         validateModelCodeNotBlank(aidAiModel.getModelCode());
+        validateAndNormalizeApiSuffix(aidAiModel);
         validateModelCodeUnique(aidAiModel.getModelCode(), aidAiModel.getId());
         // 校验性查询：只取主键，确认记录存在
         AidAiModel before = this.getOne(
                 Wrappers.<AidAiModel>lambdaQuery()
-                        .select(AidAiModel::getId)
+                        .select(AidAiModel::getId, AidAiModel::getStatus, AidAiModel::getBillingMode,
+                                AidAiModel::getBillingRuleJson, AidAiModel::getCostCredits,
+                                AidAiModel::getCapabilityJson)
                         .eq(AidAiModel::getId, aidAiModel.getId())
                         .last("limit 1"),
                 false);
@@ -181,6 +188,10 @@ public class AidAiModelServiceImpl extends ServiceImpl<AidAiModelMapper, AidAiMo
             log.error("AidAiModel 更新失败：记录不存在, id={}", aidAiModel.getId());
             throw new ServiceException("模型不存在");
         }
+        AidAiModel effective = mergeBillingFields(before, aidAiModel);
+        // 明确声明严格计费的模型，只要保存后的有效配置仍为启用态，就持续校验；因此已启用后清空
+        // 价格或禁用全部 SKU 也会被拒绝。普通历史模型不受此新增闸门影响。
+        ModelBillingActivationValidator.validateUpdate(before, effective);
         aidAiModel.setUpdateTime(DateUtils.getNowDate());
         aidAiModel.setUpdateBy(currentUsername());
         try {
@@ -189,6 +200,25 @@ public class AidAiModelServiceImpl extends ServiceImpl<AidAiModelMapper, AidAiMo
             log.error("AidAiModel 更新触发唯一键冲突, id={}, modelCode={}",
                     aidAiModel.getId(), aidAiModel.getModelCode(), e);
             throw new ServiceException("编码已存在");
+        }
+    }
+
+    /** 校验并规范化模型提交相对路径。 */
+    private void validateAndNormalizeApiSuffix(AidAiModel aidAiModel)
+    {
+        if (Objects.isNull(aidAiModel) || StrUtil.isBlank(aidAiModel.getApiSuffix()))
+        {
+            return;
+        }
+        try
+        {
+            aidAiModel.setApiSuffix(ProviderEndpointUtils.normalizeSubmitPath(aidAiModel.getApiSuffix()));
+        }
+        catch (IllegalArgumentException ex)
+        {
+            log.error("AidAiModel 保存失败：接口路径无效, modelCode={}, reason={}",
+                    aidAiModel.getModelCode(), ex.getMessage());
+            throw new ServiceException("接口路径无效");
         }
     }
 
@@ -311,6 +341,20 @@ public class AidAiModelServiceImpl extends ServiceImpl<AidAiModelMapper, AidAiMo
     private boolean isEnabled(String status)
     {
         return Objects.equals(STATUS_NORMAL, status);
+    }
+
+    /** 合并 partial update 与库中旧值，避免未回传字段的 null 被误判为清空。 */
+    private AidAiModel mergeBillingFields(AidAiModel before, AidAiModel update)
+    {
+        AidAiModel effective = new AidAiModel();
+        effective.setStatus(update.getStatus() == null ? before.getStatus() : update.getStatus());
+        effective.setBillingMode(update.getBillingMode() == null ? before.getBillingMode() : update.getBillingMode());
+        effective.setBillingRuleJson(update.getBillingRuleJson() == null
+                ? before.getBillingRuleJson() : update.getBillingRuleJson());
+        effective.setCostCredits(update.getCostCredits() == null ? before.getCostCredits() : update.getCostCredits());
+        effective.setCapabilityJson(update.getCapabilityJson() == null
+                ? before.getCapabilityJson() : update.getCapabilityJson());
+        return effective;
     }
 
     /**

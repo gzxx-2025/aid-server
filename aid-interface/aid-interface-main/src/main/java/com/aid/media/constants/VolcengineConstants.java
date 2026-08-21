@@ -1,7 +1,7 @@
 package com.aid.media.constants;
 
 /**
- * 火山引擎方舟（Ark）相关常量：网关、协议标识、默认模型、SDK 参数、Seedream/Seedance 字段、任务状态归一化等。
+ * 火山引擎方舟协议、默认模型、请求字段与任务状态常量。
  */
 public final class VolcengineConstants {
 
@@ -10,24 +10,16 @@ public final class VolcengineConstants {
 
     // --- 协议（与库表 aid_media_task.protocol、路由一致）---
 
-    /** Seedream 图片（同步 SDK） */
+    /** Seedream 图片同步生成协议 */
     public static final String PROTOCOL_SEEDREAM_IMAGE = "seedream-image";
-    /** Seedance 视频（异步 SDK） */
+    /** Seedance 视频异步生成协议 */
     public static final String PROTOCOL_SEEDANCE_VIDEO = "seedance-video";
 
     /** aid_ai_provider.provider_code 约定：火山方舟（Seedream/Seedance）服务商登记为该 code，调度层按此精确路由 */
     public static final String PROVIDER_CODE = "volcengine";
 
-    // --- 网关与 HTTP 路径 ---
-
-    // --- ArkService 构建（VolcengineServiceManager）---
-
-    /** SDK 单次请求超时 */
-    public static final int SDK_TIMEOUT_SECONDS = 120;
-    /** OkHttp ConnectionPool：最大空闲连接数 */
-    public static final int OKHTTP_POOL_MAX_IDLE = 5;
-    /** OkHttp ConnectionPool：空闲连接保活时间 */
-    public static final int OKHTTP_POOL_KEEP_ALIVE_SECONDS = 1;
+    /** HTTP 单次请求超时 */
+    public static final int HTTP_TIMEOUT_SECONDS = 120;
 
     // --- 默认模型 ID ---
 
@@ -72,19 +64,24 @@ public final class VolcengineConstants {
     public static final String CONTENT_TYPE_TEXT = "text";
     public static final String CONTENT_TYPE_IMAGE_URL = "image_url";
     public static final String CONTENT_TYPE_AUDIO_URL = "audio_url";
+    public static final String CONTENT_TYPE_VIDEO_URL = "video_url";
     public static final String ROLE_FIRST_FRAME = "first_frame";
     public static final String ROLE_LAST_FRAME = "last_frame";
     // Seedance 2.0 多模态参考图 role：官方文档为 reference_image，锁定参考图角色样貌
     public static final String ROLE_REFERENCE = "reference_image";
     public static final String ROLE_REFERENCE_AUDIO = "reference_audio";
+    public static final String ROLE_REFERENCE_VIDEO = "reference_video";
 
     // --- Seedance：options 键 ---
 
     public static final String OPTIONS_LAST_FRAME_IMAGE_URL = "lastFrameImageUrl";
     public static final String OPTIONS_REFERENCE_IMAGES = "referenceImages";
+    public static final String OPTIONS_REFERENCE_VIDEOS = "referenceVideos";
+    public static final String OPTIONS_REFERENCE_VIDEO_URL = "referenceVideoUrl";
     public static final String OPTIONS_GENERATE_AUDIO = "generate_audio";
     public static final String OPTIONS_RESOLUTION = "resolution";
     public static final String OPTIONS_RETURN_LAST_FRAME = "return_last_frame";
     public static final String OPTIONS_CAMERA_FIXED = "camera_fixed";
     public static final String OPTIONS_CALLBACK_URL = "callback_url";
+    public static final String OPTIONS_OMNI_REFERENCE_TASK_TYPE = "omni_reference_task_type";
 }

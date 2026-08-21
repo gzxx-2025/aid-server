@@ -32,4 +32,10 @@ public class StoryboardVideoPromptImageBatchRequest
 
     /** 是否覆盖已有视频提示词（仅不传 storyboardIds 时生效） */
     private Boolean overwrite;
+
+    /** 跨镜连续性模式：none / previous_prompt；为空按 none */
+    private String continuityMode;
+
+    /** 单镜开启 previous_prompt 时指定的直接上一镜 ID；批量请求忽略 */
+    private Long previousStoryboardId;
 }

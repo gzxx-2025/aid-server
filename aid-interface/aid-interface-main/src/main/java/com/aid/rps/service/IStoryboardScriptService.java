@@ -5,9 +5,7 @@ import java.util.List;
 import com.aid.rps.dto.AssetExtractTaskVO;
 
 /**
- * 批量分镜脚本生成 Service 接口
- * 按项目+剧集维度，遍历该剧集下所有已提取的场景（aid_role_prop_scene type=scene），
- * 逐场景调用分镜脚本 LLM 智能体，将输出写入 aid_storyboard 表。
+ * 按项目和剧集维度使用当前有效剧本生成分镜脚本。
  *
  * @author 视觉AID
  */
@@ -32,11 +30,13 @@ public interface IStoryboardScriptService
                                                       Boolean overwrite);
 
     /**
-     * 批量分镜脚本生成核心逻辑（由 Consumer 调用）
-     * 逐场景处理：拼装 LLM 入参 → callLlmRaw → 解析 18 字段 JSON 数组 → 逐镜头写入 aid_storyboard。
-     * 单场景失败不影响整批继续执行。返回结果 JSON。
+     * 按当前有效剧本片段生成并保存分镜脚本。
+     *
+     * @param taskId 父任务ID
+     * @param userId 当前用户ID
+     * @return 批次执行结果JSON
      */
-    String doStoryboardScriptBatch(Long taskId, Long userId);
+    String doStoryboardScriptBatch(Long taskId, Long userId, String dispatchToken);
 
     /**
      * 分镜脚本任务续生。

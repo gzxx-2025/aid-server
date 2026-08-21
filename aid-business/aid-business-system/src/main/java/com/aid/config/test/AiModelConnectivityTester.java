@@ -37,7 +37,7 @@ public class AiModelConnectivityTester implements ConfigConnectivityTester {
     /** protocol → Probe 映射（Spring 注入所有 Probe 实现构建） */
     private final Map<String, ProviderProbe> probeMap = new HashMap<>();
 
-    /** providerCode → Probe 映射（protocol 取不到时按厂商回退，如即梦 SigV4 / 火山 Ark） */
+    /** providerCode → Probe 映射（厂商元数据探测优先于通用协议回退） */
     private final Map<String, ProviderProbe> providerProbeMap = new HashMap<>();
 
     /**
@@ -91,17 +91,19 @@ public class AiModelConnectivityTester implements ConfigConnectivityTester {
                 return ConfigTestResult.fail("服务商不存在");
             }
             String providerCode = provider.getProviderCode();
-            ProviderProbe probe = StrUtil.isNotBlank(model.getProtocol())
-                    ? probeMap.get(model.getProtocol()) : null;
-            if (probe == null) {
-                probe = providerProbeMap.get(providerCode);
+            ProviderProbe probe = providerProbeMap.get(providerCode);
+            if (probe != null && !probe.supportsModel(model)) {
+                probe = null;
+            }
+            if (probe == null && StrUtil.isNotBlank(model.getProtocol())) {
+                probe = probeMap.get(model.getProtocol());
             }
             ProbeResult probeResult;
             if (probe != null) {
-                // 命中专用探活：发空体/最小请求靠错误码判定，绝不真生成
+                // 厂商元数据查询优先，通用协议仅做安全回退
                 probeResult = probe.probe(model, provider);
             } else {
-                // 退化：密钥非空 + 网关连通
+                // 退化结果只代表网关可达，不代表密钥或模型有效
                 if (StrUtil.isBlank(provider.getApiKey())) {
                     log.error("AI 模型探活失败: 未配置密钥, providerCode={}", providerCode);
                     return ConfigTestResult.fail("未配置密钥");
@@ -132,7 +134,9 @@ public class AiModelConnectivityTester implements ConfigConnectivityTester {
      */
     private ConfigTestResult toTestResult(ProbeResult probeResult, String providerCode) {
         if (probeResult != null && probeResult.isOk()) {
-            return ConfigTestResult.ok(probeResult.getMessage(), providerCode);
+            ConfigTestResult result = ConfigTestResult.ok(probeResult.getMessage(), providerCode);
+            result.setDetails(probeResult.getDetail());
+            return result;
         }
         ConfigTestResult result = ConfigTestResult.fail(
                 probeResult == null ? "测试失败" : probeResult.getMessage());

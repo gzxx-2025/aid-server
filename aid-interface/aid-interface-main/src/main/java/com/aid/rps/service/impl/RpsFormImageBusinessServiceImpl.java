@@ -23,6 +23,7 @@ import javax.imageio.ImageIO;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.aid.aid.domain.AidRolePropScene;
 import com.aid.aid.domain.AidRolePropSceneForm;
@@ -99,14 +100,24 @@ public class RpsFormImageBusinessServiceImpl implements IRpsFormImageBusinessSer
     private static final String FUNC_CODE_IMAGE_UPSCALE = "image_upscale";
     /** 允许的来源类型：上传 / 官方 */
     private static final List<String> UPLOAD_OFFICIAL = List.of("upload", "official");
+    /** 主资产类型：角色 */
+    private static final String ASSET_TYPE_CHARACTER = "character";
     /** 主资产类型：仅 scene 可被拆分（业务硬约束） */
     private static final String ASSET_TYPE_SCENE = "scene";
+    /** 主资产类型：道具 */
+    private static final String ASSET_TYPE_PROP = "prop";
     /**
      * 拆分子图位置标签，顺序固定：主视 / 反打 / 左立面 / 右立面。
      */
     private static final List<String> SPLIT_POSITION_LABELS = List.of("主视", "反打", "左立面", "右立面");
     /** 拆分子图来源类型：复用现有的 upload 通道 */
     private static final String SPLIT_CHILD_SOURCE_TYPE = "upload";
+    /** 一键提取自动生成图片来源 */
+    private static final String FORM_IMAGE_SOURCE_TYPE_AI_AUTO = "ai_auto";
+    /** 编辑作图 / 对话作图图片来源 */
+    private static final String FORM_IMAGE_SOURCE_TYPE_EDIT_CHAT = "ai_edit_chat";
+    /** 编辑作图 / 对话作图任务类型 */
+    private static final String TASK_TYPE_FORM_EDIT_CHAT = "form_edit_chat";
 
     /** 源图被拆后的聚合命名后缀：源图原名 + 该后缀（如 龙泉镇泥瓶巷_主视,反打,左立面,右立面） */
     private static final String SPLIT_SOURCE_NAME_SUFFIX = "_" + String.join(",", SPLIT_POSITION_LABELS);
@@ -187,7 +198,7 @@ public class RpsFormImageBusinessServiceImpl implements IRpsFormImageBusinessSer
     @Autowired
     private TransactionTemplate transactionTemplate;
 
-    /** 媒体URL拼接器：DB相对路径 → 完整可下载URL，用于参考图传给上游 provider */
+    /** 媒体URL拼接器：DB相对路径 → 完整可下载URL，用于接口出参及参考图传给上游 provider */
     @Autowired
     private MediaUrlResolver mediaUrlResolver;
 
@@ -568,6 +579,7 @@ public class RpsFormImageBusinessServiceImpl implements IRpsFormImageBusinessSer
                 AidRolePropSceneFormImage::getEpisodeId, AidRolePropSceneFormImage::getName,
                 AidRolePropSceneFormImage::getImageUrl, AidRolePropSceneFormImage::getSourceType,
                 AidRolePropSceneFormImage::getDescriptionIndex, AidRolePropSceneFormImage::getReferenceImages,
+                AidRolePropSceneFormImage::getBatchNo,
                 AidRolePropSceneFormImage::getSortOrder, AidRolePropSceneFormImage::getIsUse,
                 AidRolePropSceneFormImage::getImageStatus, AidRolePropSceneFormImage::getFailReason,
                 AidRolePropSceneFormImage::getIsSplitSource, AidRolePropSceneFormImage::getIsSplitChild);
@@ -596,6 +608,8 @@ public class RpsFormImageBusinessServiceImpl implements IRpsFormImageBusinessSer
         {
             return new ArrayList<>();
         }
+        boolean hasAiAutoImages = imgs.stream()
+                .anyMatch(i -> Objects.equals(FORM_IMAGE_SOURCE_TYPE_AI_AUTO, i.getSourceType()));
 
         Set<Long> formIds = imgs.stream()
                 .map(AidRolePropSceneFormImage::getFormId)
@@ -605,8 +619,17 @@ public class RpsFormImageBusinessServiceImpl implements IRpsFormImageBusinessSer
         if (CollectionUtil.isNotEmpty(formIds))
         {
             LambdaQueryWrapper<AidRolePropSceneForm> formQuery = Wrappers.lambdaQuery();
-            formQuery.select(AidRolePropSceneForm::getId, AidRolePropSceneForm::getName,
-                    AidRolePropSceneForm::getAssetId);
+            if (hasAiAutoImages)
+            {
+                // prompt_text 是展示提示词正文来源，仅列表中存在 ai_auto 时加载该长文本列。
+                formQuery.select(AidRolePropSceneForm::getId, AidRolePropSceneForm::getName,
+                        AidRolePropSceneForm::getAssetId, AidRolePropSceneForm::getPromptText);
+            }
+            else
+            {
+                formQuery.select(AidRolePropSceneForm::getId, AidRolePropSceneForm::getName,
+                        AidRolePropSceneForm::getAssetId);
+            }
             formQuery.in(AidRolePropSceneForm::getId, formIds);
             formQuery.eq(AidRolePropSceneForm::getDelFlag, DEL_FLAG_NORMAL);
             formMap = rpsFormService.list(formQuery).stream()
@@ -630,12 +653,328 @@ public class RpsFormImageBusinessServiceImpl implements IRpsFormImageBusinessSer
                     .collect(Collectors.toMap(AidRolePropScene::getId, a -> a, (a, b) -> a));
         }
 
-        //    主资产 ID 收敛阶段下推到 SQL，此处不再做 assetType 内存裁剪。
+        Map<Long, String> projectStyleMap = loadProjectPublicStyles(imgs, assetMap, userId);
+        Map<Long, String> editRawPromptMap = loadEditChatRawPrompts(imgs, userId);
+
+        // 主资产 ID 收敛阶段下推到 SQL，此处不再做 assetType 内存裁剪。
         Map<Long, AidRolePropSceneForm> finalFormMap = formMap;
         Map<Long, AidRolePropScene> finalAssetMap = assetMap;
         return imgs.stream()
-                .map(i -> buildDetailVO(i, finalFormMap.get(i.getFormId()), finalAssetMap.get(i.getAssetId())))
+                .map(i -> {
+                    AidRolePropSceneForm form = finalFormMap.get(i.getFormId());
+                    AidRolePropScene asset = finalAssetMap.get(i.getAssetId());
+                    String promptText = resolveDisplayPromptText(
+                            i, form, asset, projectStyleMap, editRawPromptMap);
+                    return buildDetailVO(i, form, asset, promptText);
+                })
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * 批量加载自动生图所需的项目公开风格描述。
+     */
+    private Map<Long, String> loadProjectPublicStyles(List<AidRolePropSceneFormImage> imgs,
+                                                      Map<Long, AidRolePropScene> assetMap,
+                                                      Long userId)
+    {
+        Set<Long> projectIds = imgs.stream()
+                .filter(i -> Objects.equals(FORM_IMAGE_SOURCE_TYPE_AI_AUTO, i.getSourceType()))
+                .map(i -> {
+                    if (Objects.nonNull(i.getProjectId()))
+                    {
+                        return i.getProjectId();
+                    }
+                    AidRolePropScene asset = assetMap.get(i.getAssetId());
+                    return Objects.nonNull(asset) ? asset.getProjectId() : null;
+                })
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        if (CollectionUtil.isEmpty(projectIds))
+        {
+            return new HashMap<>();
+        }
+        // C端只显示公开风格值，禁止加载 hidden_style_prompt_json。
+        List<AidComicProject> projects = projectService.list(Wrappers.<AidComicProject>lambdaQuery()
+                .select(AidComicProject::getId, AidComicProject::getVideoStyleValue)
+                .in(AidComicProject::getId, projectIds)
+                .eq(AidComicProject::getUserId, userId)
+                .eq(AidComicProject::getDelFlag, DEL_FLAG_NORMAL));
+        Map<Long, String> styleMap = new HashMap<>();
+        for (AidComicProject project : projects)
+        {
+            if (Objects.nonNull(project.getId()))
+            {
+                // HashMap 允许历史项目的公开风格值为 null；下游按无风格安全处理。
+                styleMap.put(project.getId(), project.getVideoStyleValue());
+            }
+        }
+        return styleMap;
+    }
+
+    /**
+     * 批量加载编辑作图任务中的用户原始提示词。
+     */
+    private Map<Long, String> loadEditChatRawPrompts(List<AidRolePropSceneFormImage> imgs, Long userId)
+    {
+        Set<Long> taskIds = imgs.stream()
+                .filter(i -> Objects.equals(FORM_IMAGE_SOURCE_TYPE_EDIT_CHAT, i.getSourceType()))
+                .map(AidRolePropSceneFormImage::getBatchNo)
+                .map(this::parseTaskId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        if (CollectionUtil.isEmpty(taskIds))
+        {
+            return new HashMap<>();
+        }
+        // 仅查询 rawPrompt 所在的 input_snapshot；不查询任何最终 prompt 快照。
+        List<AidExtractTask> tasks = extractTaskService.list(Wrappers.<AidExtractTask>lambdaQuery()
+                .select(AidExtractTask::getId, AidExtractTask::getInputSnapshot)
+                .in(AidExtractTask::getId, taskIds)
+                .eq(AidExtractTask::getUserId, userId)
+                .eq(AidExtractTask::getTaskType, TASK_TYPE_FORM_EDIT_CHAT)
+                .eq(AidExtractTask::getDelFlag, DEL_FLAG_NORMAL));
+        Map<Long, String> rawPromptMap = new HashMap<>();
+        for (AidExtractTask task : tasks)
+        {
+            String rawPrompt = extractRawPrompt(task.getInputSnapshot());
+            if (StrUtil.isNotBlank(rawPrompt))
+            {
+                // 原始输入按库存原文返回，不做 trim 或二次拼接。
+                rawPromptMap.put(task.getId(), rawPrompt);
+            }
+        }
+        return rawPromptMap;
+    }
+
+    /**
+     * 按图片来源解析 C 端展示提示词。
+     */
+    private String resolveDisplayPromptText(AidRolePropSceneFormImage img,
+                                            AidRolePropSceneForm form,
+                                            AidRolePropScene asset,
+                                            Map<Long, String> projectStyleMap,
+                                            Map<Long, String> editRawPromptMap)
+    {
+        if (Objects.equals(FORM_IMAGE_SOURCE_TYPE_AI_AUTO, img.getSourceType()))
+        {
+            Long projectId = Objects.nonNull(img.getProjectId())
+                    ? img.getProjectId() : Objects.nonNull(asset) ? asset.getProjectId() : null;
+            String styleValue = Objects.nonNull(projectId) ? projectStyleMap.get(projectId) : null;
+            return resolveAiAutoPromptText(form, asset, img.getDescriptionIndex(), styleValue);
+        }
+        if (Objects.equals(FORM_IMAGE_SOURCE_TYPE_EDIT_CHAT, img.getSourceType()))
+        {
+            Long taskId = parseTaskId(img.getBatchNo());
+            return Objects.nonNull(taskId) ? editRawPromptMap.get(taskId) : null;
+        }
+        return null;
+    }
+
+    /**
+     * 解析自动生图的业务正文并追加项目公开风格。
+     */
+    private String resolveAiAutoPromptText(AidRolePropSceneForm form,
+                                           AidRolePropScene asset,
+                                           Integer descriptionIndex,
+                                           String videoStyleValue)
+    {
+        if (Objects.isNull(form) || Objects.isNull(asset))
+        {
+            return null;
+        }
+        String businessPrompt;
+        if (Objects.equals(ASSET_TYPE_CHARACTER, asset.getAssetType()))
+        {
+            businessPrompt = extractCharacterBusinessPrompt(form.getPromptText(), descriptionIndex);
+        }
+        else if (Objects.equals(ASSET_TYPE_SCENE, asset.getAssetType())
+                || Objects.equals(ASSET_TYPE_PROP, asset.getAssetType()))
+        {
+            businessPrompt = extractScenePropBusinessPrompt(form.getPromptText());
+        }
+        else
+        {
+            return null;
+        }
+        if (StrUtil.isBlank(businessPrompt))
+        {
+            return null;
+        }
+        String normalizedPrompt = businessPrompt.trim();
+        if (StrUtil.isBlank(videoStyleValue))
+        {
+            return normalizedPrompt;
+        }
+        return normalizedPrompt + "\n\n使用风格：" + videoStyleValue.trim();
+    }
+
+    /**
+     * 解析角色形态的完整人物描述。
+     */
+    private String extractCharacterBusinessPrompt(String promptText, Integer descriptionIndex)
+    {
+        if (StrUtil.isBlank(promptText))
+        {
+            return null;
+        }
+        String cleaned = stripJsonFence(promptText);
+        if (!looksLikeJson(cleaned))
+        {
+            return cleaned;
+        }
+        try
+        {
+            JsonNode root = OBJECT_MAPPER.readTree(cleaned);
+            if (Objects.isNull(root) || !root.isObject())
+            {
+                return null;
+            }
+            JsonNode descriptions = firstPresentNode(root,
+                    "descriptions", "description", "人物特征");
+            if (Objects.isNull(descriptions))
+            {
+                return null;
+            }
+            if (descriptions.isTextual())
+            {
+                return StrUtil.isBlank(descriptions.asText()) ? null : descriptions.asText();
+            }
+            if (descriptions.isArray() && !descriptions.isEmpty())
+            {
+                int index = Objects.nonNull(descriptionIndex) && descriptionIndex >= 0
+                        && descriptionIndex < descriptions.size() ? descriptionIndex : 0;
+                JsonNode selected = descriptions.get(index);
+                return Objects.nonNull(selected) && selected.isTextual()
+                        && StrUtil.isNotBlank(selected.asText()) ? selected.asText() : null;
+            }
+        }
+        catch (Exception ignored)
+        {
+            // 历史异常 JSON 安全返回 null，禁止把结构化原文直接透传给 C 端。
+        }
+        return null;
+    }
+
+    /**
+     * 从场景或道具形态结构中提取面向用户的 prompt 正文。
+     */
+    private String extractScenePropBusinessPrompt(String promptText)
+    {
+        if (StrUtil.isBlank(promptText))
+        {
+            return null;
+        }
+        String cleaned = stripJsonFence(promptText);
+        if (!looksLikeJson(cleaned))
+        {
+            return cleaned;
+        }
+        try
+        {
+            JsonNode root = OBJECT_MAPPER.readTree(cleaned);
+            JsonNode target = root;
+            if (Objects.nonNull(root) && root.isArray())
+            {
+                target = root.isEmpty() ? null : root.get(0);
+            }
+            if (Objects.isNull(target) || !target.isObject())
+            {
+                return null;
+            }
+            JsonNode prompt = target.get("prompt");
+            return Objects.nonNull(prompt) && prompt.isTextual() && StrUtil.isNotBlank(prompt.asText())
+                    ? prompt.asText() : null;
+        }
+        catch (Exception ignored)
+        {
+            // 历史异常 JSON 安全返回 null，禁止把原始 JSON 直接透传给 C 端。
+            return null;
+        }
+    }
+
+    /**
+     * 从任务输入快照读取用户原始提示词。
+     */
+    private String extractRawPrompt(String inputSnapshot)
+    {
+        if (StrUtil.isBlank(inputSnapshot))
+        {
+            return null;
+        }
+        try
+        {
+            JsonNode root = OBJECT_MAPPER.readTree(inputSnapshot);
+            JsonNode rawPrompt = Objects.nonNull(root) && root.isObject() ? root.get("rawPrompt") : null;
+            return Objects.nonNull(rawPrompt) && rawPrompt.isTextual() && StrUtil.isNotBlank(rawPrompt.asText())
+                    ? rawPrompt.asText() : null;
+        }
+        catch (Exception ignored)
+        {
+            return null;
+        }
+    }
+
+    /**
+     * 解析 form_image.batch_no 中的编辑任务 ID。
+     */
+    private Long parseTaskId(String batchNo)
+    {
+        if (StrUtil.isBlank(batchNo))
+        {
+            return null;
+        }
+        try
+        {
+            long taskId = Long.parseLong(batchNo.trim());
+            return taskId > 0L ? taskId : null;
+        }
+        catch (NumberFormatException ignored)
+        {
+            return null;
+        }
+    }
+
+    /**
+     * 获取第一个存在的业务文本节点。
+     */
+    private JsonNode firstPresentNode(JsonNode root, String... fieldNames)
+    {
+        for (String fieldName : fieldNames)
+        {
+            JsonNode node = root.get(fieldName);
+            if (Objects.nonNull(node) && !node.isNull())
+            {
+                return node;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 去除常见 Markdown JSON 围栏。
+     */
+    private String stripJsonFence(String raw)
+    {
+        String trimmed = raw.trim();
+        if (!trimmed.startsWith("```"))
+        {
+            return trimmed;
+        }
+        int firstLineEnd = trimmed.indexOf('\n');
+        int lastFence = trimmed.lastIndexOf("```");
+        if (firstLineEnd < 0 || lastFence <= firstLineEnd)
+        {
+            return trimmed;
+        }
+        return trimmed.substring(firstLineEnd + 1, lastFence).trim();
+    }
+
+    /**
+     * 判断文本是否应按 JSON 解析。
+     */
+    private boolean looksLikeJson(String text)
+    {
+        return StrUtil.isNotBlank(text) && (text.startsWith("{") || text.startsWith("["));
     }
 
     /**
@@ -646,11 +985,24 @@ public class RpsFormImageBusinessServiceImpl implements IRpsFormImageBusinessSer
                                                AidRolePropSceneForm form,
                                                AidRolePropScene asset)
     {
+        return buildDetailVO(img, form, asset, null);
+    }
+
+    /**
+     * 组装图片详情 VO（含 C 端展示提示词）。
+     */
+    private RpsFormImageDetailVO buildDetailVO(AidRolePropSceneFormImage img,
+                                               AidRolePropSceneForm form,
+                                               AidRolePropScene asset,
+                                               String promptText)
+    {
         // canSplit：仅 scene 类型 + 未被拆过(is_split_source=0) + 非拆分产物(is_split_child=0) 才可拆
         String assetType = Objects.nonNull(asset) ? asset.getAssetType() : null;
         boolean canSplit = ASSET_TYPE_SCENE.equals(assetType)
                 && Objects.equals(0, img.getIsSplitSource())
                 && Objects.equals(0, img.getIsSplitChild());
+        List<String> referenceImages = mediaUrlResolver.toFullUrls(
+                deserializeReferenceImages(img.getReferenceImages()));
         return RpsFormImageDetailVO.builder()
                 .id(img.getId())
                 .formId(img.getFormId())
@@ -663,11 +1015,12 @@ public class RpsFormImageBusinessServiceImpl implements IRpsFormImageBusinessSer
                 .name(img.getName())
                 .imageUrl(img.getImageUrl())
                 .sourceType(img.getSourceType())
+                .promptText(promptText)
                 .descriptionIndex(img.getDescriptionIndex())
                 .isUse(img.getIsUse())
                 .imageStatus(img.getImageStatus())
                 .failReason(img.getFailReason())
-                .referenceImages(deserializeReferenceImages(img.getReferenceImages()))
+                .referenceImages(referenceImages)
                 .sortOrder(img.getSortOrder())
                 .canSplit(canSplit)                                 // 是否可拆分四宫格
                 .build();
@@ -890,6 +1243,7 @@ public class RpsFormImageBusinessServiceImpl implements IRpsFormImageBusinessSer
      */
     private void runUpscaleLocally(Long taskId, Long userId)
     {
+        String dispatchToken = taskQueueService.currentLocalDispatchToken(taskId);
         Long imageId = resolveImageIdFromTask(taskId);
         String lockKey = buildUpscaleLockKey(imageId);
 
@@ -905,7 +1259,7 @@ public class RpsFormImageBusinessServiceImpl implements IRpsFormImageBusinessSer
         {
             updateUpscaleStatus(taskId, "CANCELLED", "用户取消", null);
             sseManager.sendCancelled(taskId, "用户取消");
-            assetExtractService.clearCancelFlag(taskId);
+            assetExtractService.clearCancelFlag(taskId, dispatchToken);
             try { redisCache.deleteObject(lockKey); } catch (Exception ignore) { /* ignore */ }
             log.info("本地高清任务执行前检测到取消: taskId={}", taskId);
             return;
@@ -922,7 +1276,7 @@ public class RpsFormImageBusinessServiceImpl implements IRpsFormImageBusinessSer
             {
                 updateUpscaleStatus(taskId, "CANCELLED", "用户取消", OBJECT_MAPPER.writeValueAsString(result));
                 sseManager.sendCancelled(taskId, "用户取消");
-                assetExtractService.clearCancelFlag(taskId);
+                assetExtractService.clearCancelFlag(taskId, dispatchToken);
                 log.info("本地高清任务执行后检测到取消(resultData已保留): taskId={}", taskId);
                 return;
             }
@@ -943,7 +1297,7 @@ public class RpsFormImageBusinessServiceImpl implements IRpsFormImageBusinessSer
         {
             try { redisCache.deleteObject(lockKey); }
             catch (Exception ex) { log.warn("本地高清释放防重锁失败: taskId={}, lockKey={}", taskId, lockKey, ex); }
-            try { assetExtractService.releaseTaskSlots(taskId); }
+            try { assetExtractService.releaseTaskSlots(taskId, dispatchToken); }
             catch (Exception ex) { log.warn("本地高清释放名额异常(不影响业务): taskId={}", taskId, ex); }
         }
     }

@@ -26,4 +26,19 @@ public final class UserAssetTypeConstants {
             "mood",
             "camera"
     );
+
+    /** 官方素材查询允许的类型；背景音乐仅作为官方素材查询类型，不开放个人参考资产 CRUD。 */
+    public static final Set<String> OFFICIAL_ASSET_TYPES = Set.of(
+            "reference_character",
+            "reference_scene",
+            "reference_prop",
+            "style",
+            "pose",
+            "expression",
+            "effect",
+            "file",
+            "mood",
+            "camera",
+            "bgm"
+    );
 }

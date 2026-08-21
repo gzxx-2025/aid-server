@@ -67,6 +67,14 @@ public interface TaskDispatchService {
     void scheduleImmediatePoll(AidMediaTask task);
 
     /**
+     * 匿名回调专用的一次性唤醒：仅允许 WAIT_CALLBACK -> WAIT_POLL，避免并发通知重复改写调度时间。
+     *
+     * @param task 媒体任务实体（至少含 id 与 userId）
+     * @return true=本次 CAS 成功，false=任务已被其它通知唤醒或不在等待回调状态
+     */
+    boolean scheduleImmediatePollIfWaitingCallback(AidMediaTask task);
+
+    /**
      * 关闭「提交阶段中断」的僵尸任务：仅扫描 PENDING 且无 providerTaskId 且创建超过兜底时限的任务，
      * 终结为 FAILED 并退款。用于进程重启/崩溃在同步提交途中遗留的任务（closeTimeoutTasks 因要求
      * providerTaskId 非空、依赖调度快照而扫不到这类任务）。QUEUED 是合法排队，不超时关闭。

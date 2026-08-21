@@ -2,6 +2,7 @@ package com.aid.aid.controller;
 
 import java.util.List;
 import jakarta.servlet.http.HttpServletResponse;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -30,6 +31,7 @@ import com.aid.common.core.page.TableDataInfo;
  */
 @RestController
 @RequestMapping("/aid/extracttask")
+@Slf4j
 public class AidExtractTaskController extends BaseController
 {
     @Autowired
@@ -154,15 +156,45 @@ public class AidExtractTaskController extends BaseController
                 com.baomidou.mybatisplus.core.toolkit.Wrappers.lambdaUpdate();
         update.eq(AidExtractTask::getId, taskId);
         update.in(AidExtractTask::getStatus, "PENDING", "PROCESSING");
+        if (task.getBillingTraceId() == null)
+        {
+            update.isNull(AidExtractTask::getBillingTraceId);
+        }
+        else
+        {
+            update.eq(AidExtractTask::getBillingTraceId, task.getBillingTraceId());
+        }
         update.set(AidExtractTask::getStatus, "FAILED");
         update.set(AidExtractTask::getErrorMessage, "管理员手动清理");
         update.set(AidExtractTask::getUpdateTime, new java.util.Date());
-        aidExtractTaskService.getBaseMapper().update(null, update);
-        if (task.getUserId() != null)
+        int rows = aidExtractTaskService.getBaseMapper().update(null, update);
+        if (rows <= 0)
         {
-            try { extractBillingService.refundBilling(taskId, task.getUserId()); }
-            catch (Exception ex) { /* 已退过或金额为0，忽略 */ }
+            log.warn("管理员清理任务CAS未命中，跳过退款和锁释放: taskId={}, expectedTraceId={}",
+                    taskId, task.getBillingTraceId());
+            return;
         }
-        assetExtractService.releaseExtractLockForTask(taskId);
+        if (task.getUserId() != null && task.getBillingTraceId() != null
+                && !task.getBillingTraceId().isBlank())
+        {
+            try
+            {
+                boolean refunded = extractBillingService.refundBilling(
+                        taskId, task.getUserId(), task.getBillingTraceId());
+                if (!refunded)
+                {
+                    log.warn("管理员清理任务退款未收口: taskId={}, expectedTraceId={}",
+                            taskId, task.getBillingTraceId());
+                }
+            }
+            catch (Exception ex)
+            {
+                // 管理清理接口仍继续释放旧任务业务锁，但账务异常必须留痕供补偿/人工核对。
+                log.error("管理员清理任务退款异常: taskId={}, expectedTraceId={}",
+                        taskId, task.getBillingTraceId(), ex);
+            }
+        }
+        assetExtractService.releaseExtractLockForTask(taskId, task.getBillingTraceId());
+        assetExtractService.releaseBatchFormLocks(taskId, task.getTaskType(), task.getBillingTraceId());
     }
 }

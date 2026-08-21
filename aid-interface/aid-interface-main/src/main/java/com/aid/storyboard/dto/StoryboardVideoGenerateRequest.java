@@ -33,7 +33,7 @@ public class StoryboardVideoGenerateRequest
     /** 首帧/垫图来源记录 ID（可选，仅单镜头生效，aid_gen_record.id）。为空回落 {@code aid_storyboard.final_image_id}。 */
     private Long baseImageRecordId;
 
-    /** 宽高比（可选，如 16:9 / 1:1）。为空按模型 {@code default_aspect_ratio} 兜底（仅模型支持比例时生效）。 */
+    /** 出片宽高比。 */
     private String aspectRatio;
 
     /**

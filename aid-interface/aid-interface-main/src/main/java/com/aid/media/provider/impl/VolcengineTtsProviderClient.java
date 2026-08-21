@@ -9,6 +9,7 @@ import cn.hutool.http.HttpResponse;
 import cn.hutool.json.JSONUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.aid.common.constant.HttpConstants;
+import com.aid.common.utils.ProviderEndpointUtils;
 import com.aid.common.oss.entity.UploadResult;
 import com.aid.common.oss.factory.OssFactory;
 import com.aid.domain.vo.AiModelConfigVo;
@@ -76,7 +77,7 @@ public class VolcengineTtsProviderClient implements AudioProviderClient {
         String requestId = IdUtil.fastSimpleUUID();
         Map<String, Object> body = buildRequestBody(modelConfig, request);
         String json = JSONUtil.toJsonStr(body);
-        String url = joinUrl(modelConfig.getBaseUrl(), VolcengineTtsConstants.UNIDIRECTIONAL_PATH);
+        String url = buildSubmitUrl(modelConfig);
         String resourceId = resolveResourceId(modelConfig);
         // 音频格式：决定 OSS 落库后缀（默认 mp3）。
         String format = StrUtil.isNotBlank(request.getAudioFormat())
@@ -530,6 +531,11 @@ public class VolcengineTtsProviderClient implements AudioProviderClient {
         }
     }
 
+    static String buildSubmitUrl(AiModelConfigVo modelConfig) {
+        return ProviderEndpointUtils.buildSubmitUrl(
+                modelConfig.getBaseUrl(), modelConfig.getApiSuffix());
+    }
+
     /**
      * 鉴权校验：新版仅需 X-Api-Key（api_key）+ base_url。
      */
@@ -550,17 +556,6 @@ public class VolcengineTtsProviderClient implements AudioProviderClient {
         if (StrUtil.isBlank(request.getVoiceCode())) {
             throw new IllegalArgumentException(VolcengineTtsConstants.ERR_VOICE_EMPTY);
         }
-    }
-
-    private String joinUrl(String base, String path) {
-        if (StrUtil.isBlank(base)) {
-            throw new IllegalStateException(VolcengineTtsConstants.ERR_APP_ID_EMPTY);
-        }
-        String trimmed = base.trim();
-        if (trimmed.endsWith("/")) {
-            trimmed = trimmed.substring(0, trimmed.length() - 1);
-        }
-        return trimmed + path;
     }
 
     private int clamp(int value, int min, int max) {

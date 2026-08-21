@@ -21,6 +21,9 @@ public class StoryboardCreateRequest {
     /** 分镜标题(不传则自动生成) */
     private String title;
 
+    /** 来源分镜ID；传入时原子复制脚本、提示词及图片/原视频产物 */
+    private Long sourceStoryboardId;
+
     /**
      * 指定插入位置。
      */

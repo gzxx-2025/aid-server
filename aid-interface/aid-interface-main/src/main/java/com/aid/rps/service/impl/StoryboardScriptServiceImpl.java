@@ -1,10 +1,14 @@
 package com.aid.rps.service.impl;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -48,6 +52,7 @@ import com.aid.aid.service.IAidStoryboardService;
 import com.aid.billing.dto.BillingCalcResult;
 import com.aid.billing.dto.BillingInput;
 import com.aid.billing.enums.BillingConstants;
+import com.aid.billing.error.BillingBalanceErrors;
 import com.aid.billing.model.BillingSnapshot;
 import com.aid.billing.service.BillingAmountCalculator;
 import com.aid.billing.service.BillingPriceMultiplierService;
@@ -55,31 +60,46 @@ import com.aid.billing.service.BillingRecordMetadataService;
 import com.aid.billing.service.IAccountUpdateService;
 import com.aid.common.core.redis.RedisCache;
 import com.aid.common.error.TaskErrorPresentation;
+import com.aid.common.exception.ServiceException;
 import com.aid.common.utils.DateUtils;
 import com.aid.domain.vo.AiModelConfigVo;
 import com.aid.enums.StoryboardShotDensityEnum;
 import com.aid.rps.dto.AssetExtractTaskVO;
 import com.aid.rps.dto.ExtractTaskMessage;
 import com.aid.rps.helper.AssetExtractHelper;
-import com.aid.rps.resolver.ReferenceAssetSanitizer;
-import com.aid.rps.resolver.StoryboardRoleAudioReferenceResolver;
 import com.aid.rps.helper.ProjectGenerateLockGuard;
-import com.aid.rps.helper.StoryboardScriptBatchPlanner;
-import com.aid.rps.helper.StoryboardScriptBatchPlanner.BatchPlanItem;
+import com.aid.rps.helper.StoryboardDirectRefundExecutor;
+import com.aid.rps.helper.StoryboardDirectTaskSnapshotValidator;
+import com.aid.rps.helper.StoryboardDirectWritePolicy;
+import com.aid.rps.helper.StoryboardResumeBillingExecutor;
+import com.aid.rps.helper.StoryboardSceneEnvelopeParser;
+import com.aid.rps.helper.StoryboardSceneEnvelopeParser.SceneEnvelope;
+import com.aid.rps.helper.StoryboardSelectiveTimelinePlanner;
 import com.aid.rps.helper.StoryboardShotGroupPlanParser;
 import com.aid.rps.helper.StoryboardShotGroupSplitPromptBuilder;
+import com.aid.rps.helper.StoryboardScriptBatchPlanner;
+import com.aid.rps.helper.StoryboardScriptBatchPlanner.BatchPlanItem;
+import com.aid.rps.helper.StoryboardScriptCoveragePlanner;
+import com.aid.rps.helper.StoryboardScriptCoveragePlanner.CoverageBatch;
+import com.aid.rps.helper.StoryboardScriptCoveragePlanner.CoveragePlan;
+import com.aid.rps.helper.StoryboardTimelineNumbering;
+import com.aid.rps.helper.StoryboardWriterContentParser;
 import com.aid.rps.queue.TaskQueueService;
+import com.aid.rps.resolver.ReferenceAssetSanitizer;
+import com.aid.rps.resolver.StoryboardRoleAudioReferenceResolver;
 import com.aid.rps.service.IAssetExtractService;
 import com.aid.rps.service.IExtractBillingService;
+import com.aid.rps.service.IExtractBillingService.ResumeBillingContext;
+import com.aid.rps.service.IExtractBillingService.ResumeTaskMutation;
 import com.aid.rps.service.IStoryboardScriptService;
 import com.aid.rps.sse.AssetExtractSseManager;
 import com.aid.service.IAiModelConfigService;
 
 import cn.hutool.core.collection.CollectionUtil;
 import cn.hutool.core.convert.Convert;
+import cn.hutool.core.util.IdUtil;
 import cn.hutool.core.util.StrUtil;
 import lombok.extern.slf4j.Slf4j;
-import com.aid.common.exception.ServiceException;
 
 /**
  * 批量分镜脚本生成 Service 实现
@@ -93,6 +113,8 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
     private static final String DEL_FLAG_NORMAL = "0";
     private static final String DEL_FLAG_DELETED = "1";
     private static final String TASK_STATUS_PENDING = "PENDING";
+    private static final String TASK_STATUS_PROCESSING = "PROCESSING";
+    private static final String TASK_STATUS_FINALIZING = "FINALIZING";
     private static final String TASK_STATUS_FAILED = "FAILED";
     private static final String TASK_TYPE_STORYBOARD_SCRIPT_BATCH = "storyboard_script_batch";
     private static final String PROMPT_NAME_STORYBOARD_SCRIPT = "aid_storyboard_script_extractor";
@@ -192,11 +214,6 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
     private static final String PLAN_STATUS_FAILED = "FAILED";
     private static final String PLAN_STATUS_CANCELLED = "CANCELLED";
 
-    /** 专业版/宫格 writer 输出 content 必须包含的 10 个固定字段名（顺序固定） */
-    private static final List<String> REQUIRED_WRITER_FIELDS = List.of(
-            "镜头组", "剧本内容", "画面说明", "台词", "时空环境",
-            "引用信息", "镜头模式", "运镜等级", "时长估算", "镜头脚本");
-
     /** 父任务终态：PARTIAL_FAILED（部分批次成功 + 至少一批失败导致后续批次中断） */
     private static final String TASK_STATUS_PARTIAL_FAILED = "PARTIAL_FAILED";
     private static final String TASK_STATUS_CANCELLED = "CANCELLED";
@@ -204,6 +221,19 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
 
     /** 业务类型：创作（与 StoryboardWorkbenchServiceImpl 保持一致） */
     private static final String BIZ_TYPE_CREATE = "create";
+
+    /** 最新剧本直驱分镜的切片大小，按段落边界切分。 */
+    private static final int STORYBOARD_SCRIPT_CHUNK_SIZE = 3000;
+    /** 跨切片仅注入上一片段末尾的有限只读文本，防止上下文无限增长。 */
+    private static final int STORYBOARD_CONTINUITY_TAIL_SIZE = 600;
+    /** 任务快照中的新协议标记。 */
+    private static final String DIRECT_SCRIPT_SCENE_FLOW = "directScriptSceneFlow";
+    /** 语义覆盖计划快照字段。 */
+    private static final String COVERAGE_PLAN_VERSION = "coveragePlanVersion";
+    private static final String COVERAGE_PLAN_HASH = "coveragePlanHash";
+    private static final String COVERAGE_BATCH_COUNT = "coverageBatchCount";
+    /** 分镜派生场次的来源标识。 */
+    private static final String SCENE_PLOT_SOURCE_STORYBOARD = "storyboard";
 
     /** 续生窗口（小时）：超出此窗口的 PARTIAL_FAILED 任务不允许续生 */
     private static final long RESUME_WINDOW_HOURS = 24L;
@@ -274,7 +304,7 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
     @Autowired
     private IAidStoryboardService storyboardService;
 
-    /** 剧情节拍 Service，用于 batchGenerateStoryboardScript 加载 plot 列表 */
+    /** 兼容场次数据 Service：直驱任务负责派生，场次批次任务可读取 plot。 */
     @Autowired
     private IAidScenePlotService scenePlotService;
 
@@ -282,11 +312,16 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
     @Autowired
     private IAidStoryboardBatchService storyboardBatchService;
 
-    /**
-     * 批次切片器：一个场次（plot）= 一批，按全局 scene_code 时序排序。
-     */
+    /** 批次规划器：直驱任务按剧本片段切批，场次批次任务按 plot 切批。 */
     @Autowired
     private StoryboardScriptBatchPlanner batchPlanner;
+
+    /** 剧本文档覆盖规划器：提交和消费阶段共用同一确定性语义切片。 */
+    @Autowired
+    private StoryboardScriptCoveragePlanner coveragePlanner;
+
+    @Autowired
+    private StoryboardSceneEnvelopeParser sceneEnvelopeParser;
 
     /** 镜头组拆分计划 Service */
     @Autowired
@@ -359,7 +394,7 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
     private static final com.aid.rps.queue.BatchTaskLocalOrchestrator.Spec LOCAL_SPEC =
             new com.aid.rps.queue.BatchTaskLocalOrchestrator.Spec(
                     "storyboard_script", "初始化分镜脚本批量生成...",
-                    "剩余场景已取消", "部分场景生成失败，可续生",
+                    "剩余剧本片段已取消", "部分剧本片段生成失败，可续生",
                     TASK_TYPE_STORYBOARD_SCRIPT_BATCH);
 
     /** 编程式事务模板：用于「逐批分镜落库 + 批次置 SUCCEEDED」同事务原子化（@Transactional 同类调用会被 AOP 代理绕过） */
@@ -436,26 +471,15 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
             }
         }
 
-        // 本集场景引用：当前集 aid_scene_plot 关联的场景ID（跨集复用场景的主资产可能归属其他集，
-        // 引用关系由 scene_plot 表达，主资产按引用取回）
-        java.util.Set<Long> plotSceneIds = loadEpisodePlotSceneIds(projectId, episodeId, userId);
-
         if (CollectionUtil.isEmpty(requestSceneIds))
         {
-            // 未指定场景时按剧情时间线加载全部可用场景：本集直属场景 ∪ 本集剧情引用的复用场景
+            // 未指定场景时加载项目级全部可用场景。场次尚未生成，不能再依赖 aid_scene_plot 反查本集引用。
             sceneList = rpsService.list(
                     Wrappers.<AidRolePropScene>lambdaQuery()
                             .eq(AidRolePropScene::getProjectId, projectId)
                             .eq(AidRolePropScene::getAssetType, ASSET_TYPE_SCENE)
                             .eq(AidRolePropScene::getUserId, userId)
                             .eq(AidRolePropScene::getDelFlag, DEL_FLAG_NORMAL)
-                            .and(w -> {
-                                w.eq(AidRolePropScene::getEpisodeId, episodeId);
-                                if (CollectionUtil.isNotEmpty(plotSceneIds))
-                                {
-                                    w.or().in(AidRolePropScene::getId, plotSceneIds);
-                                }
-                            })
                             .orderByAsc(AidRolePropScene::getFirstSceneCode)
                             .orderByAsc(AidRolePropScene::getCreateTime)
                             .orderByAsc(AidRolePropScene::getId));
@@ -467,7 +491,7 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
         }
         else
         {
-            // 指定场景必须全部归属当前用户与本项目（跨集复用场景按项目归属校验，引用关系由 scene_plot 表达）
+            // 指定场景必须全部归属当前用户与本项目。
             List<Long> uniqueIds = requestSceneIds.stream().distinct().collect(Collectors.toList());
             sceneList = rpsService.list(
                     Wrappers.<AidRolePropScene>lambdaQuery()
@@ -519,9 +543,24 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
             throw new ServiceException("视觉资产库为空，请先生成");
         }
 
+        String currentScript = helper.loadScriptContent(projectId, episodeId, userId);
+        if (StrUtil.isBlank(currentScript))
+        {
+            log.error("分镜脚本拒绝：当前有效剧本为空, projectId={}, episodeId={}, userId={}",
+                    projectId, episodeId, userId);
+            throw new ServiceException("请先完成剧本");
+        }
+        CoveragePlan coveragePlan = coveragePlanner.plan(currentScript, STORYBOARD_SCRIPT_CHUNK_SIZE);
+        if (CollectionUtil.isEmpty(coveragePlan.batches()))
+        {
+            log.error("分镜脚本拒绝：有效剧情正文为空, projectId={}, episodeId={}, userId={}",
+                    projectId, episodeId, userId);
+            throw new ServiceException("暂无剧情可拆");
+        }
+
         // 抢锁失败时走僵尸锁自愈：DB 复核 + 锁年龄检查 + CAS 清理 + 重抢，
         // 避免「DB 无活跃任务但 Redis 锁泄漏」时让用户卡 30 分钟才能重新提交
-        long lockTtlSeconds = Math.max(1800L, (long) sceneList.size() * 60L);
+        long lockTtlSeconds = Math.max(1800L, (long) coveragePlan.batches().size() * 120L);
         String lockKey = buildLockKey(projectId, episodeId);
         ProjectGenerateLockGuard.AcquireResult lockResult = projectLockGuard.tryAcquireWithStaleClean(
                 lockKey, lockTtlSeconds, TASK_TYPE_STORYBOARD_SCRIPT_BATCH, projectId, episodeId);
@@ -568,6 +607,12 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
                     .map(AidRolePropScene::getId).collect(Collectors.toList());
             // 显式存 sceneIds 而非让 consumer 重查，确保即使用户中途新增场景也按提交时的快照执行
             inputMap.put("sceneIds", sceneIds);
+            inputMap.put(DIRECT_SCRIPT_SCENE_FLOW, true);
+            inputMap.put("scriptHash", sha256Hex(currentScript));
+            inputMap.put("scriptChunkSize", STORYBOARD_SCRIPT_CHUNK_SIZE);
+            inputMap.put(COVERAGE_PLAN_VERSION, StoryboardScriptCoveragePlanner.PLAN_VERSION);
+            inputMap.put(COVERAGE_PLAN_HASH, sha256Hex(coveragePlan.signatureMaterial()));
+            inputMap.put(COVERAGE_BATCH_COUNT, coveragePlan.batches().size());
 
             // 保存任务
             boolean useShotGroupSplit = AGENT_CODE_STORYBOARD_WRITER.equals(agentCode);
@@ -579,6 +624,14 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
             task.setCreateBy(String.valueOf(userId));
             extractTaskService.save(task);
 
+            if (Boolean.TRUE.equals(inputMap.get(DIRECT_SCRIPT_SCENE_FLOW)))
+            {
+                return prepareDirectScriptBatches(task, sceneList, coveragePlan, agentCode,
+                        resolvedModelCode, mode, projectId, episodeId, userId,
+                        !CollectionUtil.isEmpty(requestSceneIds));
+            }
+
+            // 以下为场次批次兼容分支；直驱提交固定在上方分支返回。
             // 专业版/宫格模式：拆分 LLM 调用放到 MQ 执行阶段，提交接口只创建任务并入队，避免同步阻塞
             if (useShotGroupSplit)
             {
@@ -665,7 +718,7 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
                 batch.setParentTaskId(task.getId());
                 batch.setSceneId(plan.getSceneId());
                 batch.setBatchIndex(plan.getBatchIndex());
-                // shotCodes 沿用历史含义：批内的 sceneCode 列表（一场次一批 = 单元素，如 ["020"]）
+                // 场次批次的 shotCodes 为批内 sceneCode 列表（一场次一批 = 单元素，如 ["020"]）
                 batch.setShotCodes(OBJECT_MAPPER.writeValueAsString(plan.getSceneCodes()));
                 batch.setStatus(BATCH_STATUS_PENDING);
                 batch.setBillingStatus(BILLING_STATUS_FROZEN);
@@ -729,8 +782,8 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
             {
                 try
                 {
-                    // 提交阶段若已完成预冻结但入队失败，先走统一退款兜底，避免冻结款悬挂。
-                    extractBillingService.refundBilling(task.getId(), userId);
+                    AidExtractTask current = extractTaskService.selectAidExtractTaskById(task.getId());
+                    String expectedTraceId = current == null ? null : current.getBillingTraceId();
 
                     // 清理半态镜头组拆分计划（拆分成功但后续步骤失败时避免遗留脏数据）
                     LambdaUpdateWrapper<AidStoryboardShotGroupPlan> planClean = Wrappers.lambdaUpdate();
@@ -741,11 +794,17 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
 
                     LambdaUpdateWrapper<AidExtractTask> update = Wrappers.lambdaUpdate();
                     update.eq(AidExtractTask::getId, task.getId());
+                    update.eq(AidExtractTask::getUserId, userId);
                     update.eq(AidExtractTask::getStatus, TASK_STATUS_PENDING);
+                    appendExpectedTrace(update, expectedTraceId);
                     update.set(AidExtractTask::getStatus, TASK_STATUS_FAILED);
                     update.set(AidExtractTask::getErrorMessage, "提交失败: " + StrUtil.sub(origMsg, 0, 80));
                     update.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
-                    extractTaskService.update(update);
+                    int failedRows = extractTaskService.getBaseMapper().update(null, update);
+                    if (failedRows > 0)
+                    {
+                        extractBillingService.refundBilling(task.getId(), userId, expectedTraceId);
+                    }
                 }
                 catch (Exception cleanupEx)
                 {
@@ -754,6 +813,10 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
             }
             // ★ 透传可恢复的、面向用户的明确错误（避免被 GlobalExceptionHandler 包装成"系统繁忙"）
             //   命中白名单 → 原样透出原始 msg；其它未识别异常走兜底"提交失败"，不暴露堆栈
+            if (BillingBalanceErrors.isPreholdNotEnough(e))
+            {
+                throw BillingBalanceErrors.preholdNotEnough();
+            }
             if (isUserVisibleSubmitError(origMsg))
             {
                 throw new ServiceException(origMsg);
@@ -769,7 +832,8 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
      */
     private List<BatchPlanItem> splitScenesIntoShotGroups(Long taskId, List<AidScenePlot> plots,
             Map<Long, AidRolePropScene> sceneIndex, String modelCode, Long userId,
-            boolean overwrite, Long projectId, Long episodeId, long[] splitChars)
+            boolean overwrite, Long projectId, Long episodeId, long[] splitChars,
+            String executionTraceId)
     {
         // 重新生成：硬删除旧镜头组计划，避免旧拆分影响本轮结果。
         if (overwrite)
@@ -825,7 +889,7 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
                 String splitSystemPrompt = shotGroupSplitPromptBuilder.getSystemPrompt();
                 String splitUserContent = shotGroupSplitPromptBuilder.buildUserContent(plot);
                 plans = callAndParseShotGroupSplit(taskId, plot, modelCode, userId,
-                        splitSystemPrompt, splitUserContent, splitChars);
+                        splitSystemPrompt, splitUserContent, splitChars, executionTraceId);
                 if (CollectionUtil.isEmpty(plans))
                 {
                     log.error("镜头组拆分失败：解析结果为空, taskId={}, scenePlotId={}, sceneCode={}",
@@ -833,7 +897,8 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
                     throw new ServiceException("镜头组拆分失败");
                 }
 
-                // 填充计划元数据并逐条保存，确保自增 ID 已回填后再绑定 batch。
+                // 同一条已结算 child 的全部拆分计划必须原子落库；
+                // 崩溃时不得留下“非空但不完整”的计划被续生误当成功水位。
                 for (AidStoryboardShotGroupPlan plan : plans)
                 {
                     plan.setTaskId(taskId);
@@ -842,15 +907,22 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
                     plan.setUserId(userId);
                     plan.setCreateTime(DateUtils.getNowDate());
                     plan.setCreateBy(String.valueOf(userId));
-                    boolean saved = shotGroupPlanService.save(plan);
-                    if (!saved || Objects.isNull(plan.getId()))
-                    {
-                        log.error("镜头组拆分计划保存失败: taskId={}, scenePlotId={}, sceneCode={}, groupCode={}",
-                                taskId, plot.getId(), plot.getSceneCode(), plan.getGroupCode());
-                        throw new ServiceException("拆分保存失败");
-                    }
                 }
-                touchExtractTask(taskId);
+                transactionTemplate.executeWithoutResult(status -> {
+                    extractBillingService.assertTextTaskBusinessCommit(
+                            taskId, userId, executionTraceId);
+                    for (AidStoryboardShotGroupPlan plan : plans)
+                    {
+                        boolean saved = shotGroupPlanService.save(plan);
+                        if (!saved || Objects.isNull(plan.getId()))
+                        {
+                            log.error("镜头组拆分计划保存失败: taskId={}, scenePlotId={}, sceneCode={}, groupCode={}",
+                                    taskId, plot.getId(), plot.getSceneCode(), plan.getGroupCode());
+                            throw new ServiceException("拆分保存失败");
+                        }
+                    }
+                });
+                touchExtractTask(taskId, executionTraceId);
                 log.info("镜头组拆分完成: taskId={}, scenePlotId={}, sceneCode={}, groupCount={}",
                         taskId, plot.getId(), plot.getSceneCode(), plans.size());
             }
@@ -878,7 +950,8 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
      * 调用并严格解析镜头组拆分；模型偶发漏字段时允许带错误原因纠偏重试一次。
      */
     private List<AidStoryboardShotGroupPlan> callAndParseShotGroupSplit(Long taskId, AidScenePlot plot,
-            String modelCode, Long userId, String splitSystemPrompt, String splitUserContent, long[] splitChars)
+            String modelCode, Long userId, String splitSystemPrompt, String splitUserContent,
+            long[] splitChars, String executionTraceId)
     {
         RuntimeException lastError = null;
         String lastOutput = null;
@@ -889,10 +962,15 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
                     ? splitUserContent
                     : buildShotGroupSplitRetryUserContent(splitUserContent, lastError, lastOutput);
             String digest = attempt == 0 ? baseDigest : baseDigest + "|纠偏:" + attempt;
-            touchExtractTask(taskId);
+            touchExtractTask(taskId, executionTraceId);
             String splitOutput = helper.callLlmRaw(splitSystemPrompt, currentUserContent, modelCode,
-                    taskId, userId, digest, BIZ_TASK_TYPE_STORYBOARD_SCRIPT);
-            touchExtractTask(taskId);
+                    taskId, userId, digest, BIZ_TASK_TYPE_STORYBOARD_SCRIPT,
+                    // plotId 是不可变业务槽位；纠偏 attempt 只改变 messages SHA，不能改变
+                    // stable slot，否则 attempt=1 已付费成功后崩溃会在续生的 attempt=0 漏回放。
+                    "stage=shot_group_split,item=" + plot.getId(),
+                    raw -> isShotGroupSplitReplayValid(raw, taskId, plot, userId),
+                    executionTraceId);
+            touchExtractTask(taskId, executionTraceId);
             lastOutput = splitOutput;
             addSplitChars(splitChars, splitSystemPrompt, currentUserContent, splitOutput, modelCode);
             try
@@ -902,6 +980,11 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
             catch (RuntimeException e)
             {
                 lastError = e;
+                if (BillingBalanceErrors.isPreholdNotEnough(e))
+                {
+                    // 本次未发 Provider；余额不足必须立即停止纠偏重试和后续拆分。
+                    throw BillingBalanceErrors.preholdNotEnough();
+                }
                 if (attempt >= SHOT_GROUP_SPLIT_RETRY_COUNT)
                 {
                     throw e;
@@ -916,6 +999,35 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
             }
         }
         throw lastError == null ? new ServiceException("拆分格式异常") : lastError;
+    }
+
+    private boolean isShotGroupSplitReplayValid(String output, Long taskId,
+                                                AidScenePlot plot, Long userId)
+    {
+        try
+        {
+            shotGroupPlanParser.parse(output, taskId, plot, userId);
+            return true;
+        }
+        catch (RuntimeException e)
+        {
+            return false;
+        }
+    }
+
+    private boolean isDirectScriptReplayValid(String output, List<AidRolePropScene> sceneList,
+                                              boolean writerOutput, CoverageBatch coverageBatch,
+                                              boolean selective)
+    {
+        try
+        {
+            sceneEnvelopeParser.parse(output, sceneList, writerOutput, coverageBatch, selective);
+            return true;
+        }
+        catch (RuntimeException e)
+        {
+            return false;
+        }
     }
 
     /**
@@ -956,6 +1068,10 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
         {
             splitChars[0] += helper.estimateLlmInputChars(systemPrompt, userContent, modelCode);
             splitChars[1] += StrUtil.length(output);
+            if (splitChars.length >= 3)
+            {
+                splitChars[2]++;
+            }
         }
     }
 
@@ -1048,12 +1164,122 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
     }
 
     /**
+     * 按最新版剧本切片建立批次并完成预冻结。
+     */
+    private AssetExtractTaskVO prepareDirectScriptBatches(AidExtractTask task,
+            List<AidRolePropScene> sceneList, CoveragePlan coveragePlan, String agentCode,
+            String modelCode, String mode, Long projectId, Long episodeId, Long userId,
+            boolean selective)
+    {
+        List<CoverageBatch> coverageBatches = coveragePlan.batches();
+        List<String> scriptChunks = coverageBatches.stream()
+                .map(CoverageBatch::narrativeText).collect(Collectors.toList());
+        List<BatchPlanItem> plans = batchPlanner.planCoverageBatches(coverageBatches);
+        if (CollectionUtil.isEmpty(plans))
+        {
+            throw new ServiceException("暂无剧情可拆");
+        }
+        task.setTotalCount(plans.size());
+        extractTaskService.updateById(task);
+
+        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(modelCode);
+        if (Objects.isNull(modelConfig))
+        {
+            throw new ServiceException("模型未配置");
+        }
+        String promptTemplate = helper.loadPromptByName(agentCode);
+        String assetDictionary = buildDirectAssetDictionary(projectId, episodeId, userId, sceneList);
+        ShotDensityFloorConfig floorConfig = loadShotDensityFloorConfig();
+        boolean injectFloor = SHOT_FLOOR_AGENT_CODES.contains(agentCode);
+        String estimatedPreviousSceneName = sceneList.stream()
+                .map(AidRolePropScene::getName)
+                .filter(StrUtil::isNotBlank)
+                .max(Comparator.comparingInt(String::length))
+                .orElse(null);
+
+        BigDecimal totalFrozen = BigDecimal.ZERO;
+        List<AidStoryboardBatch> batches = new ArrayList<>();
+        List<Map<String, Object>> itemSnapshots = new ArrayList<>();
+        BillingSnapshot settleSnapshot = null;
+        boolean settlePricingCompatible = true;
+        int estimatedInputTokens = 0;
+        int estimatedOutputTokens = 0;
+        for (BatchPlanItem plan : plans)
+        {
+            Integer minShotFloor = injectFloor
+                    ? calcMinShotFloor(plan.getCharCount(), mode, floorConfig) : null;
+            String continuityContext = buildContinuityContext(
+                    scriptChunks, plan.getBatchIndex(), estimatedPreviousSceneName);
+            String userContent = buildDirectLlmInput(plan, assetDictionary, mode, minShotFloor,
+                    selective, continuityContext);
+            int inputChars = helper.estimateLlmInputChars(promptTemplate, userContent, modelCode);
+            int outputChars = (int) Math.min(Math.ceil(inputChars * 0.8D), Integer.MAX_VALUE);
+            BillingCalcResult itemCalc = estimateTextCostFromChars(inputChars, outputChars, modelConfig);
+            BigDecimal batchFrozen = Objects.nonNull(itemCalc) && Objects.nonNull(itemCalc.getAmount())
+                    ? itemCalc.getAmount() : BigDecimal.ZERO;
+            totalFrozen = totalFrozen.add(batchFrozen);
+
+            AidStoryboardBatch batch = new AidStoryboardBatch();
+            batch.setParentTaskId(task.getId());
+            batch.setSceneId(null);
+            batch.setBatchIndex(plan.getBatchIndex());
+            batch.setShotCodes("[]");
+            batch.setStatus(BATCH_STATUS_PENDING);
+            batch.setBillingStatus(BILLING_STATUS_FROZEN);
+            batch.setFrozenAmount(batchFrozen);
+            batch.setRetryRound(0);
+            batch.setShotCount(0);
+            batch.setDelFlag(DEL_FLAG_NORMAL);
+            batch.setCreateTime(DateUtils.getNowDate());
+            batch.setCreateBy(String.valueOf(userId));
+            batches.add(batch);
+
+            if (Objects.nonNull(itemCalc) && Objects.nonNull(itemCalc.getSnapshot()))
+            {
+                BillingSnapshot itemSnapshot = itemCalc.getSnapshot();
+                settlePricingCompatible = settlePricingCompatible
+                        && isSameSettlePricing(settleSnapshot, itemSnapshot);
+                settleSnapshot = chooseSettleSnapshot(settleSnapshot, itemSnapshot);
+                estimatedInputTokens += safeToken(itemSnapshot.getEstimatedInputTokens());
+                estimatedOutputTokens += safeToken(itemSnapshot.getEstimatedOutputTokens());
+            }
+            itemSnapshots.add(buildSlimBatchBillingItem(plan, batchFrozen));
+        }
+        boolean batchesSaved = storyboardBatchService.saveBatch(batches);
+        long persistedBatchCount = storyboardBatchService.count(
+                Wrappers.<AidStoryboardBatch>lambdaQuery()
+                        .eq(AidStoryboardBatch::getParentTaskId, task.getId())
+                        .eq(AidStoryboardBatch::getDelFlag, DEL_FLAG_NORMAL));
+        if (!batchesSaved || persistedBatchCount != batches.size())
+        {
+            log.error("分镜剧本切片批次保存异常: taskId={}, expected={}, actual={}, saved={}",
+                    task.getId(), batches.size(), persistedBatchCount, batchesSaved);
+            throw new ServiceException("批次保存失败");
+        }
+        String snapshotJson = buildSlimBatchBillingSnapshotJson(TASK_TYPE_STORYBOARD_SCRIPT_BATCH,
+                totalFrozen, settlePricingCompatible ? settleSnapshot : null,
+                estimatedInputTokens, estimatedOutputTokens, itemSnapshots, null);
+        extractBillingService.prepareBilling(task.getId(), userId, totalFrozen, snapshotJson);
+        sendMqMessage(task.getId(), projectId, episodeId, userId, modelCode);
+        log.info("分镜脚本按最新剧本建批完成: taskId={}, scriptBatchCount={}, sceneAssetCount={}",
+                task.getId(), batches.size(), sceneList.size());
+        return AssetExtractTaskVO.builder()
+                .taskId(task.getId())
+                .status(TASK_STATUS_PENDING)
+                .totalBatches(batches.size())
+                .totalShots(0)
+                .warning(buildShotFloorWarning(plans, agentCode, mode))
+                .build();
+    }
+
+    /**
      * 镜头组拆分模式首次执行：拆分场次 → 保存计划 → 建批次 → 冻结计费 → 返回批次列表。
      * 在 MQ 执行阶段调用，避免提交接口同步阻塞。
      */
     private List<AidStoryboardBatch> prepareShotGroupBatches(Long taskId, Long projectId, Long episodeId,
             Long userId, List<Long> sceneIds, Map<Long, AidRolePropScene> sceneIdx,
-            String agentCode, String modelCode, String mode, boolean overwrite, long[] splitChars)
+            String agentCode, String modelCode, String mode, boolean overwrite, long[] splitChars,
+            String executionTraceId)
     {
         // 加载 plot 并排序
         List<AidScenePlot> plots = scenePlotService.list(
@@ -1086,7 +1312,8 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
 
         // 拆分场次 → 保存计划 → 转 BatchPlanItem
         List<BatchPlanItem> batchPlans = splitScenesIntoShotGroups(taskId, plots, sceneIdx,
-                modelCode, userId, overwrite, projectId, episodeId, splitChars);
+                modelCode, userId, overwrite, projectId, episodeId, splitChars,
+                executionTraceId);
         if (CollectionUtil.isEmpty(batchPlans))
         {
             throw new ServiceException("暂无剧情可拆");
@@ -1096,11 +1323,16 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
                 splitTotal, splitTotal);
 
         // 更新任务批次总数
-        AidExtractTask taskUpd = new AidExtractTask();
-        taskUpd.setId(taskId);
-        taskUpd.setTotalCount(batchPlans.size());
-        taskUpd.setUpdateTime(DateUtils.getNowDate());
-        extractTaskService.updateById(taskUpd);
+        LambdaUpdateWrapper<AidExtractTask> taskUpd = Wrappers.lambdaUpdate();
+        taskUpd.eq(AidExtractTask::getId, taskId);
+        taskUpd.eq(AidExtractTask::getUserId, userId);
+        taskUpd.eq(AidExtractTask::getBillingTraceId, executionTraceId);
+        taskUpd.set(AidExtractTask::getTotalCount, batchPlans.size());
+        taskUpd.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
+        if (!extractTaskService.update(taskUpd))
+        {
+            throw new TextTaskExecutionRejectedException();
+        }
 
         // 估算费用 + 创建批次记录（每个批次绑定 shotGroupPlanId）
         AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(modelCode);
@@ -1121,7 +1353,8 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
 
         if (Objects.nonNull(splitChars) && splitChars.length >= 2 && (splitChars[0] > 0 || splitChars[1] > 0))
         {
-            BillingCalcResult splitCalc = estimateTextCostFromChars(splitChars[0], splitChars[1], modelConfig);
+            BillingCalcResult splitCalc = estimateTextCostFromChars(splitChars[0], splitChars[1], modelConfig,
+                    splitChars.length >= 3 ? (int) Math.max(1L, splitChars[2]) : 1);
             BigDecimal splitFrozen = (Objects.nonNull(splitCalc) && Objects.nonNull(splitCalc.getAmount()))
                     ? splitCalc.getAmount() : BigDecimal.ZERO;
             totalFrozen = totalFrozen.add(splitFrozen);
@@ -1219,14 +1452,602 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
         return savedBatches;
     }
 
+    /**
+     * 使用当前有效剧本直接完成场次判断和分镜生成。
+     */
+    @SuppressWarnings("unchecked")
+    private String doDirectScriptStoryboardBatch(AidExtractTask task, Map<String, Object> input,
+            Long projectId, Long episodeId, Long userId, String executionTraceId)
+    {
+        String projectLockToken = str(input, "projectLockToken");
+        boolean batchExecutionStarted = false;
+        boolean billingHandled = false;
+        try
+        {
+            String agentCode = String.valueOf(input.getOrDefault("agentCode", PROMPT_NAME_STORYBOARD_SCRIPT));
+            String modelCode = String.valueOf(input.getOrDefault("modelCode", ""));
+            String mode = String.valueOf(input.getOrDefault("mode", DEFAULT_MODE));
+            if (!VALID_MODES.contains(mode))
+            {
+                mode = DEFAULT_MODE;
+            }
+            boolean overwrite = Boolean.TRUE.equals(input.get("overwrite"));
+            boolean selective = Boolean.TRUE.equals(input.get("selective"));
+
+            String currentScript = helper.loadScriptContent(projectId, episodeId, userId);
+            String expectedHash = String.valueOf(input.getOrDefault("scriptHash", ""));
+            try
+            {
+                StoryboardDirectTaskSnapshotValidator.validateScript(
+                        currentScript, expectedHash, sha256Hex(currentScript));
+            }
+            catch (ServiceException e)
+            {
+                log.error("分镜任务剧本已变化: taskId={}, projectId={}, episodeId={}",
+                        task.getId(), projectId, episodeId);
+                throw e;
+            }
+            int chunkSize = Convert.toInt(input.get("scriptChunkSize"), STORYBOARD_SCRIPT_CHUNK_SIZE);
+            String snapshotCoverageVersion = Convert.toStr(input.get(COVERAGE_PLAN_VERSION), "");
+            boolean semanticCoverage;
+            try
+            {
+                semanticCoverage = StoryboardDirectTaskSnapshotValidator.usesSemanticCoverage(
+                        snapshotCoverageVersion, StoryboardScriptCoveragePlanner.PLAN_VERSION);
+            }
+            catch (ServiceException e)
+            {
+                log.error("分镜任务覆盖计划版本不兼容: taskId={}, snapshotVersion={}, currentVersion={}",
+                        task.getId(), snapshotCoverageVersion,
+                        StoryboardScriptCoveragePlanner.PLAN_VERSION);
+                throw e;
+            }
+            List<CoverageBatch> coverageBatches;
+            List<String> scriptChunks;
+            if (semanticCoverage)
+            {
+                CoveragePlan currentCoveragePlan = coveragePlanner.plan(currentScript, chunkSize);
+                String expectedCoverageHash = Convert.toStr(input.get(COVERAGE_PLAN_HASH), "");
+                String actualCoverageHash = sha256Hex(currentCoveragePlan.signatureMaterial());
+                int expectedBatchCount = Convert.toInt(input.get(COVERAGE_BATCH_COUNT), -1);
+                if (!Objects.equals(expectedCoverageHash, actualCoverageHash)
+                        || expectedBatchCount != currentCoveragePlan.batches().size())
+                {
+                    log.error("分镜覆盖计划已变化: taskId={}, expectedCount={}, actualCount={}",
+                            task.getId(), expectedBatchCount, currentCoveragePlan.batches().size());
+                    throw new ServiceException("剧本切片已变化");
+                }
+                coverageBatches = currentCoveragePlan.batches();
+                scriptChunks = coverageBatches.stream()
+                        .map(CoverageBatch::narrativeText).collect(Collectors.toList());
+            }
+            else
+            {
+                scriptChunks = batchPlanner.canonicalizeScriptChunks(
+                        helper.chunkContent(currentScript, chunkSize));
+                coverageBatches = new ArrayList<>();
+                for (int i = 0; i < scriptChunks.size(); i++)
+                {
+                    String chunk = scriptChunks.get(i);
+                    coverageBatches.add(new CoverageBatch(i, chunk, "",
+                            List.of(), List.of(), chunk.length()));
+                }
+            }
+
+            List<Number> rawIds = (List<Number>) input.getOrDefault("sceneIds", new ArrayList<>());
+            List<Long> sceneIds = rawIds.stream().filter(Objects::nonNull)
+                    .map(Number::longValue).distinct().collect(Collectors.toList());
+            if (CollectionUtil.isEmpty(sceneIds))
+            {
+                throw new ServiceException("场景数据为空");
+            }
+            List<AidRolePropScene> sceneList = rpsService.list(
+                    Wrappers.<AidRolePropScene>lambdaQuery()
+                            .in(AidRolePropScene::getId, sceneIds)
+                            .eq(AidRolePropScene::getProjectId, projectId)
+                            .eq(AidRolePropScene::getUserId, userId)
+                            .eq(AidRolePropScene::getAssetType, ASSET_TYPE_SCENE)
+                            .eq(AidRolePropScene::getDelFlag, DEL_FLAG_NORMAL));
+            try
+            {
+                StoryboardDirectTaskSnapshotValidator.validateSceneIds(sceneIds,
+                        sceneList.stream().map(AidRolePropScene::getId).collect(Collectors.toList()));
+            }
+            catch (ServiceException e)
+            {
+                log.error("分镜任务场景资产发生变化: taskId={}, expected={}, actual={}",
+                        task.getId(), sceneIds.size(), sceneList.size());
+                throw e;
+            }
+            Map<Long, Integer> sceneOrder = new HashMap<>();
+            for (int i = 0; i < sceneIds.size(); i++)
+            {
+                sceneOrder.put(sceneIds.get(i), i);
+            }
+            sceneList.sort(Comparator.comparingInt(
+                    scene -> sceneOrder.getOrDefault(scene.getId(), Integer.MAX_VALUE)));
+
+            List<AidStoryboardBatch> allBatches = storyboardBatchService.list(
+                    Wrappers.<AidStoryboardBatch>lambdaQuery()
+                            .eq(AidStoryboardBatch::getParentTaskId, task.getId())
+                            .eq(AidStoryboardBatch::getDelFlag, DEL_FLAG_NORMAL)
+                            .orderByAsc(AidStoryboardBatch::getBatchIndex));
+            if (CollectionUtil.isEmpty(allBatches) || allBatches.size() != scriptChunks.size())
+            {
+                log.error("分镜任务切片不一致: taskId={}, batchCount={}, chunkCount={}",
+                        task.getId(), allBatches.size(), scriptChunks.size());
+                throw new ServiceException("剧本切片已变化");
+            }
+            List<AidStoryboardBatch> pendingBatches = allBatches.stream()
+                    .filter(batch -> BATCH_STATUS_PENDING.equalsIgnoreCase(batch.getStatus()))
+                    .collect(Collectors.toList());
+            boolean isResumeMode = StoryboardResumeBillingExecutor.isResumeExecution(
+                    task.getRemark(), allBatches.stream()
+                            .anyMatch(batch -> BATCH_STATUS_SUCCEEDED.equalsIgnoreCase(batch.getStatus())));
+            boolean hasPersistedTaskShots = hasPersistedShotsForSucceededBatches(
+                    allBatches, projectId, episodeId, userId);
+            StoryboardDirectWritePolicy.Decision firstWritePolicy =
+                    StoryboardDirectWritePolicy.decide(overwrite, hasPersistedTaskShots, selective);
+
+            String promptTemplate = helper.loadPromptByName(agentCode);
+            String assetDictionary = buildDirectAssetDictionary(projectId, episodeId, userId, sceneList);
+            ShotDensityFloorConfig floorConfig = loadShotDensityFloorConfig();
+            boolean injectFloor = SHOT_FLOOR_AGENT_CODES.contains(agentCode);
+            boolean writerOutput = AGENT_CODE_STORYBOARD_WRITER.equals(agentCode);
+            List<AidRolePropScene> characterAssets = rpsService.list(
+                    Wrappers.<AidRolePropScene>lambdaQuery()
+                            .eq(AidRolePropScene::getProjectId, projectId)
+                            .eq(AidRolePropScene::getUserId, userId)
+                            .eq(AidRolePropScene::getAssetType, ASSET_TYPE_CHARACTER)
+                            .eq(AidRolePropScene::getDelFlag, DEL_FLAG_NORMAL));
+            final List<String> referenceWhitelist = mergeReferenceWhitelists(
+                    loadReferenceableAssetNames(projectId, userId),
+                    loadVideoReferenceNames(projectId, episodeId, userId),
+                    roleAudioReferenceResolver.loadAvailableReferenceNames(
+                            characterAssets, projectId, episodeId, userId));
+
+            // overwrite=true 的契约是“首批成功后再替换”：LLM/解析失败或用户在首批前取消时，旧分镜必须原样保留。
+            boolean replaceOnFirstSuccess = firstWritePolicy.replaceStoryboard();
+            // auto/storyboard 兼容场次只在首个实际产出镜头的事务内清理；空命中或失败不改动兼容数据。
+            boolean cleanupDerivedPlotsOnFirstSuccess = firstWritePolicy.cleanupNonManualPlots();
+            StoryboardSelectiveTimelinePlanner.Plan selectiveTimelinePlan =
+                    selective && overwrite && !hasPersistedTaskShots
+                            ? loadSelectiveTimelinePlan(projectId, episodeId, userId, sceneIds)
+                            : null;
+            if (Objects.nonNull(selectiveTimelinePlan)
+                    && selectiveTimelinePlan.hasDisjointSelectedSegments())
+            {
+                log.warn("选择性覆盖拒绝分散时间线区段: taskId={}, sceneIds={}", task.getId(), sceneIds);
+                throw new ServiceException("场景分散，请全量生成");
+            }
+            long globalSortOrder;
+            if (firstWritePolicy.resetSortOrder())
+            {
+                globalSortOrder = 0L;
+            }
+            else if (selective && overwrite && hasPersistedTaskShots)
+            {
+                globalSortOrder = loadMaxTaskStoryboardSortOrder(
+                        allBatches, projectId, episodeId, userId);
+            }
+            else if (Objects.nonNull(selectiveTimelinePlan))
+            {
+                globalSortOrder = selectiveTimelinePlan.insertionBase();
+            }
+            else
+            {
+                globalSortOrder = loadMaxStoryboardSortOrder(projectId, episodeId, userId);
+            }
+            int sceneSequence = firstWritePolicy.resetSceneSequence()
+                    ? 0 : loadMaxDerivedSceneCode(projectId, episodeId, userId);
+            StoryboardSceneBoundary sceneBoundary = !hasPersistedTaskShots
+                    ? null : loadStoryboardSceneBoundary(allBatches, projectId, episodeId, userId);
+            int successCount = 0;
+            int failCount = 0;
+            int persistedTaskShotCount = countPersistedTaskShots(
+                    allBatches, projectId, episodeId, userId);
+            int totalShotCount = persistedTaskShotCount;
+            int generatedShotCount = 0;
+            int processedBatchPos = -1;
+            boolean hasFailure = false;
+            String firstFailureMessage = null;
+            long totalInputChars = 0L;
+            long totalOutputChars = 0L;
+            List<Map<String, Object>> successItems = new ArrayList<>();
+            List<Map<String, Object>> failedItems = new ArrayList<>();
+
+            batchExecutionStarted = true;
+            for (int batchPosition = 0; batchPosition < pendingBatches.size(); batchPosition++)
+            {
+                AidStoryboardBatch batch = pendingBatches.get(batchPosition);
+                touchExtractTask(task.getId(), executionTraceId);
+                if (assetExtractService.isTaskCancelled(task.getId()))
+                {
+                    int cancelledCount = pendingBatches.size() - batchPosition;
+                    for (int i = batchPosition; i < pendingBatches.size(); i++)
+                    {
+                        AidStoryboardBatch remaining = pendingBatches.get(i);
+                        cancelBatchAndRefund(task.getId(), executionTraceId,
+                                remaining, userId, "用户取消");
+                        failedItems.add(buildDirectBatchResultItem(remaining, 0, "已取消"));
+                    }
+                    failCount += cancelledCount;
+                    firstFailureMessage = "用户取消";
+                    hasFailure = true;
+                    break;
+                }
+
+                try
+                {
+                    Integer batchIndex = batch.getBatchIndex();
+                    if (Objects.isNull(batchIndex) || batchIndex < 0 || batchIndex >= scriptChunks.size())
+                    {
+                        throw new ServiceException("批次数据异常");
+                    }
+                    LambdaUpdateWrapper<AidStoryboardBatch> processing = Wrappers.lambdaUpdate();
+                    processing.eq(AidStoryboardBatch::getId, batch.getId());
+                    processing.eq(AidStoryboardBatch::getParentTaskId, task.getId());
+                    processing.eq(AidStoryboardBatch::getStatus, BATCH_STATUS_PENDING);
+                    processing.eq(AidStoryboardBatch::getDelFlag, DEL_FLAG_NORMAL);
+                    processing.set(AidStoryboardBatch::getStatus, BATCH_STATUS_PROCESSING);
+                    processing.set(AidStoryboardBatch::getUpdateTime, DateUtils.getNowDate());
+                    transactionTemplate.executeWithoutResult(status -> {
+                        extractBillingService.assertTextTaskBusinessCommit(
+                                task.getId(), userId, executionTraceId);
+                        if (!storyboardBatchService.update(processing))
+                        {
+                            throw new ServiceException("批次执行权已变更");
+                        }
+                    });
+
+                    CoverageBatch coverageBatch = coverageBatches.get(batchIndex);
+                    BatchPlanItem plan = semanticCoverage
+                            ? batchPlanner.planCoverageBatches(Collections.singletonList(coverageBatch)).get(0)
+                            : batchPlanner.planScriptChunks(
+                                    Collections.singletonList(scriptChunks.get(batchIndex))).get(0);
+                    plan.setBatchIndex(batchIndex);
+                    Integer minShotFloor = injectFloor
+                            ? calcMinShotFloor(plan.getCharCount(), mode, floorConfig) : null;
+                    Long previousSceneAssetId = Objects.nonNull(sceneBoundary)
+                            && Objects.equals(sceneBoundary.batchIndex() + 1, batchIndex)
+                            ? sceneBoundary.sceneAssetId() : null;
+                    String previousSceneName = Objects.nonNull(previousSceneAssetId)
+                            ? sceneList.stream()
+                                    .filter(scene -> Objects.equals(scene.getId(), previousSceneAssetId))
+                                    .map(AidRolePropScene::getName)
+                                    .findFirst().orElse(null)
+                            : null;
+                    String continuityContext = buildContinuityContext(
+                            scriptChunks, batchIndex, previousSceneName);
+                    String userContent = buildDirectLlmInput(plan, assetDictionary, mode,
+                            minShotFloor, selective, continuityContext);
+                    String digest = "分镜脚本生成|剧本片段:" + (batchIndex + 1)
+                            + "|轮次:" + batch.getRetryRound();
+                    int outputTokenCap = helper.resolveStoryboardScriptOutputTokens(
+                            coverageBatch.charCount(), writerOutput);
+                    String llmOutput = helper.callLlmRaw(promptTemplate, userContent, modelCode,
+                            task.getId(), userId, digest, BIZ_TASK_TYPE_STORYBOARD_SCRIPT,
+                            // batchId 是持久化且跨续生不变的业务槽位；batchIndex/retryRound
+                            // 仅属于本轮调度，实际输入差异交给 messages SHA 与 billing trace。
+                            "stage=script_direct,item=" + batch.getId(),
+                            raw -> isDirectScriptReplayValid(raw, sceneList, writerOutput,
+                                    coverageBatch, selective), executionTraceId, outputTokenCap);
+                    List<SceneEnvelope> envelopes = sceneEnvelopeParser.parse(
+                            llmOutput, sceneList, writerOutput, coverageBatch, selective);
+                    long currentInputChars = helper.estimateLlmInputChars(
+                            promptTemplate, userContent, modelCode);
+                    if (envelopes.isEmpty())
+                    {
+                        final String emptyResultData = llmOutput;
+                        transactionTemplate.executeWithoutResult(status -> {
+                            extractBillingService.assertTextTaskBusinessCommit(
+                                    task.getId(), userId, executionTraceId);
+                            LambdaUpdateWrapper<AidStoryboardBatch> completed = Wrappers.lambdaUpdate();
+                            completed.eq(AidStoryboardBatch::getId, batch.getId());
+                            completed.eq(AidStoryboardBatch::getParentTaskId, task.getId());
+                            completed.eq(AidStoryboardBatch::getStatus, BATCH_STATUS_PROCESSING);
+                            completed.eq(AidStoryboardBatch::getDelFlag, DEL_FLAG_NORMAL);
+                            completed.set(AidStoryboardBatch::getStatus, BATCH_STATUS_SUCCEEDED);
+                            completed.set(AidStoryboardBatch::getBillingStatus, BILLING_STATUS_SETTLED);
+                            completed.set(AidStoryboardBatch::getSettledAmount, batch.getFrozenAmount());
+                            completed.set(AidStoryboardBatch::getResultData, emptyResultData);
+                            completed.set(AidStoryboardBatch::getShotCount, 0);
+                            completed.set(AidStoryboardBatch::getUpdateTime, DateUtils.getNowDate());
+                            if (!storyboardBatchService.update(completed))
+                            {
+                                throw new ServiceException("批次保存失败");
+                            }
+                        });
+                        successCount++;
+                        processedBatchPos = batchPosition;
+                        totalInputChars += currentInputChars;
+                        totalOutputChars += StrUtil.length(llmOutput);
+                        successItems.add(buildDirectBatchResultItem(batch, 0, "当前片段无所选场景，已跳过"));
+                        continue;
+                    }
+
+                    List<AidStoryboard> batchShots = new ArrayList<>();
+                    List<AidScenePlot> derivedPlots = new ArrayList<>();
+                    LinkedHashSet<Long> actualSceneIds = new LinkedHashSet<>();
+                    LinkedHashSet<String> actualSceneNames = new LinkedHashSet<>();
+                    LinkedHashSet<String> actualSceneCodes = new LinkedHashSet<>();
+                    AidScenePlot boundaryPlotUpdate = null;
+                    int nextSceneSequence = sceneSequence;
+                    long nextSortOrder = globalSortOrder;
+                    for (int envelopeIndex = 0; envelopeIndex < envelopes.size(); envelopeIndex++)
+                    {
+                        SceneEnvelope envelope = envelopes.get(envelopeIndex);
+                        boolean reuseBoundaryScene = envelopeIndex == 0
+                                && Objects.nonNull(sceneBoundary)
+                                && Objects.equals(sceneBoundary.batchIndex() + 1, batchIndex)
+                                && Objects.equals(sceneBoundary.sceneAssetId(), envelope.scene().getId());
+                        String sceneCode;
+                        if (reuseBoundaryScene)
+                        {
+                            sceneCode = sceneBoundary.sceneCode();
+                            boundaryPlotUpdate = loadMergedBoundaryPlot(projectId, episodeId, userId,
+                                    sceneCode, envelope.plotContent());
+                        }
+                        else
+                        {
+                            nextSceneSequence++;
+                            sceneCode = formatSceneCode(nextSceneSequence);
+                            derivedPlots.add(buildDerivedScenePlot(envelope, sceneCode,
+                                    projectId, episodeId, userId));
+                        }
+                        actualSceneIds.add(envelope.scene().getId());
+                        actualSceneNames.add(envelope.sceneName());
+                        actualSceneCodes.add(sceneCode);
+                        if (writerOutput)
+                        {
+                            for (JsonNode shotNode : envelope.shots())
+                            {
+                                String shotJson = OBJECT_MAPPER.writeValueAsString(shotNode);
+                                List<AidStoryboard> parsed = parseShotGroupsToEntities(
+                                        shotJson, projectId, episodeId, userId,
+                                        envelope.scene().getId(), envelope.sceneName(),
+                                        (int) nextSortOrder, batch.getId(),
+                                        sceneCode, referenceWhitelist, null, null, batchShots.size() + 1);
+                                batchShots.addAll(parsed);
+                                nextSortOrder += parsed.size();
+                            }
+                        }
+                        else
+                        {
+                            // 同一场次的完整 shots 一次解析，批内位置在当前剧本切片内连续。
+                            String shotsJson = OBJECT_MAPPER.writeValueAsString(envelope.shots());
+                            List<AidStoryboard> parsed = parseShotsToEntities(
+                                    shotsJson, projectId, episodeId, userId,
+                                    envelope.scene().getId(), envelope.sceneName(),
+                                    (int) nextSortOrder, batch.getId(),
+                                    sceneCode, referenceWhitelist, batchShots.size());
+                            batchShots.addAll(parsed);
+                            nextSortOrder += parsed.size();
+                        }
+                    }
+                    if (CollectionUtil.isEmpty(batchShots))
+                    {
+                        throw new ServiceException("请先生成分镜");
+                    }
+                    if (StoryboardDirectWritePolicy.exceedsShotLimit(
+                            persistedTaskShotCount, generatedShotCount,
+                            batchShots.size(), MAX_BATCH_SHOTS))
+                    {
+                        throw new ServiceException("分镜数量过多");
+                    }
+
+                    final String resultData = llmOutput;
+                    final AidScenePlot plotToUpdate = boundaryPlotUpdate;
+                    final boolean replaceBeforeSave = replaceOnFirstSuccess;
+                    final boolean cleanupPlotsBeforeSave = cleanupDerivedPlotsOnFirstSuccess;
+                    final StoryboardSelectiveTimelinePlanner.Plan timelinePlanBeforeSave =
+                            replaceBeforeSave ? selectiveTimelinePlan : null;
+                    final String actualShotCodesJson = OBJECT_MAPPER.writeValueAsString(actualSceneCodes);
+                    transactionTemplate.executeWithoutResult(status -> {
+                        extractBillingService.assertTextTaskBusinessCommit(
+                                task.getId(), userId, executionTraceId);
+                        if (replaceBeforeSave)
+                        {
+                            deleteShotsForOverwrite(projectId, episodeId, userId, sceneIds, selective);
+                            if (Objects.nonNull(timelinePlanBeforeSave))
+                            {
+                                reserveSelectiveTimelineTail(projectId, episodeId, userId,
+                                        timelinePlanBeforeSave);
+                            }
+                        }
+                        if (cleanupPlotsBeforeSave)
+                        {
+                            deleteDerivedScenePlotsForOverwrite(projectId, episodeId, userId, sceneIds, selective);
+                        }
+                        if (Objects.nonNull(plotToUpdate))
+                        {
+                            if (!scenePlotService.updateById(plotToUpdate))
+                            {
+                                throw new ServiceException("场次保存失败");
+                            }
+                        }
+                        if (CollectionUtil.isNotEmpty(derivedPlots)
+                                && !scenePlotService.saveBatch(derivedPlots, 100))
+                        {
+                            throw new ServiceException("场次保存失败");
+                        }
+                        if (!storyboardService.saveBatch(batchShots, 200))
+                        {
+                            throw new ServiceException("分镜保存失败");
+                        }
+                        LambdaUpdateWrapper<AidStoryboardBatch> completed = Wrappers.lambdaUpdate();
+                        completed.eq(AidStoryboardBatch::getId, batch.getId());
+                        completed.eq(AidStoryboardBatch::getParentTaskId, task.getId());
+                        completed.eq(AidStoryboardBatch::getStatus, BATCH_STATUS_PROCESSING);
+                        completed.eq(AidStoryboardBatch::getDelFlag, DEL_FLAG_NORMAL);
+                        completed.set(AidStoryboardBatch::getStatus, BATCH_STATUS_SUCCEEDED);
+                        completed.set(AidStoryboardBatch::getBillingStatus, BILLING_STATUS_SETTLED);
+                        completed.set(AidStoryboardBatch::getSettledAmount, batch.getFrozenAmount());
+                        completed.set(AidStoryboardBatch::getResultData, resultData);
+                        completed.set(AidStoryboardBatch::getShotCodes, actualShotCodesJson);
+                        completed.set(AidStoryboardBatch::getShotCount, batchShots.size());
+                        completed.set(AidStoryboardBatch::getUpdateTime, DateUtils.getNowDate());
+                        if (!storyboardBatchService.update(completed))
+                        {
+                            throw new ServiceException("批次保存失败");
+                        }
+                    });
+
+                    batch.setShotCodes(actualShotCodesJson);
+                    replaceOnFirstSuccess = false;
+                    cleanupDerivedPlotsOnFirstSuccess = false;
+                    sceneSequence = nextSceneSequence;
+                    globalSortOrder = nextSortOrder;
+                    SceneEnvelope lastEnvelope = envelopes.get(envelopes.size() - 1);
+                    String lastSceneCode = batchShots.get(batchShots.size() - 1).getSourceSceneCode();
+                    sceneBoundary = new StoryboardSceneBoundary(lastEnvelope.scene().getId(),
+                            lastSceneCode, batchIndex);
+                    totalShotCount += batchShots.size();
+                    generatedShotCount += batchShots.size();
+                    successCount++;
+                    processedBatchPos = batchPosition;
+                    totalInputChars += currentInputChars;
+                    totalOutputChars += StrUtil.length(llmOutput);
+                    successItems.add(buildDirectBatchResultItem(batch, batchShots.size(), null,
+                            new ArrayList<>(actualSceneIds), new ArrayList<>(actualSceneNames),
+                            new ArrayList<>(actualSceneCodes)));
+                }
+                catch (TextTaskExecutionRejectedException e)
+                {
+                    throw e;
+                }
+                catch (Exception e)
+                {
+                    if (!isCurrentTextExecutionCycle(
+                            task.getId(), userId, executionTraceId))
+                    {
+                        throw new TextTaskExecutionRejectedException();
+                    }
+                    log.error("分镜剧本片段生成失败: taskId={}, batchId={}, batchIndex={}",
+                            task.getId(), batch.getId(), batch.getBatchIndex(), e);
+                    String errorMessage = StrUtil.sub(
+                            StrUtil.blankToDefault(e.getMessage(), "分镜脚本生成异常"), 0, 500);
+                    firstFailureMessage = errorMessage;
+                    failBatchAndRefund(task.getId(), executionTraceId,
+                            batch, userId, errorMessage);
+                    failedItems.add(buildDirectBatchResultItem(batch, 0,
+                            TaskErrorPresentation.toUserMessage(modelCode, errorMessage, "分镜脚本生成失败")));
+                    failCount++;
+                    processedBatchPos = batchPosition;
+                    hasFailure = true;
+                    for (int i = batchPosition + 1; i < pendingBatches.size(); i++)
+                    {
+                        AidStoryboardBatch remaining = pendingBatches.get(i);
+                        cancelBatchAndRefund(task.getId(), executionTraceId,
+                                remaining, userId, "前序批次失败导致取消");
+                        failedItems.add(buildDirectBatchResultItem(remaining, 0, "已取消（前序批次失败）"));
+                        failCount++;
+                    }
+                    break;
+                }
+            }
+
+            if (selective && !hasPersistedTaskShots && generatedShotCount == 0 && !hasFailure)
+            {
+                log.warn("分镜选择性生成无命中：全部剧本片段均未返回所选场景, taskId={}, sceneIds={}",
+                        task.getId(), sceneIds);
+                refundEmptySelectiveDirectTask(
+                        task.getId(), userId, executionTraceId, allBatches);
+                billingHandled = true;
+                releaseProjectLockQuietly(projectId, episodeId, projectLockToken);
+                throw new ServiceException("新剧本无所选场景");
+            }
+
+            if (selective && overwrite && !hasFailure
+                    && (hasPersistedTaskShots || generatedShotCount > 0))
+            {
+                try
+                {
+                    normalizeStoryboardTimeline(projectId, episodeId, userId);
+                }
+                catch (RuntimeException normalizeError)
+                {
+                    log.error("分镜时间线归一失败: taskId={}, projectId={}, episodeId={}",
+                            task.getId(), projectId, episodeId, normalizeError);
+                    hasFailure = true;
+                    failCount++;
+                    firstFailureMessage = "分镜排序失败";
+                    Map<String, Object> failedItem = new LinkedHashMap<>();
+                    failedItem.put("batchId", null);
+                    failedItem.put("sceneId", null);
+                    failedItem.put("sceneName", "时间线归一");
+                    failedItem.put("message", "分镜排序失败");
+                    failedItems.add(failedItem);
+                }
+            }
+
+            settleDirectScriptBilling(task.getId(), userId, modelCode, executionTraceId, isResumeMode,
+                    pendingBatches, processedBatchPos, hasFailure, successCount,
+                    totalInputChars, totalOutputChars);
+            billingHandled = true;
+            releaseProjectLockQuietly(projectId, episodeId, projectLockToken);
+
+            if (hasFailure && successCount > 0)
+            {
+                markTaskPartialFailed(
+                        task.getId(), executionTraceId, "部分批次失败");
+                return buildBatchResultJson(pendingBatches.size(), successCount, failCount,
+                        successItems, failedItems);
+            }
+            if (successCount == 0 && failCount > 0)
+            {
+                String reason = StrUtil.blankToDefault(firstFailureMessage, "分镜脚本生成失败");
+                if (isResumeMode)
+                {
+                    markTaskPartialFailed(task.getId(), executionTraceId, reason);
+                    return buildBatchResultJson(pendingBatches.size(), successCount, failCount,
+                            successItems, failedItems);
+                }
+                throw TaskErrorPresentation.toServiceException(reason, "分镜脚本失败");
+            }
+            return buildBatchResultJson(pendingBatches.size(), successCount, failCount,
+                    successItems, failedItems);
+        }
+        catch (TextTaskExecutionRejectedException e)
+        {
+            releaseProjectLockQuietly(projectId, episodeId, projectLockToken);
+            throw e;
+        }
+        catch (RuntimeException e)
+        {
+            if (!billingHandled)
+            {
+                String reason = StrUtil.blankToDefault(e.getMessage(), "分镜任务校验失败");
+                if (batchExecutionStarted)
+                {
+                    markDirectInterruptedBatches(
+                            task.getId(), userId, executionTraceId, reason);
+                }
+                else
+                {
+                    failAndRefundDirectPreExecutionBatches(
+                            task.getId(), userId, executionTraceId, reason);
+                }
+            }
+            releaseProjectLockQuietly(projectId, episodeId, projectLockToken);
+            throw e;
+        }
+    }
+
     @Override
     @SuppressWarnings("unchecked")
-    public String doStoryboardScriptBatch(Long taskId, Long userId)
+    public String doStoryboardScriptBatch(Long taskId, Long userId, String dispatchToken)
     {
         AidExtractTask task = extractTaskService.selectAidExtractTaskById(taskId);
         if (Objects.isNull(task) || StrUtil.isBlank(task.getInputSnapshot()))
         {
             throw new ServiceException("任务不存在");
+        }
+        String executionTraceId = task.getBillingTraceId();
+        if (StrUtil.isBlank(dispatchToken) || StrUtil.isBlank(executionTraceId)
+                || !Objects.equals(dispatchToken, executionTraceId))
+        {
+            throw new TextTaskExecutionRejectedException();
         }
 
         Map<String, Object> input;
@@ -1241,9 +2062,16 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
 
         Long projectId = Convert.toLong(input.get("projectId"));
         Long episodeId = Convert.toLong(input.get("episodeId"));
+        String projectLockToken = str(input, "projectLockToken");
         if (projectId == null || episodeId == null)
         {
             throw new ServiceException("参数缺失");
+        }
+
+        if (Boolean.TRUE.equals(input.get(DIRECT_SCRIPT_SCENE_FLOW)))
+        {
+            return doDirectScriptStoryboardBatch(
+                    task, input, projectId, episodeId, userId, executionTraceId);
         }
 
         try
@@ -1373,17 +2201,18 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
             if (useShotGroupSplit)
             {
                 log.info("分镜脚本镜头组拆分模式首次执行: taskId={}, 开始拆分", taskId);
-                long[] splitChars = new long[2];
+                long[] splitChars = new long[3];
                 allBatches = prepareShotGroupBatches(taskId, projectId, episodeId, userId,
-                        sceneIds, sceneIdx, agentCode, modelCode, mode, overwriteFlag, splitChars);
+                        sceneIds, sceneIdx, agentCode, modelCode, mode, overwriteFlag, splitChars,
+                        executionTraceId);
                 // 拆分 LLM 字符数纳入结算
                 totalInputChars += splitChars[0];
                 totalOutputChars += splitChars[1];
             }
             else
             {
-                // 兼容路径：旧任务没有 batch 记录
-                log.warn("分镜脚本任务无 batch 记录（旧任务或异常）: taskId={}", taskId);
+                // 兼容没有 batch 记录的场次任务数据。
+                log.warn("分镜脚本任务无 batch 记录: taskId={}", taskId);
             }
         }
         // 待跑批次：status=PENDING 的（首跑全部、续生只剩失败/取消的）
@@ -1405,7 +2234,7 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
                     allBatchSceneCodes.addAll(codes);
                 }
             }
-            catch (Exception ignore) { /* 历史脏数据兜底 */ }
+            catch (Exception ignore) { /* 异常数据兜底 */ }
         }
         Map<String, AidScenePlot> plotByCode = new HashMap<>();
         if (CollectionUtil.isNotEmpty(allBatchSceneCodes))
@@ -1496,7 +2325,7 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
         for (int b = 0; b < batchTotal; b++)
         {
             AidStoryboardBatch batch = pendingBatches.get(b);
-            touchExtractTask(taskId);
+            touchExtractTask(taskId, executionTraceId);
 
             // ★ 取消检查点
             if (assetExtractService.isTaskCancelled(taskId))
@@ -1506,7 +2335,8 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
                 for (int j = b; j < batchTotal; j++)
                 {
                     AidStoryboardBatch leftover = pendingBatches.get(j);
-                    cancelBatchAndRefund(leftover, userId, "用户取消");
+                    cancelBatchAndRefund(taskId, executionTraceId,
+                            leftover, userId, "用户取消");
                     Map<String, Object> skip = new LinkedHashMap<>();
                     skip.put("sceneId", leftover.getSceneId());
                     skip.put("batchIndex", leftover.getBatchIndex());
@@ -1535,9 +2365,19 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
                 // 把批次 status 推进到 PROCESSING
                 LambdaUpdateWrapper<AidStoryboardBatch> proc = Wrappers.lambdaUpdate();
                 proc.eq(AidStoryboardBatch::getId, batch.getId());
+                proc.eq(AidStoryboardBatch::getParentTaskId, taskId);
+                proc.eq(AidStoryboardBatch::getStatus, BATCH_STATUS_PENDING);
+                proc.eq(AidStoryboardBatch::getDelFlag, DEL_FLAG_NORMAL);
                 proc.set(AidStoryboardBatch::getStatus, BATCH_STATUS_PROCESSING);
                 proc.set(AidStoryboardBatch::getUpdateTime, DateUtils.getNowDate());
-                storyboardBatchService.update(proc);
+                transactionTemplate.executeWithoutResult(status -> {
+                    extractBillingService.assertTextTaskBusinessCommit(
+                            taskId, userId, executionTraceId);
+                    if (!storyboardBatchService.update(proc))
+                    {
+                        throw new ServiceException("批次执行权已变更");
+                    }
+                });
 
                 // 镜头组拆分模式：batch 必须稳定绑定 plan，缺失即数据异常，不回退普通场次模式
                 AidStoryboardShotGroupPlan currentPlan = null;
@@ -1626,20 +2466,32 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
                         : null;
 
                 // 构建 LLM 入参（按场次：注入模式名 + 最低镜头数下限，上限由提示词按内容节拍自行决定）
-                //   输出格式硬约束随智能体分流：专业版 writer 用 {"content":[...]} 对象约束，
-                //   其余标准/轻量/解说智能体用「纯 JSON 数组」约束（与各自提示词输出模板一致）
                 String userContent = buildLlmInput(batchPlan, scene, sceneForms, characterIdx,
                         characterForms, propIdx, propForms, mode,
-                        episodeId, userId, videoReferenceNames, audioReferenceNames, useShotGroupSplit,
+                        episodeId, userId, videoReferenceNames, audioReferenceNames,
                         minShotFloor);
 
                 String digest = "分镜脚本生成|场景:" + scene.getName() + "|批次:" + batch.getBatchIndex()
                         + "|轮次:" + batch.getRetryRound() + "|sceneId:" + batch.getSceneId();
 
+                // 按场次：本批唯一 sceneCode 作为权威归属码（一场次一批 → batchSceneCodes 必为单元素）
+                String canonicalSceneCode = (batchSceneCodes.size() == 1) ? batchSceneCodes.get(0) : null;
+                int replaySortOrder = globalSortOrder;
                 long llmStart = System.currentTimeMillis();
+                int outputTokenCap = helper.resolveStoryboardScriptOutputTokens(
+                        batchPlan.getCharCount(), AGENT_CODE_STORYBOARD_WRITER.equals(agentCode));
 
                 String llmOutput = helper.callLlmRaw(promptTemplate, userContent, modelCode,
-                        taskId, userId, digest, BIZ_TASK_TYPE_STORYBOARD_SCRIPT);
+                        taskId, userId, digest, BIZ_TASK_TYPE_STORYBOARD_SCRIPT,
+                        // batchId 是持久化且跨续生不变的业务槽位；本轮 batchIndex/retryRound
+                        // 不进入 stable slot，实际输入仍由 messages SHA 严格区分。
+                        "stage=script_scene,item=" + batch.getId(),
+                        raw -> isSceneScriptReplayValid(raw,
+                                AGENT_CODE_STORYBOARD_WRITER.equals(agentCode), projectId, episodeId,
+                                userId, batch.getSceneId(), scene.getName(), replaySortOrder,
+                                batch.getId(), canonicalSceneCode, referenceWhitelist,
+                                batchPlan.getGroupCode(), batchPlan.getGroupIndex()),
+                        executionTraceId, outputTokenCap);
                 long llmCostMs = System.currentTimeMillis() - llmStart;
 
                 if (StrUtil.isBlank(llmOutput))
@@ -1647,18 +2499,18 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
                     throw new ServiceException("模型返回为空");
                 }
 
-                // ★ 按场次：本批唯一 sceneCode 作为权威归属码（一场次一批 → batchSceneCodes 必为单元素）
-                String canonicalSceneCode = (batchSceneCodes.size() == 1) ? batchSceneCodes.get(0) : null;
-
                 // 解析（带 batchId；按场次强制 sourceSceneCode = 本批唯一 sceneCode，避免 LLM 漏填/乱填污染归属与排序）
                 // 解析器分叉：专业版/宫格（agent=aid_storyboard_writer）产出中文「镜头组」结构，走独立解析器；
                 //   其余标准版走现有扁平英文 key 解析器。两者落库口径一致（同 aid_storyboard、同 script_params 中文 key）。
                 List<AidStoryboard> batchShots = AGENT_CODE_STORYBOARD_WRITER.equals(agentCode)
                         ? parseShotGroupsToEntities(llmOutput, projectId, episodeId,
-                                userId, batch.getSceneId(), globalSortOrder, batch.getId(), canonicalSceneCode, referenceWhitelist,
-                                batchPlan.getGroupCode(), batchPlan.getGroupIndex())
+                                userId, batch.getSceneId(), scene.getName(), globalSortOrder,
+                                batch.getId(), canonicalSceneCode, referenceWhitelist,
+                                batchPlan.getGroupCode(), batchPlan.getGroupIndex(), 1)
                         : parseShotsToEntities(llmOutput, projectId, episodeId,
-                                userId, batch.getSceneId(), globalSortOrder, batch.getId(), canonicalSceneCode, referenceWhitelist);
+                                userId, batch.getSceneId(), scene.getName(), globalSortOrder,
+                                batch.getId(), canonicalSceneCode,
+                                referenceWhitelist, 0);
 
                 // ★ 空分镜判失败：一场次一批后，0 分镜 = 该场次内容丢失，必须失败走退款 + 续跑，
                 //   绝不能标记 SUCCEEDED（否则重新出现"某场次 0 分镜"）
@@ -1691,16 +2543,27 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
                 final AidStoryboardBatch currentBatch = batch;
                 final AidStoryboardShotGroupPlan planToUpdate = currentPlan;
                 transactionTemplate.executeWithoutResult(status -> {
-                    storyboardService.saveBatch(shotsToPersist, 200);
+                    extractBillingService.assertTextTaskBusinessCommit(
+                            taskId, userId, executionTraceId);
+                    if (!storyboardService.saveBatch(shotsToPersist, 200))
+                    {
+                        throw new ServiceException("分镜保存失败");
+                    }
                     LambdaUpdateWrapper<AidStoryboardBatch> doneUpd = Wrappers.lambdaUpdate();
                     doneUpd.eq(AidStoryboardBatch::getId, currentBatch.getId());
+                    doneUpd.eq(AidStoryboardBatch::getParentTaskId, taskId);
+                    doneUpd.eq(AidStoryboardBatch::getStatus, BATCH_STATUS_PROCESSING);
+                    doneUpd.eq(AidStoryboardBatch::getDelFlag, DEL_FLAG_NORMAL);
                     doneUpd.set(AidStoryboardBatch::getStatus, BATCH_STATUS_SUCCEEDED);
                     doneUpd.set(AidStoryboardBatch::getBillingStatus, BILLING_STATUS_SETTLED);
                     doneUpd.set(AidStoryboardBatch::getSettledAmount, currentBatch.getFrozenAmount());
                     doneUpd.set(AidStoryboardBatch::getResultData, batchResultJson);
                     doneUpd.set(AidStoryboardBatch::getShotCount, shotsToPersist.size());
                     doneUpd.set(AidStoryboardBatch::getUpdateTime, DateUtils.getNowDate());
-                    storyboardBatchService.update(doneUpd);
+                    if (!storyboardBatchService.update(doneUpd))
+                    {
+                        throw new ServiceException("批次保存失败");
+                    }
 
                     // 镜头组拆分模式：回填计划状态为 SUCCESS + 分镜ID
                     if (Objects.nonNull(planToUpdate) && CollectionUtil.isNotEmpty(shotsToPersist))
@@ -1708,14 +2571,23 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
                         Long storyboardId = shotsToPersist.get(0).getId();
                         LambdaUpdateWrapper<AidStoryboardShotGroupPlan> planDone = Wrappers.lambdaUpdate();
                         planDone.eq(AidStoryboardShotGroupPlan::getId, planToUpdate.getId());
+                        planDone.eq(AidStoryboardShotGroupPlan::getTaskId, taskId);
+                        planDone.eq(AidStoryboardShotGroupPlan::getProjectId, projectId);
+                        planDone.eq(AidStoryboardShotGroupPlan::getEpisodeId, episodeId);
+                        planDone.eq(AidStoryboardShotGroupPlan::getUserId, userId);
+                        planDone.eq(AidStoryboardShotGroupPlan::getStatus, PLAN_STATUS_PROCESSING);
+                        planDone.eq(AidStoryboardShotGroupPlan::getDelFlag, DEL_FLAG_NORMAL);
                         planDone.set(AidStoryboardShotGroupPlan::getStatus, PLAN_STATUS_SUCCESS);
                         planDone.set(AidStoryboardShotGroupPlan::getStoryboardId, storyboardId);
                         planDone.set(AidStoryboardShotGroupPlan::getErrorMsg, null);
                         planDone.set(AidStoryboardShotGroupPlan::getUpdateTime, DateUtils.getNowDate());
-                        shotGroupPlanService.update(planDone);
+                        if (!shotGroupPlanService.update(planDone))
+                        {
+                            throw new ServiceException("拆分状态保存失败");
+                        }
                     }
                 });
-                touchExtractTask(taskId);
+                touchExtractTask(taskId, executionTraceId);
 
                 totalShotCount += batchShots.size();
                 globalSortOrder += batchShots.size();
@@ -1737,8 +2609,16 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
                 log.info("分镜脚本批次完成: taskId={}, batchId={}, sceneId={}, shots={}, llmCostMs={}, totalCostMs={}",
                         taskId, batch.getId(), batch.getSceneId(), batchShots.size(), llmCostMs, batchCostMs);
             }
+            catch (TextTaskExecutionRejectedException e)
+            {
+                throw e;
+            }
             catch (Exception e)
             {
+                if (!isCurrentTextExecutionCycle(taskId, userId, executionTraceId))
+                {
+                    throw new TextTaskExecutionRejectedException();
+                }
                 log.error("分镜脚本批次失败: taskId={}, batchId={}, sceneId={}",
                         taskId, batch.getId(), batch.getSceneId(), e);
 
@@ -1749,8 +2629,9 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
                 {
                     firstFailureMessage = errMsg;
                 }
-                failBatchAndRefund(batch, userId, errMsg);
-                touchExtractTask(taskId);
+                failBatchAndRefund(taskId, executionTraceId,
+                        batch, userId, errMsg);
+                touchExtractTask(taskId, executionTraceId);
 
                 Map<String, Object> item = new LinkedHashMap<>();
                 item.put("batchId", batch.getId());
@@ -1767,7 +2648,8 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
                 for (int j = b + 1; j < batchTotal; j++)
                 {
                     AidStoryboardBatch leftover = pendingBatches.get(j);
-                    cancelBatchAndRefund(leftover, userId, "前序批次失败导致取消");
+                    cancelBatchAndRefund(taskId, executionTraceId,
+                            leftover, userId, "前序批次失败导致取消");
                     Map<String, Object> skip = new LinkedHashMap<>();
                     skip.put("batchId", leftover.getId());
                     skip.put("sceneId", leftover.getSceneId());
@@ -1787,7 +2669,7 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
         }
 
         // 释放项目级锁
-        releaseProjectLockQuietly(projectId, episodeId);
+        releaseProjectLockQuietly(projectId, episodeId, projectLockToken);
 
         // 批次粒度计费汇总（加固：失败后立即重试 1 次，都失败写 errorMessage 让前端展示"退款处理中"）
         boolean billingHandled = false;
@@ -1798,7 +2680,10 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
             {
                 if (isResumeMode)
                 {
-                    settleResumeBatches(taskId, userId, pendingBatches, processedBatchPos, hasFailureMidway);
+                    if (!settleResumeBatches(taskId, userId, executionTraceId))
+                    {
+                        throw new ServiceException("计费处理中");
+                    }
                 }
                 else if (successCount > 0)
                 {
@@ -1810,16 +2695,20 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
                     usageData.put("output_tokens_estimate",
                             BillingConstants.charsToTokens((int) Math.min(totalOutputChars, Integer.MAX_VALUE)));
                     usageData.put("total_chars_estimate", totalInputChars + totalOutputChars);
-                    extractBillingService.settleBilling(taskId, userId, usageData);
+                    extractBillingService.settleBilling(taskId, userId, usageData, executionTraceId);
                     log.info("分镜脚本批量结算: taskId={}, attempt={}, successBatch={}, failBatch={}",
                             taskId, billingAttempt + 1, successCount, failCount);
                 }
                 else
                 {
-                    extractBillingService.refundBilling(taskId, userId);
+                    extractBillingService.refundBilling(taskId, userId, executionTraceId);
                     log.info("分镜脚本批量全部失败已退款: taskId={}, attempt={}", taskId, billingAttempt + 1);
                 }
                 billingHandled = true;
+            }
+            catch (TextTaskExecutionRejectedException e)
+            {
+                throw e;
             }
             catch (Exception billingEx)
             {
@@ -1842,6 +2731,7 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
             {
                 LambdaUpdateWrapper<AidExtractTask> alertUpd = Wrappers.lambdaUpdate();
                 alertUpd.eq(AidExtractTask::getId, taskId);
+                alertUpd.eq(AidExtractTask::getBillingTraceId, executionTraceId);
                 alertUpd.set(AidExtractTask::getErrorMessage, "退款处理中，请稍后查看余额");
                 alertUpd.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
                 extractTaskService.update(alertUpd);
@@ -1862,7 +2752,7 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
         {
             String reason = "部分批次失败 (" + successCount + " success / " + failCount + " fail)";
             log.warn("分镜脚本批量部分失败: taskId={}, {}", taskId, reason);
-            markTaskPartialFailed(taskId, reason);
+            markTaskPartialFailed(taskId, executionTraceId, reason);
             return buildBatchResultJson(batchTotal, successCount, failCount, successItems, failedItems);
         }
         if (successCount == 0 && failCount > 0)
@@ -1876,7 +2766,7 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
                 // 续生模式下本轮全部失败但首跑已有 SUCCEEDED 批
                 //   不能让任务标记为 FAILED（用户会失去续生入口），仍标记 PARTIAL_FAILED
                 log.warn("分镜脚本续生本轮全部失败: taskId={}, {}", taskId, reason);
-                markTaskPartialFailed(taskId, userReason);
+                markTaskPartialFailed(taskId, executionTraceId, userReason);
                 return buildBatchResultJson(batchTotal, successCount, failCount, successItems, failedItems);
             }
             log.warn("分镜脚本批量全部失败: taskId={}, {}", taskId, reason);
@@ -1887,7 +2777,7 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
         }
         catch (RuntimeException e)
         {
-            releaseProjectLockQuietly(projectId, episodeId);
+            releaseProjectLockQuietly(projectId, episodeId, projectLockToken);
             throw e;
         }
     }
@@ -1936,8 +2826,9 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
         // 续生防重——任务级 Redis 锁，TTL 30 分钟
         //   防止用户连点两次"继续生成"导致两次 freeze + 两条 MQ
         String resumeLockKey = "storyboard:script:resume:lock:" + taskId;
+        String resumeLockToken = IdUtil.fastSimpleUUID();
         Boolean resumeLocked = redisCache.redisTemplate.opsForValue()
-                .setIfAbsent(resumeLockKey, "1", 30L * 60L, TimeUnit.SECONDS);
+                .setIfAbsent(resumeLockKey, resumeLockToken, 30L * 60L, TimeUnit.SECONDS);
         String originalStatus = task.getStatus();
         String originalRemark = task.getRemark();
         if (resumeLocked == null || !resumeLocked)
@@ -1947,6 +2838,17 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
 
         try
         {
+            task = finalizePreviousResumeRoundBeforeRetry(task, userId);
+            originalStatus = task.getStatus();
+            originalRemark = task.getRemark();
+            boolean mediaTaskBilling = extractBillingService
+                    .resolveTextCallBillingContext(taskId).mediaTaskBilling();
+            if (StoryboardResumeBillingExecutor.isPrimaryBillingPending(task.getBillingStatus()))
+            {
+                log.warn("分镜脚本续生拒绝：旧计费周期未收口, taskId={}, billingStatus={}",
+                        taskId, task.getBillingStatus());
+                throw new ServiceException("计费处理中");
+            }
             // 续生开始前要重新获取项目级 Redis 锁
             //   避免续生执行期间用户又点了"批量生成分镜脚本"创建新任务造成 sortOrder 撞号
             //   抢锁失败时同样走僵尸锁自愈，避免项目锁泄漏导致续生永久卡住
@@ -1986,8 +2888,60 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
                                 .eq(AidStoryboardBatch::getDelFlag, DEL_FLAG_NORMAL));
                 if (batchCount == 0 && isShotGroupSplitTask(task))
                 {
+                    if (mediaTaskBilling)
+                    {
+                        String dispatchMode = dualModeTaskDispatcher.resolveDispatchMode();
+                        String expectedStatus = task.getStatus();
+                        Long projectId = task.getProjectId();
+                        Long episodeId = task.getEpisodeId();
+                        String modelCode = task.getModelCode();
+                        try
+                        {
+                            taskQueueService.executeWithTaskDispatchLock(taskId, () -> {
+                                ResumeBillingContext billingContext = null;
+                                try
+                                {
+                                    billingContext = extractBillingService.rearmBillingForResume(
+                                            taskId, userId, BigDecimal.ZERO, null, expectedStatus,
+                                            new ResumeTaskMutation(true, null, false, null,
+                                                    false, null), dispatchMode);
+                                    taskQueueService.assertTaskDispatchLockHeld(taskId);
+                                    billingContext = extractBillingService.markResumeBillingDispatchIntent(
+                                            taskId, billingContext);
+                                    taskQueueService.assertTaskDispatchLockHeld(taskId);
+                                    sendMqMessageNow(taskId, projectId, episodeId, userId, modelCode,
+                                            dispatchMode, billingContext.resumeTraceId());
+                                    return Boolean.TRUE;
+                                }
+                                catch (RuntimeException submitEx)
+                                {
+                                    if (billingContext != null)
+                                    {
+                                        rollbackStoryboardScriptRollingResume(
+                                                taskId, userId, billingContext, null);
+                                    }
+                                    throw submitEx;
+                                }
+                            });
+                        }
+                        catch (RuntimeException submitEx)
+                        {
+                            projectLockGuard.releaseIfMatch(projectLockKey, resumeLockResult.getToken());
+                            log.error("分镜脚本拆分阶段滚动续生提交失败: taskId={}", taskId, submitEx);
+                            throw submitEx instanceof ServiceException
+                                    ? submitEx : new ServiceException("续生失败，请重试");
+                        }
+                        log.info("分镜脚本拆分阶段滚动续生提交: taskId={}", taskId);
+                        return AssetExtractTaskVO.builder()
+                                .taskId(taskId)
+                                .status(TASK_STATUS_PENDING)
+                                .totalBatches(0)
+                                .build();
+                    }
                     LambdaUpdateWrapper<AidExtractTask> taskUpd = Wrappers.lambdaUpdate();
                     taskUpd.eq(AidExtractTask::getId, taskId);
+                    taskUpd.eq(AidExtractTask::getUserId, userId);
+                    appendExpectedTrace(taskUpd, task.getBillingTraceId());
                     taskUpd.in(AidExtractTask::getStatus,
                             TASK_STATUS_PARTIAL_FAILED, TASK_STATUS_FAILED, TASK_STATUS_CANCELLED);
                     taskUpd.set(AidExtractTask::getStatus, TASK_STATUS_PENDING);
@@ -2008,7 +2962,7 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
                     catch (RuntimeException submitEx)
                     {
                         rollbackStoryboardScriptResumeTask(taskId, originalStatus, originalRemark,
-                                "提交失败", userId);
+                                "提交失败", userId, task.getBillingTraceId());
                         projectLockGuard.releaseIfMatch(projectLockKey, resumeLockResult.getToken());
                         log.error("分镜脚本拆分阶段续生提交失败: taskId={}", taskId, submitEx);
                         throw (submitEx instanceof ServiceException)
@@ -2040,6 +2994,58 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
                     .filter(Objects::nonNull)
                     .max(Integer::compareTo)
                     .orElse(0) + 1;
+            if (mediaTaskBilling)
+            {
+                String dispatchMode = dualModeTaskDispatcher.resolveDispatchMode();
+                String expectedStatus = task.getStatus();
+                Long projectId = task.getProjectId();
+                Long episodeId = task.getEpisodeId();
+                String modelCode = task.getModelCode();
+                try
+                {
+                    taskQueueService.executeWithTaskDispatchLock(taskId, () -> {
+                        ResumeBillingContext billingContext = null;
+                        try
+                        {
+                            billingContext = extractBillingService.rearmBillingForResume(
+                                    taskId, userId, totalRetryFrozen, null, expectedStatus,
+                                    new ResumeTaskMutation(true, null, false, null,
+                                            false, null), dispatchMode);
+                            resetStoryboardResumeBatches(retryBatches, nextRound);
+                            taskQueueService.assertTaskDispatchLockHeld(taskId);
+                            billingContext = extractBillingService.markResumeBillingDispatchIntent(
+                                    taskId, billingContext);
+                            taskQueueService.assertTaskDispatchLockHeld(taskId);
+                            sendMqMessageNow(taskId, projectId, episodeId, userId, modelCode,
+                                    dispatchMode, billingContext.resumeTraceId());
+                            return Boolean.TRUE;
+                        }
+                        catch (RuntimeException submitEx)
+                        {
+                            if (billingContext != null)
+                            {
+                                rollbackStoryboardScriptRollingResume(
+                                        taskId, userId, billingContext, batchSnapshots);
+                            }
+                            throw submitEx;
+                        }
+                    });
+                }
+                catch (RuntimeException submitEx)
+                {
+                    projectLockGuard.releaseIfMatch(projectLockKey, resumeLockResult.getToken());
+                    log.error("分镜脚本滚动续生提交失败: taskId={}", taskId, submitEx);
+                    throw submitEx instanceof ServiceException
+                            ? submitEx : new ServiceException("续生失败，请重试");
+                }
+                log.info("分镜脚本滚动续生提交: taskId={}, retryBatchCount={}, retryRound={}",
+                        taskId, retryBatches.size(), nextRound);
+                return AssetExtractTaskVO.builder()
+                        .taskId(taskId)
+                        .status(TASK_STATUS_PENDING)
+                        .totalBatches(retryBatches.size())
+                        .build();
+            }
             String resumeTraceId = "sb_resume_" + taskId + "_r" + nextRound;
             try
             {
@@ -2080,6 +3086,8 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
                 // 父任务状态回到 PENDING，随后由统一队列推进到 QUEUED / PROCESSING。
                 LambdaUpdateWrapper<AidExtractTask> taskUpd = Wrappers.lambdaUpdate();
                 taskUpd.eq(AidExtractTask::getId, taskId);
+                taskUpd.eq(AidExtractTask::getUserId, userId);
+                appendExpectedTrace(taskUpd, task.getBillingTraceId());
                 taskUpd.in(AidExtractTask::getStatus, TASK_STATUS_PARTIAL_FAILED, TASK_STATUS_FAILED, TASK_STATUS_CANCELLED);
                 taskUpd.set(AidExtractTask::getStatus, TASK_STATUS_PENDING);
                 taskUpd.set(AidExtractTask::getErrorMessage, null);
@@ -2101,12 +3109,12 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
                 {
                     restoreStoryboardScriptResumeBatches(batchSnapshots);
                     rollbackStoryboardScriptResumeTask(taskId, originalStatus, originalRemark,
-                            "提交失败", userId);
+                            "提交失败", userId, task.getBillingTraceId());
                 }
                 else
                 {
                     rollbackStoryboardScriptResumeTask(taskId, TASK_STATUS_FAILED, resumeMarkerForCompensation,
-                            "提交失败", userId);
+                            "提交失败", userId, task.getBillingTraceId());
                 }
                 projectLockGuard.releaseIfMatch(projectLockKey, resumeLockResult.getToken());
                 log.error("分镜脚本续生提交失败: taskId={}, traceId={}",
@@ -2126,7 +3134,7 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
         finally
         {
             // resume 操作锁释放（项目级锁由 doStoryboardScriptBatch 末尾释放）
-            redisCache.deleteObject(resumeLockKey);
+            projectLockGuard.releaseIfMatch(resumeLockKey, resumeLockToken);
         }
     }
 
@@ -2136,7 +3144,8 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
     {
         AidExtractTask current = extractTaskService.getOne(
                 Wrappers.<AidExtractTask>lambdaQuery()
-                        .select(AidExtractTask::getId, AidExtractTask::getInputSnapshot)
+                        .select(AidExtractTask::getId, AidExtractTask::getBillingTraceId,
+                                AidExtractTask::getInputSnapshot)
                         .eq(AidExtractTask::getId, taskId)
                         .last("LIMIT 1"), false);
         if (current == null || StrUtil.isBlank(current.getInputSnapshot()))
@@ -2151,6 +3160,7 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
             input.put("projectLockToken", projectLockToken);
             LambdaUpdateWrapper<AidExtractTask> update = Wrappers.lambdaUpdate();
             update.eq(AidExtractTask::getId, taskId);
+            appendExpectedTrace(update, current.getBillingTraceId());
             update.set(AidExtractTask::getInputSnapshot,
                     OBJECT_MAPPER.writeValueAsString(input));
             update.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
@@ -2223,6 +3233,47 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
         return snapshots;
     }
 
+    private void resetStoryboardResumeBatches(List<AidStoryboardBatch> retryBatches, int nextRound)
+    {
+        for (AidStoryboardBatch batch : retryBatches)
+        {
+            LambdaUpdateWrapper<AidStoryboardBatch> update = Wrappers.lambdaUpdate();
+            update.eq(AidStoryboardBatch::getId, batch.getId());
+            update.set(AidStoryboardBatch::getStatus, BATCH_STATUS_PENDING);
+            update.set(AidStoryboardBatch::getBillingStatus, BILLING_STATUS_FROZEN);
+            update.set(AidStoryboardBatch::getRetryRound, nextRound);
+            update.set(AidStoryboardBatch::getErrorMessage, null);
+            update.set(AidStoryboardBatch::getUpdateTime, DateUtils.getNowDate());
+            storyboardBatchService.update(update);
+            updatePlanStatus(batch.getShotGroupPlanId(), PLAN_STATUS_PENDING, null);
+        }
+    }
+
+    private void rollbackStoryboardScriptRollingResume(Long taskId, Long userId,
+                                                        ResumeBillingContext billingContext,
+                                                        List<StoryboardBatchResumeSnapshot> snapshots)
+    {
+        if (!extractBillingService.requestResumeBillingRollback(taskId, userId, billingContext))
+        {
+            log.error("分镜脚本滚动续生未能抢回任务，跳过周期回滚: taskId={}", taskId);
+            return;
+        }
+        taskQueueService.releaseSlots(taskId, billingContext.resumeTraceId());
+        try
+        {
+            if (extractBillingService.rollbackResumeBilling(taskId, userId, billingContext))
+            {
+                restoreStoryboardScriptResumeBatches(snapshots);
+            }
+        }
+        catch (Exception rollbackEx)
+        {
+            log.error("分镜脚本滚动续生周期回滚失败: taskId={}", taskId, rollbackEx);
+        }
+        taskQueueService.clearCancelRequested(taskId, billingContext.resumeTraceId());
+        assetExtractService.clearCancelFlag(taskId, billingContext.resumeTraceId());
+    }
+
     private boolean refundStoryboardScriptResumeFreeze(Long userId, BigDecimal frozenAmount, String resumeTraceId, Long taskId)
     {
         if (Objects.isNull(frozenAmount) || frozenAmount.compareTo(BigDecimal.ZERO) <= 0)
@@ -2281,10 +3332,13 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
     }
 
     private void rollbackStoryboardScriptResumeTask(Long taskId, String status, String remark,
-                                                    String errorMessage, Long userId)
+                                                    String errorMessage, Long userId,
+                                                    String expectedTraceId)
     {
         LambdaUpdateWrapper<AidExtractTask> rollback = Wrappers.lambdaUpdate();
         rollback.eq(AidExtractTask::getId, taskId);
+        rollback.eq(AidExtractTask::getUserId, userId);
+        appendExpectedTrace(rollback, expectedTraceId);
         rollback.set(AidExtractTask::getStatus, status);
         rollback.set(AidExtractTask::getRemark, remark);
         rollback.set(AidExtractTask::getErrorMessage, errorMessage);
@@ -2293,32 +3347,17 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
         extractTaskService.update(rollback);
     }
 
-    /**
-     * 加载当前集剧情引用的场景ID集合（aid_scene_plot.scene_id）。
-     * 跨集复用场景的主资产归属其他集，本集可用性由剧情引用关系表达。
-     * 查询字段精简：仅 scene_id（新增使用字段时此处必须同步补充）。
-     *
-     * @param projectId 项目ID
-     * @param episodeId 剧集ID
-     * @param userId    当前用户ID
-     * @return 本集剧情引用的场景ID集合
-     */
-    private java.util.Set<Long> loadEpisodePlotSceneIds(Long projectId, Long episodeId, Long userId)
+    private void appendExpectedTrace(LambdaUpdateWrapper<AidExtractTask> update,
+                                     String expectedTraceId)
     {
-        java.util.Set<Long> sceneIds = new LinkedHashSet<>();
-        List<AidScenePlot> plots = scenePlotService.list(
-                Wrappers.<AidScenePlot>lambdaQuery()
-                        .select(AidScenePlot::getSceneId)
-                        .eq(AidScenePlot::getProjectId, projectId)
-                        .eq(AidScenePlot::getEpisodeId, episodeId)
-                        .eq(AidScenePlot::getUserId, userId)
-                        .eq(AidScenePlot::getDelFlag, DEL_FLAG_NORMAL)
-                        .isNotNull(AidScenePlot::getSceneId));
-        for (AidScenePlot plot : plots)
+        if (expectedTraceId == null)
         {
-            sceneIds.add(plot.getSceneId());
+            update.isNull(AidExtractTask::getBillingTraceId);
         }
-        return sceneIds;
+        else
+        {
+            update.eq(AidExtractTask::getBillingTraceId, expectedTraceId);
+        }
     }
 
     /** 加载与执行阶段同源的分镜脚本消息装配上下文，整批仅加载一次。 */
@@ -2394,7 +3433,7 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
         String userContent = buildLlmInput(batch, scene, sceneForms, context.characterIdx(),
                 context.characterForms(), context.propIdx(), context.propForms(), context.mode(),
                 context.episodeId(), context.userId(), context.videoReferenceNames(),
-                context.audioReferenceNames(), context.useShotGroupSplit(), minShotFloor,
+                context.audioReferenceNames(), minShotFloor,
                 context.characterImagesByAsset(), context.propImagesByAsset());
         int inputCharsEstimate = helper.estimateLlmInputChars(
                 context.promptTemplate(), userContent, context.modelCode());
@@ -2406,6 +3445,7 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
         params.put("outputTokens", BillingConstants.charsToTokens(outputCharsEstimate));
         params.put("estimatedOutputChars", outputCharsEstimate);
         params.put("totalChars", inputCharsEstimate + outputCharsEstimate);
+        helper.applyLlmBillingLimits(params, 1);
         BillingInput billingInput = new BillingInput("TEXT", params);
 
         BillingCalcResult result = billingAmountCalculator.calculatePreHoldAmount(modelConfig, billingInput);
@@ -2416,15 +3456,18 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
         // 降级：SKU 未命中时按官方固定原价 × 两级倍率兜底，并保留倍率快照。
         BigDecimal rawUnitPrice = Objects.nonNull(modelConfig.getCostCredits())
                 ? modelConfig.getCostCredits() : BigDecimal.ZERO;
-        BigDecimal unitPrice = billingPriceMultiplierService.apply(
+        BigDecimal displayUnitPrice = billingPriceMultiplierService.apply(
                 rawUnitPrice, modelConfig.getBillingMultiplier());
+        BigDecimal unitPrice = Boolean.TRUE.equals(modelConfig.getIsFree())
+                ? BigDecimal.ZERO : displayUnitPrice;
         BillingSnapshot fallbackSnap = new BillingSnapshot();
         fallbackSnap.setModelId(modelConfig.getId());
         fallbackSnap.setModelName(modelConfig.getModelCode());
         fallbackSnap.setModelType(MODEL_TYPE_TEXT.toUpperCase());
         fallbackSnap.setBillingMode("FIXED");
-        fallbackSnap.setUnitPrice(unitPrice);
+        fallbackSnap.setUnitPrice(displayUnitPrice);
         fallbackSnap.setBaseAmount(rawUnitPrice);
+        fallbackSnap.setIsFree(Boolean.TRUE.equals(modelConfig.getIsFree()));
         fallbackSnap.setModelBillingMultiplier(billingPriceMultiplierService.resolveModelMultiplier(
                 modelConfig.getBillingMultiplier()));
         fallbackSnap.setGlobalBillingMultiplier(billingPriceMultiplierService.getGlobalMultiplier());
@@ -2457,6 +3500,12 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
 
     private BillingCalcResult estimateTextCostFromChars(long inputChars, long outputChars, AiModelConfigVo modelConfig)
     {
+        return estimateTextCostFromChars(inputChars, outputChars, modelConfig, 1);
+    }
+
+    private BillingCalcResult estimateTextCostFromChars(long inputChars, long outputChars,
+                                                         AiModelConfigVo modelConfig, int expectedCallCount)
+    {
         int safeInputChars = (int) Math.min(Math.max(inputChars, 0L), Integer.MAX_VALUE);
         int safeOutputChars = (int) Math.min(Math.max(outputChars, 0L), Integer.MAX_VALUE);
         Map<String, Object> params = new HashMap<>();
@@ -2465,6 +3514,7 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
         params.put("outputTokens", BillingConstants.charsToTokens(safeOutputChars));
         params.put("estimatedOutputChars", safeOutputChars);
         params.put("totalChars", (long) safeInputChars + safeOutputChars);
+        helper.applyLlmBillingLimits(params, expectedCallCount);
         BillingInput billingInput = new BillingInput("TEXT", params);
 
         BillingCalcResult result = billingAmountCalculator.calculatePreHoldAmount(modelConfig, billingInput);
@@ -2474,15 +3524,18 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
         }
         BigDecimal rawUnitPrice = Objects.nonNull(modelConfig.getCostCredits())
                 ? modelConfig.getCostCredits() : BigDecimal.ZERO;
-        BigDecimal unitPrice = billingPriceMultiplierService.apply(
+        BigDecimal displayUnitPrice = billingPriceMultiplierService.apply(
                 rawUnitPrice, modelConfig.getBillingMultiplier());
+        BigDecimal unitPrice = Boolean.TRUE.equals(modelConfig.getIsFree())
+                ? BigDecimal.ZERO : displayUnitPrice;
         BillingSnapshot fallbackSnap = new BillingSnapshot();
         fallbackSnap.setModelId(modelConfig.getId());
         fallbackSnap.setModelName(modelConfig.getModelCode());
         fallbackSnap.setModelType(MODEL_TYPE_TEXT.toUpperCase());
         fallbackSnap.setBillingMode("FIXED");
-        fallbackSnap.setUnitPrice(unitPrice);
+        fallbackSnap.setUnitPrice(displayUnitPrice);
         fallbackSnap.setBaseAmount(rawUnitPrice);
+        fallbackSnap.setIsFree(Boolean.TRUE.equals(modelConfig.getIsFree()));
         fallbackSnap.setModelBillingMultiplier(billingPriceMultiplierService.resolveModelMultiplier(
                 modelConfig.getBillingMultiplier()));
         fallbackSnap.setGlobalBillingMultiplier(billingPriceMultiplierService.getGlobalMultiplier());
@@ -2610,15 +3663,16 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
         return "storyboard:script:lock:" + projectId + ":" + episodeId;
     }
 
-    private void releaseProjectLockQuietly(Long projectId, Long episodeId)
+    private void releaseProjectLockQuietly(Long projectId, Long episodeId, String lockToken)
     {
-        if (Objects.isNull(projectId) || Objects.isNull(episodeId))
+        if (Objects.isNull(projectId) || Objects.isNull(episodeId) || StrUtil.isBlank(lockToken))
         {
+            log.warn("分镜脚本项目锁缺少释放凭证: projectId={}, episodeId={}", projectId, episodeId);
             return;
         }
         try
         {
-            redisCache.deleteObject(buildLockKey(projectId, episodeId));
+            projectLockGuard.releaseIfMatch(buildLockKey(projectId, episodeId), lockToken);
         }
         catch (Exception e)
         {
@@ -2627,7 +3681,7 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
         }
     }
 
-    private void touchExtractTask(Long taskId)
+    private void touchExtractTask(Long taskId, String expectedTraceId)
     {
         if (Objects.isNull(taskId))
         {
@@ -2635,10 +3689,11 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
         }
         try
         {
-            AidExtractTask upd = new AidExtractTask();
-            upd.setId(taskId);
-            upd.setUpdateTime(DateUtils.getNowDate());
-            extractTaskService.updateById(upd);
+            LambdaUpdateWrapper<AidExtractTask> upd = Wrappers.lambdaUpdate();
+            upd.eq(AidExtractTask::getId, taskId);
+            upd.eq(AidExtractTask::getBillingTraceId, expectedTraceId);
+            upd.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
+            extractTaskService.update(upd);
         }
         catch (Exception e)
         {
@@ -2690,7 +3745,8 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
     /**
      * 把批次置 FAILED + billing 置 REFUNDED（计费层面金额由父任务级 settleBilling 通过差额退回机制统一处理）。
      */
-    private void failBatchAndRefund(AidStoryboardBatch batch, Long userId, String errMsg)
+    private void failBatchAndRefund(Long taskId, String expectedTraceId,
+                                    AidStoryboardBatch batch, Long userId, String errMsg)
     {
         if (Objects.isNull(batch))
         {
@@ -2698,15 +3754,30 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
         }
         try
         {
-            LambdaUpdateWrapper<AidStoryboardBatch> upd = Wrappers.lambdaUpdate();
-            upd.eq(AidStoryboardBatch::getId, batch.getId());
-            upd.set(AidStoryboardBatch::getStatus, BATCH_STATUS_FAILED);
-            upd.set(AidStoryboardBatch::getBillingStatus, BILLING_STATUS_REFUNDED);
-            upd.set(AidStoryboardBatch::getErrorMessage, StrUtil.sub(errMsg, 0, 500));
-            upd.set(AidStoryboardBatch::getUpdateTime, DateUtils.getNowDate());
-            storyboardBatchService.update(upd);
-            // 同步计划状态为 FAILED
-            updatePlanStatus(batch.getShotGroupPlanId(), PLAN_STATUS_FAILED, StrUtil.sub(errMsg, 0, 500));
+            transactionTemplate.executeWithoutResult(status -> {
+                extractBillingService.assertTextTaskBusinessCommit(
+                        taskId, userId, expectedTraceId);
+                LambdaUpdateWrapper<AidStoryboardBatch> upd = Wrappers.lambdaUpdate();
+                upd.eq(AidStoryboardBatch::getId, batch.getId());
+                upd.eq(AidStoryboardBatch::getParentTaskId, taskId);
+                upd.eq(AidStoryboardBatch::getStatus, BATCH_STATUS_PROCESSING);
+                upd.eq(AidStoryboardBatch::getDelFlag, DEL_FLAG_NORMAL);
+                upd.set(AidStoryboardBatch::getStatus, BATCH_STATUS_FAILED);
+                upd.set(AidStoryboardBatch::getBillingStatus, BILLING_STATUS_REFUNDED);
+                upd.set(AidStoryboardBatch::getErrorMessage, StrUtil.sub(errMsg, 0, 500));
+                upd.set(AidStoryboardBatch::getUpdateTime, DateUtils.getNowDate());
+                if (!storyboardBatchService.update(upd))
+                {
+                    throw new ServiceException("批次状态已变化");
+                }
+                // 同步计划状态为 FAILED；父行门禁与计划/批次写入同一事务，续生无法穿插。
+                updatePlanStatus(batch.getShotGroupPlanId(), PLAN_STATUS_FAILED,
+                        StrUtil.sub(errMsg, 0, 500));
+            });
+        }
+        catch (TextTaskExecutionRejectedException ex)
+        {
+            throw ex;
         }
         catch (Exception ex)
         {
@@ -2718,7 +3789,8 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
      * 把批次置 CANCELLED + billing 置 REFUNDED。
      * 用于"前序批次失败"或"用户主动取消"场景。
      */
-    private void cancelBatchAndRefund(AidStoryboardBatch batch, Long userId, String reason)
+    private void cancelBatchAndRefund(Long taskId, String expectedTraceId,
+                                      AidStoryboardBatch batch, Long userId, String reason)
     {
         if (Objects.isNull(batch))
         {
@@ -2726,15 +3798,30 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
         }
         try
         {
-            LambdaUpdateWrapper<AidStoryboardBatch> upd = Wrappers.lambdaUpdate();
-            upd.eq(AidStoryboardBatch::getId, batch.getId());
-            upd.set(AidStoryboardBatch::getStatus, BATCH_STATUS_CANCELLED);
-            upd.set(AidStoryboardBatch::getBillingStatus, BILLING_STATUS_REFUNDED);
-            upd.set(AidStoryboardBatch::getErrorMessage, StrUtil.sub(reason, 0, 500));
-            upd.set(AidStoryboardBatch::getUpdateTime, DateUtils.getNowDate());
-            storyboardBatchService.update(upd);
-            // 同步计划状态为 CANCELLED
-            updatePlanStatus(batch.getShotGroupPlanId(), PLAN_STATUS_CANCELLED, StrUtil.sub(reason, 0, 500));
+            transactionTemplate.executeWithoutResult(status -> {
+                extractBillingService.assertTextTaskBusinessCommit(
+                        taskId, userId, expectedTraceId);
+                LambdaUpdateWrapper<AidStoryboardBatch> upd = Wrappers.lambdaUpdate();
+                upd.eq(AidStoryboardBatch::getId, batch.getId());
+                upd.eq(AidStoryboardBatch::getParentTaskId, taskId);
+                upd.eq(AidStoryboardBatch::getStatus, BATCH_STATUS_PENDING);
+                upd.eq(AidStoryboardBatch::getDelFlag, DEL_FLAG_NORMAL);
+                upd.set(AidStoryboardBatch::getStatus, BATCH_STATUS_CANCELLED);
+                upd.set(AidStoryboardBatch::getBillingStatus, BILLING_STATUS_REFUNDED);
+                upd.set(AidStoryboardBatch::getErrorMessage, StrUtil.sub(reason, 0, 500));
+                upd.set(AidStoryboardBatch::getUpdateTime, DateUtils.getNowDate());
+                if (!storyboardBatchService.update(upd))
+                {
+                    throw new ServiceException("批次状态已变化");
+                }
+                // 同步计划状态为 CANCELLED。
+                updatePlanStatus(batch.getShotGroupPlanId(), PLAN_STATUS_CANCELLED,
+                        StrUtil.sub(reason, 0, 500));
+            });
+        }
+        catch (TextTaskExecutionRejectedException ex)
+        {
+            throw ex;
         }
         catch (Exception ex)
         {
@@ -2742,17 +3829,14 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
         }
     }
 
-    /**
-     * 把父任务标记为 PARTIAL_FAILED（终态）。
-     * 由 Consumer 调用 doStoryboardScriptBatch 后正常返回不抛异常，避免 Consumer 把任务标记为 FAILED。
-     * 业务层主动通过此方法把 aid_extract_task.status 改成 PARTIAL_FAILED。
-     */
-    private void markTaskPartialFailed(Long taskId, String reason)
+    /** 将父任务标记为部分失败。 */
+    private void markTaskPartialFailed(Long taskId, String expectedTraceId, String reason)
     {
         try
         {
             LambdaUpdateWrapper<AidExtractTask> upd = Wrappers.lambdaUpdate();
             upd.eq(AidExtractTask::getId, taskId);
+            upd.eq(AidExtractTask::getBillingTraceId, expectedTraceId);
             upd.set(AidExtractTask::getStatus, TASK_STATUS_PARTIAL_FAILED);
             upd.set(AidExtractTask::getErrorMessage, StrUtil.sub(reason, 0, 500));
             upd.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
@@ -2767,110 +3851,151 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
     /**
      * 续生模式独立结算。
      */
-    private void settleResumeBatches(Long taskId, Long userId, List<AidStoryboardBatch> processedPlans,
-                                      int processedBatchPos, boolean hasFailureMidway)
+    private boolean settleResumeBatches(Long taskId, Long userId, String expectedTraceId)
     {
-        // 从任务 remark 反解 traceId / 总冻结金额
         AidExtractTask task = extractTaskService.selectAidExtractTaskById(taskId);
-        if (Objects.isNull(task) || StrUtil.isBlank(task.getRemark()) || !task.getRemark().startsWith("RESUME_TRACE:"))
+        if (Objects.isNull(task) || !Objects.equals(expectedTraceId, task.getBillingTraceId()))
+        {
+            log.info("续生结算跳过，执行周期已变化: taskId={}", taskId);
+            throw new TextTaskExecutionRejectedException();
+        }
+        if (Objects.nonNull(task)
+                && extractBillingService.resolveTextCallBillingContext(taskId).mediaTaskBilling())
+        {
+            Map<String, Object> usageData = extractBillingService.aggregateTokenUsage(taskId);
+            if (!Boolean.TRUE.equals(usageData.get("aggregation_complete")))
+            {
+                log.warn("分镜脚本滚动续生用量尚未收敛: taskId={}", taskId);
+                return false;
+            }
+            return extractBillingService.settleBilling(
+                    taskId, userId, usageData, expectedTraceId);
+        }
+        if (Objects.isNull(task) || !hasResumeMarker(task.getRemark()))
         {
             log.warn("settleResumeBatches 找不到 RESUME_TRACE 标记，跳过结算: taskId={}", taskId);
-            return;
+            return false;
         }
-        String marker = task.getRemark();
-        String resumeTraceId;
-        BigDecimal totalFrozen;
+        boolean finalized = finalizeMarkedResumeRound(task, userId);
+        if (!finalized)
+        {
+            markResumeBillingPending(taskId, expectedTraceId);
+        }
+        return finalized;
+    }
+
+    private AidExtractTask finalizePreviousResumeRoundBeforeRetry(AidExtractTask task, Long userId)
+    {
+        if (!hasResumeMarker(task.getRemark()))
+        {
+            return task;
+        }
+        if (!finalizeMarkedResumeRound(task, userId))
+        {
+            throw new ServiceException("计费处理中");
+        }
+        AidExtractTask refreshed = extractTaskService.selectAidExtractTaskById(task.getId());
+        if (Objects.isNull(refreshed) || hasResumeMarker(refreshed.getRemark()))
+        {
+            throw new ServiceException("计费处理中");
+        }
+        return refreshed;
+    }
+
+    private boolean finalizeMarkedResumeRound(AidExtractTask task, Long userId)
+    {
+        StoryboardResumeBillingExecutor.ResumeMarker marker;
         try
         {
-            int p1 = marker.indexOf("RESUME_TRACE:") + "RESUME_TRACE:".length();
-            int p2 = marker.indexOf("|FROZEN:");
-            int p3 = p2 + "|FROZEN:".length();
-            resumeTraceId = marker.substring(p1, p2);
-            totalFrozen = new BigDecimal(marker.substring(p3));
+            marker = StoryboardResumeBillingExecutor.parseMarker(task.getRemark());
         }
-        catch (Exception e)
+        catch (RuntimeException e)
         {
-            log.error("settleResumeBatches 解析 RESUME_TRACE 失败: taskId={}, remark={}", taskId, marker, e);
-            // 即使解析失败也要清空 marker，避免下一轮续生拿到坏值
-            clearResumeMarker(taskId);
-            return;
+            log.error("分镜脚本续生计费标记解析失败: taskId={}, remark={}",
+                    task.getId(), task.getRemark(), e);
+            return false;
         }
-
-        // 按 processedPlans 范围内的批次重新查 DB 拿最新 status
-        if (CollectionUtil.isEmpty(processedPlans))
-        {
-            log.info("settleResumeBatches 无处理批次，全额退款: taskId={}, totalFrozen={}", taskId, totalFrozen);
-            try
-            {
-                accountUpdateService.refund(userId, totalFrozen, resumeTraceId, BIZ_TYPE_CREATE, "分镜脚本续生退款");
-            }
-            catch (Exception e)
-            {
-                log.error("分镜脚本续生全额退款异常: taskId={}, traceId={}", taskId, resumeTraceId, e);
-            }
-            clearResumeMarker(taskId);
-            return;
-        }
-
-        List<Long> batchIds = processedPlans.stream()
-                .map(AidStoryboardBatch::getId)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toList());
-        List<AidStoryboardBatch> latestBatches = storyboardBatchService.list(
+        List<AidStoryboardBatch> roundBatches = storyboardBatchService.list(
                 Wrappers.<AidStoryboardBatch>lambdaQuery()
-                        .in(AidStoryboardBatch::getId, batchIds)
+                        .eq(AidStoryboardBatch::getParentTaskId, task.getId())
+                        .eq(AidStoryboardBatch::getRetryRound, marker.retryRound())
                         .eq(AidStoryboardBatch::getDelFlag, DEL_FLAG_NORMAL));
-
-        BigDecimal succeededAmount = BigDecimal.ZERO;
-        BigDecimal unsuccessAmount = BigDecimal.ZERO;
-        for (AidStoryboardBatch batch : latestBatches)
-        {
-            BigDecimal amt = batch.getFrozenAmount() == null ? BigDecimal.ZERO : batch.getFrozenAmount();
-            if (BATCH_STATUS_SUCCEEDED.equalsIgnoreCase(batch.getStatus()))
-            {
-                succeededAmount = succeededAmount.add(amt);
-            }
-            else if (BATCH_STATUS_FAILED.equalsIgnoreCase(batch.getStatus())
-                    || BATCH_STATUS_CANCELLED.equalsIgnoreCase(batch.getStatus()))
-            {
-                unsuccessAmount = unsuccessAmount.add(amt);
-            }
-        }
-
-        try
-        {
+        BigDecimal succeededAmount = roundBatches.stream()
+                .filter(batch -> BATCH_STATUS_SUCCEEDED.equalsIgnoreCase(batch.getStatus()))
+                .map(AidStoryboardBatch::getFrozenAmount)
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal refundAmount = marker.frozenAmount().subtract(succeededAmount).max(BigDecimal.ZERO);
+        StoryboardResumeBillingExecutor.BillingResult result = StoryboardResumeBillingExecutor.execute(() -> {
             if (succeededAmount.compareTo(BigDecimal.ZERO) > 0)
             {
-                accountUpdateService.settle(userId, succeededAmount, resumeTraceId,
+                accountUpdateService.settle(userId, succeededAmount, marker.traceId(),
                         BIZ_TYPE_CREATE, "分镜脚本续生结算");
             }
-            if (unsuccessAmount.compareTo(BigDecimal.ZERO) > 0)
+        }, () -> {
+            if (refundAmount.compareTo(BigDecimal.ZERO) > 0)
             {
-                accountUpdateService.refund(userId, unsuccessAmount, resumeTraceId,
+                accountUpdateService.refund(userId, refundAmount, marker.traceId(),
                         BIZ_TYPE_CREATE, "分镜脚本续生退款");
             }
-            log.info("分镜脚本续生结算完成: taskId={}, traceId={}, totalFrozen={}, settled={}, refunded={}",
-                    taskId, resumeTraceId, totalFrozen, succeededAmount, unsuccessAmount);
-        }
-        catch (Exception e)
+        });
+        if (!result.succeeded())
         {
-            log.error("分镜脚本续生结算异常: taskId={}, traceId={}", taskId, resumeTraceId, e);
+            log.error("分镜脚本续生结算异常: taskId={}, traceId={}",
+                    task.getId(), marker.traceId(), result.error());
+            return false;
         }
+        for (AidStoryboardBatch batch : roundBatches)
+        {
+            LambdaUpdateWrapper<AidStoryboardBatch> billing = Wrappers.lambdaUpdate();
+            billing.eq(AidStoryboardBatch::getId, batch.getId());
+            billing.set(AidStoryboardBatch::getBillingStatus,
+                    StoryboardResumeBillingExecutor.terminalBatchBillingStatus(
+                            false, BATCH_STATUS_SUCCEEDED.equalsIgnoreCase(batch.getStatus())));
+            billing.set(AidStoryboardBatch::getUpdateTime, DateUtils.getNowDate());
+            storyboardBatchService.update(billing);
+        }
+        log.info("分镜脚本续生结算完成: taskId={}, traceId={}, round={}, settled={}, refunded={}",
+                task.getId(), marker.traceId(), marker.retryRound(), succeededAmount, refundAmount);
+        return clearResumeMarker(task.getId(), task.getBillingTraceId(), task.getRemark());
+    }
 
-        clearResumeMarker(taskId);
+    private boolean hasResumeMarker(String remark)
+    {
+        return StrUtil.startWith(remark, "RESUME_TRACE:");
+    }
+
+    private void markResumeBillingPending(Long taskId, String expectedTraceId)
+    {
+        LambdaUpdateWrapper<AidExtractTask> pending = Wrappers.lambdaUpdate();
+        pending.eq(AidExtractTask::getId, taskId);
+        pending.eq(AidExtractTask::getBillingTraceId, expectedTraceId);
+        pending.set(AidExtractTask::getErrorMessage, "续生计费处理中");
+        pending.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
+        extractTaskService.update(pending);
     }
 
     /** 清理 task.remark 上的 RESUME_TRACE 标记，避免下一轮续生拿到旧 traceId 误结算。 */
-    private void clearResumeMarker(Long taskId)
+    private boolean clearResumeMarker(Long taskId, String expectedTraceId, String expectedMarker)
     {
+        if (StrUtil.isBlank(expectedMarker))
+        {
+            return false;
+        }
         try
         {
             LambdaUpdateWrapper<AidExtractTask> clearUpd = Wrappers.lambdaUpdate();
             clearUpd.eq(AidExtractTask::getId, taskId);
+            clearUpd.eq(AidExtractTask::getBillingTraceId, expectedTraceId);
+            clearUpd.eq(AidExtractTask::getRemark, expectedMarker);
             clearUpd.set(AidExtractTask::getRemark, null);
-            extractTaskService.update(clearUpd);
+            return extractTaskService.update(clearUpd);
         }
-        catch (Exception ignore) { /* 静默兜底 */ }
+        catch (Exception e)
+        {
+            log.error("清理分镜续生计费标记失败: taskId={}", taskId, e);
+            return false;
+        }
     }
 
     private void sendMqMessage(Long taskId, Long projectId, Long episodeId, Long userId, String modelCode)
@@ -2879,13 +4004,49 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
         boolean enqueued = dualModeTaskDispatcher.dispatch(taskId, projectId, episodeId, userId, modelCode,
                 TASK_TYPE_STORYBOARD_SCRIPT_BATCH,
                 () -> batchTaskLocalOrchestrator.run(taskId, userId, LOCAL_SPEC,
-                        () -> doStoryboardScriptBatch(taskId, userId),
+                        () -> doStoryboardScriptBatch(taskId, userId,
+                                taskQueueService.currentLocalDispatchToken(taskId)),
                         () -> assetExtractService.releaseBatchFormLocks(
                                 taskId, TASK_TYPE_STORYBOARD_SCRIPT_BATCH,
                                 taskQueueService.currentLocalDispatchToken(taskId))));
         if (!enqueued)
         {
             log.error("分镜脚本批量入队失败: taskId={}", taskId);
+            throw new ServiceException("提交失败，请重试");
+        }
+    }
+
+    private boolean isCurrentTextExecutionCycle(Long taskId, Long userId, String expectedTraceId)
+    {
+        if (Objects.isNull(taskId) || Objects.isNull(userId) || StrUtil.isBlank(expectedTraceId))
+        {
+            return false;
+        }
+        return extractTaskService.count(
+                Wrappers.<AidExtractTask>lambdaQuery()
+                        .eq(AidExtractTask::getId, taskId)
+                        .eq(AidExtractTask::getUserId, userId)
+                        .eq(AidExtractTask::getBillingTraceId, expectedTraceId)
+                        .eq(AidExtractTask::getBillingStatus, BILLING_STATUS_FROZEN)
+                        .in(AidExtractTask::getStatus,
+                                TASK_STATUS_PROCESSING, TASK_STATUS_FINALIZING)) == 1L;
+    }
+
+    private void sendMqMessageNow(Long taskId, Long projectId, Long episodeId, Long userId,
+                                  String modelCode, String dispatchMode, String dispatchToken)
+    {
+        boolean enqueued = dualModeTaskDispatcher.dispatchNow(taskId, projectId, episodeId, userId, modelCode,
+                TASK_TYPE_STORYBOARD_SCRIPT_BATCH,
+                () -> batchTaskLocalOrchestrator.run(taskId, userId, LOCAL_SPEC,
+                        () -> doStoryboardScriptBatch(taskId, userId,
+                                taskQueueService.currentLocalDispatchToken(taskId)),
+                        () -> assetExtractService.releaseBatchFormLocks(
+                                taskId, TASK_TYPE_STORYBOARD_SCRIPT_BATCH,
+                                taskQueueService.currentLocalDispatchToken(taskId))),
+                dispatchMode, dispatchToken);
+        if (!enqueued)
+        {
+            log.error("分镜脚本续生立即入队失败: taskId={}", taskId);
             throw new ServiceException("提交失败，请重试");
         }
     }
@@ -3001,7 +4162,7 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
     /**
      * 按剧本片段字数与拆分模式计算注入用最低镜头数（含封顶）。
      * 封顶只作用于「系统强制要求的最低数」，不限制 AI 实际可拆更多；
-     * 超封顶的超长场次在提交时会通过 {@link #buildShotFloorWarning} 提醒用户。
+     * 超封顶的超长剧本片段在提交时会通过 {@link #buildShotFloorWarning} 提醒用户。
      *
      * @param charCount 本批实际下发拆分的剧本片段字数
      * @param mode      拆分模式（精简/标准/细拆）
@@ -3013,7 +4174,7 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
         int floor = calcUncappedShotFloor(charCount, mode, cfg);
         if (floor > cfg.maxFloor)
         {
-            // 超长片段封顶：防止单次调用要求过多镜头导致输出截断；超限场次建议拆分场次或改用专业版（镜头组拆分）
+            // 超长片段封顶：防止单次调用要求过多镜头导致输出截断。
             log.warn("镜头数下限超过单次调用封顶，按封顶执行: charCount={}, mode={}, floor={}, maxFloor={}",
                     charCount, mode, floor, cfg.maxFloor);
             floor = cfg.maxFloor;
@@ -3022,13 +4183,13 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
     }
 
     /**
-     * 提交时的超长场次检测：未封顶理论下限超过 maxFloor 的场次，生成用户提示文案。
+     * 提交时的超长片段检测：未封顶理论下限超过 maxFloor 时生成用户提示文案。
      * 封顶只降低「强制最低镜头数」，AI 仍可按内容自行多拆，因此不阻断提交、只提醒。
      *
-     * @param batchPlans 普通模式批次计划（一场次一批）
+     * @param batchPlans 剧本切片计划或场次批次计划
      * @param agentCode  最终解析出的智能体编码（仅下限白名单智能体检测）
      * @param mode       拆分模式
-     * @return 提示文案；无超长场次或不适用时返回 {@code null}
+     * @return 提示文案；无超长片段或不适用时返回 {@code null}
      */
     private String buildShotFloorWarning(List<BatchPlanItem> batchPlans, String agentCode, String mode)
     {
@@ -3037,7 +4198,7 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
             return null;
         }
         ShotDensityFloorConfig cfg = loadShotDensityFloorConfig();
-        List<String> overlongCodes = new ArrayList<>();
+        List<String> overlongItems = new ArrayList<>();
         for (BatchPlanItem plan : batchPlans)
         {
             if (Objects.isNull(plan))
@@ -3046,27 +4207,276 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
             }
             if (calcUncappedShotFloor(plan.getCharCount(), mode, cfg) > cfg.maxFloor)
             {
-                // 一场次一批：sceneCodes 单元素，取首元素做展示编码
-                String code = CollectionUtil.isEmpty(plan.getSceneCodes()) ? "?" : plan.getSceneCodes().get(0);
-                overlongCodes.add(code);
+                String label = CollectionUtil.isEmpty(plan.getSceneCodes())
+                        ? "剧本片段" + (Convert.toInt(plan.getBatchIndex(), 0) + 1)
+                        : "场次" + plan.getSceneCodes().get(0);
+                overlongItems.add(label);
             }
         }
-        if (overlongCodes.isEmpty())
+        if (overlongItems.isEmpty())
         {
             return null;
         }
-        String sample = overlongCodes.stream().limit(3).collect(Collectors.joining("、"));
-        String head = overlongCodes.size() > 3
-                ? "场次 " + sample + " 等 " + overlongCodes.size() + " 个场次"
-                : "场次 " + sample;
+        String sample = overlongItems.stream().limit(3).collect(Collectors.joining("、"));
+        String head = overlongItems.size() > 3
+                ? sample + " 等 " + overlongItems.size() + " 个片段"
+                : sample;
         // 提示不阻断任务：封顶只作用于"强制最低"，AI 仍可自行多拆
-        log.info("分镜脚本提交检测到超长场次: mode={}, maxFloor={}, overlongCodes={}", mode, cfg.maxFloor, overlongCodes);
-        return head + "剧情较长，AI 单次强制的最低镜头数已按 " + cfg.maxFloor
-                + " 镜封顶（AI 仍会按内容自行多拆，不受此限制）；如需更高拆分密度，建议拆分场次或改用专业版";
+        log.info("分镜脚本提交检测到超长片段: mode={}, maxFloor={}, overlongItems={}",
+                mode, cfg.maxFloor, overlongItems);
+        return head + "内容较长，AI 单次强制的最低镜头数已按 " + cfg.maxFloor
+                + " 镜封顶（AI 仍会按内容自行多拆，不受此限制）；如需更高拆分密度，建议缩短单集剧本或改用专业版";
     }
 
     /**
-     * 构建分镜脚本 LLM 的用户输入内容（按场次：一个 BatchPlanItem = 单个场次 plot）。
+     * 构建最新剧本直驱模式的项目级资产字典。
+     */
+    private String buildDirectAssetDictionary(Long projectId, Long episodeId, Long userId,
+                                              List<AidRolePropScene> sceneList)
+    {
+        StringBuilder dictionary = new StringBuilder();
+        dictionary.append("【可用场景资产】\n");
+        for (AidRolePropScene scene : sceneList)
+        {
+            dictionary.append("- sceneName：").append(scene.getName()).append("\n");
+            appendKv(dictionary, "  场景说明", scene.getIntroduction());
+            appendKv(dictionary, "  场景空间数据", scene.getProfileData());
+        }
+
+        List<AidRolePropScene> otherAssets = rpsService.list(
+                Wrappers.<AidRolePropScene>lambdaQuery()
+                        .select(AidRolePropScene::getId, AidRolePropScene::getName,
+                                AidRolePropScene::getAliasesName, AidRolePropScene::getIntroduction,
+                                AidRolePropScene::getAssetType)
+                        .eq(AidRolePropScene::getProjectId, projectId)
+                        .eq(AidRolePropScene::getUserId, userId)
+                        .eq(AidRolePropScene::getDelFlag, DEL_FLAG_NORMAL)
+                        .in(AidRolePropScene::getAssetType,
+                                List.of(ASSET_TYPE_CHARACTER, ASSET_TYPE_PROP))
+                        .orderByAsc(AidRolePropScene::getAssetType)
+                        .orderByAsc(AidRolePropScene::getName)
+                        .orderByAsc(AidRolePropScene::getId));
+        dictionary.append("\n【角色与道具资产】\n");
+        for (AidRolePropScene asset : otherAssets)
+        {
+            dictionary.append("- ").append(asset.getAssetType()).append("：")
+                    .append(asset.getName());
+            if (StrUtil.isNotBlank(asset.getAliasesName()))
+            {
+                dictionary.append("；别名：").append(asset.getAliasesName());
+            }
+            if (StrUtil.isNotBlank(asset.getIntroduction()))
+            {
+                dictionary.append("；说明：").append(asset.getIntroduction());
+            }
+            dictionary.append("\n");
+        }
+
+        Set<Long> allAssetIds = new LinkedHashSet<>();
+        sceneList.stream().map(AidRolePropScene::getId).filter(Objects::nonNull)
+                .forEach(allAssetIds::add);
+        otherAssets.stream().map(AidRolePropScene::getId).filter(Objects::nonNull)
+                .forEach(allAssetIds::add);
+        if (CollectionUtil.isNotEmpty(allAssetIds))
+        {
+            List<AidRolePropSceneForm> forms = rpsFormService.list(
+                    Wrappers.<AidRolePropSceneForm>lambdaQuery()
+                            .select(AidRolePropSceneForm::getAssetId, AidRolePropSceneForm::getName,
+                                    AidRolePropSceneForm::getChangeReason,
+                                    AidRolePropSceneForm::getPromptText)
+                            .in(AidRolePropSceneForm::getAssetId, allAssetIds)
+                            .eq(AidRolePropSceneForm::getUserId, userId)
+                            .eq(AidRolePropSceneForm::getDelFlag, DEL_FLAG_NORMAL)
+                            .orderByAsc(AidRolePropSceneForm::getAssetId)
+                            .orderByAsc(AidRolePropSceneForm::getId));
+            Map<Long, String> assetNames = new HashMap<>();
+            sceneList.forEach(scene -> assetNames.put(scene.getId(), scene.getName()));
+            otherAssets.forEach(asset -> assetNames.put(asset.getId(), asset.getName()));
+            dictionary.append("\n【资产形态视觉约束】\n");
+            for (AidRolePropSceneForm form : forms)
+            {
+                String assetName = assetNames.getOrDefault(form.getAssetId(), "未命名资产");
+                String formName = StrUtil.blankToDefault(form.getName(), "默认形态");
+                dictionary.append("- ").append(buildAssetReferenceName(assetName, formName));
+                if (StrUtil.isNotBlank(form.getChangeReason()))
+                {
+                    dictionary.append("；变化原因：").append(form.getChangeReason());
+                }
+                if (StrUtil.isNotBlank(form.getPromptText()))
+                {
+                    dictionary.append("；视觉描述：").append(form.getPromptText());
+                }
+                dictionary.append("\n");
+            }
+        }
+        appendDirectVisualReferenceDictionary(dictionary, sceneList, otherAssets, userId);
+        dictionary.append("\n【可引用视频名称】\n");
+        appendReferenceNameLine(dictionary, loadVideoReferenceNames(projectId, episodeId, userId));
+        List<AidRolePropScene> characters = otherAssets.stream()
+                .filter(asset -> Objects.equals(ASSET_TYPE_CHARACTER, asset.getAssetType()))
+                .collect(Collectors.toList());
+        dictionary.append("\n【可引用音频名称】\n");
+        appendReferenceNameLine(dictionary, roleAudioReferenceResolver.loadAvailableReferenceNames(
+                characters, projectId, episodeId, userId));
+        dictionary.append("\n");
+        return dictionary.toString();
+    }
+
+    private void appendDirectVisualReferenceDictionary(StringBuilder dictionary,
+            List<AidRolePropScene> sceneList, List<AidRolePropScene> otherAssets, Long userId)
+    {
+        List<AidRolePropScene> characters = otherAssets.stream()
+                .filter(asset -> Objects.equals(ASSET_TYPE_CHARACTER, asset.getAssetType()))
+                .collect(Collectors.toList());
+        List<AidRolePropScene> props = otherAssets.stream()
+                .filter(asset -> Objects.equals(ASSET_TYPE_PROP, asset.getAssetType()))
+                .collect(Collectors.toList());
+        appendDirectAssetImageCategory(dictionary, "可引用角色图", characters, userId);
+        appendDirectAssetImageCategory(dictionary, "可引用道具图", props, userId);
+
+        dictionary.append("\n【可引用场景图】\n");
+        for (AidRolePropScene scene : sceneList)
+        {
+            Set<String> labels = loadAvailableSceneDirectionLabels(scene.getId(), userId);
+            if (CollectionUtil.isNotEmpty(labels))
+            {
+                dictionary.append("- ").append(scene.getName()).append("：");
+                List<String> entries = new ArrayList<>();
+                for (String label : KNOWN_DIRECTION_LABELS)
+                {
+                    if (labels.contains(label))
+                    {
+                        entries.add("[" + scene.getName() + "_" + label + "]");
+                    }
+                }
+                dictionary.append(String.join("、", entries)).append("\n");
+                continue;
+            }
+            List<AidRolePropSceneFormImage> unsplit =
+                    loadInUseUnsplitSceneImages(scene.getId(), userId);
+            if (CollectionUtil.isNotEmpty(unsplit))
+            {
+                String entryName = pickRepresentativeUnsplitName(scene.getName(), unsplit);
+                dictionary.append("- ").append(scene.getName()).append("：[")
+                        .append(entryName).append("]")
+                        .append(buildUnsplitSceneEntry(entryName)).append("\n");
+            }
+            else
+            {
+                dictionary.append("- ").append(scene.getName())
+                        .append("：无可引用场景图，仅使用文字空间描述\n");
+            }
+        }
+    }
+
+    private void appendDirectAssetImageCategory(StringBuilder dictionary, String title,
+            List<AidRolePropScene> assets, Long userId)
+    {
+        dictionary.append("\n【").append(title).append("】\n");
+        Set<Long> assetIds = assets.stream().map(AidRolePropScene::getId)
+                .filter(Objects::nonNull).collect(Collectors.toCollection(LinkedHashSet::new));
+        Map<Long, List<AidRolePropSceneFormImage>> imagesByAsset =
+                loadInUseFormImagesByAssets(assetIds, userId);
+        LinkedHashSet<String> names = new LinkedHashSet<>();
+        for (AidRolePropScene asset : assets)
+        {
+            for (AidRolePropSceneFormImage image :
+                    imagesByAsset.getOrDefault(asset.getId(), Collections.emptyList()))
+            {
+                String referenceName = buildAssetReferenceName(asset.getName(), image.getName());
+                if (StrUtil.isNotBlank(referenceName))
+                {
+                    names.add("[" + referenceName + "]");
+                }
+            }
+        }
+        dictionary.append(names.isEmpty() ? "无" : String.join("、", names)).append("\n");
+    }
+
+    /**
+     * 构建最新剧本直驱模式的单批次用户输入。
+     */
+    private String buildDirectLlmInput(BatchPlanItem batch, String assetDictionary,
+                                       String mode, Integer minShotFloor,
+                                       boolean selective, String continuityContext)
+    {
+        StringBuilder content = new StringBuilder();
+        content.append("【拆分镜头数量指导模式】：").append(mode).append("\n");
+        content.append("【批次位置】：第 ").append(batch.getBatchIndex() + 1).append(" 个剧本片段。")
+                .append("场次编号与全局镜号均由后端统一分配，模型不得输出数据库ID。\n");
+        if (Objects.nonNull(minShotFloor))
+        {
+            content.append("【本片段最低镜头数】：不得少于 ").append(minShotFloor)
+                    .append(" 个，可按剧情节拍增加。\n");
+        }
+        if (StrUtil.isNotBlank(continuityContext))
+        {
+            content.append("\n【上一剧本片段承接上下文（只读）】\n")
+                    .append(continuityContext).append("\n")
+                    .append("该上下文只用于判断当前片段是否承接同一场次及延续空间/角色状态；")
+                    .append("严禁把其中任何文字重复输出到当前片段的 scriptContent/剧本内容。\n");
+        }
+        if (StrUtil.isNotBlank(batch.getReferenceContext()))
+        {
+            content.append("\n【剧本文档参考资料（只读，不进入剧本内容）】\n")
+                    .append(batch.getReferenceContext()).append("\n")
+                    .append("仅用于理解角色、场景、道具和世界观；禁止复制到 scriptContent/剧本内容。\n");
+        }
+        if (CollectionUtil.isNotEmpty(batch.getStructureCues()))
+        {
+            content.append("\n【当前批次结构提示（只读，不进入剧本内容）】\n");
+            batch.getStructureCues().forEach(cue -> content.append(cue.promptLine()).append("\n"));
+            content.append("结构提示按锚点绑定正文，用于判断幕、场次、时空和节奏；禁止复制到 scriptContent/剧本内容。\n");
+        }
+        content.append("\n【当前有效剧情正文（唯一逐字覆盖源）】\n")
+                .append(batch.getMergedPlotContent()).append("\n");
+        if (CollectionUtil.isNotEmpty(batch.getVisualDirectives()))
+        {
+            content.append("\n【显式画面指令（按锚点落实到目标镜头字段）】\n");
+            batch.getVisualDirectives().forEach(
+                    directive -> content.append(directive.promptLine()).append("\n"));
+            content.append("SHOT_SIZE/CAMERA_ANGLE/CAMERA_MOVEMENT 的值已规范成系统枚举，必须逐字落入对应字段；")
+                    .append("FREEZE_FRAME/TRANSITION 必须写入目标镜头动作或视觉字段；")
+                    .append("SCREEN_TEXT 必须把具体文字写入目标镜头画面字段。")
+                    .append("这些要求不得让模型在有效剧情正文之外扩写 scriptContent/剧本内容。\n");
+        }
+        content.append("\n")
+                .append(assetDictionary)
+                .append("\n【场次匹配硬约束】\n")
+                .append("1. 你必须先按剧情连续性判断场次，再为每个场次生成一个或多个镜头。\n")
+                .append("2. 每个 sceneName 必须逐字选用【可用场景资产】中的名称，不得创造、缩写或近似匹配。\n")
+                .append("3. 一个场次的全部镜头必须放在同一个 shots 数组中，场次与镜头不是一一对应。\n")
+                .append("4. scenes 与 shots 的数组顺序就是剧情顺序，不得按场景名称重新排序。\n");
+        if (selective)
+        {
+            content.append("5. 本次是选择性生成：只为【可用场景资产】中列出的场景生成镜头；")
+                    .append("剧本中属于其他场景的内容直接跳过，严禁近似绑定到已选场景。")
+                    .append("若当前片段完全没有所选场景，必须精确输出 {\"scenes\":[]}。\n");
+        }
+        return content.toString();
+    }
+
+    private String buildContinuityContext(List<String> scriptChunks, int batchIndex,
+                                          String previousSceneName)
+    {
+        if (CollectionUtil.isEmpty(scriptChunks) || batchIndex <= 0 || batchIndex >= scriptChunks.size())
+        {
+            return null;
+        }
+        String previousChunk = StrUtil.blankToDefault(scriptChunks.get(batchIndex - 1), "");
+        String tail = StrUtil.subSuf(previousChunk,
+                Math.max(0, previousChunk.length() - STORYBOARD_CONTINUITY_TAIL_SIZE));
+        StringBuilder context = new StringBuilder();
+        if (StrUtil.isNotBlank(previousSceneName))
+        {
+            context.append("上一成功输出末场景名：").append(previousSceneName).append("\n");
+        }
+        context.append("上一剧本片段末尾：").append(tail);
+        return context.toString();
+    }
+
+    /**
+     * 为 plot 场次批次构建分镜脚本 LLM 输入。
      *
      * @param batch        当前批次（单场次的剧情字段、字数、sceneCode）
      * @param scene        所属场景资产（用于读取空间字段、name/introduction 兜底）
@@ -3074,8 +4484,6 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
      * @param mode         拆分模式（精简/标准/细拆）——镜头数由提示词据此自行决定
      * @param episodeId    剧集 ID（用于按 form_image 维度筛选可引用形态图）
      * @param userId       当前用户 ID（防越权）
-     * @param writerOutput 是否专业版 writer 输出（true=追加 {"content":[...]} 对象硬约束；
-     *                     false=追加「纯 JSON 数组」硬约束，与标准/轻量/解说智能体提示词模板一致）
      * @param minShotFloor 本片段最低镜头数（按字数与模式算出的下限，只约束下限不设上限；null=不注入）
      */
     private String buildLlmInput(BatchPlanItem batch,
@@ -3090,11 +4498,10 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
                                    Long userId,
                                    List<String> videoReferenceNames,
                                    List<String> audioReferenceNames,
-                                   boolean writerOutput,
                                    Integer minShotFloor)
     {
         return buildLlmInput(batch, scene, sceneForms, characterIdx, characterForms, propIdx, propForms,
-                mode, episodeId, userId, videoReferenceNames, audioReferenceNames, writerOutput, minShotFloor,
+                mode, episodeId, userId, videoReferenceNames, audioReferenceNames, minShotFloor,
                 null, null);
     }
 
@@ -3111,7 +4518,6 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
                                   Long userId,
                                   List<String> videoReferenceNames,
                                   List<String> audioReferenceNames,
-                                  boolean writerOutput,
                                   Integer minShotFloor,
                                   Map<Long, List<AidRolePropSceneFormImage>> preloadedCharacterImages,
                                   Map<Long, List<AidRolePropSceneFormImage>> preloadedPropImages)
@@ -3408,17 +4814,6 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
         appendReferenceNameLine(sb, effectiveAudioReferences);
         sb.append("\n");
 
-        // 输出格式硬约束按智能体分流：writer 是 {"content":[...]} 单对象结构，
-        // 标准/轻量/解说是纯 JSON 数组结构，两者互斥——注错约束会把模型带偏、导致解析整批失败
-        if (writerOutput)
-        {
-            appendWriterJsonOutputGuard(sb);
-        }
-        else
-        {
-            appendStandardJsonOutputGuard(sb);
-        }
-
         // 字典出口完整日志（截断防刷屏，便于排查"林深 / 艾拉等角色没出现在 @图片N"问题）
         String vocabPreview = StrUtil.sub(sb.toString(), 0, VOCAB_LOG_PREVIEW_LIMIT);
         log.info("分镜脚本字典构造完成: episodeId={}, userId={}, sceneId={}, "
@@ -3427,37 +4822,6 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
                 sb.length(), vocabPreview);
 
         return sb.toString();
-    }
-
-    /**
-     * 追加标准/轻量/解说智能体的 JSON 数组输出硬约束（离输出最近，优先级最高）。
-     * 不限定字段名与字段数量——字段由各智能体系统提示词的「输出模板」自行约定，
-     * 此处只锁根结构，保证 {@link #parseShotsToEntities} 的数组解析口径稳定。
-     */
-    private void appendStandardJsonOutputGuard(StringBuilder sb)
-    {
-        sb.append("\n【最终JSON输出硬约束】\n");
-        sb.append("以下规则优先级高于所有示例、模板和内部推演：\n");
-        sb.append("1. 最终响应只能是一个纯 JSON 数组，第一个非空字符必须是 [，最后一个非空字符必须是 ]。\n");
-        sb.append("2. 数组每个元素必须是一个 JSON 对象，字段名与字段数量严格按系统提示词「输出模板」的英文 key 要求。\n");
-        sb.append("3. 禁止输出 {\"content\":[...]} 等对象包裹结构，禁止输出多个根节点。\n");
-        sb.append("4. 禁止 Markdown 代码块、解释、注释、前后缀文本；输出必须是可直接解析的纯 JSON 字符串。\n");
-        sb.append("5. 字符串值内部严禁出现未转义的英文双引号，引号统一使用中文直角引号「」。\n");
-    }
-
-    /**
-     * 追加离输出最近的 JSON 闭合约束（专业版 writer：{"content":[10个字符串]} 单对象结构专用）。
-     */
-    private void appendWriterJsonOutputGuard(StringBuilder sb)
-    {
-        sb.append("\n【最终JSON输出硬约束】\n");
-        sb.append("以下规则优先级高于所有示例、模板和内部推演：\n");
-        sb.append("1. 最终响应只能是一个 JSON object，格式只能是 {\"content\":[...]}。\n");
-        sb.append("2. content 必须是字符串数组，且只包含 10 个字符串元素，禁止嵌套 object、array 或第二个 content。\n");
-        sb.append("3. 第 10 个字符串必须是「镜头脚本：...」，镜头脚本字符串结束后只能立即关闭 content 数组和根对象。\n");
-        sb.append("4. 最后 3 个非空字符必须依次是英文双引号、右方括号、右大括号，即 \"]}。\n");
-        sb.append("5. 禁止尾部出现 }]} 这类在数组关闭前先多关对象的闭合顺序；严禁在右方括号前多输出右大括号。\n");
-        sb.append("6. 禁止 Markdown 代码块、解释、注释、前后缀文本；闭合顺序只能是字符串、数组、对象。\n");
     }
 
     /**
@@ -3706,7 +5070,8 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
                         .eq(AidRolePropSceneFormImage::getUserId, userId)
                         .eq(AidRolePropSceneFormImage::getIsUse, IS_USE_YES)
                         .eq(AidRolePropSceneFormImage::getDelFlag, DEL_FLAG_NORMAL)
-                        .orderByAsc(AidRolePropSceneFormImage::getSortOrder));
+                        .orderByAsc(AidRolePropSceneFormImage::getSortOrder)
+                        .orderByAsc(AidRolePropSceneFormImage::getId));
         if (CollectionUtil.isEmpty(imgs))
         {
             return Collections.emptyMap();
@@ -3781,7 +5146,8 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
                         .eq(AidRolePropSceneFormImage::getIsSplitChild, IS_SPLIT_FLAG_NO)
                         .eq(AidRolePropSceneFormImage::getIsSplitSource, IS_SPLIT_FLAG_NO)
                         .eq(AidRolePropSceneFormImage::getDelFlag, DEL_FLAG_NORMAL)
-                        .orderByAsc(AidRolePropSceneFormImage::getSortOrder));
+                        .orderByAsc(AidRolePropSceneFormImage::getSortOrder)
+                        .orderByAsc(AidRolePropSceneFormImage::getId));
         return CollectionUtil.isEmpty(imgs) ? Collections.emptyList() : imgs;
     }
 
@@ -3847,6 +5213,30 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
      * 2) 用「字符串感知 + 括号配对」找出第一个 [...] 顶层数组
      * 3) 都失败则兜底返回 trim 后原文，让 Jackson 报错（不静默吞）
      */
+    private boolean isSceneScriptReplayValid(String output, boolean shotGroup,
+                                             Long projectId, Long episodeId, Long userId,
+                                             Long sceneId, String sceneName, int sortOrder,
+                                             Long batchId, String canonicalSceneCode,
+                                             List<String> referenceWhitelist,
+                                             String groupCode, Integer groupIndex)
+    {
+        try
+        {
+            List<AidStoryboard> parsed = shotGroup
+                    ? parseShotGroupsToEntities(output, projectId, episodeId, userId,
+                            sceneId, sceneName, sortOrder, batchId, canonicalSceneCode,
+                            referenceWhitelist, groupCode, groupIndex, 1)
+                    : parseShotsToEntities(output, projectId, episodeId, userId,
+                            sceneId, sceneName, sortOrder, batchId, canonicalSceneCode,
+                            referenceWhitelist, 0);
+            return CollectionUtil.isNotEmpty(parsed);
+        }
+        catch (RuntimeException e)
+        {
+            return false;
+        }
+    }
+
     private String extractJsonArray(String llmOutput)
     {
         String src = stripJsonCodeFence(llmOutput);
@@ -4054,14 +5444,16 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
     /**
      * 解析 LLM 输出的 18 字段 JSON 数组为 AidStoryboard 列表（不落库）。
      *
-     * 每条分镜带上 batchId（来自 aid_storyboard_batch.id）和 sourceSceneCode
-     * （从 LLM 输出的 sceneCode 字段读取，用于全局二级排序）。
+     * 每条分镜带上 batchId（来自 aid_storyboard_batch.id）和 sourceSceneCode。
+     * sourceSceneCode 仅用于来源追踪与场次分组，最终时间线顺序只认 sort_order。
      */
     @SuppressWarnings("unchecked")
     private List<AidStoryboard> parseShotsToEntities(String llmOutput, Long projectId, Long episodeId,
-                                                      Long userId, Long sourceSceneId, int startSortOrder,
+                                                      Long userId, Long sourceSceneId, String sourceSceneName,
+                                                      int startSortOrder,
                                                       Long batchId, String canonicalSceneCode,
-                                                      List<String> referenceWhitelist)
+                                                      List<String> referenceWhitelist,
+                                                      int startInnerPosition)
     {
         String jsonStr = extractJsonArray(llmOutput);
 
@@ -4084,7 +5476,7 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
 
         List<AidStoryboard> result = new ArrayList<>(shots.size());
         int sortOrder = startSortOrder;
-        int innerPos = 0;
+        int innerPos = startInnerPosition;
         for (Map<String, Object> shot : shots)
         {
             sortOrder++;
@@ -4096,7 +5488,7 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
             sb.setSourceSceneId(sourceSceneId);
             sb.setSortOrder((long) sortOrder);
 
-            // 分镜携带 batchId / sourceSceneCode，用于断点续生定位 + 全局二级排序
+            // 分镜携带 batchId / sourceSceneCode，用于断点续生定位与场次来源追踪。
             sb.setBatchId(batchId);
             String llmSceneCode = str(shot, "sceneCode");
             // 按场次：本批唯一 sceneCode 为权威归属码，强制覆盖 LLM 输出（漏填 / 乱填都归一），
@@ -4121,11 +5513,12 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
             sb.setDialogueText(StrUtil.isNotBlank(dialogueText) ? dialogueText : null);
 
             // script_params 改用中文 key 存储，便于 DB 直接阅读 / 前端无需翻译表
-            // 字段顺序与 LLM 输出一致；llmInnerPosition 是后端注入的批内位置（用于二级排序）
+            // 字段顺序与 LLM 输出一致；llmInnerPosition 仅记录模型批内来源位置。
             Map<String, Object> extra = new LinkedHashMap<>();
             // 镜号是项目/剧集内的全局编号镜像，必须与 sort_order 一致；LLM 返回的 shotNumber
             // 会在每个场次内从 001 重新开始，不能直接作为落库镜号。
             extra.put("镜号", formatGlobalShotNumber(sortOrder));
+            putNonBlankStr(extra, "场景名称", sourceSceneName);
             // 场次序号同样以本批权威 sceneCode 为准（覆盖 LLM 输出），与 sourceSceneCode 保持一致
             if (StrUtil.isNotBlank(effectiveSceneCode))
             {
@@ -4200,10 +5593,12 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
      */
     @SuppressWarnings("unchecked")
     private List<AidStoryboard> parseShotGroupsToEntities(String llmOutput, Long projectId, Long episodeId,
-                                                          Long userId, Long sourceSceneId, int startSortOrder,
+                                                          Long userId, Long sourceSceneId, String sourceSceneName,
+                                                          int startSortOrder,
                                                           Long batchId, String canonicalSceneCode,
                                                           List<String> referenceWhitelist,
-                                                          String groupCode, Integer groupIndex)
+                                                          String groupCode, Integer groupIndex,
+                                                          int innerPosition)
     {
         String jsonStr = extractJsonObject(llmOutput);
 
@@ -4232,44 +5627,22 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
 
         List<AidStoryboard> result = new ArrayList<>(1);
         int sortOrder = startSortOrder;
-        int innerPos = 1;
-        // 取 content 字符串数组（10 项 "字段名：字段值"）
+        int innerPos = innerPosition;
         Object contentObj = group.get("content");
-        if (!(contentObj instanceof List<?> contentList) || contentList.isEmpty())
+        JsonNode contentNode = OBJECT_MAPPER.valueToTree(contentObj);
+        Map<String, String> fields = StoryboardWriterContentParser.parse(contentNode);
+        if (fields.size() != StoryboardWriterContentParser.requiredFields().size())
         {
-            log.error("镜头组缺少 content 数组: batchId={}, outputLen={}", batchId, jsonStr.length());
-            throw new ServiceException("模型格式异常");
-        }
-        // 按冒号切分为 key→value（值内允许再含冒号，如「镜头脚本」里的「景别：全景」，故只切首个冒号）
-        Map<String, String> fields = new LinkedHashMap<>();
-        for (Object lineObj : contentList)
-        {
-            if (!(lineObj instanceof String line) || StrUtil.isBlank(line)) { continue; }
-            // 优先全角冒号 ：；找不到再兜底半角冒号 :（LLM 中英混排偶发吐半角，避免整行字段被静默丢弃）
-            int idx = line.indexOf('：');
-            if (idx < 0) { idx = line.indexOf(':'); }
-            if (idx <= 0)
-            {
-                log.warn("镜头组字段行无法切出 key(无冒号或冒号在行首), 已跳过: batchId={}, lineLen={}",
-                        batchId, line.length());
-                continue;
-            }
-            String key = line.substring(0, idx).trim();
-            String val = line.substring(idx + 1).trim();
-            if (StrUtil.isNotBlank(key)) { fields.putIfAbsent(key, val); }
-        }
-        if (fields.isEmpty())
-        {
-            log.error("镜头组 content 无有效字段: batchId={}, outputLen={}", batchId, jsonStr.length());
+            log.error("镜头组 content 结构异常: batchId={}, outputLen={}", batchId, jsonStr.length());
             throw new ServiceException("模型格式异常");
         }
         // 10 字段强校验：缺任意项直接失败，不落库成功
-        for (String required : REQUIRED_WRITER_FIELDS)
+        for (String required : StoryboardWriterContentParser.requiredFields())
         {
             if (StrUtil.isBlank(fields.get(required)))
             {
                 log.error("镜头组缺少必填字段: batchId={}, missingField={}, 镜头组={}, contentSize={}",
-                        batchId, required, fields.get("镜头组"), contentList.size());
+                        batchId, required, fields.get("镜头组"), contentNode.size());
                 throw new ServiceException("模型格式异常");
             }
         }
@@ -4293,10 +5666,11 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
         String dialogueText = fields.get("台词");
         sb.setDialogueText(StrUtil.isNotBlank(dialogueText) ? dialogueText : null);
 
-        // script_params：中文 key 落库（10 字段原样 + 场次序号/批内位置，便于下游消费与全局二级排序）
+        // script_params：中文 key 落库（10 字段原样 + 场次序号/批内位置，便于下游消费与来源追踪）。
         Map<String, Object> extra = new LinkedHashMap<>();
         // 专业镜头组同样写入全局镜号，保证所有创作模式使用同一编号契约。
         extra.put("镜号", formatGlobalShotNumber(sortOrder));
+        putNonBlankStr(extra, "场景名称", sourceSceneName);
         putNonBlankStr(extra, "镜头组", fields.get("镜头组"));
         if (StrUtil.isNotBlank(canonicalSceneCode))
         {
@@ -4368,10 +5742,7 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
                                  List<Long> sceneIds,
                                  List<AidStoryboard> shots, boolean overwrite, boolean selective)
     {
-        // 全局二级排序（落库前）
-        //   主排序：sourceSceneCode ASC（剧情时间线，闪回剧本中同空间多次切回也按 sceneCode 自然交错）
-        //   次排序：保持原 sortOrder（来自 LLM 输出顺序 + globalSortOrder 累加，已是正确的同 sceneCode 内序列）
-        //   排序后重新分配连续 sortOrder = startSort + 1, +2, ...
+        // 只按当前 sortOrder 保序归一。sourceSceneCode 仅记录生成来源，不能覆盖用户确认的时间线顺序。
         if (CollectionUtil.isNotEmpty(shots))
         {
             // 计算起始 sortOrder：取本次 shots 列表中的最小 sortOrder - 1
@@ -4383,10 +5754,6 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
             long startSort = Math.max(0L, minSort - 1L);
 
             shots.sort((a, b) -> {
-                String ca = StrUtil.blankToDefault(a.getSourceSceneCode(), "");
-                String cb = StrUtil.blankToDefault(b.getSourceSceneCode(), "");
-                int cmp = ca.compareTo(cb);
-                if (cmp != 0) { return cmp; }
                 Long sa = a.getSortOrder() == null ? 0L : a.getSortOrder();
                 Long sb = b.getSortOrder() == null ? 0L : b.getSortOrder();
                 return sa.compareTo(sb);
@@ -4417,35 +5784,7 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
      */
     private void synchronizeGeneratedStoryboardNumber(AidStoryboard storyboard, long sortOrder)
     {
-        storyboard.setSortOrder(sortOrder);
-        storyboard.setTitle(String.format("分镜脚本%03d", sortOrder));
-        Map<String, Object> params = new LinkedHashMap<>();
-        if (StrUtil.isNotBlank(storyboard.getScriptParams()))
-        {
-            try
-            {
-                params = OBJECT_MAPPER.readValue(storyboard.getScriptParams(),
-                        OBJECT_MAPPER.getTypeFactory().constructMapType(
-                                LinkedHashMap.class, String.class, Object.class));
-            }
-            catch (Exception e)
-            {
-                log.error("分镜编号同步失败, storyboardId={}, sortOrder={}",
-                        storyboard.getId(), sortOrder, e);
-                throw new ServiceException("分镜编号失败");
-            }
-        }
-        params.put("镜号", formatGlobalShotNumber(sortOrder));
-        try
-        {
-            storyboard.setScriptParams(OBJECT_MAPPER.writeValueAsString(params));
-        }
-        catch (Exception e)
-        {
-            log.error("分镜编号序列化失败, storyboardId={}, sortOrder={}",
-                    storyboard.getId(), sortOrder, e);
-            throw new ServiceException("分镜编号失败");
-        }
+        StoryboardTimelineNumbering.synchronize(storyboard, sortOrder);
     }
 
     /** 全局分镜编号统一补齐三位数，超过三位时保留完整数值。 */
@@ -4469,12 +5808,691 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
         deleteWrapper.eq(AidStoryboard::getUserId, userId);
         if (selective && CollectionUtil.isNotEmpty(sceneIds))
         {
-            // 仅删除本次涉及场景的旧分镜，避免影响其它场景的历史数据
+            // 仅删除本次涉及场景的既有分镜，避免影响其它场景数据
             deleteWrapper.in(AidStoryboard::getSourceSceneId, sceneIds);
         }
         boolean removed = storyboardService.remove(deleteWrapper);
         log.info("分镜脚本覆盖硬删除旧分镜完成: projectId={}, episodeId={}, selective={}, removed={}",
                 projectId, episodeId, selective, removed);
+    }
+
+    /**
+     * 重建非人工兼容场次：清理 auto/storyboard 数据，保留 manual 数据。
+     */
+    private void deleteDerivedScenePlotsForOverwrite(Long projectId, Long episodeId, Long userId,
+                                                      List<Long> sceneIds, boolean selective)
+    {
+        LambdaUpdateWrapper<AidScenePlot> wrapper = Wrappers.lambdaUpdate();
+        wrapper.eq(AidScenePlot::getProjectId, projectId)
+                .eq(AidScenePlot::getEpisodeId, episodeId)
+                .eq(AidScenePlot::getUserId, userId)
+                .eq(AidScenePlot::getDelFlag, DEL_FLAG_NORMAL)
+                .and(source -> source.isNull(AidScenePlot::getCreateSource)
+                        .or().ne(AidScenePlot::getCreateSource, "manual"))
+                .set(AidScenePlot::getDelFlag, "2")
+                .set(AidScenePlot::getUpdateTime, DateUtils.getNowDate())
+                .set(AidScenePlot::getUpdateBy, String.valueOf(userId));
+        if (selective && CollectionUtil.isNotEmpty(sceneIds))
+        {
+            wrapper.in(AidScenePlot::getSceneId, sceneIds);
+        }
+        scenePlotService.update(wrapper);
+    }
+
+    private AidScenePlot buildDerivedScenePlot(SceneEnvelope envelope, String sceneCode,
+                                                Long projectId, Long episodeId, Long userId)
+    {
+        AidScenePlot plot = new AidScenePlot();
+        plot.setSceneId(envelope.scene().getId());
+        plot.setProjectId(projectId);
+        plot.setEpisodeId(episodeId);
+        plot.setUserId(userId);
+        plot.setSceneCode(sceneCode);
+        plot.setPlotContent(envelope.plotContent());
+        plot.setPlotSummary(StrUtil.sub(envelope.plotContent(), 0, 100));
+        plot.setCharacters("[]");
+        plot.setKeyDialogues("[]");
+
+        JsonNode profile = readJsonQuietly(envelope.scene().getProfileData());
+        plot.setTimeOfDay(firstJsonText(profile, "time_of_day", "timeOfDay"));
+        plot.setEraCoordinate(firstJsonText(profile, "era_coordinate", "eraCoordinate"));
+        plot.setDateCoordinate(firstJsonText(profile, "date_coordinate", "dateCoordinate"));
+        plot.setWeather(firstJsonText(profile, "weather"));
+        plot.setCreateSource(SCENE_PLOT_SOURCE_STORYBOARD);
+        plot.setDelFlag(DEL_FLAG_NORMAL);
+        plot.setCreateTime(DateUtils.getNowDate());
+        plot.setCreateBy(String.valueOf(userId));
+        plot.setUpdateTime(DateUtils.getNowDate());
+        plot.setUpdateBy(String.valueOf(userId));
+        return plot;
+    }
+
+    private JsonNode readJsonQuietly(String json)
+    {
+        if (StrUtil.isBlank(json))
+        {
+            return null;
+        }
+        try
+        {
+            return OBJECT_MAPPER.readTree(json);
+        }
+        catch (Exception e)
+        {
+            return null;
+        }
+    }
+
+    private String firstJsonText(JsonNode node, String... fields)
+    {
+        if (Objects.isNull(node) || fields == null)
+        {
+            return null;
+        }
+        for (String field : fields)
+        {
+            String value = StrUtil.trim(node.path(field).asText(""));
+            if (StrUtil.isNotBlank(value))
+            {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private StoryboardSelectiveTimelinePlanner.Plan loadSelectiveTimelinePlan(
+            Long projectId, Long episodeId, Long userId, List<Long> sceneIds)
+    {
+        List<AidStoryboard> timeline = storyboardService.list(
+                Wrappers.<AidStoryboard>lambdaQuery()
+                        .select(AidStoryboard::getSourceSceneId, AidStoryboard::getSortOrder)
+                        .eq(AidStoryboard::getProjectId, projectId)
+                        .eq(AidStoryboard::getEpisodeId, episodeId)
+                        .eq(AidStoryboard::getUserId, userId)
+                        .eq(AidStoryboard::getDelFlag, DEL_FLAG_NORMAL)
+                        .orderByAsc(AidStoryboard::getSortOrder)
+                        .orderByAsc(AidStoryboard::getId));
+        List<StoryboardSelectiveTimelinePlanner.ShotPosition> positions = timeline.stream()
+                .map(shot -> new StoryboardSelectiveTimelinePlanner.ShotPosition(
+                        shot.getSourceSceneId(), Convert.toLong(shot.getSortOrder(), 0L)))
+                .collect(Collectors.toList());
+        return StoryboardSelectiveTimelinePlanner.plan(
+                positions, new LinkedHashSet<>(sceneIds));
+    }
+
+    private void reserveSelectiveTimelineTail(Long projectId, Long episodeId, Long userId,
+                                               StoryboardSelectiveTimelinePlanner.Plan plan)
+    {
+        LambdaUpdateWrapper<AidStoryboard> reserve = Wrappers.lambdaUpdate();
+        reserve.eq(AidStoryboard::getProjectId, projectId)
+                .eq(AidStoryboard::getEpisodeId, episodeId)
+                .eq(AidStoryboard::getUserId, userId)
+                .eq(AidStoryboard::getDelFlag, DEL_FLAG_NORMAL)
+                .gt(AidStoryboard::getSortOrder, plan.insertionBase())
+                .setSql("sort_order = sort_order + " + plan.tailReserve())
+                .set(AidStoryboard::getUpdateTime, DateUtils.getNowDate())
+                .set(AidStoryboard::getUpdateBy, String.valueOf(userId));
+        storyboardService.update(reserve);
+    }
+
+    private long loadMaxTaskStoryboardSortOrder(List<AidStoryboardBatch> batches,
+                                                 Long projectId, Long episodeId, Long userId)
+    {
+        List<Long> batchIds = batches.stream().map(AidStoryboardBatch::getId)
+                .filter(Objects::nonNull).collect(Collectors.toList());
+        if (CollectionUtil.isEmpty(batchIds))
+        {
+            return loadMaxStoryboardSortOrder(projectId, episodeId, userId);
+        }
+        return storyboardService.getBaseMapper().selectObjs(
+                Wrappers.<AidStoryboard>lambdaQuery()
+                        .select(AidStoryboard::getSortOrder)
+                        .eq(AidStoryboard::getProjectId, projectId)
+                        .eq(AidStoryboard::getEpisodeId, episodeId)
+                        .eq(AidStoryboard::getUserId, userId)
+                        .eq(AidStoryboard::getDelFlag, DEL_FLAG_NORMAL)
+                        .in(AidStoryboard::getBatchId, batchIds)
+                        .orderByDesc(AidStoryboard::getSortOrder)
+                        .last("LIMIT 1"))
+                .stream().findFirst().map(value -> ((Number) value).longValue()).orElse(0L);
+    }
+
+    private int countPersistedTaskShots(List<AidStoryboardBatch> batches,
+                                        Long projectId, Long episodeId, Long userId)
+    {
+        List<Long> batchIds = batches.stream().map(AidStoryboardBatch::getId)
+                .filter(Objects::nonNull).collect(Collectors.toList());
+        if (CollectionUtil.isEmpty(batchIds))
+        {
+            return 0;
+        }
+        long count = storyboardService.count(
+                Wrappers.<AidStoryboard>lambdaQuery()
+                        .eq(AidStoryboard::getProjectId, projectId)
+                        .eq(AidStoryboard::getEpisodeId, episodeId)
+                        .eq(AidStoryboard::getUserId, userId)
+                        .eq(AidStoryboard::getDelFlag, DEL_FLAG_NORMAL)
+                        .in(AidStoryboard::getBatchId, batchIds));
+        if (count > MAX_BATCH_SHOTS)
+        {
+            throw new ServiceException("分镜数量过多");
+        }
+        return Math.toIntExact(count);
+    }
+
+    private void normalizeStoryboardTimeline(Long projectId, Long episodeId, Long userId)
+    {
+        List<AidStoryboard> timeline = storyboardService.list(
+                Wrappers.<AidStoryboard>lambdaQuery()
+                        .select(AidStoryboard::getId, AidStoryboard::getTitle,
+                                AidStoryboard::getSortOrder, AidStoryboard::getScriptParams)
+                        .eq(AidStoryboard::getProjectId, projectId)
+                        .eq(AidStoryboard::getEpisodeId, episodeId)
+                        .eq(AidStoryboard::getUserId, userId)
+                        .eq(AidStoryboard::getDelFlag, DEL_FLAG_NORMAL)
+                        .orderByAsc(AidStoryboard::getSortOrder)
+                        .orderByAsc(AidStoryboard::getId));
+        transactionTemplate.executeWithoutResult(status -> {
+            long nextSortOrder = 1L;
+            List<AidStoryboard> updates = new ArrayList<>();
+            for (AidStoryboard storyboard : timeline)
+            {
+                Long oldSortOrder = storyboard.getSortOrder();
+                String oldTitle = storyboard.getTitle();
+                String oldScriptParams = storyboard.getScriptParams();
+                synchronizeGeneratedStoryboardNumber(storyboard, nextSortOrder);
+                if (!Objects.equals(oldSortOrder, storyboard.getSortOrder())
+                        || !Objects.equals(oldTitle, storyboard.getTitle())
+                        || !Objects.equals(oldScriptParams, storyboard.getScriptParams()))
+                {
+                    AidStoryboard update = new AidStoryboard();
+                    update.setId(storyboard.getId());
+                    update.setSortOrder(storyboard.getSortOrder());
+                    update.setTitle(storyboard.getTitle());
+                    update.setScriptParams(storyboard.getScriptParams());
+                    update.setUpdateTime(DateUtils.getNowDate());
+                    update.setUpdateBy(String.valueOf(userId));
+                    updates.add(update);
+                }
+                nextSortOrder++;
+            }
+            if (CollectionUtil.isNotEmpty(updates)
+                    && !storyboardService.updateBatchById(updates, 200))
+            {
+                throw new ServiceException("分镜排序失败");
+            }
+        });
+    }
+
+    private long loadMaxStoryboardSortOrder(Long projectId, Long episodeId, Long userId)
+    {
+        return storyboardService.getBaseMapper().selectObjs(
+                Wrappers.<AidStoryboard>lambdaQuery()
+                        .select(AidStoryboard::getSortOrder)
+                        .eq(AidStoryboard::getProjectId, projectId)
+                        .eq(AidStoryboard::getEpisodeId, episodeId)
+                        .eq(AidStoryboard::getUserId, userId)
+                        .eq(AidStoryboard::getDelFlag, DEL_FLAG_NORMAL)
+                        .orderByDesc(AidStoryboard::getSortOrder)
+                        .last("LIMIT 1"))
+                .stream().findFirst().map(value -> ((Number) value).longValue()).orElse(0L);
+    }
+
+    private int loadMaxDerivedSceneCode(Long projectId, Long episodeId, Long userId)
+    {
+        List<AidScenePlot> plots = scenePlotService.list(
+                Wrappers.<AidScenePlot>lambdaQuery()
+                        .select(AidScenePlot::getSceneCode)
+                        .eq(AidScenePlot::getProjectId, projectId)
+                        .eq(AidScenePlot::getEpisodeId, episodeId)
+                        .eq(AidScenePlot::getUserId, userId)
+                        .eq(AidScenePlot::getCreateSource, SCENE_PLOT_SOURCE_STORYBOARD)
+                        .eq(AidScenePlot::getDelFlag, DEL_FLAG_NORMAL));
+        int maximum = 0;
+        for (AidScenePlot plot : plots)
+        {
+            maximum = Math.max(maximum, Convert.toInt(plot.getSceneCode(), 0));
+        }
+        return maximum;
+    }
+
+    private StoryboardSceneBoundary loadStoryboardSceneBoundary(List<AidStoryboardBatch> batches,
+            Long projectId, Long episodeId, Long userId)
+    {
+        AidStoryboardBatch lastSucceeded = batches.stream()
+                .filter(batch -> BATCH_STATUS_SUCCEEDED.equalsIgnoreCase(batch.getStatus()))
+                .max((first, second) -> Integer.compare(
+                        Convert.toInt(first.getBatchIndex(), -1),
+                        Convert.toInt(second.getBatchIndex(), -1)))
+                .orElse(null);
+        if (Objects.isNull(lastSucceeded))
+        {
+            return null;
+        }
+        AidStoryboard lastStoryboard = storyboardService.getOne(
+                Wrappers.<AidStoryboard>lambdaQuery()
+                        .select(AidStoryboard::getSourceSceneId, AidStoryboard::getSourceSceneCode)
+                        .eq(AidStoryboard::getProjectId, projectId)
+                        .eq(AidStoryboard::getEpisodeId, episodeId)
+                        .eq(AidStoryboard::getUserId, userId)
+                        .eq(AidStoryboard::getBatchId, lastSucceeded.getId())
+                        .eq(AidStoryboard::getDelFlag, DEL_FLAG_NORMAL)
+                        .orderByDesc(AidStoryboard::getSortOrder)
+                        .orderByDesc(AidStoryboard::getId)
+                        .last("LIMIT 1"), false);
+        if (Objects.isNull(lastStoryboard) || Objects.isNull(lastStoryboard.getSourceSceneId())
+                || StrUtil.isBlank(lastStoryboard.getSourceSceneCode()))
+        {
+            return null;
+        }
+        return new StoryboardSceneBoundary(lastStoryboard.getSourceSceneId(),
+                lastStoryboard.getSourceSceneCode(), lastSucceeded.getBatchIndex());
+    }
+
+    private boolean hasPersistedShotsForSucceededBatches(List<AidStoryboardBatch> batches,
+            Long projectId, Long episodeId, Long userId)
+    {
+        List<Long> succeededBatchIds = batches.stream()
+                .filter(batch -> BATCH_STATUS_SUCCEEDED.equalsIgnoreCase(batch.getStatus()))
+                .map(AidStoryboardBatch::getId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+        if (CollectionUtil.isEmpty(succeededBatchIds))
+        {
+            return false;
+        }
+        return storyboardService.count(
+                Wrappers.<AidStoryboard>lambdaQuery()
+                        .in(AidStoryboard::getBatchId, succeededBatchIds)
+                        .eq(AidStoryboard::getProjectId, projectId)
+                        .eq(AidStoryboard::getEpisodeId, episodeId)
+                        .eq(AidStoryboard::getUserId, userId)
+                        .eq(AidStoryboard::getDelFlag, DEL_FLAG_NORMAL)) > 0;
+    }
+
+    private void refundEmptySelectiveDirectTask(Long taskId, Long userId,
+                                                 String expectedTraceId,
+                                                 List<AidStoryboardBatch> batches)
+    {
+        List<Long> batchIds = batches.stream().map(AidStoryboardBatch::getId)
+                .filter(Objects::nonNull).collect(Collectors.toList());
+        transactionTemplate.executeWithoutResult(status -> {
+            extractBillingService.assertTextTaskBusinessCommit(
+                    taskId, userId, expectedTraceId);
+            AidExtractTask latestTask = extractTaskService.selectAidExtractTaskById(taskId);
+            DirectRefundAttempt attempt = executeDirectFrozenRefund(
+                    taskId, userId, latestTask, expectedTraceId);
+            String errorMessage = attempt.succeeded()
+                    ? "新剧本无所选场景" : "新剧本无所选场景；退款待处理";
+            if (CollectionUtil.isNotEmpty(batchIds))
+            {
+                LambdaUpdateWrapper<AidStoryboardBatch> refunded = Wrappers.lambdaUpdate();
+                refunded.in(AidStoryboardBatch::getId, batchIds);
+                refunded.eq(AidStoryboardBatch::getParentTaskId, taskId);
+                refunded.eq(AidStoryboardBatch::getDelFlag, DEL_FLAG_NORMAL);
+                refunded.set(AidStoryboardBatch::getStatus, BATCH_STATUS_FAILED);
+                refunded.set(AidStoryboardBatch::getErrorMessage, errorMessage);
+                refunded.set(AidStoryboardBatch::getBillingStatus,
+                        attempt.succeeded() ? BILLING_STATUS_REFUNDED : BILLING_STATUS_FROZEN);
+                if (attempt.succeeded())
+                {
+                    refunded.set(AidStoryboardBatch::getSettledAmount, BigDecimal.ZERO);
+                }
+                refunded.set(AidStoryboardBatch::getUpdateTime, DateUtils.getNowDate());
+                storyboardBatchService.update(refunded);
+            }
+            finishDirectRefundAttempt(taskId, attempt, expectedTraceId);
+        });
+    }
+
+    /**
+     * 直驱任务在逐批执行前校验失败时，终结并退还仍处于冻结态的未执行批次。
+     * 已成功或已结算批次不在处理范围，避免续生校验失败时误退其他轮次成功费用。
+     */
+    private void failAndRefundDirectPreExecutionBatches(Long taskId, Long userId,
+                                                         String expectedTraceId, String reason)
+    {
+        try
+        {
+            List<AidStoryboardBatch> allBatches = storyboardBatchService.list(
+                    Wrappers.<AidStoryboardBatch>lambdaQuery()
+                            .eq(AidStoryboardBatch::getParentTaskId, taskId)
+                            .eq(AidStoryboardBatch::getDelFlag, DEL_FLAG_NORMAL));
+            List<AidStoryboardBatch> refundable = allBatches.stream()
+                    .filter(batch -> StoryboardDirectWritePolicy.isRefundableBeforeExecution(
+                            batch.getStatus(), batch.getBillingStatus()))
+                    .collect(Collectors.toList());
+            if (CollectionUtil.isEmpty(refundable))
+            {
+                return;
+            }
+            List<Long> refundableIds = refundable.stream().map(AidStoryboardBatch::getId)
+                    .filter(Objects::nonNull).collect(Collectors.toList());
+            boolean hasSettledBatch = allBatches.stream().anyMatch(batch ->
+                    BATCH_STATUS_SUCCEEDED.equalsIgnoreCase(batch.getStatus())
+                            || BILLING_STATUS_SETTLED.equalsIgnoreCase(batch.getBillingStatus()));
+            transactionTemplate.executeWithoutResult(status -> {
+                // 父周期门禁、退款决策和批次终态必须串行化。旧 worker 不能读取“当前任务”后
+                // 替已经开始的新周期执行退款或改写其待执行批次。
+                extractBillingService.assertTextTaskBusinessCommit(
+                        taskId, userId, expectedTraceId);
+                AidExtractTask latestTask = extractTaskService.selectAidExtractTaskById(taskId);
+                if (latestTask == null
+                        || !Objects.equals(expectedTraceId, latestTask.getBillingTraceId()))
+                {
+                    throw new TextTaskExecutionRejectedException();
+                }
+                boolean resumeBilling = StrUtil.startWith(
+                        latestTask.getRemark(), "RESUME_TRACE:");
+                DirectRefundAttempt attempt;
+                if (hasSettledBatch && !resumeBilling)
+                {
+                    log.warn("直驱分镜预执行失败存在已成功批次，保留冻结态等待统一计费补偿: taskId={}, refundable={}",
+                            taskId, refundable.size());
+                    attempt = new DirectRefundAttempt(false, false, null);
+                }
+                else
+                {
+                    attempt = executeDirectFrozenRefund(
+                            taskId, userId, latestTask, expectedTraceId);
+                }
+                String batchError = attempt.succeeded()
+                        ? StrUtil.sub(reason, 0, 500)
+                        : StrUtil.sub(reason + "；退款待处理", 0, 500);
+                LambdaUpdateWrapper<AidStoryboardBatch> failed = Wrappers.lambdaUpdate();
+                failed.in(AidStoryboardBatch::getId, refundableIds);
+                failed.eq(AidStoryboardBatch::getParentTaskId, taskId);
+                failed.eq(AidStoryboardBatch::getDelFlag, DEL_FLAG_NORMAL);
+                failed.in(AidStoryboardBatch::getStatus,
+                        List.of(BATCH_STATUS_PENDING, BATCH_STATUS_PROCESSING, BATCH_STATUS_FAILED));
+                failed.eq(AidStoryboardBatch::getBillingStatus, BILLING_STATUS_FROZEN);
+                failed.set(AidStoryboardBatch::getStatus, BATCH_STATUS_FAILED);
+                failed.set(AidStoryboardBatch::getBillingStatus,
+                        attempt.succeeded() ? BILLING_STATUS_REFUNDED : BILLING_STATUS_FROZEN);
+                if (attempt.succeeded())
+                {
+                    failed.set(AidStoryboardBatch::getSettledAmount, BigDecimal.ZERO);
+                }
+                failed.set(AidStoryboardBatch::getErrorMessage, batchError);
+                failed.set(AidStoryboardBatch::getUpdateTime, DateUtils.getNowDate());
+                storyboardBatchService.update(failed);
+                finishDirectRefundAttempt(taskId, attempt, expectedTraceId);
+            });
+        }
+        catch (TextTaskExecutionRejectedException rejected)
+        {
+            throw rejected;
+        }
+        catch (Exception refundError)
+        {
+            log.error("直驱分镜预执行失败退款异常: taskId={}", taskId, refundError);
+        }
+    }
+
+    /**
+     * 标记执行中断的未终结批次并保留冻结态，等待统一计费补偿。
+     */
+    private void markDirectInterruptedBatches(Long taskId, Long userId,
+                                               String expectedTraceId, String reason)
+    {
+        String errorMessage = StrUtil.sub(reason + "；退款待处理", 0, 500);
+        try
+        {
+            transactionTemplate.executeWithoutResult(status -> {
+                extractBillingService.assertTextTaskBusinessCommit(
+                        taskId, userId, expectedTraceId);
+                LambdaUpdateWrapper<AidStoryboardBatch> interrupted = Wrappers.lambdaUpdate();
+                interrupted.eq(AidStoryboardBatch::getParentTaskId, taskId);
+                interrupted.eq(AidStoryboardBatch::getDelFlag, DEL_FLAG_NORMAL);
+                interrupted.in(AidStoryboardBatch::getStatus,
+                        List.of(BATCH_STATUS_PENDING, BATCH_STATUS_PROCESSING));
+                interrupted.eq(AidStoryboardBatch::getBillingStatus, BILLING_STATUS_FROZEN);
+                interrupted.set(AidStoryboardBatch::getStatus, BATCH_STATUS_FAILED);
+                interrupted.set(AidStoryboardBatch::getErrorMessage, errorMessage);
+                interrupted.set(AidStoryboardBatch::getUpdateTime, DateUtils.getNowDate());
+                storyboardBatchService.update(interrupted);
+
+                LambdaUpdateWrapper<AidExtractTask> pendingRefund = Wrappers.lambdaUpdate();
+                pendingRefund.eq(AidExtractTask::getId, taskId);
+                pendingRefund.eq(AidExtractTask::getBillingTraceId, expectedTraceId);
+                pendingRefund.set(AidExtractTask::getErrorMessage, "退款处理中，请稍后查看余额");
+                pendingRefund.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
+                extractTaskService.update(pendingRefund);
+            });
+        }
+        catch (TextTaskExecutionRejectedException rejected)
+        {
+            throw rejected;
+        }
+        catch (RuntimeException compensationError)
+        {
+            log.error("直驱分镜执行中断状态收口失败: taskId={}", taskId, compensationError);
+        }
+    }
+
+    private DirectRefundAttempt executeDirectFrozenRefund(Long taskId, Long userId,
+                                                           AidExtractTask task,
+                                                           String expectedTraceId)
+    {
+        if (Objects.isNull(task) || StrUtil.isBlank(expectedTraceId)
+                || !Objects.equals(expectedTraceId, task.getBillingTraceId()))
+        {
+            log.info("直跑分镜退款拒绝过期执行周期: taskId={}, expectedTraceId={}",
+                    taskId, expectedTraceId);
+            throw new TextTaskExecutionRejectedException();
+        }
+        String marker = Objects.nonNull(task) ? task.getRemark() : null;
+        if (StrUtil.startWith(marker, "RESUME_TRACE:"))
+        {
+            StoryboardResumeBillingExecutor.ResumeMarker resumeMarker;
+            try
+            {
+                resumeMarker = StoryboardResumeBillingExecutor.parseMarker(marker);
+            }
+            catch (RuntimeException e)
+            {
+                log.error("直驱分镜续生退款标记无效: taskId={}, marker={}", taskId, marker, e);
+                return new DirectRefundAttempt(false, true, marker);
+            }
+            StoryboardDirectRefundExecutor.RefundResult result = StoryboardDirectRefundExecutor.execute(() -> {
+                if (resumeMarker.frozenAmount().compareTo(BigDecimal.ZERO) > 0)
+                {
+                    accountUpdateService.refund(userId, resumeMarker.frozenAmount(),
+                            resumeMarker.traceId(), BIZ_TYPE_CREATE, "分镜脚本续生退款");
+                }
+                return true;
+            });
+            logDirectRefundFailure(taskId, result);
+            return new DirectRefundAttempt(result.succeeded(), true, marker);
+        }
+
+        StoryboardDirectRefundExecutor.RefundResult result =
+                StoryboardDirectRefundExecutor.execute(() -> extractBillingService.refundBilling(
+                        taskId, userId, expectedTraceId));
+        logDirectRefundFailure(taskId, result);
+        return new DirectRefundAttempt(result.succeeded(), false, null);
+    }
+
+    private void finishDirectRefundAttempt(Long taskId, DirectRefundAttempt attempt,
+                                           String expectedTraceId)
+    {
+        if (attempt.succeeded())
+        {
+            if (attempt.resumeBilling())
+            {
+                if (!clearResumeMarker(taskId, expectedTraceId, attempt.resumeMarker()))
+                {
+                    markResumeBillingPending(taskId, expectedTraceId);
+                }
+            }
+            return;
+        }
+        LambdaUpdateWrapper<AidExtractTask> pendingRefund = Wrappers.lambdaUpdate();
+        pendingRefund.eq(AidExtractTask::getId, taskId);
+        pendingRefund.eq(AidExtractTask::getBillingTraceId, expectedTraceId);
+        pendingRefund.set(AidExtractTask::getErrorMessage, "退款处理中，请稍后查看余额");
+        pendingRefund.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
+        extractTaskService.update(pendingRefund);
+    }
+
+    private void logDirectRefundFailure(Long taskId,
+                                        StoryboardDirectRefundExecutor.RefundResult result)
+    {
+        if (result.succeeded())
+        {
+            return;
+        }
+        if (Objects.nonNull(result.error()))
+        {
+            log.error("直驱分镜退款执行失败: taskId={}", taskId, result.error());
+        }
+        else
+        {
+            log.warn("直驱分镜退款未取得终态: taskId={}", taskId);
+        }
+    }
+
+    private record DirectRefundAttempt(boolean succeeded, boolean resumeBilling, String resumeMarker)
+    {
+    }
+
+    private AidScenePlot loadMergedBoundaryPlot(Long projectId, Long episodeId, Long userId,
+                                                 String sceneCode, String additionalContent)
+    {
+        AidScenePlot plot = scenePlotService.getOne(
+                Wrappers.<AidScenePlot>lambdaQuery()
+                        .eq(AidScenePlot::getProjectId, projectId)
+                        .eq(AidScenePlot::getEpisodeId, episodeId)
+                        .eq(AidScenePlot::getUserId, userId)
+                        .eq(AidScenePlot::getSceneCode, sceneCode)
+                        .eq(AidScenePlot::getCreateSource, SCENE_PLOT_SOURCE_STORYBOARD)
+                        .eq(AidScenePlot::getDelFlag, DEL_FLAG_NORMAL)
+                        .orderByDesc(AidScenePlot::getId)
+                        .last("LIMIT 1"), false);
+        if (Objects.isNull(plot))
+        {
+            log.error("分镜边界场次不存在: projectId={}, episodeId={}, sceneCode={}",
+                    projectId, episodeId, sceneCode);
+            throw new ServiceException("场次数据缺失");
+        }
+        String mergedContent = StrUtil.isBlank(plot.getPlotContent())
+                ? additionalContent : plot.getPlotContent() + "\n" + additionalContent;
+        plot.setPlotContent(mergedContent);
+        plot.setPlotSummary(StrUtil.sub(mergedContent, 0, 100));
+        plot.setUpdateTime(DateUtils.getNowDate());
+        plot.setUpdateBy(String.valueOf(userId));
+        return plot;
+    }
+
+    private String formatSceneCode(int sequence)
+    {
+        return String.format("%03d", sequence);
+    }
+
+    private record StoryboardSceneBoundary(Long sceneAssetId, String sceneCode, Integer batchIndex)
+    {
+    }
+
+    private Map<String, Object> buildDirectBatchResultItem(AidStoryboardBatch batch,
+                                                           int shotsCount, String message)
+    {
+        return buildDirectBatchResultItem(batch, shotsCount, message,
+                Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
+    }
+
+    private Map<String, Object> buildDirectBatchResultItem(AidStoryboardBatch batch,
+            int shotsCount, String message, List<Long> sceneIds,
+            List<String> sceneNames, List<String> shotCodes)
+    {
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("batchId", batch.getId());
+        item.put("sceneId", sceneIds.size() == 1 ? sceneIds.get(0) : null);
+        String fallbackSceneName = "剧本片段" + (Convert.toInt(batch.getBatchIndex(), 0) + 1);
+        item.put("sceneName", sceneNames.isEmpty()
+                ? fallbackSceneName : String.join("、", sceneNames));
+        item.put("batchIndex", batch.getBatchIndex());
+        item.put("shotCodes", shotCodes);
+        item.put("sceneIds", sceneIds);
+        item.put("sceneNames", sceneNames);
+        item.put("shotsCount", shotsCount);
+        if (StrUtil.isNotBlank(message))
+        {
+            item.put("message", message);
+        }
+        return item;
+    }
+
+    private void settleDirectScriptBilling(Long taskId, Long userId, String modelCode,
+            String executionTraceId, boolean resumeMode,
+            List<AidStoryboardBatch> pendingBatches, int processedBatchPos,
+            boolean hasFailure, int successCount, long inputChars, long outputChars)
+    {
+        boolean billingSucceeded = false;
+        try
+        {
+            if (!isCurrentTextExecutionCycle(taskId, userId, executionTraceId))
+            {
+                throw new TextTaskExecutionRejectedException();
+            }
+            if (resumeMode)
+            {
+                billingSucceeded = settleResumeBatches(taskId, userId, executionTraceId);
+            }
+            else if (successCount > 0)
+            {
+                Map<String, Object> usage = new HashMap<>();
+                usage.put("input_chars_estimate", inputChars);
+                usage.put("input_tokens_estimate", BillingConstants.charsToTokens(
+                        (int) Math.min(inputChars, Integer.MAX_VALUE)));
+                usage.put("output_chars_estimate", outputChars);
+                usage.put("output_tokens_estimate", BillingConstants.charsToTokens(
+                        (int) Math.min(outputChars, Integer.MAX_VALUE)));
+                usage.put("total_chars_estimate", inputChars + outputChars);
+                billingSucceeded = extractBillingService.settleBilling(
+                        taskId, userId, usage, executionTraceId);
+            }
+            else
+            {
+                billingSucceeded = extractBillingService.refundBilling(taskId, userId, executionTraceId);
+            }
+        }
+        catch (TextTaskExecutionRejectedException e)
+        {
+            throw e;
+        }
+        catch (Exception e)
+        {
+            log.error("分镜脚本计费处理失败: taskId={}, modelCode={}", taskId, modelCode, e);
+        }
+        if (!billingSucceeded)
+        {
+            markDirectBillingPending(taskId, executionTraceId);
+        }
+    }
+
+    private void markDirectBillingPending(Long taskId, String expectedTraceId)
+    {
+        LambdaUpdateWrapper<AidExtractTask> update = Wrappers.lambdaUpdate();
+        update.eq(AidExtractTask::getId, taskId)
+                .eq(AidExtractTask::getBillingTraceId, expectedTraceId)
+                .set(AidExtractTask::getErrorMessage, "计费处理中，请稍后查看余额")
+                .set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
+        extractTaskService.update(update);
+    }
+
+    private String sha256Hex(String value)
+    {
+        try
+        {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(digest.digest(
+                    StrUtil.blankToDefault(value, "").getBytes(StandardCharsets.UTF_8)));
+        }
+        catch (Exception e)
+        {
+            log.error("剧本摘要生成失败", e);
+            throw new ServiceException("剧本校验失败");
+        }
     }
 
     private String str(Map<String, Object> map, String key)
@@ -4628,7 +6646,7 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
      * 把分镜的中文 key 字段渲染为人类可读的多行文本，写入 {@code aid_storyboard.story_script}。
      * 与 {@code script_params} 同源同字段顺序，差别仅在于呈现形式：JSON → "字段名：值\n字段名：值..."。
      * 跳过 {@code 镜号} / {@code 场次序号} / {@code 批内位置}：前两者属于元数据编号（已存储于
-     * {@code source_scene_code} / {@code script_params}），第三者仅供后端二级排序用，对编辑/审阅无意义。
+     * {@code source_scene_code} / {@code script_params}），第三者仅供来源审计，对编辑/审阅无意义。
      */
     private String renderShotAsReadableText(Map<String, Object> shot)
     {
@@ -4640,7 +6658,7 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
             // 镜号 / 场次序号：编号类元数据，已经在 source_scene_code / script_params 里有据可查，
             //                  在 story_script 这种"对人阅读"的文本里再写一遍只会干扰阅读，跳过
             if ("镜号".equals(key) || "场次序号".equals(key)) { continue; }
-            // 批内位置仅供后端二级排序使用，对人类阅读无意义，跳过
+            // 批内位置仅供来源审计，对人类阅读无意义，跳过
             if ("批内位置".equals(key)) { continue; }
             Object val = entry.getValue();
             String strVal = (val == null) ? "" : String.valueOf(val);

@@ -1,0 +1,127 @@
+package com.aid.media.service;
+
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+import org.springframework.stereotype.Service;
+
+import com.aid.common.aid.oss.core.OssTemplate;
+import com.aid.media.dto.MediaAudioGenerateRequest;
+import com.aid.media.dto.MediaImageGenerateRequest;
+import com.aid.media.dto.MediaVideoGenerateRequest;
+import com.aid.media.dto.ReferenceAudioInput;
+
+import lombok.RequiredArgsConstructor;
+
+/**
+ * 外部大模型输入资源签名器。只在任务取得并发槽并即将调用上游时工作，
+ * 不改任务存档，也不改变页面展示使用的资源访问地址。
+ */
+@Service
+@RequiredArgsConstructor
+public class ModelResourceUrlSigner
+{
+    private final OssTemplate ossTemplate;
+
+    public void sign(MediaImageGenerateRequest request)
+    {
+        if (request == null)
+        {
+            return;
+        }
+        request.setReferenceImageUrl(signOne(request.getReferenceImageUrl()));
+        request.setOptions(signMap(request.getOptions()));
+    }
+
+    public void sign(MediaVideoGenerateRequest request)
+    {
+        if (request == null)
+        {
+            return;
+        }
+        request.setImageUrl(signOne(request.getImageUrl()));
+        if (request.getReferenceAudios() != null)
+        {
+            for (ReferenceAudioInput audio : request.getReferenceAudios())
+            {
+                if (audio != null)
+                {
+                    audio.setSampleUrl(signOne(audio.getSampleUrl()));
+                }
+            }
+        }
+        request.setOptions(signMap(request.getOptions()));
+    }
+
+    /** 语音模型的厂商扩展参数也可能承载参考音频 URL。 */
+    public void sign(MediaAudioGenerateRequest request)
+    {
+        if (request != null)
+        {
+            request.setOptions(signMap(request.getOptions()));
+        }
+    }
+
+    private String signOne(String value)
+    {
+        return ossTemplate.isManagedResourceUrl(value) ? ossTemplate.getModelSignedUrl(value) : value;
+    }
+
+    private Map<String, Object> signMap(Map<String, Object> source)
+    {
+        if (source == null || source.isEmpty())
+        {
+            return source;
+        }
+        Map<String, Object> result = new LinkedHashMap<>(source.size());
+        source.forEach((key, value) -> result.put(key, signValue(key, value)));
+        return result;
+    }
+
+    private Object signValue(String fieldName, Object value)
+    {
+        if (value instanceof String text)
+        {
+            return isResourceField(fieldName) ? signOne(text) : text;
+        }
+        if (value instanceof Map<?, ?> map)
+        {
+            Map<String, Object> result = new LinkedHashMap<>();
+            map.forEach((key, item) -> {
+                String nestedName = String.valueOf(key);
+                result.put(nestedName, signValue(nestedName, item));
+            });
+            return result;
+        }
+        if (value instanceof List<?> list)
+        {
+            List<Object> result = new ArrayList<>(list.size());
+            for (Object item : list)
+            {
+                result.add(signValue(fieldName, item));
+            }
+            return result;
+        }
+        return value;
+    }
+
+    /** 只处理明确承载媒体资源的扩展字段，避免误签名以 / 开头的普通协议参数。 */
+    private boolean isResourceField(String fieldName)
+    {
+        if (fieldName == null)
+        {
+            return false;
+        }
+        String name = fieldName.toLowerCase(java.util.Locale.ROOT);
+        if (name.contains("callback") || name.contains("webhook") || name.contains("endpoint")
+                || name.contains("baseurl") || name.contains("apiurl"))
+        {
+            return false;
+        }
+        return name.endsWith("url") || name.endsWith("urls")
+                || name.contains("image") || name.contains("video") || name.contains("audio")
+                || name.contains("reference") || name.contains("firstframe") || name.contains("lastframe");
+    }
+}

@@ -12,6 +12,9 @@ import com.aid.common.exception.ServiceException;
 import com.aid.common.satoken.utils.LoginHelper;
 import com.aid.common.utils.StringUtils;
 import com.aid.domain.vo.AiModelConfigVo;
+import com.aid.media.constants.KlingConstants;
+import com.aid.media.constants.MinimaxH3Constants;
+import com.aid.media.provider.KlingCallbackSignatureUtil;
 import com.aid.service.IAiModelConfigService;
 import com.aid.upgrade.gateway.OfficialGatewayConfig;
 import com.aid.upgrade.gateway.OfficialGatewayConfigProvider;
@@ -130,7 +133,8 @@ public class AiModelConfigServiceImpl implements IAiModelConfigService {
         // 例外模型或例外厂商（官方网关暂不支持的）仍走自有厂商网关
         OfficialGatewayConfig officialGateway = officialGatewayConfigProvider.getConfig();
         if (officialGateway.isEnabled() && StrUtil.isNotBlank(officialGateway.getBaseUrl())
-                && !officialGateway.isExcluded(model.getId(), provider.getId())) {
+                && !officialGateway.isExcluded(model.getId(), provider.getId())
+                && supportsOfficialGateway(model, provider)) {
             effectiveBaseUrl = officialGateway.resolveBaseUrl(provider.getProviderCode());
             if (StrUtil.isNotBlank(officialGateway.getApiKey())) {
                 effectiveApiKey = officialGateway.getApiKey();
@@ -150,10 +154,16 @@ public class AiModelConfigServiceImpl implements IAiModelConfigService {
                 if (StringUtils.isNotEmpty(userConfig.getCustomBaseUrl())) {
                     effectiveBaseUrl = userConfig.getCustomBaseUrl();
                 }
-                if (StringUtils.isNotEmpty(userConfig.getCustomApiKey())) {
+                boolean customApiKeyEnabled = StrUtil.isNotBlank(userConfig.getCustomApiKey());
+                if (customApiKeyEnabled) {
                     effectiveApiKey = userConfig.getCustomApiKey();
                 }
-                if (StringUtils.isNotEmpty(userConfig.getCustomApiSecret())) {
+                if (isKlingProvider(provider) && customApiKeyEnabled) {
+                    // Kling Webhook Secret 归属于 API Key 对应账号，BYOK 不得继承平台账号 Secret。
+                    effectiveApiSecret = KlingCallbackSignatureUtil.hasValidSecret(userConfig.getCustomApiSecret())
+                        ? userConfig.getCustomApiSecret() : null;
+                } else if (!isKlingProvider(provider)
+                    && StringUtils.isNotEmpty(userConfig.getCustomApiSecret())) {
                     effectiveApiSecret = userConfig.getCustomApiSecret();
                 }
             }
@@ -183,6 +193,7 @@ public class AiModelConfigServiceImpl implements IAiModelConfigService {
         vo.setBillingMode(model.getBillingMode());
         vo.setBillingRuleJson(model.getBillingRuleJson());
         vo.setBillingVersion(model.getBillingVersion());
+        vo.setIsFree(Boolean.TRUE.equals(model.getIsFree()));
         // 服务商字段（已处理用户覆盖）
         vo.setBaseUrl(effectiveBaseUrl);
         vo.setApiKey(effectiveApiKey);
@@ -222,6 +233,16 @@ public class AiModelConfigServiceImpl implements IAiModelConfigService {
         vo.setModelExtraBodyJson(model.getExtraBody());
 
         return vo;
+    }
+
+    /** 可灵使用运营方或用户显式配置的上游地址，统一网关未声明兼容前不得透明改写。 */
+    private boolean supportsOfficialGateway(AidAiModel model, AidAiProvider provider) {
+        return !isKlingProvider(provider)
+            && !MinimaxH3Constants.PROTOCOL_VIDEO.equalsIgnoreCase(StrUtil.trim(model.getProtocol()));
+    }
+
+    private boolean isKlingProvider(AidAiProvider provider) {
+        return KlingConstants.PROVIDER_CODE.equalsIgnoreCase(StrUtil.trim(provider.getProviderCode()));
     }
 
     private Long getCurrentUserIdSafe() {

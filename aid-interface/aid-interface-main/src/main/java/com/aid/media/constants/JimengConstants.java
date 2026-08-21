@@ -126,10 +126,6 @@ public final class JimengConstants {
 
     // --- HTTP / 鉴权 ---
 
-    /** 即梦统一网关，所有 req_key 都走此主机 */
-    public static final String DEFAULT_HOST = "visual.volcengineapi.com";
-    /** 默认协议与 base_url（aid_ai_provider.base_url 未配置时兜底） */
-    public static final String DEFAULT_BASE_URL = "https://visual.volcengineapi.com";
     /** 火山视觉服务固定 region */
     public static final String REGION = "cn-north-1";
     /** 火山视觉服务固定 service name（SigV4 scope 使用） */

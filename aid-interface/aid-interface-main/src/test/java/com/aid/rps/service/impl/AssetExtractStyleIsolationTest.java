@@ -17,6 +17,7 @@ import com.aid.aid.domain.AidRolePropScene;
 import com.aid.aid.domain.AidRolePropSceneForm;
 import com.aid.aid.service.IAidComicProjectService;
 import com.aid.aid.util.HiddenStylePromptJsonUtils;
+import com.aid.project.service.ProjectStyleSnapshotService;
 
 class AssetExtractStyleIsolationTest
 {
@@ -32,6 +33,7 @@ class AssetExtractStyleIsolationTest
         service = new AssetExtractServiceImpl();
         projectService = mock(IAidComicProjectService.class);
         ReflectionTestUtils.setField(service, "projectService", projectService);
+        ReflectionTestUtils.setField(service, "projectStyleSnapshotService", new ProjectStyleSnapshotService());
 
         project = new AidComicProject();
         project.setId(73L);
@@ -57,6 +59,28 @@ class AssetExtractStyleIsolationTest
 
         assertTrue(digest.contains("PUBLIC_STYLE_FOR_SCENE_AND_PROP"));
         assertFalse(digest.contains("HIDDEN_CHARACTER_ONLY"));
+        assertFalse(digest.contains("[art_style_name]"));
+        assertFalse(digest.contains("Pastoral 3D"));
+    }
+
+    @Test
+    void visualStylistUsesHiddenCharacterStyleWithoutPersistingStyleName()
+    {
+        AidRolePropScene character = new AidRolePropScene();
+        character.setId(19L);
+        character.setProjectId(73L);
+        character.setAssetType("character");
+        character.setName("Character A");
+        character.setProfileData("{}");
+
+        Map<String, String> inputs = ReflectionTestUtils.invokeMethod(
+                service, "buildVisualStylistInputs", character);
+
+        assertEquals("HIDDEN_CHARACTER_ONLY", inputs.get("art_style_prompt"));
+        assertTrue(inputs.containsKey("character_profiles"));
+        assertFalse(inputs.containsKey("art_style_name"));
+        assertFalse(inputs.containsValue("Pastoral 3D"));
+        assertFalse(inputs.containsValue("PUBLIC_STYLE_FOR_SCENE_AND_PROP"));
     }
 
     @Test

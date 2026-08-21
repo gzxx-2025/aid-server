@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.springframework.stereotype.Component;
 
@@ -45,13 +46,13 @@ public class OssConfigManager
      * 内存缓存的所有配置
      */
     @Getter
-    private final Map<String, String> configCache = new HashMap<>();
+    private final Map<String, String> configCache = new ConcurrentHashMap<>();
 
     /**
      * 当前使用的OSS配置
      */
     @Getter
-    private OssProperties currentProperties;
+    private volatile OssProperties currentProperties;
 
     /**
      * 初始化标识
@@ -73,7 +74,7 @@ public class OssConfigManager
      * 刷新配置（从数据库重新加载）
      * 在配置页面点击"刷新配置"时调用
      */
-    public void refresh()
+    public synchronized void refresh()
     {
         log.info("刷新OSS配置...");
 
@@ -116,8 +117,7 @@ public class OssConfigManager
 
     /**
      * 获取当前生效的配置（供前端展示，脱敏处理）
-     * - local 模式：只需 localDomain，官方资源前缀自动派生为 localDomain + /profile
-     * - 云存储模式：展示当前厂商字段与公共 cdnDomain，密钥统一脱敏
+     * 四种存储均展示公共 resourceAccessDomain 与模型临时链接有效期，密钥统一脱敏。
      *
      * @return 脱敏后的配置Map
      */
@@ -139,7 +139,7 @@ public class OssConfigManager
         String mode = Objects.isNull(currentProperties) ? "local" : currentProperties.getUploadMode();
         if ("local".equalsIgnoreCase(mode))
         {
-            // local 模式隐藏云存储字段；官方资源公共前缀由 localDomain 自动派生
+            // local 模式隐藏云存储字段，公共资源地址仍由 resourceAccessDomain 提供
             result.remove("endpoint");
             result.remove("accessKeyId");
             result.remove("accessKeySecret");
@@ -155,7 +155,6 @@ public class OssConfigManager
             result.remove("qiniuSecretKey");
             result.remove("qiniuBucketName");
             result.remove("qiniuPrefix");
-            result.remove("cdnDomain");
         }
         else if ("cos".equalsIgnoreCase(mode))
         {
@@ -285,7 +284,18 @@ public class OssConfigManager
         properties.setAccessKeySecret(getCacheValue("accessKeySecret", ""));
         properties.setBucketName(getCacheValue("bucketName", ""));
         properties.setPrefix(getCacheValue("prefix", ""));
-        properties.setCdnDomain(getCacheValue("cdnDomain", ""));
+        String legacyDomain = getCacheValue("cdnDomain", "");
+        String legacyCosDomain = getCacheValue("cosCdnDomain", "");
+        String legacyLocalDomain = getCacheValue("localDomain", "");
+        String resourceAccessDomain = getCacheValue("resourceAccessDomain",
+                StrUtil.isNotBlank(legacyDomain) ? legacyDomain
+                        : StrUtil.isNotBlank(legacyCosDomain) ? legacyCosDomain : legacyLocalDomain);
+        properties.setResourceAccessDomain(resourceAccessDomain);
+        // 仍有少量通用 URL 组件通过旧 getter 读取域名；在内存模型中镜像新公共字段，
+        // 保证升级后序列化、反序列化、删除和本站校验行为不变，数据库不再回写旧字段。
+        properties.setCdnDomain(resourceAccessDomain);
+        long signedHours = getCacheLong("modelSignedUrlExpireHours", 72L);
+        properties.setModelSignedUrlExpireHours((int) Math.max(1L, Math.min(168L, signedHours)));
         // 腾讯云COS 专属配置
         properties.setCosRegion(getCacheValue("cosRegion", ""));
         properties.setCosSecretId(getCacheValue("cosSecretId", ""));
@@ -298,7 +308,7 @@ public class OssConfigManager
         properties.setQiniuSecretKey(getCacheValue("qiniuSecretKey", ""));
         properties.setQiniuBucketName(getCacheValue("qiniuBucketName", ""));
         properties.setQiniuPrefix(getCacheValue("qiniuPrefix", ""));
-        properties.setLocalDomain(getCacheValue("localDomain", ""));
+        properties.setLocalDomain(resourceAccessDomain);
         // 图片URL域名白名单（逗号分隔，可空）：cdnDomain/localDomain 之外额外放行的可信外部图片域名前缀
         properties.setImageUrlWhitelist(getCacheValue("imageUrlWhitelist", ""));
         properties.setMaxFileSize(getCacheLong("maxFileSize", 5 * 1024 * 1024L));

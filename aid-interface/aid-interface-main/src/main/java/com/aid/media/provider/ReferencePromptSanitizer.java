@@ -64,6 +64,13 @@ public final class ReferencePromptSanitizer {
      */
     private static final Pattern STRAY_AT_MARKER = Pattern.compile("@(?=\\S)");
 
+    /** Seedance 官方索引引用：{@code @imageN/@videoN/@audioN}。 */
+    private static final Pattern SEEDANCE_INDEX_REF = Pattern.compile("@(image|video|audio)(\\d+)\\b");
+
+    /** 仅清理非 Seedance 官方索引语法的选择标记。 */
+    private static final Pattern SEEDANCE_STRAY_AT_MARKER =
+            Pattern.compile("@(?!(?:image|video|audio)\\d+\\b)(?=\\S)");
+
     /**
      * 清洗 prompt：删除参考图映射段 + 占位按实际下发能力转裸引用或文字降级。
      *
@@ -168,6 +175,78 @@ public final class ReferencePromptSanitizer {
         String cleaned = sanitize(original, dispatchedImageMax, dispatchedAudioMax);
         if (!StrUtil.equals(original, cleaned)) {
             request.setPrompt(cleaned);
+        }
+    }
+
+    /**
+     * Seedance 索引素材专用清洗：内部图片/音频占位转换为厂商官方语法，
+     * 保留实际已下发范围内的 {@code @imageN/@videoN/@audioN}，越界引用文字降级。
+     */
+    public static String sanitizeForSeedance(String prompt, int dispatchedImageCount,
+                                             int dispatchedVideoCount, int dispatchedAudioCount) {
+        if (StrUtil.isBlank(prompt)) {
+            return prompt;
+        }
+        String cleaned = MAPPING_SECTION.matcher(prompt).replaceAll("");
+        cleaned = applySeedancePlaceholder(cleaned, REF_PLACEHOLDER, "image", dispatchedImageCount, null);
+        cleaned = applySeedancePlaceholder(cleaned, AUDIO_REF_PLACEHOLDER, "audio",
+                dispatchedAudioCount, AUDIO_NAME_PREFIX);
+        cleaned = applySeedanceOfficialRefs(cleaned, dispatchedImageCount,
+                dispatchedVideoCount, dispatchedAudioCount);
+        cleaned = SEEDANCE_STRAY_AT_MARKER.matcher(cleaned).replaceAll("");
+        return cleaned.strip();
+    }
+
+    public static void sanitizeInPlaceForSeedance(MediaVideoGenerateRequest request,
+                                                   int dispatchedImageCount,
+                                                   int dispatchedVideoCount,
+                                                   int dispatchedAudioCount) {
+        if (request == null) {
+            return;
+        }
+        String original = request.getPrompt();
+        String cleaned = sanitizeForSeedance(original, dispatchedImageCount,
+                dispatchedVideoCount, dispatchedAudioCount);
+        if (!StrUtil.equals(original, cleaned)) {
+            request.setPrompt(cleaned);
+        }
+    }
+
+    private static String applySeedancePlaceholder(String prompt, Pattern pattern, String officialKind,
+                                                    int dispatchedCount, String namePrefix) {
+        Matcher matcher = pattern.matcher(prompt);
+        StringBuffer rewritten = new StringBuffer();
+        while (matcher.find()) {
+            int index = parseIndex(matcher.group(1));
+            String replacement = index >= 1 && index <= dispatchedCount
+                    ? "@" + officialKind + index
+                    : degradeName(matcher.group(2), namePrefix);
+            matcher.appendReplacement(rewritten, Matcher.quoteReplacement(replacement));
+        }
+        matcher.appendTail(rewritten);
+        return rewritten.toString();
+    }
+
+    private static String applySeedanceOfficialRefs(String prompt, int imageCount,
+                                                     int videoCount, int audioCount) {
+        Matcher matcher = SEEDANCE_INDEX_REF.matcher(prompt);
+        StringBuffer rewritten = new StringBuffer();
+        while (matcher.find()) {
+            String kind = matcher.group(1);
+            int index = parseIndex(matcher.group(2));
+            int max = "image".equals(kind) ? imageCount : "video".equals(kind) ? videoCount : audioCount;
+            String replacement = index >= 1 && index <= max ? matcher.group() : kind + matcher.group(2);
+            matcher.appendReplacement(rewritten, Matcher.quoteReplacement(replacement));
+        }
+        matcher.appendTail(rewritten);
+        return rewritten.toString();
+    }
+
+    private static int parseIndex(String raw) {
+        try {
+            return Integer.parseInt(raw);
+        } catch (NumberFormatException ex) {
+            return Integer.MAX_VALUE;
         }
     }
 

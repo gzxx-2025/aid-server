@@ -1,5 +1,7 @@
 package com.aid.compose.service.impl;
 
+import java.net.URI;
+import java.util.Date;
 import java.util.concurrent.TimeUnit;
 
 import org.springframework.stereotype.Service;
@@ -7,6 +9,7 @@ import org.springframework.stereotype.Service;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.aid.aid.domain.media.AidMediaTask;
 import com.aid.aid.mapper.AidMediaTaskMapper;
 import com.aid.common.core.redis.RedisCache;
@@ -69,6 +72,7 @@ public class MpsCallbackServiceImpl implements MpsCallbackService {
             }
             String providerTaskId = resolveProviderTaskId(root);
             String sessionContext = resolveSessionContext(root);
+            String sessionId = resolveSessionId(root);
             if (StrUtil.isBlank(providerTaskId) && StrUtil.isBlank(sessionContext)) {
                 log.warn("MPS 回调缺少 TaskId/SessionContext，忽略");
                 return;
@@ -87,7 +91,20 @@ public class MpsCallbackServiceImpl implements MpsCallbackService {
                 return;
             }
 
-            ProviderTaskResult taskResult = mpsVideoProviderClient.query(null, task.getProviderTaskId());
+            ProviderTaskResult taskResult = null;
+            if (StrUtil.isBlank(task.getProviderTaskId())) {
+                taskResult = mpsVideoProviderClient.query(null, providerTaskId);
+                if (!isSafeRecoveredProviderTask(task, providerTaskId, sessionId, sessionContext, taskResult)
+                        || !bindRecoveredProviderTask(task, providerTaskId, sessionId, sessionContext)) {
+                    log.warn("MPS 回调无法认领待确认任务, taskId={}, providerTaskId={}",
+                            task.getId(), providerTaskId);
+                    return;
+                }
+            }
+
+            if (taskResult == null) {
+                taskResult = mpsVideoProviderClient.query(null, task.getProviderTaskId());
+            }
             if (taskResult == null
                     || (!MediaTaskStatus.SUCCEEDED.name().equals(taskResult.getStatus())
                     && !MediaTaskStatus.FAILED.name().equals(taskResult.getStatus()))) {
@@ -122,6 +139,76 @@ public class MpsCallbackServiceImpl implements MpsCallbackService {
     }
 
     /**
+     * 匿名回调只负责唤醒，不能单独证明任务归属。恢复未知任务号前，必须由官方查询确认终态，
+     * 且官方任务详情中的输出对象路径与本任务落库的唯一输出路径一致。
+     */
+    private boolean isSafeRecoveredProviderTask(AidMediaTask task, String providerTaskId,
+                                                String sessionId, String sessionContext,
+                                                ProviderTaskResult result) {
+        String expectedTaskId = String.valueOf(task.getId());
+        if (!MediaTaskStatus.PENDING.name().equals(task.getStatus())
+                || StrUtil.isBlank(providerTaskId)
+                || !expectedTaskId.equals(sessionContext)
+                || !("compose_" + expectedTaskId).equals(sessionId)
+                || result == null
+                || !Boolean.TRUE.equals(result.getQuerySuccessful())
+                || !Boolean.TRUE.equals(result.getTerminalConfirmed())
+                || !(MediaTaskStatus.SUCCEEDED.name().equals(result.getStatus())
+                || MediaTaskStatus.FAILED.name().equals(result.getStatus()))) {
+            return false;
+        }
+        String expectedPath = readExpectedOutputObjectPath(task.getRequestJson());
+        try {
+            String actualPath = MediaTaskStatus.SUCCEEDED.name().equals(result.getStatus())
+                    ? URI.create(result.getResultUrl()).getPath()
+                    : readOfficialOutputPath(result.getRawResponse());
+            return outputPathMatches(expectedPath, actualPath);
+        } catch (Exception e) {
+            log.warn("MPS回调恢复任务输出路径校验失败, taskId={}, providerTaskId={}",
+                    task.getId(), providerTaskId);
+            return false;
+        }
+    }
+
+    private String readOfficialOutputPath(String rawResponse) {
+        JSONObject root = parse(rawResponse);
+        JSONObject response = root == null ? null : root.getJSONObject("Response");
+        JSONObject editTask = response == null ? null : response.getJSONObject("EditMediaTask");
+        JSONObject output = editTask == null ? null : editTask.getJSONObject("Output");
+        if (output == null) {
+            return null;
+        }
+        return StrUtil.blankToDefault(output.getString("Path"), output.getString("OutputObjectPath"));
+    }
+
+    private String readExpectedOutputObjectPath(String requestJson) {
+        JSONObject root = parse(requestJson);
+        if (root == null) {
+            return null;
+        }
+        JSONObject request = root.getJSONObject("editMediaRequest");
+        return (request == null ? root : request).getString("OutputObjectPath");
+    }
+
+    private boolean outputPathMatches(String expected, String actual) {
+        if (StrUtil.isBlank(expected) || StrUtil.isBlank(actual)) {
+            return false;
+        }
+        if (expected.equals(actual)) {
+            return true;
+        }
+        String marker = ".{format}";
+        if (!expected.endsWith(marker)) {
+            return false;
+        }
+        String prefix = expected.substring(0, expected.length() - marker.length());
+        if (!actual.startsWith(prefix + ".")) {
+            return false;
+        }
+        return actual.substring(prefix.length() + 1).matches("[A-Za-z0-9]{1,10}");
+    }
+
+    /**
      * 按 providerTaskId 或 SessionContext（我方 taskId）反查非终态 COMPOSE 任务。
      *
      * @param providerTaskId MPS TaskId
@@ -137,7 +224,8 @@ public class MpsCallbackServiceImpl implements MpsCallbackService {
             wrapper.in(AidMediaTask::getStatus,
                     MediaTaskStatus.WAIT_CALLBACK.name(),
                     MediaTaskStatus.WAIT_POLL.name(),
-                    MediaTaskStatus.PROCESSING.name());
+                    MediaTaskStatus.PROCESSING.name(),
+                    MediaTaskStatus.PENDING.name());
             wrapper.last("LIMIT 1");
             AidMediaTask task = aidMediaTaskMapper.selectOne(wrapper);
             if (task != null) {
@@ -154,6 +242,43 @@ public class MpsCallbackServiceImpl implements MpsCallbackService {
             }
         }
         return null;
+    }
+
+    /**
+     * 首次提交响应丢失时，使用回调中的双重会话标识把腾讯任务 ID 绑定回仍占并发槽的 PENDING 任务。
+     * 绑定后立即建立正常的回调优先调度快照；CAS 防止与提交线程或僵尸补偿并发覆盖。
+     */
+    private boolean bindRecoveredProviderTask(AidMediaTask task, String providerTaskId,
+                                              String sessionId, String sessionContext) {
+        String expectedTaskId = String.valueOf(task.getId());
+        if (!MediaTaskStatus.PENDING.name().equals(task.getStatus())
+                || StrUtil.isBlank(providerTaskId)
+                || !expectedTaskId.equals(sessionContext)
+                || !("compose_" + expectedTaskId).equals(sessionId)) {
+            return false;
+        }
+        task.setProviderTaskId(providerTaskId);
+        taskDispatchService.initComposeDispatchSchedule(task);
+        Date now = new Date();
+        LambdaUpdateWrapper<AidMediaTask> update = new LambdaUpdateWrapper<>();
+        update.eq(AidMediaTask::getId, task.getId());
+        update.eq(AidMediaTask::getStatus, MediaTaskStatus.PENDING.name());
+        update.and(w -> w.isNull(AidMediaTask::getProviderTaskId)
+                .or().eq(AidMediaTask::getProviderTaskId, ""));
+        update.set(AidMediaTask::getProviderTaskId, providerTaskId);
+        update.set(AidMediaTask::getStatus, task.getStatus());
+        update.set(AidMediaTask::getDispatchMode, task.getDispatchMode());
+        update.set(AidMediaTask::getScheduleSnapshotJson, task.getScheduleSnapshotJson());
+        update.set(AidMediaTask::getUpstreamAcceptTime, task.getUpstreamAcceptTime());
+        update.set(AidMediaTask::getLastProgressTime, task.getLastProgressTime());
+        update.set(AidMediaTask::getCallbackDeadline, task.getCallbackDeadline());
+        update.set(AidMediaTask::getNextPollTime, task.getNextPollTime());
+        update.set(AidMediaTask::getUpdateTime, now);
+        boolean bound = aidMediaTaskMapper.update(null, update) == 1;
+        if (bound) {
+            log.info("MPS 回调已恢复提交任务, taskId={}, providerTaskId={}", task.getId(), providerTaskId);
+        }
+        return bound;
     }
 
     /**
@@ -176,7 +301,8 @@ public class MpsCallbackServiceImpl implements MpsCallbackService {
     private boolean isActive(String status) {
         return MediaTaskStatus.WAIT_CALLBACK.name().equals(status)
                 || MediaTaskStatus.WAIT_POLL.name().equals(status)
-                || MediaTaskStatus.PROCESSING.name().equals(status);
+                || MediaTaskStatus.PROCESSING.name().equals(status)
+                || MediaTaskStatus.PENDING.name().equals(status);
     }
 
     /**
@@ -214,6 +340,21 @@ public class MpsCallbackServiceImpl implements MpsCallbackService {
             JSONObject event = root.getJSONObject(eventKey);
             if (event != null && StrUtil.isNotBlank(event.getString("SessionContext"))) {
                 return event.getString("SessionContext");
+            }
+        }
+        return null;
+    }
+
+    /** 解析 SessionId：兼容顶层与事件子结构。 */
+    private String resolveSessionId(JSONObject root) {
+        String sessionId = root.getString("SessionId");
+        if (StrUtil.isNotBlank(sessionId)) {
+            return sessionId;
+        }
+        for (String eventKey : new String[]{"EditMediaTaskEvent", "EditMediaTask", "WorkflowTaskEvent"}) {
+            JSONObject event = root.getJSONObject(eventKey);
+            if (event != null && StrUtil.isNotBlank(event.getString("SessionId"))) {
+                return event.getString("SessionId");
             }
         }
         return null;

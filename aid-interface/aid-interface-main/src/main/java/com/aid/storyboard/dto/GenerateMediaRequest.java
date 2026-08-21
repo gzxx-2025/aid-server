@@ -40,6 +40,9 @@ public class GenerateMediaRequest {
     /** 视频时长(秒) */
     private Integer videoDuration;
 
+    /** 视频宽高比 */
+    private String aspectRatio;
+
     /** 音效描述(无声则不传) */
     private String soundDesc;
 

@@ -155,7 +155,7 @@ public class BatchTaskLocalOrchestrator
             // 取消：仅当确有未处理项被跳过才置 CANCELLED；否则视为已处理完毕，继续成功/部分失败分流
             if (taskCancelFlagManager.isCancelled(taskId))
             {
-                taskCancelFlagManager.clearCancelled(taskId);
+                taskCancelFlagManager.clearCancelled(taskId, dispatchToken);
                 if (hasBatchSkippedItems(resultJson))
                 {
                     if (!updateResult(taskId, dispatchToken, TASK_STATUS_CANCELLED, resultJson, "用户取消"))

@@ -6,6 +6,7 @@ import cn.hutool.http.HttpResponse;
 import cn.hutool.json.JSONUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.aid.common.constant.HttpConstants;
+import com.aid.common.utils.ProviderEndpointUtils;
 import com.aid.common.exception.ServiceException;
 import com.aid.domain.vo.AiModelConfigVo;
 import com.aid.media.constants.AgnesConstants;
@@ -21,8 +22,6 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Component;
 import lombok.extern.slf4j.Slf4j;
 
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -587,40 +586,12 @@ public class AgnesVideoProviderClient implements VideoProviderClient {
         return StringUtils.isNotBlank(resolved) ? resolved : AgnesConstants.DEFAULT_VIDEO_MODEL;
     }
 
-    private String buildApiUrl(String baseUrl, String apiSuffix) {
-        if (StringUtils.isBlank(baseUrl)) {
-            log.error("Agnes 视频 baseUrl 为空，请在 aid_ai_provider 表配置 base_url");
-            throw new IllegalArgumentException(AgnesConstants.ERROR_BASE_URL_EMPTY);
-        }
-        if (StringUtils.isBlank(apiSuffix)) {
-            log.error("Agnes 视频 apiSuffix 为空，请在 aid_ai_model 表配置 api_suffix");
-            throw new IllegalArgumentException(AgnesConstants.ERROR_API_SUFFIX_EMPTY);
-        }
-        return trimSlash(baseUrl.trim()) + apiSuffix;
+    static String buildApiUrl(String baseUrl, String apiSuffix) {
+        return ProviderEndpointUtils.buildSubmitUrl(baseUrl, apiSuffix);
     }
 
-    private String buildTaskUrl(String baseUrl, String taskQuerySuffix, String providerTaskId) {
-        if (StringUtils.isBlank(baseUrl)) {
-            throw new IllegalArgumentException(AgnesConstants.ERROR_BASE_URL_EMPTY);
-        }
-        if (StringUtils.isBlank(taskQuerySuffix)) {
-            log.error("Agnes 视频 taskQuerySuffix 为空，请在 aid_ai_provider 表配置 task_query_suffix");
-            throw new IllegalArgumentException("查询路径未配置");
-        }
-        if (StringUtils.isBlank(providerTaskId)) {
-            return trimSlash(baseUrl.trim());
-        }
-        // video_id 为 base64url 串（含 = 填充，可能含 -/_），作为 query 参数(/agnesapi?video_id=%s)时
-        // = 必须编码成 %3D，否则上游匹配不到 video_id 会恒返回 queued，导致轮询到超时失败。
-        String encodedTaskId = URLEncoder.encode(providerTaskId, StandardCharsets.UTF_8);
-        return trimSlash(baseUrl.trim()) + String.format(taskQuerySuffix, encodedTaskId);
-    }
-
-    private String trimSlash(String base) {
-        if (base.endsWith("/")) {
-            return base.substring(0, base.length() - 1);
-        }
-        return base;
+    static String buildTaskUrl(String baseUrl, String taskQuerySuffix, String providerTaskId) {
+        return ProviderEndpointUtils.buildTaskQueryUrl(baseUrl, taskQuerySuffix, providerTaskId);
     }
 
     private String getStringOption(Map<String, Object> options, String key) {

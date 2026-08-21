@@ -15,8 +15,40 @@ source "${ROOT_DIR}/deploy/aid.sh"
 [[ "${MYSQL_VERSION}" == "5.7.44" ]] || { echo 'FAIL: manual MySQL version drifted' >&2; exit 1; }
 [[ "${REDIS_VERSION}" == "8.0.5" ]] || { echo 'FAIL: manual Redis version drifted' >&2; exit 1; }
 [[ "${MANUAL_JDK_VERSION}" == "17.0.8" ]] || { echo 'FAIL: manual JDK version drifted' >&2; exit 1; }
-[[ "${JDK_VERSION}" == "17.0.20" && "${JAVA_RUNTIME_IMAGE}" == "aid/openjdk:17.0.20" ]] \
+[[ "${JDK_VERSION}" == "17.0.20" && "${JAVA_RUNTIME_IMAGE}" == "aid/openjdk:17.0.20-ffmpeg7.0.2-font2.004" ]] \
   || { echo 'FAIL: Docker JDK baseline must remain unchanged' >&2; exit 1; }
+[[ "${FFMPEG_RUNTIME_VERSION}" == "7.0.2" && "${FFMPEG_MIN_VERSION}" == "5.1" ]] \
+  || { echo 'FAIL: FFmpeg fixed runtime baseline drifted' >&2; exit 1; }
+configure_ffmpeg_runtime_paths
+[[ "${FFMPEG_RUNTIME_FFMPEG}" == '/opt/aid-ffmpeg/current/ffmpeg' \
+   && "${FFMPEG_RUNTIME_FFPROBE}" == '/opt/aid-ffmpeg/current/ffprobe' ]] \
+  || { echo 'FAIL: FFmpeg managed paths must be identical across deployment modes' >&2; exit 1; }
+[[ "${AID_CJK_FONT_VERSION}" == 'noto-sans-sc-2.004' \
+   && "${AID_CJK_FONT_PATH}" == '/opt/aid-fonts/current/aid-cjk-font' \
+   && "${AID_CJK_FONT_SHA256}" == '4d107c09ada479d3e48b6e78c83835773cbd9214bf6e12cdb7b60f8e068292ec' \
+   && "${AID_CJK_FONT_FILE_SHA256}" == 'faa6c9df652116dde789d351359f3d7e5d2285a2b2a1f04a2d7244df706d5ea9' ]] \
+  || { echo 'FAIL: managed CJK font baseline drifted' >&2; exit 1; }
+[[ "$(ffmpeg_runtime_checksum amd64)" == 'abda8d77ce8309141f83ab8edf0596834087c52467f6badf376a6a2a4c87cf67' \
+   && "$(ffmpeg_runtime_checksum arm64)" == 'f4149bb2b0784e30e99bdda85471c9b5930d3402014e934a5098b41d0f7201b1' ]] \
+  || { echo 'FAIL: FFmpeg architecture checksum drifted' >&2; exit 1; }
+grep -Fq 'image: aid/openjdk:17.0.20-ffmpeg7.0.2-font2.004' "${ROOT_DIR}/deploy/docker/docker-compose.yml" \
+  || { echo 'FAIL: Compose FFmpeg image tag drifted' >&2; exit 1; }
+grep -Fq 'AID_FFMPEG_PATH: /opt/aid-ffmpeg/current/ffmpeg' "${ROOT_DIR}/deploy/docker/docker-compose.yml" \
+  || { echo 'FAIL: Compose FFmpeg path drifted' >&2; exit 1; }
+grep -Fq 'AID_FFPROBE_PATH: /opt/aid-ffmpeg/current/ffprobe' "${ROOT_DIR}/deploy/docker/docker-compose.yml" \
+  || { echo 'FAIL: Compose FFprobe path drifted' >&2; exit 1; }
+grep -Fq "'ffmpegPath', '/opt/aid-ffmpeg/current/ffmpeg'" "${ROOT_DIR}/sql/aid-init.sql" \
+  || { echo 'FAIL: aid-init FFmpeg default path drifted' >&2; exit 1; }
+grep -Fq "'ffprobePath', '/opt/aid-ffmpeg/current/ffprobe'" "${ROOT_DIR}/sql/aid-init.sql" \
+  || { echo 'FAIL: aid-init FFprobe default path drifted' >&2; exit 1; }
+grep -Fq "'ffmpegPath', '/opt/aid-ffmpeg/current/ffmpeg'" "${ROOT_DIR}/sql/v1.0.0-beta.6.sql" \
+  || { echo 'FAIL: beta.6 FFmpeg default path drifted' >&2; exit 1; }
+grep -Fq "'ffprobePath', '/opt/aid-ffmpeg/current/ffprobe'" "${ROOT_DIR}/sql/v1.0.0-beta.6.sql" \
+  || { echo 'FAIL: beta.6 FFprobe default path drifted' >&2; exit 1; }
+grep -Fq "'ffmpegFontFile', '/opt/aid-fonts/current/aid-cjk-font'" "${ROOT_DIR}/sql/aid-init.sql" \
+  || { echo 'FAIL: aid-init CJK font default path drifted' >&2; exit 1; }
+grep -Fq "'ffmpegFontFile', '/opt/aid-fonts/current/aid-cjk-font'" "${ROOT_DIR}/sql/v1.0.0-beta.6.sql" \
+  || { echo 'FAIL: beta.6 CJK font default path drifted' >&2; exit 1; }
 
 mkdir -p "${TMP_ROOT}/compiler"
 cat > "${TMP_ROOT}/compiler/gcc" <<'EOF'

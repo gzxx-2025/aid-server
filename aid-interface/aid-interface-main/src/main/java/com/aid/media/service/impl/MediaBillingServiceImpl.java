@@ -17,6 +17,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.aid.aid.domain.media.AidMediaTask;
 import com.aid.aid.mapper.AidMediaTaskMapper;
 import com.aid.billing.enums.BillingConstants;
+import com.aid.billing.error.BillingBalanceErrors;
 import com.aid.billing.service.BillingRecordMetadataService;
 import com.aid.billing.service.IAccountUpdateService;
 import com.aid.common.core.redis.RedisCache;
@@ -112,7 +113,7 @@ public class MediaBillingServiceImpl implements IMediaBillingService {
 
             log.info("预冻结成功, userId={}, traceId={}, frozenAmount={}", userId, traceId, frozenAmount);
         } catch (ServiceException e) {
-            if ("余额不足".equals(e.getMessage())) {
+            if (BillingBalanceErrors.isPreholdNotEnough(e)) {
                 task.setBillingStatus(MediaBillingStatus.FAILED.name());
                 Long bizId = task.getBizTaskId() != null ? task.getBizTaskId() : task.getId();
                 String bizType = task.getBizTaskType() != null ? task.getBizTaskType() : "media";
@@ -154,25 +155,36 @@ public class MediaBillingServiceImpl implements IMediaBillingService {
 
         BigDecimal frozenAmount = task.getFrozenAmount();
         if (frozenAmount == null || frozenAmount.compareTo(BigDecimal.ZERO) <= 0) {
-            int fastRows = casUpdateBillingStatus(task.getId(), MediaBillingStatus.SETTLING.name(), MediaBillingStatus.SUCCESS.name());
-            if (fastRows > 0) { task.setBillingStatus(MediaBillingStatus.SUCCESS.name()); }
+            int fastRows = casFinishBillingStatus(task.getId(), MediaBillingStatus.SETTLING.name(),
+                    MediaBillingStatus.SUCCESS.name(), BigDecimal.ZERO);
+            if (fastRows > 0) {
+                task.setBillingStatus(MediaBillingStatus.SUCCESS.name());
+                task.setActualCost(BigDecimal.ZERO);
+            }
             return true;
         }
         Long userId = task.getUserId();
         if (userId == null) {
-            int fastRows = casUpdateBillingStatus(task.getId(), MediaBillingStatus.SETTLING.name(), MediaBillingStatus.SUCCESS.name());
-            if (fastRows > 0) { task.setBillingStatus(MediaBillingStatus.SUCCESS.name()); }
+            int fastRows = casFinishBillingStatus(task.getId(), MediaBillingStatus.SETTLING.name(),
+                    MediaBillingStatus.SUCCESS.name(), BigDecimal.ZERO);
+            if (fastRows > 0) {
+                task.setBillingStatus(MediaBillingStatus.SUCCESS.name());
+                task.setActualCost(BigDecimal.ZERO);
+            }
             return true;
         }
 
         // Step 2: 执行账户结算（幂等，已执行则跳过）
-        accountUpdateService.settle(userId, frozenAmount, task.getBillingTraceId(), "create", "媒体任务结算扣费");
+        String bizName = billingRecordMetadataService.buildMediaBizName(task);
+        accountUpdateService.settle(userId, frozenAmount, task.getBillingTraceId(), "create", bizName + "结算");
 
         // Step 3: CAS SETTLING → SUCCESS
-        int finalRows = casUpdateBillingStatus(task.getId(), MediaBillingStatus.SETTLING.name(), MediaBillingStatus.SUCCESS.name());
+        int finalRows = casFinishBillingStatus(task.getId(), MediaBillingStatus.SETTLING.name(),
+                MediaBillingStatus.SUCCESS.name(), frozenAmount);
         if (finalRows > 0)
         {
             task.setBillingStatus(MediaBillingStatus.SUCCESS.name());
+            task.setActualCost(frozenAmount);
             log.info("结算成功, userId={}, traceId={}, amount={}", userId, task.getBillingTraceId(), frozenAmount);
         }
         else
@@ -207,25 +219,36 @@ public class MediaBillingServiceImpl implements IMediaBillingService {
 
         BigDecimal frozenAmount = task.getFrozenAmount();
         if (frozenAmount == null || frozenAmount.compareTo(BigDecimal.ZERO) <= 0) {
-            int fastRows = casUpdateBillingStatus(task.getId(), MediaBillingStatus.REFUNDING.name(), MediaBillingStatus.FAILED.name());
-            if (fastRows > 0) { task.setBillingStatus(MediaBillingStatus.FAILED.name()); }
+            int fastRows = casFinishBillingStatus(task.getId(), MediaBillingStatus.REFUNDING.name(),
+                    MediaBillingStatus.FAILED.name(), BigDecimal.ZERO);
+            if (fastRows > 0) {
+                task.setBillingStatus(MediaBillingStatus.FAILED.name());
+                task.setActualCost(BigDecimal.ZERO);
+            }
             return true;
         }
         Long userId = task.getUserId();
         if (userId == null) {
-            int fastRows = casUpdateBillingStatus(task.getId(), MediaBillingStatus.REFUNDING.name(), MediaBillingStatus.FAILED.name());
-            if (fastRows > 0) { task.setBillingStatus(MediaBillingStatus.FAILED.name()); }
+            int fastRows = casFinishBillingStatus(task.getId(), MediaBillingStatus.REFUNDING.name(),
+                    MediaBillingStatus.FAILED.name(), BigDecimal.ZERO);
+            if (fastRows > 0) {
+                task.setBillingStatus(MediaBillingStatus.FAILED.name());
+                task.setActualCost(BigDecimal.ZERO);
+            }
             return true;
         }
 
         // Step 2: 执行账户退回（幂等，已执行则跳过）
-        accountUpdateService.refund(userId, frozenAmount, task.getBillingTraceId(), "refund", "媒体任务失败退回");
+        String bizName = billingRecordMetadataService.buildMediaBizName(task);
+        accountUpdateService.refund(userId, frozenAmount, task.getBillingTraceId(), "refund", bizName + "失败退回");
 
         // Step 3: CAS REFUNDING → FAILED
-        int finalRows = casUpdateBillingStatus(task.getId(), MediaBillingStatus.REFUNDING.name(), MediaBillingStatus.FAILED.name());
+        int finalRows = casFinishBillingStatus(task.getId(), MediaBillingStatus.REFUNDING.name(),
+                MediaBillingStatus.FAILED.name(), BigDecimal.ZERO);
         if (finalRows > 0)
         {
             task.setBillingStatus(MediaBillingStatus.FAILED.name());
+            task.setActualCost(BigDecimal.ZERO);
             log.info("退回成功, userId={}, traceId={}, amount={}", userId, task.getBillingTraceId(), frozenAmount);
         }
         else
@@ -267,7 +290,9 @@ public class MediaBillingServiceImpl implements IMediaBillingService {
         LambdaQueryWrapper<AidMediaTask> wrapper = Wrappers.lambdaQuery();
         wrapper.eq(AidMediaTask::getBillingStatus, billingStatus);
         wrapper.select(AidMediaTask::getId, AidMediaTask::getUserId, AidMediaTask::getBillingStatus,
-                AidMediaTask::getFrozenAmount, AidMediaTask::getBillingTraceId, AidMediaTask::getStatus);
+                AidMediaTask::getFrozenAmount, AidMediaTask::getBillingTraceId, AidMediaTask::getStatus,
+                AidMediaTask::getMediaType, AidMediaTask::getProjectId,
+                AidMediaTask::getBizTaskType, AidMediaTask::getRequestJson);
         wrapper.lt(AidMediaTask::getUpdateTime, LocalDateTime.now().minusMinutes(2));
         wrapper.last("LIMIT " + batchSize);
         List<AidMediaTask> staleTasks = aidMediaTaskMapper.selectList(wrapper);
@@ -309,7 +334,10 @@ public class MediaBillingServiceImpl implements IMediaBillingService {
         wrapper.eq(AidMediaTask::getBillingStatus, MediaBillingStatus.FROZEN.name());
         wrapper.in(AidMediaTask::getStatus, "SUCCEEDED", "FAILED");
         wrapper.select(AidMediaTask::getId, AidMediaTask::getUserId, AidMediaTask::getBillingStatus,
-                AidMediaTask::getFrozenAmount, AidMediaTask::getBillingTraceId, AidMediaTask::getStatus);
+                AidMediaTask::getFrozenAmount, AidMediaTask::getBillingTraceId, AidMediaTask::getStatus,
+                AidMediaTask::getMediaType, AidMediaTask::getUpstreamAcceptTime,
+                AidMediaTask::getProjectId, AidMediaTask::getBizTaskType,
+                AidMediaTask::getRequestJson);
         wrapper.lt(AidMediaTask::getUpdateTime, LocalDateTime.now().minusMinutes(2));
         wrapper.last("LIMIT " + batchSize);
         List<AidMediaTask> staleTasks = aidMediaTaskMapper.selectList(wrapper);
@@ -325,8 +353,15 @@ public class MediaBillingServiceImpl implements IMediaBillingService {
             try
             {
                 boolean result;
-                if ("SUCCEEDED".equals(task.getStatus()))
+                boolean textProviderStarted = "TEXT".equalsIgnoreCase(task.getMediaType())
+                        && task.getUpstreamAcceptTime() != null;
+                if ("SUCCEEDED".equals(task.getStatus()) || textProviderStarted)
                 {
+                    if (textProviderStarted && "FAILED".equals(task.getStatus()))
+                    {
+                        log.info("媒体FROZEN补偿检测到文本Provider边界，按预冻结上限保守结算: taskId={}",
+                                task.getId());
+                    }
                     result = settleBilling(task);
                 }
                 else
@@ -356,6 +391,24 @@ public class MediaBillingServiceImpl implements IMediaBillingService {
             .eq(AidMediaTask::getId, taskId)
             .eq(AidMediaTask::getBillingStatus, expectedStatus)
             .set(AidMediaTask::getBillingStatus, targetStatus)
+            .set(AidMediaTask::getUpdateTime, new java.util.Date())
+        );
+    }
+
+    /**
+     * 账务终态与实际费用必须同一 CAS 落库。正常 Facade 差额结算仍会在同一
+     * 外层事务中将上限金额覆盖为真实 usage 金额；补偿器直接调用本服务时，
+     * 该值则是无完整 usage 时按预冻结上限保守结算的权威结果。
+     */
+    private int casFinishBillingStatus(Long taskId, String expectedStatus, String targetStatus,
+                                       BigDecimal actualCost) {
+        return aidMediaTaskMapper.update(null, new LambdaUpdateWrapper<AidMediaTask>()
+            .eq(AidMediaTask::getId, taskId)
+            .eq(AidMediaTask::getBillingStatus, expectedStatus)
+            .set(AidMediaTask::getBillingStatus, targetStatus)
+            .set(AidMediaTask::getActualCost,
+                    BillingConstants.normalizeAccountAmount(
+                            actualCost == null ? BigDecimal.ZERO : actualCost))
             .set(AidMediaTask::getUpdateTime, new java.util.Date())
         );
     }

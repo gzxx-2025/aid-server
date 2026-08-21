@@ -148,7 +148,7 @@ public class AiModelBusinessServiceImpl implements IAiModelBusinessService
                 AidAiModel::getDefaultDurationSeconds, AidAiModel::getCapabilityJson,
                 // 计费明细组装所需字段（billing 出参：SKU 档位 / 倍率 / 备注）
                 AidAiModel::getBillingMode, AidAiModel::getBillingRuleJson,
-                AidAiModel::getBillingMultiplier, AidAiModel::getRemark);
+                AidAiModel::getBillingMultiplier, AidAiModel::getIsFree, AidAiModel::getRemark);
         modelWrapper.eq(AidAiModel::getStatus, STATUS_NORMAL);
         modelWrapper.eq(AidAiModel::getDelFlag, DEL_FLAG_NORMAL);
         // 按模型类型筛选
@@ -264,7 +264,7 @@ public class AiModelBusinessServiceImpl implements IAiModelBusinessService
                 AidAiModel::getDefaultDurationSeconds, AidAiModel::getCapabilityJson,
                 // 计费明细组装所需字段（billing 出参：SKU 档位 / 倍率 / 备注）
                 AidAiModel::getBillingMode, AidAiModel::getBillingRuleJson,
-                AidAiModel::getBillingMultiplier, AidAiModel::getRemark);
+                AidAiModel::getBillingMultiplier, AidAiModel::getIsFree, AidAiModel::getRemark);
         modelWrapper.in(AidAiModel::getId, orderedModelIds);
         modelWrapper.eq(AidAiModel::getStatus, STATUS_NORMAL);
         modelWrapper.eq(AidAiModel::getDelFlag, DEL_FLAG_NORMAL);
@@ -339,6 +339,7 @@ public class AiModelBusinessServiceImpl implements IAiModelBusinessService
         vo.setGenerateMode(model.getGenerateMode());
         // 展示单价 = 原价 × 模型级倍率 × 全局折算系数（禁止直出库表原价）
         vo.setCostCredits(billingDetailQueryService.displayCostCredits(model, globalFactor));
+        vo.setIsFree(Boolean.TRUE.equals(model.getIsFree()));
         vo.setPriority(model.getPriority());
         vo.setImageRefine(model.getImageRefine());
         vo.setProviderName(providerName);
@@ -472,8 +473,11 @@ public class AiModelBusinessServiceImpl implements IAiModelBusinessService
             {
                 cap.setReferenceAudioFormats(new ArrayList<>());
             }
-            // 开关默认值与能力位绑定：支持 → 默认 true，不支持 → false
-            cap.setDefaultGenerateAudio(Boolean.TRUE.equals(cap.getSupportsAudio()));
+            // 未声明 defaultAudio 的历史模型保持“支持即默认开启”；显式 false 的模型默认无声。
+            boolean defaultAudio = Boolean.TRUE.equals(cap.getSupportsAudio())
+                    && !Boolean.FALSE.equals(cap.getDefaultAudio());
+            cap.setDefaultAudio(defaultAudio);
+            cap.setDefaultGenerateAudio(defaultAudio);
             if (Objects.isNull(cap.getSupportsBgm()))
             {
                 cap.setSupportsBgm(Boolean.FALSE);

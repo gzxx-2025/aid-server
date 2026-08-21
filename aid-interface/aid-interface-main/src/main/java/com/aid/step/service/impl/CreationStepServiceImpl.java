@@ -11,13 +11,11 @@ import com.aid.aid.domain.AidComicEpisode;
 import com.aid.aid.domain.AidComicProject;
 import com.aid.aid.domain.AidComicScript;
 import com.aid.aid.domain.AidRolePropScene;
-import com.aid.aid.domain.AidScenePlot;
 import com.aid.aid.domain.AidStoryboard;
 import com.aid.aid.service.IAidComicEpisodeService;
 import com.aid.aid.service.IAidComicProjectService;
 import com.aid.aid.service.IAidComicScriptService;
 import com.aid.aid.service.IAidRolePropSceneService;
-import com.aid.aid.service.IAidScenePlotService;
 import com.aid.aid.service.IAidStoryboardService;
 import com.aid.common.exception.ServiceException;
 import com.aid.common.utils.DateUtils;
@@ -47,8 +45,6 @@ public class CreationStepServiceImpl implements ICreationStepService {
     private IAidComicScriptService aidComicScriptService;
     @Autowired
     private IAidRolePropSceneService rpsService;
-    @Autowired
-    private IAidScenePlotService scenePlotService;
     @Autowired
     private IAidStoryboardService aidStoryboardService;
     @Override
@@ -279,7 +275,7 @@ public class CreationStepServiceImpl implements ICreationStepService {
     /**
      * 剧集-步骤3：素材准备 —— 至少包含1个角色和1个本集可用场景（按当前用户隔离）。
      * 角色按项目级校验（剧集角色主资产项目内唯一，episodeId=0）；
-     * 场景按「本集直属场景 ∪ 本集剧情引用（aid_scene_plot）的复用场景」校验。
+     * 场景按项目级资产库校验，剧集可以复用同项目已提取的场景。
      */
     private void checkSeriesAssetOrThrow(Long projectId, Long episodeId, Long userId) {
         // 校验角色（项目级：全局角色与历史按集角色均可满足）
@@ -292,23 +288,15 @@ public class CreationStepServiceImpl implements ICreationStepService {
                 .last("LIMIT 1")))) {
             throw new ServiceException("请至少创建一个角色");
         }
-        // 校验场景：本集直属场景，或本集剧情引用了复用场景（跨集复用时主资产归属其他集）
-        boolean hasEpisodeScene = Objects.nonNull(rpsService.getOne(Wrappers.<AidRolePropScene>lambdaQuery()
+        // 场景资产是项目级可复用资源，不依赖分镜生成后才派生的场次记录。
+        boolean hasProjectScene = Objects.nonNull(rpsService.getOne(Wrappers.<AidRolePropScene>lambdaQuery()
                 .select(AidRolePropScene::getId)
                 .eq(AidRolePropScene::getProjectId, projectId)
-                .eq(AidRolePropScene::getEpisodeId, episodeId)
                 .eq(AidRolePropScene::getUserId, userId)
                 .eq(AidRolePropScene::getDelFlag, DEL_FLAG_NORMAL)
                 .eq(AidRolePropScene::getAssetType, "scene")
                 .last("LIMIT 1")));
-        boolean hasPlotSceneRef = hasEpisodeScene || scenePlotService.count(
-                Wrappers.<AidScenePlot>lambdaQuery()
-                        .eq(AidScenePlot::getProjectId, projectId)
-                        .eq(AidScenePlot::getEpisodeId, episodeId)
-                        .eq(AidScenePlot::getUserId, userId)
-                        .eq(AidScenePlot::getDelFlag, DEL_FLAG_NORMAL)
-                        .isNotNull(AidScenePlot::getSceneId)) > 0;
-        if (!hasPlotSceneRef) {
+        if (!hasProjectScene) {
             throw new ServiceException("请至少创建一个场景");
         }
     }

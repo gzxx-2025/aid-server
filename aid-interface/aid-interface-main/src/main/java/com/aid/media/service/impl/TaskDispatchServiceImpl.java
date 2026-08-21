@@ -18,6 +18,10 @@ import com.aid.media.provider.ImageProviderClient;
 import com.aid.media.provider.ProviderTaskResult;
 import com.aid.media.provider.TextProviderClient;
 import com.aid.media.provider.ViduCallbackSupport;
+import com.aid.media.provider.KlingCallbackSupport;
+import com.aid.media.constants.KlingConstants;
+import com.aid.media.constants.MinimaxH3Constants;
+import com.aid.media.provider.MinimaxH3CallbackSupport;
 import com.aid.media.provider.VideoProviderClient;
 import com.aid.media.service.TaskCompletionService;
 import com.aid.media.service.TaskDispatchService;
@@ -234,9 +238,26 @@ public class TaskDispatchServiceImpl implements TaskDispatchService {
      * 其他供应商沿用自身已有的回调配置方式，不改变其调度行为。
      */
     private boolean hasUsableCallbackConfiguration(AiModelConfigVo modelConfig) {
-        if (Objects.isNull(modelConfig)
-                || !Objects.equals(ViduConstants.PROVIDER_CODE,
-                StrUtil.trimToEmpty(modelConfig.getProviderCode()).toLowerCase(Locale.ROOT))) {
+        if (Objects.isNull(modelConfig)) {
+            return true;
+        }
+        String providerCode = StrUtil.trimToEmpty(modelConfig.getProviderCode()).toLowerCase(Locale.ROOT);
+        if (MinimaxH3Constants.PROTOCOL_VIDEO.equalsIgnoreCase(StrUtil.trim(modelConfig.getProtocol()))) {
+            boolean configured = StrUtil.isNotBlank(
+                MinimaxH3CallbackSupport.resolveCallbackUrlForSubmission(modelConfig));
+            if (!configured) {
+                log.info("MiniMax H3 未配置可用回调地址，降级为轮询, modelCode={}", modelConfig.getModelCode());
+            }
+            return configured;
+        }
+        if (Objects.equals(KlingConstants.PROVIDER_CODE, providerCode)) {
+            boolean configured = StrUtil.isNotBlank(KlingCallbackSupport.resolveCallbackUrlForSubmission(modelConfig));
+            if (!configured) {
+                log.info("Kling 未配置可用回调地址，降级为轮询, modelCode={}", modelConfig.getModelCode());
+            }
+            return configured;
+        }
+        if (!Objects.equals(ViduConstants.PROVIDER_CODE, providerCode)) {
             return true;
         }
         boolean configured = StrUtil.isNotBlank(ViduCallbackSupport.resolveCallbackBaseUrl(modelConfig));
@@ -455,6 +476,21 @@ public class TaskDispatchServiceImpl implements TaskDispatchService {
             return false;
         }
         if (!Boolean.TRUE.equals(upstream.getQuerySuccessful())) {
+            if (shouldRefundExpiredMinimaxTerminalAnomaly(task, verdict, upstream)) {
+                ProviderTaskResult refundResult = ProviderTaskResult.builder()
+                    .status(MediaTaskStatus.FAILED.name())
+                    .errorMessage("结算结果超时")
+                    .rawResponse(upstream.getRawResponse())
+                    .querySuccessful(Boolean.TRUE)
+                    .providerStatus(upstream.getProviderStatus())
+                    .terminalConfirmed(Boolean.TRUE)
+                    .build();
+                boolean won = taskCompletionService.completeTask(task.getId(), refundResult);
+                log.warn("MiniMax H3 成功终态长期缺少可结算结果，按最大生命周期失败收口并退款, "
+                        + "taskId={}, providerTaskId={}, completeTask={}",
+                    task.getId(), task.getProviderTaskId(), won);
+                return won;
+            }
             recordUpstreamAnomaly(task, verdict,
                     StrUtil.blankToDefault(upstream.getErrorMessage(), "上游状态待确认"), upstream);
             return false;
@@ -477,6 +513,16 @@ public class TaskDispatchServiceImpl implements TaskDispatchService {
             task.getId(), upstreamStatus, verdict, won);
         // 成功终态提交后由 MediaTaskCompletedEvent 单向驱动 OSS 持久化，调度服务不反向依赖媒体生成服务。
         return true;
+    }
+
+    static boolean shouldRefundExpiredMinimaxTerminalAnomaly(AidMediaTask task,
+                                                               TaskLivenessDecider.Verdict verdict,
+                                                               ProviderTaskResult upstream) {
+        return task != null && upstream != null
+            && TaskLivenessDecider.Verdict.EXPIRED.equals(verdict)
+            && MinimaxH3Constants.PROTOCOL_VIDEO.equals(task.getProtocol())
+            && MinimaxH3Constants.STATUS_SUCCEEDED.equalsIgnoreCase(upstream.getProviderStatus())
+            && !Boolean.TRUE.equals(upstream.getQuerySuccessful());
     }
 
     @Override
@@ -525,6 +571,23 @@ public class TaskDispatchServiceImpl implements TaskDispatchService {
         aidMediaTaskMapper.update(null, wrapper);
     }
 
+    @Override
+    public boolean scheduleImmediatePollIfWaitingCallback(AidMediaTask task) {
+        if (Objects.isNull(task) || Objects.isNull(task.getId())) {
+            return false;
+        }
+        Date now = new Date();
+        LambdaUpdateWrapper<AidMediaTask> wrapper = new LambdaUpdateWrapper<>();
+        wrapper.eq(AidMediaTask::getId, task.getId());
+        wrapper.eq(AidMediaTask::getStatus, MediaTaskStatus.WAIT_CALLBACK.name());
+        wrapper.set(AidMediaTask::getStatus, MediaTaskStatus.WAIT_POLL.name());
+        wrapper.set(AidMediaTask::getNextPollTime, now);
+        wrapper.set(AidMediaTask::getUpdateBy,
+                Objects.nonNull(task.getUserId()) ? String.valueOf(task.getUserId()) : "");
+        wrapper.set(AidMediaTask::getUpdateTime, now);
+        return aidMediaTaskMapper.update(null, wrapper) > 0;
+    }
+
     /**
      * 记录“已有上游任务ID但本次无法确认状态”的特殊标记与独立日志。
      * 只更新错误提示和审计时间，不前移 last_progress_time、不改变状态、不退款、不释放并发。
@@ -565,6 +628,7 @@ public class TaskDispatchServiceImpl implements TaskDispatchService {
         // 取 2 小时：必须显著大于单次 HTTP 提交超时上限（SubmitTimeoutResolver 最大 3600s），
         // 否则可能把「提交仍在合法等待中」的任务误判为僵尸并退款（与 R11 超时分层一致：deadline > submitTimeout）。
         final long unsubmittedMaxLifeMs = 7200L * 1000L;
+        final long composeUnsubmittedMaxLifeMs = 600L * 1000L;
         LambdaQueryWrapper<AidMediaTask> wrapper = new LambdaQueryWrapper<>();
         // QUEUED 只表示等待并发槽，50 个分镜在低并发下合法等待可能超过数小时，不能当僵尸关闭。
         // 这里只处理已占槽但提交进程异常中断的 PENDING。
@@ -572,7 +636,9 @@ public class TaskDispatchServiceImpl implements TaskDispatchService {
         // 仅清「未提交上游」的：providerTaskId 为空（NULL 或空串）。
         wrapper.and(w -> w.isNull(AidMediaTask::getProviderTaskId)
             .or().eq(AidMediaTask::getProviderTaskId, ""));
-        wrapper.orderByAsc(AidMediaTask::getCreateTime);
+        // 本地 FFmpeg 会定期刷新 updateTime；按最近活动时间排序，避免长任务长期占据扫描窗口，
+        // 让真正失联的 PENDING 任务优先进入补偿。
+        wrapper.orderByAsc(AidMediaTask::getUpdateTime, AidMediaTask::getId);
         wrapper.last("LIMIT " + batchSize);
 
         List<AidMediaTask> tasks = aidMediaTaskMapper.selectList(wrapper);
@@ -582,14 +648,21 @@ public class TaskDispatchServiceImpl implements TaskDispatchService {
         Date now = new Date();
         int closed = 0;
         for (AidMediaTask task : tasks) {
-            Date createTime = task.getCreateTime();
-            if (Objects.isNull(createTime)) {
+            Date pendingSince = Objects.nonNull(task.getUpdateTime()) ? task.getUpdateTime() : task.getCreateTime();
+            if (Objects.isNull(pendingSince)) {
                 continue;
             }
-            if (now.getTime() - createTime.getTime() > unsubmittedMaxLifeMs) {
-                boolean won = taskCompletionService.closeUnsubmittedTask(task.getId(), "任务超时: 提交未完成");
-                log.info("closeStaleUnsubmittedTasks 关闭未提交僵尸任务, taskId={}, refundWon={}", task.getId(), won);
-                closed++;
+            boolean compose = com.aid.compose.ComposeConstants.MEDIA_TYPE_COMPOSE.equals(task.getMediaType());
+            long maxLifeMs = compose ? composeUnsubmittedMaxLifeMs : unsubmittedMaxLifeMs;
+            if (now.getTime() - pendingSince.getTime() > maxLifeMs) {
+                boolean won = compose
+                        ? taskCompletionService.requeueUnsubmittedTask(task.getId())
+                        : taskCompletionService.closeUnsubmittedTask(task.getId(), "任务超时: 提交未完成");
+                log.info("closeStaleUnsubmittedTasks 处理未提交僵尸任务, taskId={}, requeued={}, won={}",
+                        task.getId(), compose, won);
+                if (won) {
+                    closed++;
+                }
             }
         }
         return closed;

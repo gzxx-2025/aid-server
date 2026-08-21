@@ -2,6 +2,7 @@ package com.aid.media.provider.impl;
 
 import com.aid.media.constants.DashscopeConstants;
 import com.aid.media.dto.MediaImageGenerateRequest;
+import com.aid.domain.vo.AiModelConfigVo;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;
@@ -31,11 +32,9 @@ class DashscopeImageProviderClientTest {
 
         Object dialect = resolveDialect(snapshot);
         Map<String, String> headers = extraHeaders(dialect);
-        String suffix = resolveSubmitApiSuffix(snapshot, "/configured-sync-path");
 
         assertEquals("QwenSyncMultimodalDialect", dialect.getClass().getSimpleName());
         assertTrue(headers.isEmpty());
-        assertEquals("/configured-sync-path", suffix);
     }
 
     @Test
@@ -66,11 +65,11 @@ class DashscopeImageProviderClientTest {
         Map<String, String> headers = extraHeaders(dialect);
 
         assertEquals("QwenImageAsyncDialect", dialect.getClass().getSimpleName());
-        String suffix = resolveSubmitApiSuffix(
-                "  " + modelName.toUpperCase() + "  ", "/configured-sync-path");
-        assertEquals("/api/v1/services/aigc/text2image/image-synthesis", suffix);
-        assertEquals("https://dashscope.aliyuncs.com/api/v1/services/aigc/text2image/image-synthesis",
-                buildApiUrl("https://dashscope.aliyuncs.com", suffix));
+        AiModelConfigVo config = new AiModelConfigVo();
+        config.setBaseUrl("https://proxy.example.test");
+        config.setApiSuffix("/proxy/dash/v9/qwen-image");
+        assertEquals("https://proxy.example.test/proxy/dash/v9/qwen-image",
+                DashscopeImageProviderClient.buildSubmitUrl(config));
         assertEquals(DashscopeConstants.HEADER_ASYNC_ENABLE,
                 headers.get(DashscopeConstants.HEADER_ASYNC));
         assertEquals(modelName, body.get(DashscopeConstants.JSON_MODEL));
@@ -86,13 +85,6 @@ class DashscopeImageProviderClientTest {
         Method method = DashscopeImageProviderClient.class.getDeclaredMethod("resolveDialect", String.class);
         method.setAccessible(true);
         return method.invoke(client, modelName);
-    }
-
-    private String resolveSubmitApiSuffix(String modelName, String configuredSuffix) throws Exception {
-        Method method = DashscopeImageProviderClient.class.getDeclaredMethod(
-                "resolveSubmitApiSuffix", String.class, String.class);
-        method.setAccessible(true);
-        return (String) method.invoke(client, modelName, configuredSuffix);
     }
 
     private String buildApiUrl(String baseUrl, String apiSuffix) throws Exception {

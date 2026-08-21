@@ -14,7 +14,7 @@ import lombok.EqualsAndHashCode;
 import lombok.ToString;
 
 /**
- * 剧情节拍对象 aid_scene_plot。
+ * 场次兼容数据对象 aid_scene_plot；由分镜结果派生，不作为分镜生成输入。
  *
  * @author 视觉AID
  */
@@ -47,11 +47,11 @@ public class AidScenePlot extends BaseEntity implements Serializable
     @Excel(name = "用户ID")
     private Long userId;
 
-    /** 全局递增场次序号（来自场景提取 LLM 输出，被 SceneCodeAllocator 全局覆盖后写入） */
+    /** 分镜生成按场次顺序分配的兼容场次序号 */
     @Excel(name = "场次序号")
     private String sceneCode;
 
-    /** 剧情原文（LLM 逐字保留） */
+    /** 同一场次分镜剧本内容按输出顺序拼接得到的兼容剧情原文 */
     @Excel(name = "剧情原文")
     private String plotContent;
 
@@ -95,7 +95,7 @@ public class AidScenePlot extends BaseEntity implements Serializable
     @Excel(name = "气候天象")
     private String weather;
 
-    /** 创建来源 auto/manual */
+    /** 创建来源 auto-资产提取/manual-人工创建/storyboard-分镜派生 */
     @Excel(name = "创建来源")
     private String createSource;
 

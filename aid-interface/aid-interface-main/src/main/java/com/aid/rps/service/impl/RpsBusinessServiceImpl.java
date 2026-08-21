@@ -9,6 +9,7 @@ import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
@@ -45,6 +46,7 @@ import com.aid.rps.dto.RpsQueryRequest;
 import com.aid.rps.dto.RpsUpdateFormRequest;
 import com.aid.rps.dto.RpsUpdateMainRequest;
 import com.aid.rps.service.IRpsBusinessService;
+import com.aid.aid.service.IStoryboardSceneSnapshotService;
 import com.aid.rps.vo.RpsAssetVO;
 import com.aid.rps.vo.RpsFormImageVO;
 import com.aid.rps.vo.RpsFormVO;
@@ -132,12 +134,7 @@ public class RpsBusinessServiceImpl implements IRpsBusinessService {
     @Autowired
     private com.aid.media.cleanup.IMediaOssCleanupService mediaOssCleanupService;
 
-    /**
-     * 剧情节拍（场次）服务。
-     * 删除 scene 资产时需级联软删其名下的 aid_scene_plot 场次，
-     * 否则孤儿场次会被 SceneCodeAllocator 误算进"已存量最大场次号"，
-     * 导致重新提取时场次号不从 001 接续。
-     */
+    /** 删除场景资产时级联软删其名下的兼容场次数据。 */
     @Autowired
     private IAidScenePlotService scenePlotService;
 
@@ -169,6 +166,9 @@ public class RpsBusinessServiceImpl implements IRpsBusinessService {
      */
     @Autowired
     private com.aid.rps.voice.service.IRoleVoiceAutoBindService roleVoiceAutoBindService;
+
+    @Autowired
+    private IStoryboardSceneSnapshotService storyboardSceneSnapshotService;
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
@@ -835,10 +835,11 @@ public class RpsBusinessServiceImpl implements IRpsBusinessService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public RpsAssetVO updateMainAsset(RpsUpdateMainRequest request, Long userId)
     {
         // 校验主表存在且属于自己
-        AidRolePropScene asset = getMainAssetOrThrow(request.getId(), userId);
+        AidRolePropScene asset = getMainAssetForUpdateOrThrow(request.getId(), userId);
         String assetType = asset.getAssetType();
 
         // ---- 按创建来源分流：manual 走轻量更新，auto 走完整更新 ----
@@ -857,7 +858,11 @@ public class RpsBusinessServiceImpl implements IRpsBusinessService {
             // name 显式传入（非空）时更新
             if (StrUtil.isNotBlank(request.getName()))
             {
+                rpsService.validateActiveNameAvailable(asset.getProjectId(), userId, assetType,
+                        request.getName(), asset.getId());
                 manualWrapper.set(AidRolePropScene::getName, request.getName());
+                manualWrapper.set(AidRolePropScene::getNameNormalized,
+                        rpsService.normalizeAssetName(request.getName()));
             }
             // aliases 允许空字符串（显式清空），非 null 即更新
             if (Objects.nonNull(request.getAliasesName()))
@@ -866,7 +871,20 @@ public class RpsBusinessServiceImpl implements IRpsBusinessService {
             }
             manualWrapper.set(AidRolePropScene::getUpdateTime, DateUtils.getNowDate());
             manualWrapper.set(AidRolePropScene::getUpdateBy, String.valueOf(userId));
-            rpsService.update(manualWrapper);
+            try
+            {
+                if (!rpsService.update(manualWrapper))
+                {
+                    log.error("手动更新主资产失败: assetId={}, userId={}", request.getId(), userId);
+                    throw new RuntimeException("更新失败");
+                }
+            }
+            catch (DuplicateKeyException e)
+            {
+                log.info("手动更新主资产名称冲突: assetId={}, userId={}", request.getId(), userId);
+                throw new RuntimeException("名称已存在");
+            }
+            synchronizeSceneNameIfChanged(asset, request.getName(), userId);
             return buildAssetVO(rpsService.getById(request.getId()));
         }
 
@@ -890,11 +908,22 @@ public class RpsBusinessServiceImpl implements IRpsBusinessService {
         AidRolePropScene synced = new AidRolePropScene();
         syncMainColumnsFromProfileData(assetType, profileNode, synced);
 
+        if (StrUtil.isNotBlank(synced.getName()))
+        {
+            rpsService.validateActiveNameAvailable(asset.getProjectId(), userId, assetType,
+                    synced.getName(), asset.getId());
+        }
+
         LambdaUpdateWrapper<AidRolePropScene> updateWrapper = Wrappers.lambdaUpdate();
         updateWrapper.eq(AidRolePropScene::getId, request.getId());
         updateWrapper.eq(AidRolePropScene::getDelFlag, DEL_FLAG_NORMAL);
         updateWrapper.set(AidRolePropScene::getProfileData, profileNode.toString());
-        if (StrUtil.isNotBlank(synced.getName())) updateWrapper.set(AidRolePropScene::getName, synced.getName());
+        if (StrUtil.isNotBlank(synced.getName()))
+        {
+            updateWrapper.set(AidRolePropScene::getName, synced.getName());
+            updateWrapper.set(AidRolePropScene::getNameNormalized,
+                    rpsService.normalizeAssetName(synced.getName()));
+        }
         if (StrUtil.isNotBlank(synced.getAliasesName())) updateWrapper.set(AidRolePropScene::getAliasesName, synced.getAliasesName());
         if (StrUtil.isNotBlank(synced.getIntroduction())) updateWrapper.set(AidRolePropScene::getIntroduction, synced.getIntroduction());
         if (StrUtil.isNotBlank(synced.getGender())) updateWrapper.set(AidRolePropScene::getGender, synced.getGender());
@@ -915,12 +944,38 @@ public class RpsBusinessServiceImpl implements IRpsBusinessService {
         }
         updateWrapper.set(AidRolePropScene::getUpdateTime, DateUtils.getNowDate());
         updateWrapper.set(AidRolePropScene::getUpdateBy, String.valueOf(userId));
-        rpsService.update(updateWrapper);
+        try
+        {
+            if (!rpsService.update(updateWrapper))
+            {
+                log.error("更新主资产失败: assetId={}, userId={}", request.getId(), userId);
+                throw new RuntimeException("更新失败");
+            }
+        }
+        catch (DuplicateKeyException e)
+        {
+            log.info("更新主资产名称冲突: assetId={}, userId={}", request.getId(), userId);
+            throw new RuntimeException("名称已存在");
+        }
+        synchronizeSceneNameIfChanged(asset, synced.getName(), userId);
 
         RpsAssetVO vo = buildAssetVO(rpsService.getById(request.getId()));
         // 角色改性别/年龄后即时重绑音色（仅 character 且值确实变化时触发）；重绑成功回传 voiceChanged 提示
         applyVoiceRematchIfNeeded(asset, synced, userId, vo);
         return vo;
+    }
+
+    private void synchronizeSceneNameIfChanged(AidRolePropScene asset, String newName, Long userId)
+    {
+        if (!ASSET_TYPE_SCENE.equals(asset.getAssetType()) || StrUtil.isBlank(newName)
+                || Objects.equals(asset.getName(), newName))
+        {
+            return;
+        }
+        int count = storyboardSceneSnapshotService.synchronizeSceneName(
+                asset.getProjectId(), userId, asset.getName(), newName);
+        log.info("场景改名已同步分镜快照: assetId={}, projectId={}, count={}",
+                asset.getId(), asset.getProjectId(), count);
     }
 
     /**
@@ -1169,7 +1224,7 @@ public class RpsBusinessServiceImpl implements IRpsBusinessService {
                     .eq(AidRolePropSceneForm::getAssetId, id));
             rpsService.getBaseMapper().delete(Wrappers.<AidRolePropScene>lambdaQuery()
                     .eq(AidRolePropScene::getId, id));
-            // scene 资产需级联删除名下场次：不删会导致孤儿场次残留，且被 SceneCodeAllocator 误算进"已存量最大场次号"。
+            // scene 资产需级联软删名下兼容场次，避免遗留失去场景资产归属的孤儿数据。
             if (Objects.equals(ASSET_TYPE_SCENE, asset.getAssetType()))
             {
                 cascadeDeleteScenePlotsByScene(id, userId);
@@ -1738,11 +1793,25 @@ public class RpsBusinessServiceImpl implements IRpsBusinessService {
     /**
      * 获取主表资产，不存在则抛异常
      */
-    private AidRolePropScene getMainAssetOrThrow(Long assetId,Long userId) {
+    private AidRolePropScene getMainAssetOrThrow(Long assetId, Long userId) {
+        return getMainAssetOrThrow(assetId, userId, false);
+    }
+
+    /**
+     * 锁定并获取待更新的主表资产，保证同一资产的更新与场景名称快照同步串行完成。
+     */
+    private AidRolePropScene getMainAssetForUpdateOrThrow(Long assetId, Long userId) {
+        return getMainAssetOrThrow(assetId, userId, true);
+    }
+
+    private AidRolePropScene getMainAssetOrThrow(Long assetId, Long userId, boolean forUpdate) {
         LambdaQueryWrapper<AidRolePropScene> wrapper = Wrappers.lambdaQuery();
         wrapper.eq(AidRolePropScene::getId, assetId);
         wrapper.eq(AidRolePropScene::getUserId, userId);
         wrapper.eq(AidRolePropScene::getDelFlag, DEL_FLAG_NORMAL);
+        if (forUpdate) {
+            wrapper.last("FOR UPDATE");
+        }
         AidRolePropScene asset = rpsService.getOne(wrapper);
         if (Objects.isNull(asset)) {
             log.info("主表资产不存在: assetId={}", assetId);
@@ -2688,7 +2757,9 @@ public class RpsBusinessServiceImpl implements IRpsBusinessService {
         }
         try
         {
-            JsonNode root = OBJECT_MAPPER.readTree(promptText);
+            JsonNode parsed = OBJECT_MAPPER.readTree(promptText);
+            JsonNode root = Objects.nonNull(parsed) && parsed.isArray() && !parsed.isEmpty()
+                    ? parsed.get(0) : parsed;
             if (Objects.isNull(root) || !root.isObject())
             {
                 return;
@@ -2708,6 +2779,7 @@ public class RpsBusinessServiceImpl implements IRpsBusinessService {
             }
             else if (Objects.equals(ASSET_TYPE_SCENE, assetType))
             {
+                setIfPresent(root, "prompt", v -> builder.prompt(v.asText()));
                 setIfPresent(root, "summary", v -> builder.summary(v.asText()));
                 setIfPresent(root, "introduction", v -> builder.introduction(v.asText()));
                 // hasCrowd：支持 camelCase + snake_case
@@ -2728,6 +2800,7 @@ public class RpsBusinessServiceImpl implements IRpsBusinessService {
             }
             else if (Objects.equals(ASSET_TYPE_PROP, assetType))
             {
+                setIfPresent(root, "prompt", v -> builder.prompt(v.asText()));
                 setIfPresent(root, "summary", v -> builder.summary(v.asText()));
                 setIfPresent(root, "introduction", v -> builder.introduction(v.asText()));
             }

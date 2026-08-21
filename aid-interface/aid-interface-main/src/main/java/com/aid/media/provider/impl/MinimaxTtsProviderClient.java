@@ -13,6 +13,7 @@ import org.springframework.stereotype.Component;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.aid.common.constant.HttpConstants;
+import com.aid.common.utils.ProviderEndpointUtils;
 import com.aid.common.oss.entity.UploadResult;
 import com.aid.common.oss.factory.OssFactory;
 import com.aid.domain.vo.AiModelConfigVo;
@@ -76,8 +77,7 @@ public class MinimaxTtsProviderClient implements AudioProviderClient
 
         Map<String, Object> body = buildSubmitBody(modelConfig, request);
         String json = JSONUtil.toJsonStr(body);
-        // 统一改走非流式同步接口 /v1/t2a_v2
-        String url = joinUrl(modelConfig.getBaseUrl(), MinimaxTtsConstants.T2A_SYNC_PATH);
+        String url = buildSubmitUrl(modelConfig);
         // 音频格式：决定 OSS 落库后缀（默认 mp3）
         String format = StrUtil.isNotBlank(request.getAudioFormat())
                 ? request.getAudioFormat() : MinimaxTtsConstants.DEFAULT_AUDIO_FORMAT;
@@ -443,6 +443,12 @@ public class MinimaxTtsProviderClient implements AudioProviderClient
         }
     }
 
+    static String buildSubmitUrl(AiModelConfigVo modelConfig)
+    {
+        return ProviderEndpointUtils.buildSubmitUrl(
+                modelConfig.getBaseUrl(), modelConfig.getApiSuffix());
+    }
+
     private void validateAuth(AiModelConfigVo modelConfig)
     {
         if (Objects.isNull(modelConfig) || StrUtil.isBlank(modelConfig.getApiKey()))
@@ -465,20 +471,6 @@ public class MinimaxTtsProviderClient implements AudioProviderClient
         {
             throw new IllegalArgumentException(MinimaxTtsConstants.ERR_VOICE_EMPTY);
         }
-    }
-
-    private String joinUrl(String base, String path)
-    {
-        if (StrUtil.isBlank(base))
-        {
-            throw new IllegalStateException(MinimaxTtsConstants.ERR_APP_KEY_EMPTY);
-        }
-        String trimmed = base.trim();
-        if (trimmed.endsWith("/"))
-        {
-            trimmed = trimmed.substring(0, trimmed.length() - 1);
-        }
-        return trimmed + path;
     }
 
     private int clamp(int value, int min, int max)

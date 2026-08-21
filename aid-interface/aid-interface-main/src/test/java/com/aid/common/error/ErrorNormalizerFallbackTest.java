@@ -3,6 +3,8 @@ package com.aid.common.error;
 import com.aid.common.exception.ServiceException;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -89,6 +91,18 @@ class ErrorNormalizerFallbackTest
     }
 
     @Test
+    void shouldKeepPreholdBillingMarkerThroughWrappedException()
+    {
+        ServiceException billingException = new ServiceException("预扣余额不足")
+                .setDetailMessage(TaskErrorCode.USER_PREHOLD_BALANCE_NOT_ENOUGH.name());
+        TaskErrorResult result = ErrorNormalizer.normalize(
+                new RuntimeException("链式出片提交失败", billingException));
+
+        assertEquals(TaskErrorCode.USER_PREHOLD_BALANCE_NOT_ENOUGH.name(), result.getErrorCode());
+        assertEquals("预扣余额不足，充值后可继续生成", result.getUserMessage());
+    }
+
+    @Test
     void shouldNotGuessUnmarkedBalanceAsUserBalance()
     {
         TaskErrorResult result = ErrorNormalizer.normalize(
@@ -147,6 +161,26 @@ class ErrorNormalizerFallbackTest
 
         assertEquals(TaskErrorCode.UPSTREAM_CONTENT_FILTERED.name(), result.getErrorCode());
         assertEquals("提示词未通过内容审核，请修改后重试", result.getUserMessage());
+    }
+
+    @Test
+    void shouldClassifyKlingPromptSafetyPolicyAsContentReviewFailure()
+    {
+        TaskErrorResult result = ErrorNormalizer.classifyFallback(
+                "Your prompt was blocked by the content safety policy. Please adjust your prompt and try again.");
+
+        assertEquals(TaskErrorCode.UPSTREAM_CONTENT_FILTERED.name(), result.getErrorCode());
+        assertEquals("提示词未通过内容审核，请修改后重试", result.getUserMessage());
+    }
+
+    @Test
+    void shouldClassifySafeKlingFailureMessageAsContentReviewFailure()
+    {
+        for (String message : List.of("生成内容未通过安全校验", "输入内容未通过安全校验"))
+        {
+            TaskErrorResult result = ErrorNormalizer.classifyFallback(message);
+            assertEquals(TaskErrorCode.UPSTREAM_CONTENT_FILTERED.name(), result.getErrorCode());
+        }
     }
 
     @Test

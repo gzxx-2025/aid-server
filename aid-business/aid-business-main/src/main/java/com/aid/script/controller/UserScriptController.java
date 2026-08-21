@@ -163,7 +163,6 @@ public class UserScriptController extends BaseController
                 .projectId(script.getProjectId())
                 .episodeId(script.getEpisodeId())
                 .originalText(script.getOriginalText())
-                .simplifiedText(script.getSimplifiedText())
                 .isExtracted(script.getIsExtracted())
                 .comicVersion(script.getComicVersion())
                 .status(script.getStatus())

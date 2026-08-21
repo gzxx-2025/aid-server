@@ -8,6 +8,7 @@ import cn.hutool.json.JSONUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.aid.billing.util.ResolutionUtil;
 import com.aid.common.constant.HttpConstants;
+import com.aid.common.utils.ProviderEndpointUtils;
 import com.aid.media.constants.ViduConstants;
 import com.aid.media.constants.VolcengineConstants;
 import com.aid.media.dto.MediaImageGenerateRequest;
@@ -31,11 +32,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-/**
- * Vidu 图片生成适配器：
- * - 提交接口：POST /ent/v2/reference2image
- * - 查询接口：优先 /ent/v2/tasks/{taskId}/creations，再回退 /ent/v2/tasks/{taskId}
- */
+/** Vidu 图片生成适配器，提交与查询端点均由模型和供应商配置提供。 */
 @Slf4j
 @Component
 public class ViduImageProviderClient implements ImageProviderClient {
@@ -290,34 +287,15 @@ public class ViduImageProviderClient implements ImageProviderClient {
     /**
      * 构建 API 请求 URL：base_url + api_suffix（路径全部来自数据库配置）
      */
-    private String buildApiUrl(String baseUrl, String apiSuffix) {
-        if (StrUtil.isBlank(baseUrl)) {
-            log.error("vidu image model baseUrl 为空，请在 aid_ai_provider 表配置 base_url");
-            throw new IllegalArgumentException("配置缺失");
-        }
-        if (StrUtil.isBlank(apiSuffix)) {
-            log.error("vidu image model apiSuffix 为空，请在 aid_ai_model 表配置 api_suffix");
-            throw new IllegalArgumentException("配置缺失");
-        }
-        return trimSlash(baseUrl.trim()) + apiSuffix;
+    static String buildApiUrl(String baseUrl, String apiSuffix) {
+        return ProviderEndpointUtils.buildSubmitUrl(baseUrl, apiSuffix);
     }
 
     /**
      * 构建任务查询 URL：base_url + task_query_suffix（路径全部来自数据库配置，纯数据库驱动）
      */
-    private String buildTaskUrl(String baseUrl, String taskQuerySuffix, String providerTaskId) {
-        if (StrUtil.isBlank(baseUrl)) {
-            log.error("vidu image model baseUrl 为空，请在 aid_ai_provider 表配置 base_url");
-            throw new IllegalArgumentException("配置缺失");
-        }
-        if (StrUtil.isBlank(taskQuerySuffix)) {
-            log.error("vidu image model taskQuerySuffix 为空，请在 aid_ai_provider 表配置 task_query_suffix");
-            throw new IllegalArgumentException("配置缺失");
-        }
-        if (StrUtil.isBlank(providerTaskId)) {
-            return trimSlash(baseUrl);
-        }
-        return trimSlash(baseUrl.trim()) + String.format(taskQuerySuffix, providerTaskId);
+    static String buildTaskUrl(String baseUrl, String taskQuerySuffix, String providerTaskId) {
+        return ProviderEndpointUtils.buildTaskQueryUrl(baseUrl, taskQuerySuffix, providerTaskId);
     }
 
     private String doPost(String url, String apiKey, String json) {
@@ -344,11 +322,4 @@ public class ViduImageProviderClient implements ImageProviderClient {
         }
     }
 
-    private String trimSlash(String value) {
-        // 清理末尾斜杠，避免路径出现双斜杠。
-        if (value != null && value.endsWith("/")) {
-            return value.substring(0, value.length() - 1);
-        }
-        return value;
-    }
 }

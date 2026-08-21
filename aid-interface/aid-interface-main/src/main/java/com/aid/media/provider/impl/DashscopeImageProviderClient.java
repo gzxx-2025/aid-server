@@ -9,6 +9,7 @@ import cn.hutool.json.JSONUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.aid.domain.vo.AiModelConfigVo;
 import com.aid.common.constant.HttpConstants;
+import com.aid.common.utils.ProviderEndpointUtils;
 import com.aid.common.exception.ServiceException;
 import com.aid.media.dto.MediaImageGenerateRequest;
 import com.aid.media.constants.DashscopeConstants;
@@ -63,8 +64,7 @@ public class DashscopeImageProviderClient implements ImageProviderClient {
                 ReferenceImageLimiter.resolveMax(modelConfig, 0));
         String effectiveModel = resolveEffectiveModel(modelConfig, request);
         ImageDialect dialect = resolveDialect(effectiveModel);
-        String submitUrl = buildApiUrl(modelConfig.getBaseUrl(),
-                resolveSubmitApiSuffix(effectiveModel, modelConfig.getApiSuffix()));
+        String submitUrl = buildSubmitUrl(modelConfig);
         Map<String, Object> body = dialect.buildSubmitBody(effectiveModel, request);
         String raw = doPost(submitUrl, modelConfig.getApiKey(), JSONUtil.toJsonStr(body), dialect.extraHeaders());
         JsonNode root = ProviderResponseHelper.readTree(raw);
@@ -106,12 +106,6 @@ public class DashscopeImageProviderClient implements ImageProviderClient {
             return DashscopeConstants.MODEL_QWEN_IMAGE_PLUS;
         }
         return modelName;
-    }
-
-    /** qwen-image/qwen-image-plus 固定使用官方异步路径，其余模型继续采用后台配置路径。 */
-    private String resolveSubmitApiSuffix(String modelName, String configuredApiSuffix) {
-        return isQwenImageAsyncModel(modelName)
-                ? DashscopeConstants.QWEN_IMAGE_ASYNC_API_SUFFIX : configuredApiSuffix;
     }
 
     @Override
@@ -256,28 +250,17 @@ public class DashscopeImageProviderClient implements ImageProviderClient {
     /**
      * 构建 API 请求 URL：base_url + api_suffix（路径全部来自数据库配置）
      */
-    private String buildApiUrl(String baseUrl, String apiSuffix) {
-        if (StrUtil.isBlank(baseUrl)) {
-            throw new IllegalArgumentException("dashscope image model baseUrl 不能为空");
-        }
-        if (StrUtil.isBlank(apiSuffix)) {
-            throw new IllegalArgumentException("dashscope image model apiSuffix 不能为空，请在 aid_ai_model 表配置");
-        }
-        return trimSlash(baseUrl.trim()) + apiSuffix;
+    static String buildApiUrl(String baseUrl, String apiSuffix) {
+        return ProviderEndpointUtils.buildSubmitUrl(baseUrl, apiSuffix);
     }
 
-    private String buildTaskUrl(String baseUrl, String taskQuerySuffix, String providerTaskId) {
-        if (StrUtil.isBlank(baseUrl)) {
-            throw new IllegalArgumentException("dashscope image model baseUrl 不能为空");
-        }
-        if (StrUtil.isBlank(taskQuerySuffix)) {
-            throw new IllegalArgumentException("dashscope image model taskQuerySuffix 不能为空，请在 aid_ai_provider 表配置");
-        }
-        if (StrUtil.isBlank(providerTaskId)) {
-            return baseUrl;
-        }
-        // 完整查询 URL = base_url + String.format(task_query_suffix, taskId)
-        return trimSlash(baseUrl.trim()) + String.format(taskQuerySuffix, providerTaskId);
+    /** 构建后台配置的图片提交 URL。 */
+    static String buildSubmitUrl(AiModelConfigVo modelConfig) {
+        return buildApiUrl(modelConfig.getBaseUrl(), modelConfig.getApiSuffix());
+    }
+
+    static String buildTaskUrl(String baseUrl, String taskQuerySuffix, String providerTaskId) {
+        return ProviderEndpointUtils.buildTaskQueryUrl(baseUrl, taskQuerySuffix, providerTaskId);
     }
 
     private String doPost(String url, String apiKey, String json, Map<String, String> extraHeaders) {
@@ -306,14 +289,6 @@ public class DashscopeImageProviderClient implements ImageProviderClient {
             // 返回原始响应给上层自行解析。
             return response.body();
         }
-    }
-
-    private String trimSlash(String base) {
-        // 去掉末尾 /，避免拼接路径时出现 //。
-        if (base.endsWith("/")) {
-            return base.substring(0, base.length() - 1);
-        }
-        return base;
     }
 
     private String resolveEffectiveModel(AiModelConfigVo modelConfig, MediaImageGenerateRequest request) {

@@ -342,6 +342,23 @@ MAVEN_VERSION="3.9.9"
 MAVEN_HOME=""
 GO_VERSION="1.22.12"
 GO_HOME=""
+FFMPEG_RUNTIME_VERSION="7.0.2"
+FFMPEG_MIN_VERSION="5.1"
+FFMPEG_REQUIRED_ENCODERS="libx264 libx265 aac"
+FFMPEG_REQUIRED_FILTERS="tpad apad scale pad fps setpts concat overlay drawtext amix alimiter aresample atrim asetpts aformat"
+FFMPEG_RUNTIME_ROOT="/opt/aid-ffmpeg"
+FFMPEG_RUNTIME_ARCH=""
+FFMPEG_RUNTIME_HOME=""
+FFMPEG_RUNTIME_FFMPEG=""
+FFMPEG_RUNTIME_FFPROBE=""
+AID_FONT_ROOT="/opt/aid-fonts"
+AID_FONT_CURRENT="/opt/aid-fonts/current"
+AID_CJK_FONT_PATH="/opt/aid-fonts/current/aid-cjk-font"
+AID_CJK_FONT_VERSION="noto-sans-sc-2.004"
+AID_CJK_FONT_ARCHIVE="18_NotoSansSC.zip"
+AID_CJK_FONT_FILE="NotoSansSC-Regular.otf"
+AID_CJK_FONT_SHA256="4d107c09ada479d3e48b6e78c83835773cbd9214bf6e12cdb7b60f8e068292ec"
+AID_CJK_FONT_FILE_SHA256="faa6c9df652116dde789d351359f3d7e5d2285a2b2a1f04a2d7244df706d5ea9"
 MYSQL_VERSION="5.7.44"
 MYSQL_HOME=""
 MYSQL_MANAGED_SERVICE="aid-mysql.service"
@@ -354,7 +371,7 @@ BT_MIRROR_NODES_CN="https://dg2.bt.cn https://download-cdn1.bt.cn https://downlo
 BT_MIRROR_NODES_GLOBAL="https://cf1-node.aapanel.com https://jp1-node.bt.cn https://na1-node.bt.cn https://download.bt.cn https://dg2.bt.cn https://download-cdn1.bt.cn https://ctcc1-node.bt.cn https://ctcc2-node.bt.cn https://hk1-node.bt.cn https://cmcc1-node.bt.cn"
 BT_MIRROR_ORDER=""
 BT_MIRRORS_RESOLVED=0
-JAVA_RUNTIME_IMAGE="aid/openjdk:17.0.20"
+JAVA_RUNTIME_IMAGE="aid/openjdk:17.0.20-ffmpeg${FFMPEG_RUNTIME_VERSION}-font2.004"
 DEFAULT_ADMIN_ENTRY_CODE=""
 OS_PACKAGE_INDEX_READY=0
 
@@ -1324,6 +1341,672 @@ install_os_packages() { # install_os_packages <用途> <apt包列表> <rpm包列
     die "未识别受支持的软件包管理器，无法自动安装 ${label}；请改为 DEPENDENCY_INSTALL_MODE=manual 后人工安装"
   fi
   ok "${label} 自动安装命令执行完成（${manager}）"
+}
+
+ffmpeg_runtime_arch() {
+  case "$(uname -m)" in
+    x86_64|amd64) printf '%s\n' amd64 ;;
+    aarch64|arm64) printf '%s\n' arm64 ;;
+    *) return 1 ;;
+  esac
+}
+
+ffmpeg_runtime_checksum() { # ffmpeg_runtime_checksum <amd64|arm64>
+  case "$1" in
+    amd64) printf '%s\n' 'abda8d77ce8309141f83ab8edf0596834087c52467f6badf376a6a2a4c87cf67' ;;
+    arm64) printf '%s\n' 'f4149bb2b0784e30e99bdda85471c9b5930d3402014e934a5098b41d0f7201b1' ;;
+    *) return 1 ;;
+  esac
+}
+
+configure_ffmpeg_runtime_paths() {
+  FFMPEG_RUNTIME_ARCH="$(ffmpeg_runtime_arch 2>/dev/null || true)"
+  [[ -n "${FFMPEG_RUNTIME_ARCH}" ]] \
+    || die "AID FFmpeg ${FFMPEG_RUNTIME_VERSION} 暂不支持当前架构: $(uname -m)"
+  FFMPEG_RUNTIME_HOME="${FFMPEG_RUNTIME_ROOT}/ffmpeg-${FFMPEG_RUNTIME_VERSION}-${FFMPEG_RUNTIME_ARCH}"
+  FFMPEG_RUNTIME_FFMPEG="${FFMPEG_RUNTIME_ROOT}/current/ffmpeg"
+  FFMPEG_RUNTIME_FFPROBE="${FFMPEG_RUNTIME_ROOT}/current/ffprobe"
+}
+
+write_ffmpeg_runtime_checker() { # write_ffmpeg_runtime_checker <target>
+  local target="$1"
+  cat > "${target}" <<'AID_FFMPEG_CHECKER'
+#!/bin/sh
+set -eu
+
+ffmpeg_path="$1"
+ffprobe_path="$2"
+work_root="$3"
+minimum_version="$4"
+required_encoders="$5"
+required_filters="$6"
+expected_version="${7:-}"
+
+fail() {
+  printf '[FFmpeg校验失败] %s\n' "$1" >&2
+  exit 1
+}
+
+[ -x "${ffmpeg_path}" ] || fail "FFmpeg不可执行: ${ffmpeg_path}"
+[ -x "${ffprobe_path}" ] || fail "FFprobe不可执行: ${ffprobe_path}"
+mkdir -p "${work_root}" || fail "无法创建检测目录: ${work_root}"
+
+version_line="$(${ffmpeg_path} -version 2>&1 | head -n 1 || true)"
+current_version="$(printf '%s\n' "${version_line}" | sed -n 's/^ffmpeg version[[:space:]]\+[^0-9]*\([0-9][0-9.]*\).*/\1/p')"
+version_issue=""
+minimum_major="${minimum_version%%.*}"
+minimum_minor="${minimum_version#*.}"
+if [ -z "${current_version}" ]; then
+  current_version="无法识别"
+  version_issue="版本输出异常 ${version_line:-空}"
+else
+  current_major="${current_version%%.*}"
+  current_rest="${current_version#*.}"
+  current_minor="${current_rest%%.*}"
+  case "${current_version}" in
+    *.*) ;;
+    *) version_issue="版本格式异常" ;;
+  esac
+  case "${current_major}:${current_minor}:${minimum_major}:${minimum_minor}" in
+    *[!0-9:]*|'') version_issue="版本格式异常" ;;
+  esac
+  if [ -z "${version_issue}" ] && { [ "${current_major}" -lt "${minimum_major}" ] \
+      || { [ "${current_major}" -eq "${minimum_major}" ] && [ "${current_minor}" -lt "${minimum_minor}" ]; }; }; then
+    version_issue="版本过低"
+  fi
+  if [ -n "${expected_version}" ] && [ "${current_version}" != "${expected_version}" ]; then
+    version_issue="固定版本不匹配，要求 ${expected_version}"
+  fi
+fi
+ffprobe_issue=""
+${ffprobe_path} -version >/dev/null 2>&1 || ffprobe_issue="FFprobe无法运行 ${ffprobe_path}"
+
+check_dir="$(mktemp -d "${work_root%/}/.ffmpeg-check.XXXXXX")" \
+  || fail "无法创建FFmpeg临时检测目录"
+cleanup() { rm -rf -- "${check_dir}"; }
+trap cleanup EXIT INT TERM
+
+missing_encoders=""
+if ! ${ffmpeg_path} -hide_banner -encoders >"${check_dir}/encoders.txt" 2>&1; then
+  missing_encoders="无法读取"
+else
+  for name in ${required_encoders}; do
+    if ! grep -Eq "[[:space:]]${name}([[:space:]]|$)" "${check_dir}/encoders.txt"; then
+      missing_encoders="${missing_encoders}${missing_encoders:+,}${name}"
+    fi
+  done
+fi
+
+missing_filters=""
+if ! ${ffmpeg_path} -hide_banner -filters >"${check_dir}/filters.txt" 2>&1; then
+  missing_filters="无法读取"
+else
+  for name in ${required_filters}; do
+    if ! grep -Eq "[[:space:]]${name}([[:space:]]|$)" "${check_dir}/filters.txt"; then
+      missing_filters="${missing_filters}${missing_filters:+,}${name}"
+    fi
+  done
+fi
+if [ -n "${version_issue}${ffprobe_issue}${missing_encoders}${missing_filters}" ]; then
+  fail "能力不完整；当前 ${current_version}；最低 ${minimum_version}；版本 ${version_issue:-符合}；FFprobe ${ffprobe_issue:-正常}；缺少编码器 ${missing_encoders:-无}；缺少滤镜 ${missing_filters:-无}"
+fi
+
+output_file="${check_dir}/aid-ffmpeg-smoke.mp4"
+${ffmpeg_path} -hide_banner -loglevel error -nostdin -y \
+  -f lavfi -i 'testsrc2=size=160x90:rate=25:duration=0.6' \
+  -f lavfi -i 'anullsrc=sample_rate=48000:channel_layout=stereo' \
+  -filter_complex '[0:v]tpad=stop_mode=clone:stop_duration=0.4,scale=160:90:force_original_aspect_ratio=decrease,pad=160:90:(ow-iw)/2:(oh-ih)/2,fps=25,setpts=PTS-STARTPTS[v];[1:a]apad=whole_dur=1,atrim=duration=1,asetpts=PTS-STARTPTS,aformat=sample_rates=48000:channel_layouts=stereo[a]' \
+  -map '[v]' -map '[a]' -t 1 -c:v libx264 -pix_fmt yuv420p -c:a aac -movflags +faststart "${output_file}" \
+  || fail "最小合成失败；当前 ${current_version}；最低 ${minimum_version}"
+[ -s "${output_file}" ] || fail "最小合成未生成有效MP4"
+${ffprobe_path} -v error -select_streams v:0 -show_entries stream=codec_type -of csv=p=0 "${output_file}" \
+  | grep -Fxq video || fail "最小合成缺少视频流"
+${ffprobe_path} -v error -select_streams a:0 -show_entries stream=codec_type -of csv=p=0 "${output_file}" \
+  | grep -Fxq audio || fail "最小合成缺少音频流"
+printf '[FFmpeg校验通过] 当前 %s；最低 %s\n' "${current_version}" "${minimum_version}"
+AID_FFMPEG_CHECKER
+  chmod 700 "${target}"
+}
+
+run_ffmpeg_runtime_check() { # run_ffmpeg_runtime_check <ffmpeg> <ffprobe> <work-root> [exact-version]
+  local ffmpegPath="$1" ffprobePath="$2" workRoot="$3" exactVersion="${4:-}"
+  local checker="" output="" status=0
+  mkdir -p "${workRoot}" || return 1
+  checker="$(mktemp "${workRoot%/}/.ffmpeg-checker.XXXXXX")" || return 1
+  write_ffmpeg_runtime_checker "${checker}"
+  output="$("${checker}" "${ffmpegPath}" "${ffprobePath}" "${workRoot}" \
+    "${FFMPEG_MIN_VERSION}" "${FFMPEG_REQUIRED_ENCODERS}" "${FFMPEG_REQUIRED_FILTERS}" \
+    "${exactVersion}" 2>&1)" || status=$?
+  rm -f -- "${checker}"
+  if [[ "${status}" -ne 0 ]]; then
+    [[ -z "${output}" ]] || printf '%s\n' "${output}" >&2
+    return "${status}"
+  fi
+  [[ -z "${output}" ]] || printf '%s\n' "${output}"
+}
+
+ffmpeg_runtime_usable() {
+  local resolvedCurrent="" versionLine="" exactVersion="" expectedArchive="" storedArchive=""
+  local storedFfmpeg="" storedFfprobe="" storedChecker=""
+  configure_ffmpeg_runtime_paths
+  if [[ "$#" -eq 0 ]]; then
+    [[ -L "${FFMPEG_RUNTIME_ROOT}/current" && ! -L "${FFMPEG_RUNTIME_HOME}" ]] || return 1
+    resolvedCurrent="$(readlink -f -- "${FFMPEG_RUNTIME_ROOT}/current" 2>/dev/null || true)"
+    [[ "${resolvedCurrent}" == "${FFMPEG_RUNTIME_HOME}" ]] || return 1
+    [[ -x "${FFMPEG_RUNTIME_HOME}/check-runtime.sh" \
+        && -f "${FFMPEG_RUNTIME_HOME}/archive.sha256" \
+        && -f "${FFMPEG_RUNTIME_HOME}/runtime-integrity.sha256" ]] || return 1
+    expectedArchive="$(ffmpeg_runtime_checksum "${FFMPEG_RUNTIME_ARCH}" 2>/dev/null || true)"
+    storedArchive="$(head -n 1 "${FFMPEG_RUNTIME_HOME}/archive.sha256" | tr -d '[:space:]')"
+    storedFfmpeg="$(sed -n 's/[[:space:]]\+ffmpeg$//p' "${FFMPEG_RUNTIME_HOME}/runtime-integrity.sha256" | head -n 1)"
+    storedFfprobe="$(sed -n 's/[[:space:]]\+ffprobe$//p' "${FFMPEG_RUNTIME_HOME}/runtime-integrity.sha256" | head -n 1)"
+    storedChecker="$(sed -n 's/[[:space:]]\+check-runtime\.sh$//p' "${FFMPEG_RUNTIME_HOME}/runtime-integrity.sha256" | head -n 1)"
+    [[ -n "${expectedArchive}" && "${storedArchive}" == "${expectedArchive}" \
+        && -n "${storedFfmpeg}" && -n "${storedFfprobe}" && -n "${storedChecker}" \
+        && "$(sha256_file "${FFMPEG_RUNTIME_HOME}/ffmpeg" 2>/dev/null || true)" == "${storedFfmpeg}" \
+        && "$(sha256_file "${FFMPEG_RUNTIME_HOME}/ffprobe" 2>/dev/null || true)" == "${storedFfprobe}" \
+        && "$(sha256_file "${FFMPEG_RUNTIME_HOME}/check-runtime.sh" 2>/dev/null || true)" == "${storedChecker}" ]] || return 1
+    versionLine="$("${FFMPEG_RUNTIME_FFMPEG}" -version 2>/dev/null | head -n 1 || true)"
+    [[ "${versionLine}" == "ffmpeg version ${FFMPEG_RUNTIME_VERSION}"* ]] || return 1
+    exactVersion="${FFMPEG_RUNTIME_VERSION}"
+  fi
+  run_ffmpeg_runtime_check "${1:-${FFMPEG_RUNTIME_FFMPEG}}" \
+    "${2:-${FFMPEG_RUNTIME_FFPROBE}}" "${3:-${FFMPEG_RUNTIME_ROOT}/checks}" "${exactVersion}"
+}
+
+ffmpeg_runtime_download_urls() { # ffmpeg_runtime_download_urls <amd64|arm64>
+  local arch="$1" name=""
+  local primary="" tencent="" aliyun=""
+  name="ffmpeg-${FFMPEG_RUNTIME_VERSION}-${arch}-static.tar.xz"
+  primary="https://github.com/publicala/ffmpeg-static/releases/download/v${FFMPEG_RUNTIME_VERSION}/${name}"
+  case "${arch}" in
+    amd64)
+      primary="${AID_FFMPEG_PRIMARY_URL_AMD64:-${primary}}"
+      tencent="${AID_FFMPEG_TENCENT_URL_AMD64:-}"
+      aliyun="${AID_FFMPEG_ALIYUN_URL_AMD64:-}" ;;
+    arm64)
+      primary="${AID_FFMPEG_PRIMARY_URL_ARM64:-${primary}}"
+      tencent="${AID_FFMPEG_TENCENT_URL_ARM64:-}"
+      aliyun="${AID_FFMPEG_ALIYUN_URL_ARM64:-}" ;;
+  esac
+  printf '%s\n' "${primary}"
+  [[ -z "${tencent}" ]] || printf '%s\n' "${tencent}"
+  [[ -z "${aliyun}" ]] || printf '%s\n' "${aliyun}"
+}
+
+install_ffmpeg_runtime_version() ( # isolated subshell guarantees temporary cleanup on every exit
+  local arch="$1" checksum="$2" runtimeRoot target current workDir archive
+  local staged backup linkTmp downloaded="no" url ffmpegSource="" ffprobeSource="" hadBackup="no"
+  local -a urls=()
+  runtimeRoot="${FFMPEG_RUNTIME_ROOT}"
+  target="${runtimeRoot}/ffmpeg-${FFMPEG_RUNTIME_VERSION}-${arch}"
+  current="${runtimeRoot}/current"
+  [[ ! -L "${runtimeRoot}" ]] || exit 1
+  mkdir -p "${runtimeRoot}" || exit 1
+  [[ ! -L "${runtimeRoot}" && -d "${runtimeRoot}" ]] || exit 1
+  workDir="$(mktemp -d "${runtimeRoot}/.ffmpeg-install.XXXXXX")" || exit 1
+  trap 'rm -rf -- "${workDir}" "${staged:-}" "${linkTmp:-}"' EXIT INT TERM
+  archive="${workDir}/ffmpeg-${FFMPEG_RUNTIME_VERSION}-${arch}-static.tar.xz"
+
+  mapfile -t urls < <(ffmpeg_runtime_download_urls "${arch}")
+  mapfile -t urls < <(rank_download_urls "AID FFmpeg ${FFMPEG_RUNTIME_VERSION}" "${urls[@]}")
+  for url in "${urls[@]}"; do
+    [[ -n "${url}" ]] || continue
+    rm -f -- "${archive}" "${archive}.part"
+    if try_download "${url}" "${archive}" "AID FFmpeg ${FFMPEG_RUNTIME_VERSION}（${arch}）" sha256 "${checksum}" \
+        && [[ "$(sha256_file "${archive}" 2>/dev/null || true)" == "${checksum}" ]]; then
+      downloaded="yes"
+      break
+    fi
+    warn "FFmpeg 当前下载地址不可用或 SHA256 不匹配，未触碰现有运行时，切换备用地址"
+  done
+  [[ "${downloaded}" == "yes" ]] || exit 1
+
+  mkdir -p "${workDir}/extract" || exit 1
+  if tar -tJf "${archive}" | grep -Eq '(^/|(^|/)\.\.(/|$))'; then
+    warn "FFmpeg 压缩包包含越界路径，已拒绝解压"
+    exit 1
+  fi
+  tar -xJf "${archive}" -C "${workDir}/extract" || exit 1
+  ffmpegSource="$(find "${workDir}/extract" -type f -name ffmpeg -perm -u+x -print -quit 2>/dev/null || true)"
+  ffprobeSource="$(find "${workDir}/extract" -type f -name ffprobe -perm -u+x -print -quit 2>/dev/null || true)"
+  [[ -n "${ffmpegSource}" && -n "${ffprobeSource}" ]] || exit 1
+
+  staged="${runtimeRoot}/.ffmpeg-${FFMPEG_RUNTIME_VERSION}-${arch}.staged.$$"
+  mkdir -m 755 "${staged}" || exit 1
+  install -m 755 "${ffmpegSource}" "${staged}/ffmpeg" || exit 1
+  install -m 755 "${ffprobeSource}" "${staged}/ffprobe" || exit 1
+  write_ffmpeg_runtime_checker "${staged}/check-runtime.sh"
+  run_ffmpeg_runtime_check "${staged}/ffmpeg" "${staged}/ffprobe" "${workDir}/validation" \
+    "${FFMPEG_RUNTIME_VERSION}" || exit 1
+  printf '%s\n' "${checksum}" > "${staged}/archive.sha256"
+  chmod 644 "${staged}/archive.sha256"
+  {
+    printf '%s  ffmpeg\n' "$(sha256_file "${staged}/ffmpeg")"
+    printf '%s  ffprobe\n' "$(sha256_file "${staged}/ffprobe")"
+    printf '%s  check-runtime.sh\n' "$(sha256_file "${staged}/check-runtime.sh")"
+  } > "${staged}/runtime-integrity.sha256"
+  chmod 644 "${staged}/runtime-integrity.sha256"
+
+  backup="${target}.previous.$$"
+  if [[ -e "${target}" || -L "${target}" ]]; then
+    [[ ! -L "${target}" && -d "${target}" ]] || exit 1
+    mv -- "${target}" "${backup}" || exit 1
+    hadBackup="yes"
+  fi
+  if ! mv -- "${staged}" "${target}"; then
+    [[ ! -e "${backup}" ]] || mv -- "${backup}" "${target}" || true
+    exit 1
+  fi
+  staged=""
+  if [[ -e "${current}" && ! -L "${current}" ]]; then
+    rm -rf -- "${target}"
+    [[ "${hadBackup}" != "yes" ]] || mv -- "${backup}" "${target}"
+    exit 1
+  fi
+  linkTmp="${current}.tmp.$$"
+  if ! ln -s "$(basename "${target}")" "${linkTmp}" \
+      || ! mv -Tf -- "${linkTmp}" "${current}"; then
+    rm -f -- "${linkTmp}"
+    rm -rf -- "${target}"
+    [[ "${hadBackup}" != "yes" ]] || mv -- "${backup}" "${target}"
+    exit 1
+  fi
+  linkTmp=""
+  if [[ -e "${backup}" ]] && ! rm -rf -- "${backup}"; then
+    warn "FFmpeg 新运行时已启用，但旧版本备份清理失败: ${backup}"
+  fi
+)
+
+prepare_ffmpeg_runtime() {
+  local installMode="$1" arch checksum
+  configure_ffmpeg_runtime_paths
+  if ffmpeg_runtime_usable; then
+    ok "AID FFmpeg ${FFMPEG_RUNTIME_VERSION} 运行时已存在且能力完整，跳过下载: ${FFMPEG_RUNTIME_HOME}"
+    print_ffmpeg_runtime_paths
+    return 0
+  fi
+  warn "AID FFmpeg 运行时缺失或能力不完整，将保留旧版本并重新安装固定版本 ${FFMPEG_RUNTIME_VERSION}"
+  ensure_host_command xz "XZ解压工具" "xz-utils" "xz" "${installMode}"
+  ensure_host_command tar "Tar解压工具" "tar" "tar" "${installMode}"
+  require_download_tools
+  arch="${FFMPEG_RUNTIME_ARCH}"
+  checksum="$(ffmpeg_runtime_checksum "${arch}" 2>/dev/null || true)"
+  [[ -n "${checksum}" ]] || die "缺少 FFmpeg ${FFMPEG_RUNTIME_VERSION} ${arch} 固定 SHA256"
+  install_ffmpeg_runtime_version "${arch}" "${checksum}" \
+    || die "AID FFmpeg ${FFMPEG_RUNTIME_VERSION} 安装失败；现有运行时与 current 链接均未替换，请检查下载线路后重试"
+  ffmpeg_runtime_usable \
+    || die "AID FFmpeg ${FFMPEG_RUNTIME_VERSION} 安装后能力复检失败；current 链接未指向不可用运行时"
+  ok "AID FFmpeg ${FFMPEG_RUNTIME_VERSION} 已通过 SHA256、能力与最小合成校验"
+  print_ffmpeg_runtime_paths
+}
+
+print_ffmpeg_runtime_paths() {
+  configure_ffmpeg_runtime_paths
+  echo "  后台推荐 FFmpeg路径 : ${FFMPEG_RUNTIME_FFMPEG}"
+  echo "  后台推荐 FFprobe路径: ${FFMPEG_RUNTIME_FFPROBE}"
+}
+
+write_aid_cjk_font_manager() { # write_aid_cjk_font_manager <target>
+  local target="$1"
+  cat > "${target}" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+FONT_ROOT='${AID_FONT_ROOT}'
+FONT_CURRENT='${AID_FONT_CURRENT}'
+FONT_PATH='${AID_CJK_FONT_PATH}'
+FONT_VERSION='${AID_CJK_FONT_VERSION}'
+FONT_ARCHIVE='${AID_CJK_FONT_ARCHIVE}'
+FONT_FILE='${AID_CJK_FONT_FILE}'
+FONT_SHA256='${AID_CJK_FONT_SHA256}'
+FONT_FILE_SHA256='${AID_CJK_FONT_FILE_SHA256}'
+DEFAULT_FFMPEG_PATH='${FFMPEG_RUNTIME_FFMPEG}'
+DEFAULT_FFPROBE_PATH='${FFMPEG_RUNTIME_FFPROBE}'
+EOF
+  cat >> "${target}" <<'AID_CJK_FONT_MANAGER'
+
+FFMPEG_PATH="${AID_FFMPEG_PATH:-${DEFAULT_FFMPEG_PATH}}"
+FFPROBE_PATH="${AID_FFPROBE_PATH:-${DEFAULT_FFPROBE_PATH}}"
+OFFICIAL_URL="https://github.com/notofonts/noto-cjk/releases/download/Sans2.004/${FONT_ARCHIVE}"
+ALIYUN_URL="${AID_CJK_FONT_ALIYUN_URL:-https://mirrors.aliyun.com/github/releases/googlefonts/noto-cjk/Sans2.004/${FONT_ARCHIVE}}"
+TENCENT_URL="${AID_CJK_FONT_TENCENT_URL:-}"
+ACTION="${1:-prepare}"
+WORK_DIR=""
+STAGED=""
+LINK_TMP=""
+SOURCE_TMP=""
+
+font_log() { printf '[AID字体] %s\n' "$*"; }
+font_warn() { printf '[AID字体][提示] %s\n' "$*" >&2; }
+font_fail() { printf '[AID字体][失败] %s\n' "$*" >&2; exit 1; }
+
+cleanup_font_manager() {
+  [ -z "${WORK_DIR}" ] || rm -rf -- "${WORK_DIR}"
+  [ -z "${STAGED}" ] || rm -rf -- "${STAGED}"
+  [ -z "${LINK_TMP}" ] || rm -f -- "${LINK_TMP}"
+  [ -z "${SOURCE_TMP}" ] || rm -f -- "${SOURCE_TMP}"
+}
+trap cleanup_font_manager EXIT INT TERM
+
+sha256_path() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print tolower($1)}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print tolower($1)}'
+  else
+    font_fail "缺少SHA256校验工具"
+  fi
+}
+
+charset_contains_codepoint() { # charset_contains_codepoint <fontconfig charset> <hex>
+  local charset="$1" wantedHex="$2" token start end wanted
+  wanted=$((16#${wantedHex}))
+  for token in ${charset}; do
+    case "${token}" in
+      *-*)
+        start="${token%%-*}"; end="${token#*-}"
+        [[ "${start}" =~ ^[0-9a-fA-F]+$ && "${end}" =~ ^[0-9a-fA-F]+$ ]] || continue
+        if (( 16#${start} <= wanted && wanted <= 16#${end} )); then return 0; fi
+        ;;
+      *)
+        [[ "${token}" =~ ^[0-9a-fA-F]+$ ]] || continue
+        if (( 16#${token} == wanted )); then return 0; fi
+        ;;
+    esac
+  done
+  return 1
+}
+
+font_file_has_required_cjk() { # font_file_has_required_cjk <font>
+  local font="$1" resolved="" languages="" charset="" codepoint
+  [[ -e "${font}" && -r "${font}" ]] || return 1
+  resolved="$(readlink -f -- "${font}" 2>/dev/null || true)"
+  [[ -n "${resolved}" && -f "${resolved}" && -r "${resolved}" ]] || return 1
+  languages="$(fc-query --format='%{lang}\n' -- "${resolved}" 2>/dev/null || true)"
+  printf '%s\n' "${languages}" | grep -Eiq '(^|[|,[:space:]])zh(-[a-z]{2})?([|,[:space:]]|$)' || return 1
+  charset="$(fc-query --format='%{charset}\n' -- "${resolved}" 2>/dev/null || true)"
+  [[ -n "${charset}" ]] || return 1
+  # “中文测试，字幕正常。”逐字校验，避免只按字体名称或lang元数据误判。
+  for codepoint in 4e2d 6587 6d4b 8bd5 ff0c 5b57 5e55 6b63 5e38 3002; do
+    charset_contains_codepoint "${charset}" "${codepoint}" || return 1
+  done
+}
+
+escape_drawtext_font_path() {
+  printf '%s' "$1" | sed "s/\\\\/\\\\\\\\/g; s/:/\\\\:/g; s/'/\\\\\\\\'/g; s/,/\\\\,/g; s/;/\\\\;/g; s/\\[/\\\\[/g; s/\\]/\\\\]/g"
+}
+
+font_drawtext_works() { # font_drawtext_works <canonical font path>
+  local font="$1" escaped output
+  [[ -x "${FFMPEG_PATH}" && -x "${FFPROBE_PATH}" ]] || return 1
+  escaped="$(escape_drawtext_font_path "${font}")"
+  output="${WORK_DIR}/aid-cjk-font-smoke.mp4"
+  rm -f -- "${output}"
+  "${FFMPEG_PATH}" -hide_banner -loglevel error -nostdin -y \
+    -f lavfi -i 'color=c=black:s=320x180:d=0.5' \
+    -vf "drawtext=fontfile='${escaped}':text='中文测试，字幕正常。':fontcolor=white:fontsize=24:x=10:y=10" \
+    -an -t 0.5 -c:v libx264 -pix_fmt yuv420p "${output}" >/dev/null 2>&1 || return 1
+  [[ -s "${output}" ]] || return 1
+  "${FFPROBE_PATH}" -v error -select_streams v:0 -show_entries stream=codec_type \
+    -of csv=p=0 "${output}" 2>/dev/null | grep -Fxq video
+}
+
+current_font_valid() {
+  [[ -L "${FONT_PATH}" ]] || return 1
+  font_file_has_required_cjk "${FONT_PATH}" || return 1
+  font_drawtext_works "${FONT_PATH}"
+}
+
+record_font_source() { # record_font_source <system|aid>
+  SOURCE_TMP="${FONT_CURRENT}/.aid-source.tmp.$$"
+  printf '%s\n' "$1" > "${SOURCE_TMP}"
+  chmod 644 "${SOURCE_TMP}"
+  mv -Tf -- "${SOURCE_TMP}" "${FONT_CURRENT}/.aid-source"
+  SOURCE_TMP=""
+}
+
+restore_previous_link() { # restore_previous_link <old target> <old source>
+  local oldTarget="$1" oldSource="$2"
+  rm -f -- "${FONT_PATH}"
+  if [[ -n "${oldTarget}" ]]; then
+    LINK_TMP="${FONT_CURRENT}/.aid-cjk-font.restore.$$"
+    ln -s "${oldTarget}" "${LINK_TMP}"
+    mv -Tf -- "${LINK_TMP}" "${FONT_PATH}"
+    LINK_TMP=""
+  fi
+  if [[ -n "${oldSource}" ]]; then
+    record_font_source "${oldSource}"
+  else
+    rm -f -- "${FONT_CURRENT}/.aid-source"
+  fi
+}
+
+activate_font() { # activate_font <absolute target> <system|aid>
+  local candidate="$1" source="$2" oldTarget="" oldSource=""
+  [[ -d "${FONT_CURRENT}" && ! -L "${FONT_CURRENT}" ]] || return 1
+  [[ ! -e "${FONT_PATH}" || -L "${FONT_PATH}" ]] || return 1
+  [[ ! -e "${FONT_CURRENT}/.aid-source" || ( -f "${FONT_CURRENT}/.aid-source" && ! -L "${FONT_CURRENT}/.aid-source" ) ]] \
+    || return 1
+  [[ -L "${FONT_PATH}" ]] && oldTarget="$(readlink -- "${FONT_PATH}" 2>/dev/null || true)"
+  [[ -f "${FONT_CURRENT}/.aid-source" ]] && IFS= read -r oldSource < "${FONT_CURRENT}/.aid-source" || true
+  LINK_TMP="${FONT_CURRENT}/.aid-cjk-font.tmp.$$"
+  ln -s "${candidate}" "${LINK_TMP}" || return 1
+  mv -Tf -- "${LINK_TMP}" "${FONT_PATH}" || return 1
+  LINK_TMP=""
+  if ! current_font_valid; then
+    restore_previous_link "${oldTarget}" "${oldSource}"
+    return 1
+  fi
+  record_font_source "${source}"
+}
+
+font_rank() { # font_rank <family> <style>
+  local family style rank
+  family="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+  style="$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')"
+  case "${family}" in
+    *emoji*|*symbol*|*icon*|*awesome*|*material*) return 1 ;;
+    *noto*sans*cjk*sc*) rank=10 ;;
+    *source*han*sans*cn*|*source*han*sans*sc*) rank=20 ;;
+    *wenquanyi*micro*hei*) rank=30 ;;
+    *sans*|*hei*|*gothic*) rank=40 ;;
+    *) return 1 ;;
+  esac
+  case "${style}" in *regular*|*normal*|*book*) ;; *) rank=$((rank + 5)) ;; esac
+  printf '%s\n' "${rank}"
+}
+
+find_and_activate_system_font() {
+  local family style file rank resolved candidates ranked
+  candidates="${WORK_DIR}/fontconfig-candidates.tsv"
+  ranked="${WORK_DIR}/ranked-fonts.tsv"
+  fc-list :lang=zh -f '%{family[0]}\t%{style[0]}\t%{file}\n' > "${candidates}" 2>/dev/null || return 1
+  : > "${ranked}"
+  while IFS=$'\t' read -r family style file; do
+    [[ -n "${file}" ]] || continue
+    rank="$(font_rank "${family}" "${style}" 2>/dev/null || true)"
+    [[ -n "${rank}" ]] || continue
+    resolved="$(readlink -f -- "${file}" 2>/dev/null || true)"
+    [[ -n "${resolved}" ]] || continue
+    printf '%03d\t%s\n' "${rank}" "${resolved}" >> "${ranked}"
+  done < "${candidates}"
+  sort -n -k1,1 "${ranked}" | cut -f2- | awk '!seen[$0]++' > "${ranked}.unique"
+  while IFS= read -r file; do
+    [[ -n "${file}" ]] || continue
+    font_file_has_required_cjk "${file}" || continue
+    if activate_font "${file}" system; then
+      printf 'AID_FONT_RESULT=reused-system\n'
+      printf 'AID_FONT_SELECTED=%s\n' "${file}"
+      return 0
+    fi
+  done < "${ranked}.unique"
+  return 1
+}
+
+download_font_archive() { # download_font_archive <url> <target>
+  local url="$1" target="$2"
+  rm -f -- "${target}" "${target}.part"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fL --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 600 \
+      -o "${target}.part" "${url}" || return 1
+  elif command -v wget >/dev/null 2>&1; then
+    wget --tries=3 --timeout=30 -O "${target}.part" "${url}" || return 1
+  else
+    return 1
+  fi
+  [[ "$(sha256_path "${target}.part")" == "${FONT_SHA256}" ]] || return 1
+  mv -f -- "${target}.part" "${target}"
+}
+
+install_aid_font() {
+  local target="${FONT_ROOT}/${FONT_VERSION}" archive="${WORK_DIR}/${FONT_ARCHIVE}"
+  local extract="${WORK_DIR}/extract" backup="${target}.previous.$$" downloaded=no url
+  if [[ -d "${target}" && ! -L "${target}" && -f "${target}/LICENSE" \
+      && -f "${target}/archive.sha256" \
+      && -f "${target}/font.sha256" \
+      && "$(head -n 1 "${target}/archive.sha256" 2>/dev/null | tr -d '[:space:]')" == "${FONT_SHA256}" \
+      && "$(head -n 1 "${target}/font.sha256" 2>/dev/null | tr -d '[:space:]')" == "${FONT_FILE_SHA256}" \
+      && "$(sha256_path "${target}/${FONT_FILE}" 2>/dev/null || true)" == "${FONT_FILE_SHA256}" ]] \
+      && font_file_has_required_cjk "${target}/${FONT_FILE}"; then
+    activate_font "${target}/${FONT_FILE}" aid || return 1
+    printf 'AID_FONT_RESULT=installed-aid\n'
+    printf 'AID_FONT_SELECTED=%s\n' "${target}/${FONT_FILE}"
+    return 0
+  fi
+
+  for url in "${TENCENT_URL}" "${ALIYUN_URL}" "${OFFICIAL_URL}"; do
+    [[ -n "${url}" ]] || continue
+    font_log "下载固定字体 ${FONT_VERSION}: ${url}"
+    if download_font_archive "${url}" "${archive}"; then
+      downloaded=yes
+      break
+    fi
+    font_warn "当前字体地址不可用或SHA256不匹配，切换下一地址"
+  done
+  [[ "${downloaded}" == yes ]] || return 1
+  if unzip -Z1 "${archive}" | grep -Eq '(^/|(^|/)\.\.(/|$))'; then
+    font_warn "字体压缩包包含越界路径，拒绝解压"
+    return 1
+  fi
+  mkdir -p "${extract}"
+  unzip -q "${archive}" "${FONT_FILE}" LICENSE -d "${extract}" || return 1
+  [[ -f "${extract}/${FONT_FILE}" && -f "${extract}/LICENSE" ]] || return 1
+  [[ "$(sha256_path "${extract}/${FONT_FILE}")" == "${FONT_FILE_SHA256}" ]] || return 1
+  font_file_has_required_cjk "${extract}/${FONT_FILE}" || return 1
+
+  STAGED="${FONT_ROOT}/.${FONT_VERSION}.staged.$$"
+  mkdir -m 755 "${STAGED}" || return 1
+  install -m 644 "${extract}/${FONT_FILE}" "${STAGED}/${FONT_FILE}" || return 1
+  install -m 644 "${extract}/LICENSE" "${STAGED}/LICENSE" || return 1
+  printf '%s\n' "${FONT_SHA256}" > "${STAGED}/archive.sha256"
+  chmod 644 "${STAGED}/archive.sha256"
+  printf '%s\n' "${FONT_FILE_SHA256}" > "${STAGED}/font.sha256"
+  chmod 644 "${STAGED}/font.sha256"
+  cat > "${STAGED}/NOTICE" <<EOF
+Noto Sans SC ${FONT_VERSION}
+Official release: ${OFFICIAL_URL}
+Installed file: ${FONT_FILE}
+Archive SHA256: ${FONT_SHA256}
+Font SHA256: ${FONT_FILE_SHA256}
+Copyright and trademark notices are embedded in the original font file.
+License: SIL Open Font License 1.1; see LICENSE in this directory.
+EOF
+  chmod 644 "${STAGED}/NOTICE"
+
+  if [[ -e "${target}" || -L "${target}" ]]; then
+    [[ -d "${target}" && ! -L "${target}" ]] || return 1
+    mv -- "${target}" "${backup}" || return 1
+  fi
+  if ! mv -- "${STAGED}" "${target}"; then
+    [[ ! -e "${backup}" ]] || mv -- "${backup}" "${target}" || true
+    return 1
+  fi
+  STAGED=""
+  if ! activate_font "${target}/${FONT_FILE}" aid; then
+    rm -rf -- "${target}"
+    [[ ! -e "${backup}" ]] || mv -- "${backup}" "${target}" || true
+    return 1
+  fi
+  [[ ! -e "${backup}" ]] || rm -rf -- "${backup}"
+  printf 'AID_FONT_RESULT=installed-aid\n'
+  printf 'AID_FONT_SELECTED=%s\n' "${target}/${FONT_FILE}"
+}
+
+[[ "${ACTION}" == prepare || "${ACTION}" == validate ]] \
+  || font_fail "只支持prepare或validate"
+command -v fc-list >/dev/null 2>&1 && command -v fc-query >/dev/null 2>&1 \
+  || font_fail "缺少fontconfig基础工具fc-list/fc-query"
+[[ -x "${FFMPEG_PATH}" && -x "${FFPROBE_PATH}" ]] \
+  || font_fail "FFmpeg或FFprobe不可执行"
+[[ ! -L "${FONT_ROOT}" ]] || font_fail "字体根目录不能是软链接: ${FONT_ROOT}"
+mkdir -p "${FONT_ROOT}"
+[[ -d "${FONT_ROOT}" && ! -L "${FONT_ROOT}" ]] || font_fail "字体根目录无效: ${FONT_ROOT}"
+[[ ! -L "${FONT_CURRENT}" ]] || font_fail "字体current必须是目录而不是软链接: ${FONT_CURRENT}"
+mkdir -p "${FONT_CURRENT}"
+chmod 755 "${FONT_ROOT}" "${FONT_CURRENT}"
+[[ ! -e "${FONT_PATH}" || -L "${FONT_PATH}" ]] \
+  || font_fail "中文字体稳定入口已被普通文件占用，拒绝覆盖: ${FONT_PATH}"
+[[ ! -e "${FONT_CURRENT}/.aid-source" \
+    || ( -f "${FONT_CURRENT}/.aid-source" && ! -L "${FONT_CURRENT}/.aid-source" ) ]] \
+  || font_fail "字体来源标记不是受支持的普通文件: ${FONT_CURRENT}/.aid-source"
+WORK_DIR="$(mktemp -d "${FONT_ROOT}/.font-manager.XXXXXX")" \
+  || font_fail "无法创建字体临时目录"
+
+if current_font_valid; then
+  sourceType="$(head -n 1 "${FONT_CURRENT}/.aid-source" 2>/dev/null || true)"
+  case "${sourceType}" in
+    system) printf 'AID_FONT_RESULT=reused-system\n' ;;
+    *) printf 'AID_FONT_RESULT=installed-aid\n' ;;
+  esac
+  printf 'AID_FONT_SELECTED=%s\n' "$(readlink -f -- "${FONT_PATH}")"
+  exit 0
+fi
+[[ "${ACTION}" == prepare ]] || font_fail "AID中文字体稳定入口无效: ${FONT_PATH}"
+if find_and_activate_system_font; then
+  exit 0
+fi
+install_aid_font || font_fail "未发现可用系统中文字体，固定字体下载、校验或安装失败"
+current_font_valid || font_fail "中文字体初始化后复检失败"
+AID_CJK_FONT_MANAGER
+  chmod 700 "${target}"
+}
+
+prepare_aid_cjk_font() { # prepare_aid_cjk_font <auto|manual>
+  local installMode="$1" manager output sourceType selected
+  ensure_host_command fc-list "Fontconfig中文字体检测工具" "fontconfig" "fontconfig" "${installMode}"
+  command -v fc-query >/dev/null 2>&1 \
+    || die "Fontconfig安装后仍缺少fc-query，无法验证中文字符集"
+  ensure_host_command unzip "ZIP解压工具" "unzip" "unzip" "${installMode}"
+  require_download_tools
+  mkdir -p "${DATA_ROOT}/build-cache/toolchains"
+  manager="$(mktemp "${DATA_ROOT}/build-cache/toolchains/.aid-cjk-font.XXXXXX")" \
+    || die "无法创建中文字体管理脚本"
+  write_aid_cjk_font_manager "${manager}"
+  [[ ! -L "${AID_FONT_ROOT}" ]] \
+    || { rm -f -- "${manager}"; die "字体根目录不能是软链接: ${AID_FONT_ROOT}"; }
+  mkdir -p "${AID_FONT_ROOT}"
+  [[ -d "${AID_FONT_ROOT}" && ! -L "${AID_FONT_ROOT}" ]] \
+    || { rm -f -- "${manager}"; die "字体根目录无效: ${AID_FONT_ROOT}"; }
+  [[ ! -e "${AID_FONT_ROOT}/check-font.sh" \
+      || ( -f "${AID_FONT_ROOT}/check-font.sh" && ! -L "${AID_FONT_ROOT}/check-font.sh" ) ]] \
+    || { rm -f -- "${manager}"; die "字体校验脚本路径被非普通文件占用: ${AID_FONT_ROOT}/check-font.sh"; }
+  install -m 700 "${manager}" "${AID_FONT_ROOT}/check-font.sh" \
+    || { rm -f -- "${manager}"; die "中文字体校验脚本落盘失败"; }
+  rm -f -- "${manager}"
+  output="$(AID_FFMPEG_PATH="${FFMPEG_RUNTIME_FFMPEG}" AID_FFPROBE_PATH="${FFMPEG_RUNTIME_FFPROBE}" \
+    AID_CJK_FONT_TENCENT_URL="${AID_CJK_FONT_TENCENT_URL:-}" \
+    AID_CJK_FONT_ALIYUN_URL="${AID_CJK_FONT_ALIYUN_URL:-}" \
+    "${AID_FONT_ROOT}/check-font.sh" prepare)" \
+    || die "AID中文字体自动检测与初始化失败"
+  printf '%s\n' "${output}"
+  sourceType="$(head -n 1 "${AID_FONT_CURRENT}/.aid-source" 2>/dev/null || true)"
+  selected="$(readlink -f -- "${AID_CJK_FONT_PATH}" 2>/dev/null || true)"
+  if [[ "${sourceType}" == "system" ]]; then
+    ok "中文字体：已复用系统字体（${selected}）"
+  else
+    ok "中文字体：已安装AID字体（${selected}）"
+  fi
+  echo "  后台推荐 中文字体路径: ${AID_CJK_FONT_PATH}"
 }
 
 ensure_host_command() { # ensure_host_command <命令> <用途> <apt包列表> <rpm包列表> <安装模式>
@@ -2688,6 +3371,9 @@ ensure_manual_host_dependencies() {
   prepare_manual_jdk
   prepare_exact_node
 
+  prepare_ffmpeg_runtime "${installMode}"
+  prepare_aid_cjk_font "${installMode}"
+
   # 手动部署始终准备宿主机构建工具；即使服务器上碰巧存在 Docker，也不把它作为隐式依赖。
   ensure_git_runtime "${installMode}"
   prepare_exact_maven
@@ -3580,31 +4266,90 @@ prepare_exact_go() {
 }
 
 prepare_jdk_runtime_image() {
-  local baseImage="debian:bookworm-slim" dockerfile actual
+  local baseImage="debian:bookworm-slim" dockerfile actual context imageRuntime fontManager
   prepare_exact_jdk
+  prepare_ffmpeg_runtime "${AID_DEPENDENCY_INSTALL_MODE:-auto}"
+  imageRuntime="${FFMPEG_RUNTIME_ROOT}/ffmpeg-${FFMPEG_RUNTIME_VERSION}-${FFMPEG_RUNTIME_ARCH}"
   if docker image inspect "${JAVA_RUNTIME_IMAGE}" >/dev/null 2>&1; then
     actual="$(docker run --rm "${JAVA_RUNTIME_IMAGE}" java -version 2>&1 | head -n 1 || true)"
-    if [[ "${actual}" == *'17.0.20'* ]]; then
-      ok "OpenJDK ${JDK_VERSION} 运行镜像已存在，跳过构建: ${JAVA_RUNTIME_IMAGE}"
+    if [[ "${actual}" == *'17.0.20'* ]] \
+        && docker run --rm "${JAVA_RUNTIME_IMAGE}" \
+          "${imageRuntime}/check-runtime.sh" "${imageRuntime}/ffmpeg" "${imageRuntime}/ffprobe" /tmp \
+          "${FFMPEG_MIN_VERSION}" "${FFMPEG_REQUIRED_ENCODERS}" "${FFMPEG_REQUIRED_FILTERS}" \
+          "${FFMPEG_RUNTIME_VERSION}" \
+        && docker run --rm "${JAVA_RUNTIME_IMAGE}" \
+          "${AID_FONT_ROOT}/check-font.sh" validate; then
+      ok "OpenJDK ${JDK_VERSION}、AID FFmpeg ${FFMPEG_RUNTIME_VERSION} 与中文字体运行镜像已存在，跳过构建: ${JAVA_RUNTIME_IMAGE}"
       return 0
     fi
-    warn "现有 Java 运行镜像版本不正确，将用已校验的 OpenJDK ${JDK_VERSION} 重建"
+    warn "现有 Java 运行镜像的 JDK、FFmpeg 或中文字体能力不完整，将按固定运行时重建"
   fi
   ensure_docker_image "${baseImage}" "OpenJDK运行基础"
-  dockerfile="${DATA_ROOT}/build-cache/toolchains/Dockerfile.openjdk-${JDK_VERSION}"
+  context="$(mktemp -d "${DATA_ROOT}/build-cache/toolchains/.runtime-image.XXXXXX")" \
+    || die "无法创建 Java/FFmpeg 镜像构建目录"
+  mkdir -p "${context}/java" "${context}/ffmpeg"
+  cp -a "${JDK_HOME}/." "${context}/java/" \
+    || { rm -rf -- "${context}"; die "复制 OpenJDK 运行时失败"; }
+  cp -a "${FFMPEG_RUNTIME_HOME}/." "${context}/ffmpeg/" \
+    || { rm -rf -- "${context}"; die "复制 AID FFmpeg 运行时失败"; }
+  fontManager="${context}/prepare-cjk-font.sh"
+  write_aid_cjk_font_manager "${fontManager}"
+  dockerfile="${context}/Dockerfile"
   cat > "${dockerfile}" <<EOF
 FROM ${baseImage}
+ARG AID_CJK_FONT_TENCENT_URL=
+ARG AID_CJK_FONT_ALIYUN_URL=
 ENV JAVA_HOME=/opt/java/openjdk
-ENV PATH=/opt/java/openjdk/bin:\${PATH}
-COPY . /opt/java/openjdk/
-RUN java -version
+ENV AID_FFMPEG_HOME=${imageRuntime}
+ENV AID_FFMPEG_PATH=${FFMPEG_RUNTIME_ROOT}/current/ffmpeg
+ENV AID_FFPROBE_PATH=${FFMPEG_RUNTIME_ROOT}/current/ffprobe
+ENV PATH=/opt/java/openjdk/bin:${FFMPEG_RUNTIME_ROOT}/current:\${PATH}
+COPY java/ /opt/java/openjdk/
+COPY ffmpeg/ ${imageRuntime}/
+COPY prepare-cjk-font.sh /tmp/prepare-cjk-font.sh
+RUN set -eu; \
+    mkdir -p ${FFMPEG_RUNTIME_ROOT}; \
+    ln -s ffmpeg-${FFMPEG_RUNTIME_VERSION}-${FFMPEG_RUNTIME_ARCH} ${FFMPEG_RUNTIME_ROOT}/current; \
+    if ! apt-get update; then \
+      if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+        sed -i 's|http://deb.debian.org/debian-security|https://mirrors.aliyun.com/debian-security|g; s|http://deb.debian.org/debian|https://mirrors.aliyun.com/debian|g' /etc/apt/sources.list.d/debian.sources; \
+      else \
+        sed -i 's|http://deb.debian.org/debian-security|https://mirrors.aliyun.com/debian-security|g; s|http://deb.debian.org/debian|https://mirrors.aliyun.com/debian|g' /etc/apt/sources.list; \
+      fi; \
+      apt-get update; \
+    fi; \
+    apt-get install -y --no-install-recommends ca-certificates curl unzip fontconfig; \
+    rm -rf /var/lib/apt/lists/*; \
+    java -version; \
+    ${imageRuntime}/check-runtime.sh ${imageRuntime}/ffmpeg ${imageRuntime}/ffprobe /tmp \
+      '${FFMPEG_MIN_VERSION}' '${FFMPEG_REQUIRED_ENCODERS}' '${FFMPEG_REQUIRED_FILTERS}' \
+      '${FFMPEG_RUNTIME_VERSION}'; \
+    AID_CJK_FONT_TENCENT_URL="\${AID_CJK_FONT_TENCENT_URL}" \
+      AID_CJK_FONT_ALIYUN_URL="\${AID_CJK_FONT_ALIYUN_URL}" \
+      /tmp/prepare-cjk-font.sh prepare; \
+    install -m 700 /tmp/prepare-cjk-font.sh ${AID_FONT_ROOT}/check-font.sh; \
+    rm -f /tmp/prepare-cjk-font.sh; \
+    ${AID_FONT_ROOT}/check-font.sh validate
 EOF
-  log "构建固定版本 Java 运行镜像: ${JAVA_RUNTIME_IMAGE}"
-  docker build --pull=false --tag "${JAVA_RUNTIME_IMAGE}" --file "${dockerfile}" "${JDK_HOME}" \
-    || die "OpenJDK ${JDK_VERSION} 运行镜像构建失败"
+  log "构建 OpenJDK ${JDK_VERSION} + AID FFmpeg ${FFMPEG_RUNTIME_VERSION} + 中文字体固定运行镜像: ${JAVA_RUNTIME_IMAGE}"
+  if ! docker build \
+      --build-arg "AID_CJK_FONT_TENCENT_URL=${AID_CJK_FONT_TENCENT_URL:-}" \
+      --build-arg "AID_CJK_FONT_ALIYUN_URL=${AID_CJK_FONT_ALIYUN_URL:-}" \
+      --pull=false --tag "${JAVA_RUNTIME_IMAGE}" --file "${dockerfile}" "${context}"; then
+    rm -rf -- "${context}"
+    die "OpenJDK ${JDK_VERSION}、FFmpeg ${FFMPEG_RUNTIME_VERSION} 与中文字体运行镜像构建失败"
+  fi
+  rm -rf -- "${context}"
   actual="$(docker run --rm "${JAVA_RUNTIME_IMAGE}" java -version 2>&1 | head -n 1 || true)"
   [[ "${actual}" == *'17.0.20'* ]] || die "OpenJDK运行镜像版本校验失败"
-  ok "OpenJDK ${JDK_VERSION} 运行镜像已就绪"
+  docker run --rm "${JAVA_RUNTIME_IMAGE}" \
+    "${imageRuntime}/check-runtime.sh" "${imageRuntime}/ffmpeg" "${imageRuntime}/ffprobe" /tmp \
+    "${FFMPEG_MIN_VERSION}" "${FFMPEG_REQUIRED_ENCODERS}" "${FFMPEG_REQUIRED_FILTERS}" \
+    "${FFMPEG_RUNTIME_VERSION}" \
+    || die "FFmpeg运行镜像校验失败"
+  docker run --rm "${JAVA_RUNTIME_IMAGE}" "${AID_FONT_ROOT}/check-font.sh" validate \
+    || die "中文字体运行镜像校验失败"
+  ok "OpenJDK ${JDK_VERSION}、AID FFmpeg ${FFMPEG_RUNTIME_VERSION} 与中文字体运行镜像已就绪"
 }
 
 # 读取发布工具生成的格式化 JSON 直属字符串字段。顶层缩进 2 格，beta 直属字段缩进 4 格。
@@ -6334,6 +7079,10 @@ print_access_info() { # print_access_info [strict]
   echo "        密码以不可逆摘要保存，无法通过本命令反查；本命令不会重置账号、密码或数据库。"
   print_https_guidance "${mode}" "${configFile}" "${publicIp}" "${adminPath}"
   print_mysql_access_guidance "${mode}" "${publicIp}" "${configFile}"
+  echo "AID FFmpeg 运行时："
+  print_ffmpeg_runtime_paths
+  echo "AID 中文字体："
+  echo "  后台推荐 中文字体路径: ${AID_CJK_FONT_PATH}"
   echo "数据目录: ${DATA_ROOT}（程序/上传/日志/数据/备份全部在此）"
   echo "配置文件: ${configFile}（菜单「修改配置」可调整）"
   [[ -f "${MANAGED_SCRIPT}" ]] && echo "管理命令: sudo aid 或 sudo bash ${MANAGED_SCRIPT}"
@@ -6449,6 +7198,7 @@ write_systemd_units() {
     && "${JDK_HOME}/bin/java" -version 2>&1 | head -n 1 | grep -Fq "${MANUAL_JDK_VERSION}" \
     || prepare_manual_jdk
   javaBin="${JDK_HOME}/bin/java"
+  configure_ffmpeg_runtime_paths
   mkdir -p "${AID_SYSTEMD_UNIT_DIR}"
   aidUnit="${AID_SYSTEMD_UNIT_DIR}/aid.service"
   cat > "${aidUnit}" <<EOF
@@ -6468,7 +7218,9 @@ Environment=LANG=C.UTF-8
 Environment=LC_ALL=C.UTF-8
 Environment=SERVER_PORT=$(conf_get BACKEND_PORT 8080)
 Environment=JAVA_HOME=${JDK_HOME}
-Environment=PATH=${JDK_HOME}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
+Environment=AID_FFMPEG_PATH=${FFMPEG_RUNTIME_FFMPEG}
+Environment=AID_FFPROBE_PATH=${FFMPEG_RUNTIME_FFPROBE}
+Environment=PATH=${JDK_HOME}/bin:${FFMPEG_RUNTIME_ROOT}/current:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
 ExecStart=${javaBin} $(conf_get JAVA_OPTS '-Xms1g -Xmx2g') -jar ${DATA_ROOT}/app/aid-admin.jar
 Restart=always
 RestartSec=5
@@ -7636,7 +8388,72 @@ handoff_purge_to_safe_script() {
   ' bash "${safeScript}" "${SCRIPT_PATH}" "${DATA_ROOT}"
 }
 
+aid_managed_swap_is_active() { # aid_managed_swap_is_active <swap文件>
+  local wanted="$1" procSwaps="/proc/swaps" listed decoded rest
+  if [[ "${AID_UNINSTALL_TEST_MODE:-0}" == "1" && -n "${AID_UNINSTALL_TEST_PROC_SWAPS:-}" ]]; then
+    procSwaps="${AID_UNINSTALL_TEST_PROC_SWAPS}"
+  fi
+  [[ -r "${procSwaps}" ]] || die "无法读取Swap状态，拒绝卸载: ${procSwaps}"
+  while read -r listed rest; do
+    [[ -n "${listed}" && "${listed}" != "Filename" ]] || continue
+    # /proc/swaps 使用八进制转义空格、制表符和反斜杠；%b仅解码内核提供的首列后精确比较。
+    decoded="$(printf '%b' "${listed}")"
+    [[ "${decoded}" == "${wanted}" ]] && return 0
+  done < "${procSwaps}"
+  return 1
+}
+
+aid_managed_swap_layout_is_owned() { # aid_managed_swap_layout_is_owned <目录> <swap文件> <marker>
+  local swapDir="$1" swapFile="$2" marker="$3"
+  [[ "$(command stat -c '%u:%a' "${swapDir}" 2>/dev/null || true)" == "0:700" ]] \
+    && [[ "$(command stat -c '%u:%a' "${swapFile}" 2>/dev/null || true)" == "0:600" ]] \
+    && [[ "$(command stat -c '%u:%a' "${marker}" 2>/dev/null || true)" == "0:600" ]]
+}
+
+deactivate_aid_managed_swap() { # deactivate_aid_managed_swap <keep|purge>
+  local cleanupMode="$1" cacheDir="${DATA_ROOT}/build-cache" swapDir swapFile marker markerLine="" active=0 invalid=""
+  swapDir="${cacheDir}/.aid-swap"
+  swapFile="${swapDir}/aid-source-build.swap"
+  marker="${swapFile}.owner"
+  aid_managed_swap_is_active "${swapFile}" && active=1
+
+  if [[ ! -e "${swapFile}" && ! -L "${swapFile}" && ! -e "${marker}" && ! -L "${marker}" ]]; then
+    if [[ "${active}" == "1" ]]; then
+      invalid="受管Swap仍处于激活状态但文件或归属标记不存在"
+    else
+      return 0
+    fi
+  elif [[ -L "${cacheDir}" || ! -d "${cacheDir}" \
+      || -L "${swapDir}" || ! -d "${swapDir}" \
+      || -L "${swapFile}" || ! -f "${swapFile}" \
+      || -L "${marker}" || ! -f "${marker}" ]]; then
+    invalid="受管Swap目录、文件或归属标记类型异常"
+  else
+    IFS= read -r markerLine < "${marker}" || true
+    [[ "${markerLine}" == "AID_SOURCE_BUILD_SWAP_V1" ]] \
+      || invalid="受管Swap归属标记不匹配"
+    if [[ -z "${invalid}" ]] && ! aid_managed_swap_layout_is_owned "${swapDir}" "${swapFile}" "${marker}"; then
+      invalid="受管Swap必须由root持有且权限为目录0700、文件0600"
+    fi
+  fi
+
+  if [[ -n "${invalid}" ]]; then
+    if [[ "${cleanupMode}" == "purge" ]]; then
+      die "${invalid}，拒绝停用或删除保留路径: ${swapFile}"
+    fi
+    warn "${invalid}，按非AID资源保留且不执行swapoff: ${swapFile}"
+    return 0
+  fi
+  [[ "${active}" == "1" ]] || return 0
+  command -v swapoff >/dev/null 2>&1 || die "缺少swapoff，无法安全卸载AID受管Swap"
+  swapoff "${swapFile}" || die "停用AID受管Swap失败，卸载已中止且数据目录保持不变: ${swapFile}"
+  aid_managed_swap_is_active "${swapFile}" \
+    && die "AID受管Swap在swapoff后仍处于激活状态，卸载已中止: ${swapFile}"
+  log "已停用AID受管Swap: ${swapFile}"
+}
+
 purge_aid_data() {
+  deactivate_aid_managed_swap purge
   validate_aid_purge_root
   [[ ! -e "${DATA_ROOT}" ]] || rm -rf -- "${DATA_ROOT}" \
     || die "删除 AID 数据目录失败: ${DATA_ROOT}"
@@ -8090,6 +8907,9 @@ do_uninstall() { # do_uninstall [keep|purge|--keep|--purge]
     [[ "${confirm}" == "y" ]] || { log "已取消卸载"; return 0; }
   fi
 
+  # Swap属于AID运行资源：keep仅停用并保留文件，purge停用后再随数据目录删除。
+  # 必须在移除任何运行入口前完成，swapoff失败不得造成部分卸载或误报成功。
+  deactivate_aid_managed_swap "${cleanupMode}"
   section "卸载 AID"
   remove_aid_docker_runtime "${cleanupMode}"
   remove_aid_system_services

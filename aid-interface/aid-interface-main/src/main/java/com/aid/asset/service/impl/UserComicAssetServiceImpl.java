@@ -20,6 +20,7 @@ import com.aid.asset.dto.UserComicAssetDetailRequest;
 import com.aid.asset.dto.UserComicAssetListRequest;
 import com.aid.asset.dto.UserComicAssetUpdateRequest;
 import com.aid.asset.service.IUserComicAssetService;
+import com.aid.asset.service.MergedAssetPagePlanner;
 import com.aid.asset.vo.MergedAssetVO;
 import com.aid.asset.vo.UserComicAssetTypeVO;
 import com.aid.asset.vo.UserComicAssetVO;
@@ -133,15 +134,17 @@ public class UserComicAssetServiceImpl implements IUserComicAssetService {
             log.error("C端参考资产创建失败-风格提示词为空: userId={}", userId);
             throw new ServiceException("提示词不能为空");
         }
-        String imageUrl = normalizeImageUrl(request.getImageUrl());
-        if (StrUtil.isNotBlank(request.getImageUrl())) {
-            if (!mediaUrlResolver.isSiteImageUrl(imageUrl)) {
-                log.error("C端参考资产创建失败-图片URL非本站资源: userId={}, imageUrl={}", userId, request.getImageUrl());
-                throw new ServiceException("图片格式有误");
-            }
-            // 统一剥域名入库，DB 只存相对路径
-            imageUrl = mediaUrlResolver.toRelativePath(imageUrl);
+        if (StrUtil.isBlank(request.getImageUrl())) {
+            log.error("C端参考资产创建失败-图片为空: userId={}", userId);
+            throw new ServiceException("请上传图片");
         }
+        String imageUrl = normalizeImageUrl(request.getImageUrl());
+        if (!mediaUrlResolver.isSiteImageUrl(imageUrl)) {
+            log.error("C端参考资产创建失败-图片URL非本站资源: userId={}, imageUrl={}", userId, request.getImageUrl());
+            throw new ServiceException("图片格式有误");
+        }
+        // 统一剥域名入库，DB 只存相对路径
+        imageUrl = mediaUrlResolver.toRelativePath(imageUrl);
         if (StrUtil.isNotBlank(imageUrl) && imageUrl.length() > IMAGE_URL_MAX_LENGTH) {
             log.error("C端参考资产创建失败-图片URL过长: userId={}, length={}", userId, imageUrl.length());
             throw new ServiceException("图片地址过长");
@@ -255,31 +258,41 @@ public class UserComicAssetServiceImpl implements IUserComicAssetService {
             throw new ServiceException("类型错误");
         }
         String keyword = Objects.isNull(request.getKeyword()) ? null : request.getKeyword().trim();
+        String categoryCode = aidComicAssetService.normalizeStyleCategoryFilter(request.getCategoryCode());
+        if (StrUtil.isNotBlank(categoryCode) && StrUtil.isNotBlank(assetType)
+                && !Objects.equals(ASSET_TYPE_STYLE, assetType)) {
+            log.error("合并资产查询-分类仅适用于风格: userId={}, assetType={}, categoryCode={}",
+                    userId, assetType, categoryCode);
+            throw new ServiceException("分类仅限风格");
+        }
 
         int pageNum = Objects.isNull(request.getPageNum()) || request.getPageNum() <= 0
                 ? DEFAULT_PAGE_NUM : request.getPageNum();
         int pageSize = Objects.isNull(request.getPageSize()) || request.getPageSize() <= 0
                 ? DEFAULT_PAGE_SIZE : Math.min(request.getPageSize(), MAX_PAGE_SIZE);
-        int from = (pageNum - 1) * pageSize;
+        long from = (long) (pageNum - 1) * pageSize;
 
-        long personalCount = aidUserComicAssetService.count(buildPersonalCountWrapper(userId, assetType, keyword));
-        long officialCount = aidComicAssetService.count(buildOfficialCountWrapper(assetType, keyword));
-        long total = personalCount + officialCount;
+        // 个人素材没有官方分类；选择具体分类时只返回匹配的官方风格。
+        long personalCount = StrUtil.isBlank(categoryCode)
+                ? aidUserComicAssetService.count(buildPersonalCountWrapper(userId, assetType, keyword)) : 0;
+        long recommendedCount = aidComicAssetService.count(
+                buildOfficialCountWrapper(assetType, keyword, categoryCode, true));
+        long normalCount = aidComicAssetService.count(
+                buildOfficialCountWrapper(assetType, keyword, categoryCode, false));
+        long total = personalCount + recommendedCount + normalCount;
 
         List<MergedAssetVO> list = new ArrayList<>();
-        if (from < personalCount) {
-            // 当前页从个人资产段开始。
-            int personalLimit = (int) Math.min(pageSize, personalCount - from);
-            list.addAll(fetchPersonalSlice(userId, assetType, keyword, from, personalLimit));
-            int remaining = pageSize - personalLimit;
-            if (remaining > 0) {
-                // 个人段不足填满本页，官方段从头补齐
-                list.addAll(fetchOfficialSlice(assetType, keyword, 0, remaining));
+        for (MergedAssetPagePlanner.Slice slice : MergedAssetPagePlanner.plan(
+                from, pageSize, recommendedCount, personalCount, normalCount)) {
+            if (Objects.equals(MergedAssetPagePlanner.Segment.CUSTOM, slice.getSegment())) {
+                list.addAll(fetchPersonalSlice(userId, assetType, keyword,
+                        slice.getOffset(), slice.getLimit()));
+            } else {
+                boolean recommended = Objects.equals(
+                        MergedAssetPagePlanner.Segment.OFFICIAL_RECOMMENDED, slice.getSegment());
+                list.addAll(fetchOfficialSlice(assetType, keyword, categoryCode, recommended,
+                        slice.getOffset(), slice.getLimit()));
             }
-        } else {
-            // 当前页完全落在官方资产段。
-            int officialOffset = (int) (from - personalCount);
-            list.addAll(fetchOfficialSlice(assetType, keyword, officialOffset, pageSize));
         }
 
         Map<String, Object> data = new HashMap<>();
@@ -312,7 +325,9 @@ public class UserComicAssetServiceImpl implements IUserComicAssetService {
     /**
      * 官方素材统计条件（aid_comic_asset）。
      */
-    private LambdaQueryWrapper<AidComicAsset> buildOfficialCountWrapper(String assetType, String keyword) {
+    private LambdaQueryWrapper<AidComicAsset> buildOfficialCountWrapper(String assetType, String keyword,
+                                                                          String categoryCode,
+                                                                          boolean recommended) {
         LambdaQueryWrapper<AidComicAsset> w = Wrappers.lambdaQuery();
         w.eq(AidComicAsset::getDelFlag, DEL_FLAG_NORMAL);
         if (StrUtil.isNotBlank(assetType)) {
@@ -323,16 +338,19 @@ public class UserComicAssetServiceImpl implements IUserComicAssetService {
         if (StrUtil.isNotBlank(keyword)) {
             w.like(AidComicAsset::getAssetName, keyword);
         }
+        w.eq(AidComicAsset::getIsRecommended, recommended);
+        aidComicAssetService.applyStyleCategoryFilter(w, categoryCode);
         return w;
     }
 
     /**
      * 取个人资产切片（sourceFlag=custom）。
      */
-    private List<MergedAssetVO> fetchPersonalSlice(Long userId, String assetType, String keyword, int offset, int limit) {
+    private List<MergedAssetVO> fetchPersonalSlice(Long userId, String assetType, String keyword, long offset, int limit) {
         LambdaQueryWrapper<AidUserComicAsset> w = buildPersonalCountWrapper(userId, assetType, keyword);
         w.select(AidUserComicAsset::getId, AidUserComicAsset::getAssetType, AidUserComicAsset::getAssetName,
-                AidUserComicAsset::getPromptText, AidUserComicAsset::getImageUrl);
+                AidUserComicAsset::getPromptText, AidUserComicAsset::getImageUrl,
+                AidUserComicAsset::getSortOrder);
         w.orderByAsc(AidUserComicAsset::getSortOrder).orderByDesc(AidUserComicAsset::getCreateTime).orderByDesc(AidUserComicAsset::getId);
         w.last("LIMIT " + limit + " OFFSET " + offset);
         List<MergedAssetVO> result = new ArrayList<>();
@@ -344,6 +362,9 @@ public class UserComicAssetServiceImpl implements IUserComicAssetService {
                     .assetName(a.getAssetName())
                     .promptText(a.getPromptText())
                     .imageUrl(a.getImageUrl())
+                    .categories(Collections.emptyList())
+                    .isRecommended(false)
+                    .sortOrder(Objects.isNull(a.getSortOrder()) ? null : a.getSortOrder().longValue())
                     .build());
         }
         return result;
@@ -352,14 +373,19 @@ public class UserComicAssetServiceImpl implements IUserComicAssetService {
     /**
      * 取官方素材切片（sourceFlag=official）。
      */
-    private List<MergedAssetVO> fetchOfficialSlice(String assetType, String keyword, int offset, int limit) {
-        LambdaQueryWrapper<AidComicAsset> w = buildOfficialCountWrapper(assetType, keyword);
+    private List<MergedAssetVO> fetchOfficialSlice(String assetType, String keyword, String categoryCode,
+                                                    boolean recommended, long offset, int limit) {
+        LambdaQueryWrapper<AidComicAsset> w = buildOfficialCountWrapper(
+                assetType, keyword, categoryCode, recommended);
         w.select(AidComicAsset::getId, AidComicAsset::getAssetType, AidComicAsset::getAssetName,
-                AidComicAsset::getPromptText, AidComicAsset::getImageUrl);
-        w.orderByDesc(AidComicAsset::getCreateTime).orderByDesc(AidComicAsset::getId);
+                AidComicAsset::getPromptText, AidComicAsset::getImageUrl,
+                AidComicAsset::getIsRecommended, AidComicAsset::getSortOrder);
+        w.orderByAsc(AidComicAsset::getSortOrder).orderByAsc(AidComicAsset::getId);
         w.last("LIMIT " + limit + " OFFSET " + offset);
+        List<AidComicAsset> officialAssets = aidComicAssetService.list(w);
+        aidComicAssetService.attachStyleCategories(officialAssets);
         List<MergedAssetVO> result = new ArrayList<>();
-        for (AidComicAsset a : aidComicAssetService.list(w)) {
+        for (AidComicAsset a : officialAssets) {
             result.add(MergedAssetVO.builder()
                     .id(a.getId())
                     .sourceFlag("official")
@@ -367,6 +393,9 @@ public class UserComicAssetServiceImpl implements IUserComicAssetService {
                     .assetName(a.getAssetName())
                     .promptText(a.getPromptText())
                     .imageUrl(a.getImageUrl())
+                    .categories(a.getCategories())
+                    .isRecommended(Boolean.TRUE.equals(a.getIsRecommended()))
+                    .sortOrder(Objects.isNull(a.getSortOrder()) ? null : a.getSortOrder().longValue())
                     .build());
         }
         return result;

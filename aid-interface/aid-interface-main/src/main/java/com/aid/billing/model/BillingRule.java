@@ -36,4 +36,7 @@ public class BillingRule {
 
     /** 输入媒体计费（参考图/输入视频附加费）规则级默认；SKU 级同名配置按档位覆盖 */
     private InputMediaPricing inputPricing;
+
+    /** 视频 TOKEN 模型的显式预冻结估算规则；未配置时不启用视频 token 估算。 */
+    private VideoTokenEstimateRule videoTokenEstimate;
 }

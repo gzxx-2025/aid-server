@@ -31,8 +31,6 @@ public final class DashscopeConstants {
     public static final String AUTH_BEARER_PREFIX = "Bearer ";
     public static final String CONTENT_TYPE_JSON = "application/json";
 
-    /** 千问异步文生图官方提交路径（仅 qwen-image、qwen-image-plus 支持） */
-    public static final String QWEN_IMAGE_ASYNC_API_SUFFIX = "/api/v1/services/aigc/text2image/image-synthesis";
     /** qwen-image/qwen-image-plus 官方默认尺寸 */
     public static final String QWEN_IMAGE_DEFAULT_SIZE = "1664*928";
 

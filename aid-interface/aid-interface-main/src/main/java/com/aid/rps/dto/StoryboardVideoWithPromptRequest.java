@@ -33,10 +33,16 @@ public class StoryboardVideoWithPromptRequest
     /** 是否覆盖已有 video_prompt（默认 false，仅不传 storyboardIds 时生效） */
     private Boolean overwrite;
 
+    /** 跨镜连续性模式：none / previous_prompt；为空按 none */
+    private String continuityMode;
+
+    /** 单镜开启 previous_prompt 时指定的直接上一镜 ID；批量请求忽略 */
+    private Long previousStoryboardId;
+
     /** 出片阶段：视频模型编码（可选，默认 main_storyboard_video 池兜底） */
     private String genModelName;
 
-    /** 出片阶段：宽高比（可选） */
+    /** 出片阶段：视频宽高比 */
     private String genAspectRatio;
 
     /** 出片阶段：清晰度档位（可选，如 540p / 720p / 1080p，须命中模型 sizeOptions 白名单） */

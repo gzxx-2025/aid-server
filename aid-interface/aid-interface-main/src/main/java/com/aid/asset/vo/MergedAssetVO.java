@@ -3,6 +3,10 @@ package com.aid.asset.vo;
 import com.aid.common.aid.oss.annotation.MediaUrl;
 import lombok.Builder;
 import lombok.Data;
+import com.aid.aid.vo.StyleCategoryVO;
+import io.swagger.v3.oas.annotations.media.Schema;
+
+import java.util.List;
 
 /**
  * 合并资产列表项 VO（个人 + 官方）。
@@ -14,6 +18,7 @@ import lombok.Data;
  */
 @Data
 @Builder
+@Schema(description = "个人与官方素材合并列表项")
 public class MergedAssetVO {
 
     /** 主键 ID（按 sourceFlag 区分属于哪张表） */
@@ -34,4 +39,13 @@ public class MergedAssetVO {
     /** 主图 URL（出参拼域名） */
     @MediaUrl
     private String imageUrl;
+
+    /** 风格分类标签；个人素材固定为空数组 */
+    private List<StyleCategoryVO> categories;
+
+    /** 是否为推荐风格；个人素材固定为false */
+    private Boolean isRecommended;
+
+    /** 展示排序号 */
+    private Long sortOrder;
 }

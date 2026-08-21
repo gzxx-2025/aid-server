@@ -3,6 +3,7 @@ package com.aid.asset.service;
 import java.util.List;
 import com.aid.aid.domain.AidComicAsset;
 import com.aid.asset.dto.OfficialAssetQueryRequest;
+import com.aid.aid.vo.StyleCategoryVO;
 
 /**
  * 用户资产业务Service接口
@@ -19,4 +20,11 @@ public interface IUserAssetBusinessService
      * @return 素材列表
      */
     List<AidComicAsset> queryOfficialAssetList(OfficialAssetQueryRequest request);
+
+    /**
+     * 查询C端风格分类选项，包含虚拟“全部”。
+     *
+     * @return 分类选项
+     */
+    List<StyleCategoryVO> listStyleCategoryOptions();
 }

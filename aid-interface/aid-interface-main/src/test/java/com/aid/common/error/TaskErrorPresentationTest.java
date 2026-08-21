@@ -95,4 +95,16 @@ class TaskErrorPresentationTest
         assertTrue(formatException.getMessage().length() <= 12);
         assertTrue(payloadException.getMessage().length() <= 12);
     }
+
+    @Test
+    void shouldPreservePreholdBalanceCodeAndMessage()
+    {
+        ServiceException source = new ServiceException("预扣余额不足")
+                .setDetailMessage(TaskErrorCode.USER_PREHOLD_BALANCE_NOT_ENOUGH.name());
+
+        ServiceException presented = TaskErrorPresentation.fromThrowable(source, "生成失败");
+
+        assertEquals("预扣余额不足", presented.getMessage());
+        assertEquals(TaskErrorCode.USER_PREHOLD_BALANCE_NOT_ENOUGH.name(), presented.getDetailMessage());
+    }
 }

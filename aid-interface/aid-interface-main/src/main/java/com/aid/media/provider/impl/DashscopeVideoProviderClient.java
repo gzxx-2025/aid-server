@@ -6,6 +6,7 @@ import cn.hutool.http.HttpResponse;
 import cn.hutool.json.JSONUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.aid.common.constant.HttpConstants;
+import com.aid.common.utils.ProviderEndpointUtils;
 import com.aid.domain.vo.AiModelConfigVo;
 import com.aid.media.constants.DashscopeConstants;
 import com.aid.media.dto.MediaVideoGenerateRequest;
@@ -178,28 +179,12 @@ public class DashscopeVideoProviderClient implements VideoProviderClient {
     /**
      * 构建 API 请求 URL：base_url + api_suffix（路径全部来自数据库配置）
      */
-    private String buildApiUrl(String baseUrl, String apiSuffix) {
-        if (StringUtils.isBlank(baseUrl)) {
-            throw new IllegalArgumentException("dashscope video model baseUrl 不能为空");
-        }
-        if (StringUtils.isBlank(apiSuffix)) {
-            throw new IllegalArgumentException("dashscope video model apiSuffix 不能为空，请在 aid_ai_model 表配置");
-        }
-        return trimSlash(baseUrl.trim()) + apiSuffix;
+    static String buildApiUrl(String baseUrl, String apiSuffix) {
+        return ProviderEndpointUtils.buildSubmitUrl(baseUrl, apiSuffix);
     }
 
-    private String buildTaskUrl(String baseUrl, String taskQuerySuffix, String providerTaskId) {
-        if (StringUtils.isBlank(baseUrl)) {
-            throw new IllegalArgumentException("dashscope video model baseUrl 不能为空");
-        }
-        if (StringUtils.isBlank(taskQuerySuffix)) {
-            throw new IllegalArgumentException("dashscope video model taskQuerySuffix 不能为空，请在 aid_ai_provider 表配置");
-        }
-        if (StringUtils.isBlank(providerTaskId)) {
-            return baseUrl;
-        }
-        // 完整查询 URL = base_url + String.format(task_query_suffix, taskId)
-        return trimSlash(baseUrl.trim()) + String.format(taskQuerySuffix, providerTaskId);
+    static String buildTaskUrl(String baseUrl, String taskQuerySuffix, String providerTaskId) {
+        return ProviderEndpointUtils.buildTaskQueryUrl(baseUrl, taskQuerySuffix, providerTaskId);
     }
 
     private String doPost(String url, String apiKey, String json) {
@@ -222,14 +207,6 @@ public class DashscopeVideoProviderClient implements VideoProviderClient {
             .execute()) {
             return response.body();
         }
-    }
-
-    private String trimSlash(String base) {
-        // 去除末尾 /，避免路径拼接出现双斜杠。
-        if (base.endsWith("/")) {
-            return base.substring(0, base.length() - 1);
-        }
-        return base;
     }
 
     private String resolveEffectiveModel(AiModelConfigVo modelConfig, MediaVideoGenerateRequest request) {

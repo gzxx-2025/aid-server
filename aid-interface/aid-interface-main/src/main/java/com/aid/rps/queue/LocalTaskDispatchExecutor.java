@@ -103,7 +103,7 @@ public class LocalTaskDispatchExecutor implements TaskDispatchExecutor
     public boolean dispatch(QueuedTaskContext ctx)
     {
         Long taskId = ctx.getTaskId();
-        Runnable job = localJobRegistry.take(taskId);
+        Runnable job = localJobRegistry.take(taskId, ctx.getDispatchToken());
         if (job == null)
         {
             log.warn("排队放行-本地job缺失(可能重启丢失内存态), 派发失败: taskId={}", taskId);
@@ -121,7 +121,7 @@ public class LocalTaskDispatchExecutor implements TaskDispatchExecutor
             //   把 job 放回注册表，抛 TaskDispatchRetryableException 让调度器走"撤销放行 + 重排"分支，
             //   保持任务可被下一拍重新放行；绝不判 FAILED、绝不退款（返回 false 会被上层误判为失败并触发退款）。
             log.warn("排队放行-本地线程池已满, 任务重新入队等待下一拍(请检查 全局并发上限 是否超过本地池容量): taskId={}", taskId);
-            localJobRegistry.register(taskId, job);
+            localJobRegistry.register(taskId, ctx.getDispatchToken(), job);
             throw new TaskDispatchRetryableException("本地线程池已满");
         }
         catch (Exception e)

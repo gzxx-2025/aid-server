@@ -18,6 +18,7 @@ import cn.hutool.http.HttpResponse;
 import cn.hutool.json.JSONUtil;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.aid.common.utils.ProviderEndpointUtils;
 import com.aid.domain.vo.AiModelConfigVo;
 import com.aid.media.constants.JimengConstants;
 import com.aid.media.dto.MediaImageGenerateRequest;
@@ -811,20 +812,16 @@ public class JimengImageProviderClient implements ImageProviderClient {
                 || StrUtil.isBlank(modelConfig.getApiSecret())) {
             throw new IllegalArgumentException("即梦未配置 AK/SK");
         }
-        String baseUrl = StrUtil.blankToDefault(
-                modelConfig.getBaseUrl(), JimengConstants.DEFAULT_BASE_URL).trim();
-        if (baseUrl.endsWith("/")) {
-            baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
-        }
-
-        String host = parseHostOrDefault(baseUrl);
+        String requestPath = resolveSignedPath(modelConfig.getApiSuffix());
+        String fullUrl = ProviderEndpointUtils.buildSubmitUrl(modelConfig.getBaseUrl(), requestPath);
+        String host = URI.create(fullUrl).getHost();
 
         Map<String, String> query = new LinkedHashMap<>();
         query.put(JimengConstants.QUERY_ACTION, action);
         query.put(JimengConstants.QUERY_VERSION, JimengConstants.API_VERSION);
         String queryString = JimengConstants.QUERY_ACTION + '=' + action
                 + '&' + JimengConstants.QUERY_VERSION + '=' + JimengConstants.API_VERSION;
-        String fullUrl = baseUrl + "/?" + queryString;
+        fullUrl = fullUrl + '?' + queryString;
 
         String payload = JSONUtil.toJsonStr(body);
 
@@ -835,7 +832,7 @@ public class JimengImageProviderClient implements ImageProviderClient {
                 JimengConstants.SERVICE,
                 host,
                 "POST",
-                "/",
+                requestPath,
                 query,
                 JimengConstants.CONTENT_TYPE_JSON,
                 payload);
@@ -857,20 +854,13 @@ public class JimengImageProviderClient implements ImageProviderClient {
         }
     }
 
-    /**
-     * 从完整 URL 中解析 host；解析失败时回退到默认 host。
-     */
-    private String parseHostOrDefault(String baseUrl) {
-        try {
-            URI uri = URI.create(baseUrl);
-            String host = uri.getHost();
-            if (StrUtil.isNotBlank(host)) {
-                return host;
-            }
-        } catch (IllegalArgumentException ignore) {
-            // 非法 baseUrl 交给默认值兜底
+    private String resolveSignedPath(String apiSuffix) {
+        String normalized = ProviderEndpointUtils.normalizeSubmitPath(apiSuffix);
+        if (normalized.contains("?")) {
+            log.warn("即梦图片端点校验失败, reason=query");
+            throw new IllegalArgumentException("即梦路径无效");
         }
-        return JimengConstants.DEFAULT_HOST;
+        return normalized;
     }
 
     // ------------------------------------------------------------------

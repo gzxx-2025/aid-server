@@ -26,4 +26,10 @@ public interface TaskCompletionService {
      * @return true = 本线程赢得关闭权（执行了退款），false = 已被其他路径处理
      */
     boolean closeUnsubmittedTask(Long taskId, String errorMessage);
+
+    /**
+     * 合成提交结果无法确认或应用重启时，把已占槽但未产生上游任务号的任务延迟放回队列，
+     * 不退款、不判失败；云端依靠幂等键恢复同一任务，本地重新执行。
+     */
+    boolean requeueUnsubmittedTask(Long taskId);
 }

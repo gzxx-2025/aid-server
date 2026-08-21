@@ -455,6 +455,7 @@ public class StoryboardImageUpscaleServiceImpl implements IStoryboardImageUpscal
                           String modelCode, Long modelId, String referenceUrl, String resolution,
                           String lockKey, String lockToken)
     {
+        String dispatchToken = taskQueueService.currentLocalDispatchToken(taskId);
         try
         {
             if (assetExtractService.isTaskCancelled(taskId))
@@ -545,7 +546,7 @@ public class StoryboardImageUpscaleServiceImpl implements IStoryboardImageUpscal
             releaseLockSafely(lockKey, lockToken);
             try
             {
-                assetExtractService.clearCancelFlag(taskId);
+                assetExtractService.clearCancelFlag(taskId, dispatchToken);
             }
             catch (Exception ignore)
             {
@@ -553,7 +554,7 @@ public class StoryboardImageUpscaleServiceImpl implements IStoryboardImageUpscal
             // 释放多维并发名额 + 执行租约（幂等）
             try
             {
-                assetExtractService.releaseTaskSlots(taskId);
+                assetExtractService.releaseTaskSlots(taskId, dispatchToken);
             }
             catch (Exception ignore)
             {

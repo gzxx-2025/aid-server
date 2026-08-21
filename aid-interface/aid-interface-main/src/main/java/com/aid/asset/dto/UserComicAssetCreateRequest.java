@@ -1,6 +1,7 @@
 package com.aid.asset.dto;
 
 import com.aid.common.aid.oss.annotation.MediaUrl;
+import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
 /**
@@ -24,6 +25,7 @@ public class UserComicAssetCreateRequest {
     private String promptText;
 
     /** 主图URL：入参自动剥离域名入库 */
+    @NotBlank(message = "请上传图片")
     @MediaUrl
     private String imageUrl;
 

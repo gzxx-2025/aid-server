@@ -5,11 +5,16 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.aid.common.constant.HttpConstants;
 import com.aid.domain.vo.AiModelConfigVo;
+import com.aid.common.utils.ProviderEndpointUtils;
 import com.aid.media.constants.GeminiConstants;
 import com.aid.media.dto.MediaTextGenerateRequest;
 import com.aid.media.provider.ProviderSubmitResult;
 import com.aid.media.provider.ProviderTaskResult;
+import com.aid.media.provider.ProviderErrorSanitizer;
+import com.aid.media.provider.ReasoningContentSanitizer;
 import com.aid.media.provider.TextProviderClient;
+import com.aid.media.provider.TextReasoningOptionsResolver;
+import com.aid.media.provider.TextFinishReasonSupport;
 import com.aid.media.provider.TextStreamCallbacks;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -63,6 +68,7 @@ public class GeminiTextProviderClient implements TextProviderClient {
     @Override
     public void streamChat(AiModelConfigVo modelConfig, MediaTextGenerateRequest request,
                            TextStreamCallbacks callbacks) throws IOException {
+        com.aid.media.provider.TextOutputLimitResolver.normalize(request, modelConfig);
         String apiKey = modelConfig != null ? modelConfig.getApiKey() : null;
         if (StringUtils.isBlank(apiKey)) {
             callbacks.onError(GeminiConstants.ERROR_API_KEY_EMPTY, null);
@@ -95,16 +101,20 @@ public class GeminiTextProviderClient implements TextProviderClient {
         if (resp.statusCode() < 200 || resp.statusCode() >= 300) {
             log.error("Gemini 文本(非流式) HTTP 失败, url={}, status={}, bodyLen={}",
                     url, resp.statusCode(), respBody.length());
-            callbacks.onError(StringUtils.defaultIfBlank(respBody, "HTTP " + resp.statusCode()), null);
+            callbacks.onError(ProviderErrorSanitizer.fromHttp(resp.statusCode(), respBody), null);
             return;
         }
         // 业务含义：非流式响应也写一份 raw 进 onSseDataLine，保持 audit/raw_response 落库口径与流式版本一致
-        callbacks.onSseDataLine(respBody);
+        callbacks.onSseDataLine(ReasoningContentSanitizer.sanitizeJson(respBody));
         try {
-            parseAndEmit(respBody, callbacks);
+            if (!parseAndEmit(respBody, callbacks,
+                    isReasoningProvablyDisabled(modelConfig, body))) {
+                return;
+            }
         } catch (Exception e) {
-            log.error("Gemini 文本(非流式)解析失败, bodyLen={}", respBody.length(), e);
-            callbacks.onError("解析响应失败", e);
+            log.error("Gemini 文本(非流式)解析失败, bodyLen={}, errorType={}",
+                    respBody.length(), e.getClass().getSimpleName());
+            callbacks.onError("解析响应失败", null);
             return;
         }
         callbacks.onComplete();
@@ -116,6 +126,7 @@ public class GeminiTextProviderClient implements TextProviderClient {
      */
     @Override
     public ProviderSubmitResult chatSync(AiModelConfigVo modelConfig, MediaTextGenerateRequest request) {
+        com.aid.media.provider.TextOutputLimitResolver.normalize(request, modelConfig);
         String apiKey = modelConfig != null ? modelConfig.getApiKey() : null;
         if (StringUtils.isBlank(apiKey)) {
             return ProviderSubmitResult.builder().rawResponse(GeminiConstants.ERROR_API_KEY_EMPTY).build();
@@ -150,10 +161,24 @@ public class GeminiTextProviderClient implements TextProviderClient {
         String respBody = resp.body() != null ? resp.body() : "";
         if (resp.statusCode() < 200 || resp.statusCode() >= 300) {
             log.error("Gemini chatSync HTTP 失败, status={}, bodyLen={}", resp.statusCode(), respBody.length());
-            return ProviderSubmitResult.builder().rawResponse(respBody).build();
+            return ProviderSubmitResult.builder()
+                    .rawResponse(ProviderErrorSanitizer.fromHttp(resp.statusCode(), respBody)).build();
         }
+        Map<String, Object> usage = Map.of();
         try {
             JsonNode root = MAPPER.readTree(respBody);
+            usage = normalizeUsage(root.path("usageMetadata"),
+                    isReasoningProvablyDisabled(modelConfig, body));
+            String finishError = containsUnsupportedPart(root)
+                    ? "生成方式不支持" : resolveFinishError(root);
+            if (finishError != null) {
+                log.info("Gemini chatSync 未完整终止: finishReason={}, usage={}",
+                        resolveFinishReason(root), usage);
+                return ProviderSubmitResult.builder()
+                        .rawResponse(finishError)
+                        .usage(usage.isEmpty() ? null : usage)
+                        .build();
+            }
             // 解析文本
             StringBuilder fullText = new StringBuilder();
             JsonNode candidates = root.path("candidates");
@@ -162,6 +187,7 @@ public class GeminiTextProviderClient implements TextProviderClient {
                 if (parts.isArray()) {
                     for (JsonNode part : parts) {
                         if (part.path("thought").asBoolean(false)) {
+                            // 非流式 thought 不公开、不持久化；token 仍由 usageMetadata 计量。
                             continue;
                         }
                         String t = part.path("text").asText(null);
@@ -171,35 +197,28 @@ public class GeminiTextProviderClient implements TextProviderClient {
                     }
                 }
             }
-            // 解析 usage
-            Map<String, Object> usage = new HashMap<>();
-            JsonNode usageNode = root.path("usageMetadata");
-            if (!usageNode.isMissingNode() && !usageNode.isNull()) {
-                if (usageNode.has("promptTokenCount")) {
-                    int v = usageNode.get("promptTokenCount").asInt();
-                    usage.put("prompt_tokens", v);
-                    usage.put("input_tokens", v);
-                }
-                if (usageNode.has("candidatesTokenCount")) {
-                    int v = usageNode.get("candidatesTokenCount").asInt();
-                    usage.put("completion_tokens", v);
-                    usage.put("output_tokens", v);
-                }
-                if (usageNode.has("totalTokenCount")) {
-                    usage.put("total_tokens", usageNode.get("totalTokenCount").asInt());
-                }
-            }
             log.info("Gemini chatSync 响应解析: hasText={}, usage={}", fullText.length() > 0, usage);
-            String rawTruncated = respBody.length() > 100_000
-                    ? respBody.substring(0, 100_000) + "\n...[truncated]" : respBody;
+            if (fullText.length() == 0) {
+                return ProviderSubmitResult.builder()
+                        .rawResponse("响应内容为空")
+                        .usage(usage.isEmpty() ? null : usage)
+                        .build();
+            }
+            String sanitizedRaw = ReasoningContentSanitizer.sanitizeJson(respBody);
+            String rawTruncated = sanitizedRaw.length() > 100_000
+                    ? sanitizedRaw.substring(0, 100_000) + "\n...[truncated]" : sanitizedRaw;
             return ProviderSubmitResult.builder()
                     .directText(fullText.length() > 0 ? fullText.toString() : null)
                     .rawResponse(rawTruncated)
                     .usage(usage.isEmpty() ? null : usage)
                     .build();
         } catch (Exception e) {
-            log.error("Gemini chatSync 响应解析失败, bodyLen={}", respBody.length(), e);
-            return ProviderSubmitResult.builder().rawResponse(respBody).build();
+            log.error("Gemini chatSync 响应解析失败, bodyLen={}, errorType={}",
+                    respBody.length(), e.getClass().getSimpleName());
+            return ProviderSubmitResult.builder()
+                    .rawResponse("解析响应失败")
+                    .usage(usage.isEmpty() ? null : usage)
+                    .build();
         }
     }
 
@@ -216,11 +235,25 @@ public class GeminiTextProviderClient implements TextProviderClient {
     /**
      * 解析 Gemini :generateContent 响应：
      *   - candidates[0].content.parts[*].text（跳过 thought=true 思考片段）→ 一次性 onDelta(fullText)
-     *   - usageMetadata.{promptTokenCount,candidatesTokenCount,totalTokenCount}
-     *     → input_tokens / output_tokens / total_tokens（缺失字段交给统一文本链路兜底）
+     *   - totalTokenCount - promptTokenCount 确定父级输出，与可见/思考子桶分别校验
      */
-    private void parseAndEmit(String json, TextStreamCallbacks callbacks) throws IOException {
+    private boolean parseAndEmit(String json, TextStreamCallbacks callbacks,
+                                 boolean reasoningProvablyDisabled) throws IOException {
         JsonNode root = MAPPER.readTree(json);
+        JsonNode usageNode = root.path("usageMetadata");
+        if (!usageNode.isMissingNode() && !usageNode.isNull()) {
+            Map<String, Object> usage = normalizeUsage(usageNode, reasoningProvablyDisabled);
+            if (!usage.isEmpty()) {
+                callbacks.onUsage(usage);
+            }
+        }
+        String finishError = containsUnsupportedPart(root)
+                ? "生成方式不支持" : resolveFinishError(root);
+        if (finishError != null) {
+            log.info("Gemini 文本未完整终止: finishReason={}", resolveFinishReason(root));
+            callbacks.onError(finishError, null);
+            return false;
+        }
         JsonNode candidates = root.path("candidates");
         StringBuilder fullText = new StringBuilder();
         if (candidates.isArray() && !candidates.isEmpty()) {
@@ -228,6 +261,8 @@ public class GeminiTextProviderClient implements TextProviderClient {
             if (parts.isArray()) {
                 for (JsonNode part : parts) {
                     if (part.path("thought").asBoolean(false)) {
+                        // :generateContent 是一次性响应，不伪装为实时 reasoning SSE。
+                        // thought 文本在此丢弃；仅 usageMetadata.thoughtsTokenCount 进入计量。
                         continue;
                     }
                     String t = part.path("text").asText(null);
@@ -240,22 +275,41 @@ public class GeminiTextProviderClient implements TextProviderClient {
         if (fullText.length() > 0) {
             callbacks.onDelta(fullText.toString());
         }
-        JsonNode usageNode = root.path("usageMetadata");
-        if (!usageNode.isMissingNode() && !usageNode.isNull()) {
-            Map<String, Object> usage = new HashMap<>();
-            if (usageNode.has("promptTokenCount")) {
-                usage.put("input_tokens", usageNode.get("promptTokenCount").asInt());
+        return true;
+    }
+
+    private String resolveFinishError(JsonNode root) {
+        return TextFinishReasonSupport.geminiFailureMessage(resolveFinishReason(root));
+    }
+
+    private String resolveFinishReason(JsonNode root) {
+        JsonNode candidates = root == null ? null : root.path("candidates");
+        if (candidates != null && candidates.isArray() && !candidates.isEmpty()) {
+            JsonNode value = candidates.get(0).get("finishReason");
+            return value != null && value.isTextual() ? value.asText() : null;
+        }
+        JsonNode blockReason = root == null ? null : root.path("promptFeedback").get("blockReason");
+        return blockReason != null && blockReason.isTextual() ? blockReason.asText() : null;
+    }
+
+    private boolean containsUnsupportedPart(JsonNode root) {
+        JsonNode candidates = root == null ? null : root.path("candidates");
+        if (candidates == null || !candidates.isArray()) {
+            return false;
+        }
+        for (JsonNode candidate : candidates) {
+            JsonNode parts = candidate.path("content").path("parts");
+            if (!parts.isArray()) {
+                continue;
             }
-            if (usageNode.has("candidatesTokenCount")) {
-                usage.put("output_tokens", usageNode.get("candidatesTokenCount").asInt());
-            }
-            if (usageNode.has("totalTokenCount")) {
-                usage.put("total_tokens", usageNode.get("totalTokenCount").asInt());
-            }
-            if (!usage.isEmpty()) {
-                callbacks.onUsage(usage);
+            for (JsonNode part : parts) {
+                if (part.hasNonNull("functionCall") || part.hasNonNull("executableCode")
+                        || part.hasNonNull("codeExecutionResult")) {
+                    return true;
+                }
             }
         }
+        return false;
     }
 
     /**
@@ -263,7 +317,7 @@ public class GeminiTextProviderClient implements TextProviderClient {
      *   - 历史 messages 中 role=system 合并到 systemInstruction
      *   - role=user/assistant 分别映射为 contents[i].role=user/model
      *   - request.prompt 末尾追加为一条 user content
-     *   - 默认注入 generationConfig.thinkingConfig.thinkingLevel=low（除非模型 extra_body / 调用方显式指定）
+     *   - 思考参数只在模型配置或调用方明确指定时下发
      *   - 合并厂商级/模型级 extra_body 与 options（模型级覆盖厂商级、options 覆盖配置），
      *     使运营可按模型配置 thinking_level（如 Flash 系 minimal、Pro 系 low）
      *   - 模型打标 supportsJsonObject 且请求文本含 JSON 关键词时注入 responseMimeType=application/json
@@ -312,8 +366,15 @@ public class GeminiTextProviderClient implements TextProviderClient {
         Map<String, Object> generationConfig = buildGenerationConfig(modelConfig, request);
         // 结构化输出（JSON Mode）：模型打标且请求文本含 JSON 关键词时注入 responseMimeType，
         // 让上游直接返回标准 JSON，避免 ```json 包裹导致下游解析失败
-        com.aid.media.provider.StructuredOutputSupport.applyGeminiJsonModeIfSupported(
-                modelConfig, requestTextContainsJsonKeyword(request, systemBuf), generationConfig);
+        boolean structuredOutputEnabled = request == null || request.getOptions() == null
+                || !request.getOptions().containsKey(
+                        com.aid.media.provider.StructuredOutputSupport.ENABLED_KEY)
+                || Boolean.parseBoolean(String.valueOf(request.getOptions().get(
+                        com.aid.media.provider.StructuredOutputSupport.ENABLED_KEY)));
+        if (structuredOutputEnabled) {
+            com.aid.media.provider.StructuredOutputSupport.applyGeminiJsonModeIfSupported(
+                    modelConfig, requestTextContainsJsonKeyword(request, systemBuf), generationConfig);
+        }
         if (!generationConfig.isEmpty()) {
             body.put("generationConfig", generationConfig);
         }
@@ -347,9 +408,7 @@ public class GeminiTextProviderClient implements TextProviderClient {
     }
 
     /**
-     * 组装 generationConfig：厂商级/模型级 extra_body 与 options 合并后白名单透传 +
-     * 默认显式下发 thinkingConfig.thinkingLevel=low（模型 extra_body 可按官方档位覆盖，
-     * 如 Flash 系配 minimal 贴近"关闭思考"，3.1 Pro 官方最低仅支持 low）。
+     * 组装 generationConfig：厂商级/模型级 extra_body 与 options 合并后白名单透传。
      */
     private Map<String, Object> buildGenerationConfig(AiModelConfigVo modelConfig, MediaTextGenerateRequest request) {
         Map<String, Object> generationConfig = new LinkedHashMap<>();
@@ -358,6 +417,7 @@ public class GeminiTextProviderClient implements TextProviderClient {
                 modelConfig == null ? null : modelConfig.getExtraBodyJson(),
                 modelConfig == null ? null : modelConfig.getModelExtraBodyJson(),
                 request != null ? request.getOptions() : null);
+        options = TextReasoningOptionsResolver.resolveGemini(modelConfig, options);
         if (options != null) {
             for (String key : new String[]{"temperature", "topP", "topK", "maxOutputTokens",
                     "candidateCount", "stopSequences", "responseMimeType", "responseSchema"}) {
@@ -376,7 +436,7 @@ public class GeminiTextProviderClient implements TextProviderClient {
                 }
             }
         }
-        // 思考配置：调用方显式给出则以调用方为准；否则默认下发 thinkingLevel=low，且不开启 includeThoughts
+        // 思考配置只接受模型配置或内部白名单解析后的明确值；缺省不下发并沿用模型自身行为。
         Object explicitThinking = options == null ? null : options.get("thinkingConfig");
         Object explicitLevel = options == null ? null : options.get("thinking_level");
         if (explicitThinking instanceof Map) {
@@ -393,12 +453,178 @@ public class GeminiTextProviderClient implements TextProviderClient {
                 tc.put("thinkingLevel", String.valueOf(explicitLevel));
             }
             generationConfig.put("thinkingConfig", tc);
-        } else {
-            Map<String, Object> tc = new HashMap<>();
-            tc.put("thinkingLevel", GeminiConstants.DEFAULT_THINKING_LEVEL);
-            generationConfig.put("thinkingConfig", tc);
         }
         return generationConfig;
+    }
+
+    private Map<String, Object> normalizeUsage(JsonNode usageNode, boolean reasoningProvablyDisabled) {
+        Map<String, Object> usage = new HashMap<>();
+        if (usageNode == null || !usageNode.isObject()) {
+            return usage;
+        }
+        Integer input = nonNegativeInt(usageNode, "promptTokenCount");
+        Integer visible = nonNegativeInt(usageNode, "candidatesTokenCount");
+        Integer reasoning = nonNegativeInt(usageNode, "thoughtsTokenCount");
+        Integer cached = nonNegativeInt(usageNode, "cachedContentTokenCount");
+        Integer total = nonNegativeInt(usageNode, "totalTokenCount");
+        boolean visiblePresent = usageNode.has("candidatesTokenCount");
+        boolean reasoningPresent = usageNode.has("thoughtsTokenCount");
+        boolean totalPresent = usageNode.has("totalTokenCount");
+        boolean inputBucketsComplete = input != null && cached != null && cached <= input;
+        Integer output = null;
+        Integer normalizedVisible = visible;
+        Integer normalizedReasoning = reasoning;
+        boolean outputComplete = false;
+        boolean outputBucketsComplete = false;
+        if (totalPresent) {
+            // 显式总量是权威父口径；任何非法值或子桶矛盾都禁止改用子桶回建。
+            if (input != null && total != null && total >= input) {
+                int outputFromTotal = total - input;
+                boolean explicitBucketsConsistent = (!visiblePresent
+                        || visible != null && visible <= outputFromTotal)
+                        && (!reasoningPresent || reasoning != null && reasoning <= outputFromTotal)
+                        && (!visiblePresent || !reasoningPresent
+                        || (long) visible + reasoning == outputFromTotal);
+                if (explicitBucketsConsistent) {
+                    output = outputFromTotal;
+                    outputComplete = true;
+                    if (visiblePresent && reasoningPresent) {
+                        outputBucketsComplete = true;
+                    } else if (visiblePresent) {
+                        normalizedReasoning = outputFromTotal - visible;
+                        outputBucketsComplete = true;
+                    } else if (reasoningPresent) {
+                        normalizedVisible = outputFromTotal - reasoning;
+                        outputBucketsComplete = true;
+                    } else if (outputFromTotal == 0) {
+                        normalizedVisible = 0;
+                        normalizedReasoning = 0;
+                        outputBucketsComplete = true;
+                    }
+                }
+            }
+        } else if (visible != null && reasoning != null
+                && (long) visible + reasoning <= Integer.MAX_VALUE) {
+            output = visible + reasoning;
+            outputComplete = true;
+            outputBucketsComplete = true;
+        } else if (visible != null && !reasoningPresent && reasoningProvablyDisabled) {
+            output = visible;
+            normalizedReasoning = 0;
+            outputComplete = true;
+            outputBucketsComplete = true;
+        }
+        if (input != null) {
+            usage.put("prompt_tokens", input);
+            usage.put("input_tokens", input);
+        }
+        if (cached != null) {
+            usage.put("cached_input_tokens", cached);
+            usage.put("cache_read_input_tokens", cached);
+            usage.put("cache_write_input_tokens", 0);
+        }
+        if (inputBucketsComplete) {
+            usage.put("uncached_input_tokens", input - cached);
+        }
+        if (normalizedVisible != null) {
+            usage.put("visible_output_tokens", normalizedVisible);
+        }
+        if (normalizedReasoning != null) {
+            usage.put("reasoning_tokens", normalizedReasoning);
+        }
+        if (outputComplete) {
+            usage.put("completion_tokens", output);
+            usage.put("output_tokens", output);
+        }
+        if (total != null) {
+            usage.put("total_tokens", total);
+        } else if (input != null && outputComplete
+                && (long) input + output <= Integer.MAX_VALUE) {
+            usage.put("total_tokens", input + output);
+        }
+        if (usage.isEmpty()) {
+            return usage;
+        }
+        usage.put("provider_usage_captured", input != null && outputComplete);
+        usage.put("input_usage_complete", input != null);
+        usage.put("output_usage_complete", outputComplete);
+        usage.put("input_token_buckets_complete", inputBucketsComplete);
+        usage.put("output_token_buckets_complete", outputBucketsComplete);
+        return usage;
+    }
+
+    private boolean isReasoningProvablyDisabled(AiModelConfigVo modelConfig,
+                                                 Map<String, Object> requestBody) {
+        Map<?, ?> generationConfig = requestBody != null
+                && requestBody.get("generationConfig") instanceof Map<?, ?> map ? map : Map.of();
+        Map<?, ?> thinkingConfig = generationConfig.get("thinkingConfig") instanceof Map<?, ?> map
+                ? map : Map.of();
+        Object budget = thinkingConfig.get("thinkingBudget");
+        if (budget != null) {
+            Long parsedBudget = nonNegativeLong(budget);
+            if (parsedBudget == null || parsedBudget > 0L) {
+                return false;
+            }
+            return capabilityExplicitlyDisablesReasoning(modelConfig)
+                    || !capabilityExplicitlyDisallowsReasoningDisable(modelConfig);
+        }
+        if (thinkingConfig.get("thinkingLevel") != null) {
+            return false;
+        }
+        return capabilityExplicitlyDisablesReasoning(modelConfig);
+    }
+
+    private boolean capabilityExplicitlyDisablesReasoning(AiModelConfigVo modelConfig) {
+        JsonNode capability = capability(modelConfig);
+        JsonNode supportsReasoning = capability == null ? null : capability.get("supportsReasoning");
+        return supportsReasoning != null && supportsReasoning.isBoolean()
+                && !supportsReasoning.asBoolean();
+    }
+
+    private boolean capabilityExplicitlyDisallowsReasoningDisable(AiModelConfigVo modelConfig) {
+        JsonNode capability = capability(modelConfig);
+        JsonNode supportsDisable = capability == null ? null : capability.get("supportsReasoningDisable");
+        return supportsDisable != null && supportsDisable.isBoolean() && !supportsDisable.asBoolean();
+    }
+
+    private JsonNode capability(AiModelConfigVo modelConfig) {
+        if (modelConfig == null || StringUtils.isBlank(modelConfig.getCapabilityJson())) {
+            return null;
+        }
+        try {
+            JsonNode capability = MAPPER.readTree(modelConfig.getCapabilityJson());
+            return capability.isObject() ? capability : null;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private Long nonNegativeLong(Object value) {
+        try {
+            long parsed;
+            if (value instanceof Byte || value instanceof Short
+                    || value instanceof Integer || value instanceof Long) {
+                parsed = ((Number) value).longValue();
+            } else {
+                String raw = String.valueOf(value).trim();
+                parsed = Long.parseLong(raw);
+            }
+            return parsed >= 0L ? parsed : null;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private Integer nonNegativeInt(JsonNode node, String name) {
+        JsonNode value = node == null ? null : node.get(name);
+        if (value == null || !value.isIntegralNumber() || !value.canConvertToLong()) {
+            return null;
+        }
+        long tokens = value.asLong();
+        if (tokens < 0L) {
+            return null;
+        }
+        return tokens > Integer.MAX_VALUE ? null : (int) tokens;
     }
 
     private static Map<String, Object> geminiContent(String role, String text) {
@@ -418,11 +644,8 @@ public class GeminiTextProviderClient implements TextProviderClient {
         return GeminiConstants.DEFAULT_TEXT_MODEL;
     }
 
-    /**
-     * 构建 URL：{base_url}{api_suffix}{model}:generateContent
-     * api_suffix 约定形如 "/v1beta/models/"
-     */
-    private String buildGenerateContentUrl(String baseUrl, String apiSuffix, String model) {
+    /** 构建包含受控 {model} 占位符的 Gemini 提交 URL。 */
+    static String buildGenerateContentUrl(String baseUrl, String apiSuffix, String model) {
         if (StringUtils.isBlank(baseUrl)) {
             log.error("gemini text model baseUrl 为空，请在 aid_ai_provider 表配置 base_url");
             throw new IllegalArgumentException("配置缺失");
@@ -431,17 +654,14 @@ public class GeminiTextProviderClient implements TextProviderClient {
             log.error("gemini text model apiSuffix 为空，请在 aid_ai_model 表配置 api_suffix");
             throw new IllegalArgumentException("配置缺失");
         }
-        String base = baseUrl.trim();
-        if (base.endsWith("/")) {
-            base = base.substring(0, base.length() - 1);
-        }
         String suffix = apiSuffix.trim();
-        if (!suffix.startsWith("/")) {
-            suffix = "/" + suffix;
+        if (!suffix.contains("{model}")) {
+            if (suffix.endsWith("/")) {
+                suffix = suffix + "{model}" + GeminiConstants.OPERATION_GENERATE_CONTENT;
+            } else {
+                return ProviderEndpointUtils.buildSubmitUrl(baseUrl, suffix);
+            }
         }
-        if (!suffix.endsWith("/")) {
-            suffix = suffix + "/";
-        }
-        return base + suffix + model + GeminiConstants.OPERATION_GENERATE_CONTENT;
+        return ProviderEndpointUtils.buildModelSubmitUrl(baseUrl, suffix, model);
     }
 }

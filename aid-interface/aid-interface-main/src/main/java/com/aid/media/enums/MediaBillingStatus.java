@@ -11,6 +11,6 @@ public enum MediaBillingStatus {
     REFUNDING,
     // 结算成功：任务成功，冻结金额已从 frozenBalance 扣减并累加到 totalConsumption。
     SUCCESS,
-    // 计费失败：预冻结失败（余额不足），或任务失败后冻结金额已退回。
+    // 计费失败：预冻结失败（预扣余额不足），或任务失败后冻结金额已退回。
     FAILED
 }

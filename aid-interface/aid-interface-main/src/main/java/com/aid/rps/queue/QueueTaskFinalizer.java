@@ -12,5 +12,5 @@ public interface QueueTaskFinalizer
      *
      * @param taskId 已落终态的任务ID
      */
-    void onQueueTaskTerminated(Long taskId);
+    void onQueueTaskTerminated(Long taskId, String dispatchToken);
 }

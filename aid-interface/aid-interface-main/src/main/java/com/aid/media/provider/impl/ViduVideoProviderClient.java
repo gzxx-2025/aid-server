@@ -8,6 +8,7 @@ import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.aid.common.constant.HttpConstants;
+import com.aid.common.utils.ProviderEndpointUtils;
 import com.aid.media.constants.ViduConstants;
 import com.aid.media.constants.VolcengineConstants;
 import com.aid.media.dto.MediaVideoGenerateRequest;
@@ -67,11 +68,7 @@ public class ViduVideoProviderClient implements VideoProviderClient {
             ReferencePromptSanitizer.sanitizeInPlace(request, dispatchedImages, 0);
         }
         applyDialogueCaptionGuard(request);
-        //    推断不到再回退按入参/options 推断，保证与 DB 驱动的端点配置一致。
-        ViduScenario scenario = resolveScenarioFromSuffix(modelConfig.getApiSuffix());
-        if (scenario == null) {
-            scenario = resolveScenario(request);
-        }
+        ViduScenario scenario = resolveScenario(modelConfig, request);
         String submitUrl = buildApiUrl(modelConfig.getBaseUrl(), modelConfig.getApiSuffix());
         Map<String, Object> body = buildSubmitBody(request, modelConfig, scenario);
         String bodyJson = JSONUtil.toJsonStr(body);
@@ -171,38 +168,29 @@ public class ViduVideoProviderClient implements VideoProviderClient {
             .build();
     }
 
-    /**
-     * 从 api_suffix 路径推断 Vidu 视频场景（端点路由原则：body 形态由后台模型行 api_suffix 决定）。
-     * path 含 img2video→图生体、start-end2video→首尾帧、reference2video→参考体、
-     * multiframe→多帧、text2video→文生体；无法推断时返回 null，交由入参推断兜底。
-     */
-    private ViduScenario resolveScenarioFromSuffix(String apiSuffix) {
-        if (StrUtil.isBlank(apiSuffix)) {
-            return null;
+    /** 按模型能力和生成模式选择受控请求体场景。 */
+    private ViduScenario resolveScenario(AiModelConfigVo modelConfig, MediaVideoGenerateRequest request) {
+        if (modelConfig != null && StrUtil.isNotBlank(modelConfig.getCapabilityJson())) {
+            JsonNode capability = ProviderResponseHelper.readTree(modelConfig.getCapabilityJson());
+            if (capability != null && capability.path("lipSync").asBoolean(false)) {
+                return ViduScenario.LIP_SYNC;
+            }
         }
-        String path = apiSuffix.trim().toLowerCase();
-        if (path.contains("lip-sync") || path.contains("lip_sync") || path.contains("lipsync")) {
-            return ViduScenario.LIP_SYNC;
-        }
-        if (path.contains("start-end2video") || path.contains("start_end2video")) {
-            return ViduScenario.START_END_TO_VIDEO;
-        }
-        if (path.contains("img2video") || path.contains("image2video")) {
-            return ViduScenario.IMAGE_TO_VIDEO;
-        }
-        if (path.contains("reference2video")) {
-            return ViduScenario.REFERENCE_TO_VIDEO;
-        }
-        if (path.contains("multiframe")) {
-            return ViduScenario.MULTI_FRAME;
-        }
-        if (path.contains("text2video")) {
-            return ViduScenario.TEXT_TO_VIDEO;
-        }
-        return null;
+        String mode = modelConfig == null ? null : modelConfig.getGenerateMode();
+        String normalized = StrUtil.blankToDefault(mode, "").trim().toLowerCase()
+                .replace('-', '_');
+        ViduScenario configured = switch (normalized) {
+            case "text_to_video" -> ViduScenario.TEXT_TO_VIDEO;
+            case "image_to_video" -> ViduScenario.IMAGE_TO_VIDEO;
+            case "start_end_to_video" -> ViduScenario.START_END_TO_VIDEO;
+            case "reference_to_video" -> ViduScenario.REFERENCE_TO_VIDEO;
+            case "multi_frame" -> ViduScenario.MULTI_FRAME;
+            default -> null;
+        };
+        return configured == null ? resolveScenarioFromRequest(request) : configured;
     }
 
-    private ViduScenario resolveScenario(MediaVideoGenerateRequest request) {
+    private ViduScenario resolveScenarioFromRequest(MediaVideoGenerateRequest request) {
         String explicit = readScenarioFromOptions(request);
         if (StrUtil.isNotBlank(explicit)) {
             return ViduScenario.fromValue(explicit);
@@ -225,19 +213,16 @@ public class ViduVideoProviderClient implements VideoProviderClient {
         return ViduScenario.TEXT_TO_VIDEO;
     }
 
+    /** 测试模型场景选择不依赖提交路径。 */
+    String resolveScenarioName(AiModelConfigVo modelConfig, MediaVideoGenerateRequest request) {
+        return resolveScenario(modelConfig, request).name();
+    }
+
     /**
      * 构建 API 请求 URL：base_url + api_suffix（路径全部来自数据库配置）
      */
-    private String buildApiUrl(String baseUrl, String apiSuffix) {
-        if (StrUtil.isBlank(baseUrl)) {
-            log.error("vidu video model baseUrl 为空，请在 aid_ai_provider 表配置 base_url");
-            throw new IllegalArgumentException("配置缺失");
-        }
-        if (StrUtil.isBlank(apiSuffix)) {
-            log.error("vidu video model apiSuffix 为空，请在 aid_ai_model 表配置 api_suffix");
-            throw new IllegalArgumentException("配置缺失");
-        }
-        return trimSlash(baseUrl.trim()) + apiSuffix;
+    static String buildApiUrl(String baseUrl, String apiSuffix) {
+        return ProviderEndpointUtils.buildSubmitUrl(baseUrl, apiSuffix);
     }
 
     private Map<String, Object> buildSubmitBody(MediaVideoGenerateRequest request,
@@ -691,19 +676,8 @@ public class ViduVideoProviderClient implements VideoProviderClient {
     /**
      * 构建任务查询 URL：base_url + task_query_suffix（路径全部来自数据库配置，纯数据库驱动）
      */
-    private String buildTaskUrl(String baseUrl, String taskQuerySuffix, String providerTaskId) {
-        if (StrUtil.isBlank(baseUrl)) {
-            log.error("vidu video model baseUrl 为空，请在 aid_ai_provider 表配置 base_url");
-            throw new IllegalArgumentException("配置缺失");
-        }
-        if (StrUtil.isBlank(taskQuerySuffix)) {
-            log.error("vidu video model taskQuerySuffix 为空，请在 aid_ai_provider 表配置 task_query_suffix");
-            throw new IllegalArgumentException("配置缺失");
-        }
-        if (StrUtil.isBlank(providerTaskId)) {
-            return trimSlash(baseUrl);
-        }
-        return trimSlash(baseUrl.trim()) + String.format(taskQuerySuffix, providerTaskId);
+    static String buildTaskUrl(String baseUrl, String taskQuerySuffix, String providerTaskId) {
+        return ProviderEndpointUtils.buildTaskQueryUrl(baseUrl, taskQuerySuffix, providerTaskId);
     }
 
     private String doPost(String url, String apiKey, String json) {
@@ -733,14 +707,6 @@ public class ViduVideoProviderClient implements VideoProviderClient {
 
     /** Vidu 查询响应快照，用于同时判断 HTTP 状态与业务状态。 */
     private record HttpQueryResponse(int statusCode, String body) {
-    }
-
-    private String trimSlash(String base) {
-        // 清理末尾 /，保证路径拼接稳定。
-        if (base.endsWith("/")) {
-            return base.substring(0, base.length() - 1);
-        }
-        return base;
     }
 
     // 视频场景枚举：用于确定请求体结构（路径已移到数据库 api_suffix 字段）。

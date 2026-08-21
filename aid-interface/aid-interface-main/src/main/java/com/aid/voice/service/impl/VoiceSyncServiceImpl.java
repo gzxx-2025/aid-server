@@ -20,6 +20,7 @@ import com.aid.aid.domain.AidAiVoiceLibrary;
 import com.aid.aid.service.IAidAiModelService;
 import com.aid.aid.service.IAidAiVoiceLibraryService;
 import com.aid.common.utils.DateUtils;
+import com.aid.common.utils.ProviderEndpointUtils;
 import com.aid.domain.vo.AiModelConfigVo;
 import com.aid.media.constants.MinimaxTtsConstants;
 import com.aid.media.provider.ProviderResponseHelper;
@@ -285,24 +286,20 @@ public class VoiceSyncServiceImpl implements IVoiceSyncService
         {
             return false;
         }
-        String providerCode = StrUtil.trimToEmpty(config.getProviderCode()).toLowerCase();
-        if (providerCode.contains("minimax"))
-        {
-            return true;
-        }
-        // 兜底：按 base_url 识别
-        String base = StrUtil.trimToEmpty(config.getBaseUrl()).toLowerCase();
-        return base.contains("minimaxi.com");
+        String providerCode = StrUtil.trimToEmpty(config.getProviderCode());
+        return "minimax".equalsIgnoreCase(providerCode)
+                || MinimaxTtsConstants.PROTOCOL_TTS.equalsIgnoreCase(
+                        StrUtil.trimToEmpty(config.getProtocol()));
     }
 
     /**
-     * 调 MiniMax {@code POST /v1/get_voice} 拉全量音色。
+     * 从 MiniMax TTS 提交路径派生只读音色查询路径并拉取全量音色。
      * 把三组（system_voice / voice_cloning / voice_generation）拍扁到一个 {@code RemoteVoice} 列表；
      * 网络异常 / base_resp.status_code 非 0 返回 null（对外表示同步失败）。
      */
     private List<RemoteVoice> fetchMinimaxVoices(AiModelConfigVo config)
     {
-        String url = joinUrl(config.getBaseUrl(), MinimaxTtsConstants.VOICE_LIST_PATH);
+        String url = buildMinimaxVoiceListUrl(config);
         Map<String, Object> body = new HashMap<>();
         body.put("voice_type", "all");
         String json = JSONUtil.toJsonStr(body);
@@ -400,14 +397,29 @@ public class VoiceSyncServiceImpl implements IVoiceSyncService
         return sb.length() > 0 ? sb.toString() : null;
     }
 
-    private String joinUrl(String base, String path)
+    static String buildMinimaxVoiceListUrl(AiModelConfigVo config)
     {
-        String trimmed = StrUtil.trimToEmpty(base);
-        if (trimmed.endsWith("/"))
+        if (Objects.isNull(config))
         {
-            trimmed = trimmed.substring(0, trimmed.length() - 1);
+            throw new IllegalArgumentException("模型配置无效");
         }
-        return trimmed + path;
+        String submitPath = ProviderEndpointUtils.normalizeSubmitPath(config.getApiSuffix());
+        String path = submitPath.split("\\?", 2)[0];
+        String voicePath;
+        if (path.endsWith("/t2a_v2"))
+        {
+            voicePath = path.substring(0, path.length() - "/t2a_v2".length()) + "/get_voice";
+        }
+        else if (path.endsWith("/t2a_async_v2"))
+        {
+            voicePath = path.substring(0, path.length() - "/t2a_async_v2".length()) + "/get_voice";
+        }
+        else
+        {
+            log.warn("MiniMax 音色路径推导失败, modelCode={}", config.getModelCode());
+            throw new IllegalArgumentException("音色路径无效");
+        }
+        return ProviderEndpointUtils.buildSubmitUrl(config.getBaseUrl(), voicePath);
     }
 
     /** 内部远程音色 DTO */

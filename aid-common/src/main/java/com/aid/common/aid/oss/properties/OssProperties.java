@@ -57,9 +57,17 @@ public class OssProperties
     private String prefix;
 
     /**
-     * 云存储公共访问域名，由 OSS、COS、七牛云共用。
+     * 资源访问地址，由本地、OSS、COS、七牛云共用，仅用于系统页面正常展示资源。
+     * 私有资源提交给外部大模型时不会直接使用该地址，而是在提交瞬间生成临时签名地址。
      */
+    private String resourceAccessDomain;
+
+    /** 旧版公共 CDN 地址，仅用于平滑读取历史配置。 */
+    @Deprecated
     private String cdnDomain;
+
+    /** 提交外部大模型时临时签名地址的有效期（小时），允许 1～168 小时。 */
+    private Integer modelSignedUrlExpireHours = 72;
     // 各云存储凭证相互独立，切换模式时无需重复填写。
 
     /**
@@ -173,17 +181,21 @@ public class OssProperties
     }
 
     /**
-     * 当前生效的对外访问前缀。云存储使用 {@link #cdnDomain}；本地模式由
-     * {@link #localDomain} 自动派生 {@code /profile}，使普通上传和初始化数据中的
-     * {@code /aid/...} 官方资源共用一个后台配置项。
+     * 当前生效的对外访问前缀。四种存储统一使用 {@link #resourceAccessDomain}；
+     * 本地模式自动派生 {@code /profile}，并兼容历史 localDomain 配置。
      *
      * @return 生效的对外访问域名
      */
     public String getEffectiveCdnDomain()
     {
+        String commonDomain = Objects.isNull(resourceAccessDomain) || resourceAccessDomain.isBlank()
+                ? (Objects.isNull(cdnDomain) ? "" : cdnDomain.trim())
+                : resourceAccessDomain.trim();
         if ("local".equalsIgnoreCase(uploadMode))
         {
-            String normalizedLocalDomain = Objects.isNull(localDomain) ? "" : localDomain.trim();
+            String normalizedLocalDomain = commonDomain.isBlank()
+                    ? (Objects.isNull(localDomain) ? "" : localDomain.trim())
+                    : commonDomain;
             while (normalizedLocalDomain.endsWith("/") && normalizedLocalDomain.length() > 1)
             {
                 normalizedLocalDomain = normalizedLocalDomain.substring(0, normalizedLocalDomain.length() - 1);
@@ -194,7 +206,13 @@ public class OssProperties
             }
             return normalizedLocalDomain + LOCAL_PROFILE_PATH;
         }
-        return cdnDomain;
+        return commonDomain;
+    }
+
+    /** @return 当前存储模式生效的资源访问前缀 */
+    public String getEffectiveResourceAccessDomain()
+    {
+        return getEffectiveCdnDomain();
     }
 
     /**

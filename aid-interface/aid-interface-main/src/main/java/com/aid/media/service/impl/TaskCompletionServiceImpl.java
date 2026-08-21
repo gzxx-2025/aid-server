@@ -5,14 +5,13 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.aid.aid.domain.media.AidMediaTask;
 import com.aid.aid.mapper.AidMediaTaskMapper;
 import com.aid.billing.service.BillingFacadeService;
-import com.aid.common.aid.oss.config.OssConfigManager;
-import com.aid.common.aid.oss.properties.OssProperties;
 import com.aid.compose.ComposeConstants;
 import com.aid.compose.service.ComposeCompletionService;
 import com.aid.media.enums.MediaTaskStatus;
 import com.aid.media.event.MediaTaskCompletedEvent;
 import com.aid.media.event.MediaTaskOssPersistedEvent;
 import com.aid.media.provider.ProviderTaskResult;
+import com.aid.media.provider.ProviderUsageSupport;
 import com.aid.media.service.MediaConcurrencyLimiter;
 import com.aid.media.service.MediaTaskArchiveService;
 import com.aid.media.service.TaskCompletionService;
@@ -37,7 +36,7 @@ import java.util.Objects;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
+@RequiredArgsConstructor(onConstructor_ = @org.springframework.beans.factory.annotation.Autowired)
 public class TaskCompletionServiceImpl implements TaskCompletionService {
 
     private final AidMediaTaskMapper aidMediaTaskMapper;
@@ -46,19 +45,30 @@ public class TaskCompletionServiceImpl implements TaskCompletionService {
     private final ApplicationEventPublisher eventPublisher;
     /** 合成终态收口（COMPOSE 分支，绕开模型计费） */
     private final ComposeCompletionService composeCompletionService;
-    /** OSS/COS 配置管理：判断当前存储模式（COMPOSE 成片落我方 COS 输出桶时随终态直填 oss_url） */
-    private final OssConfigManager ossConfigManager;
     /** 终态请求/响应异步归档与数据库载荷压缩 */
     private final MediaTaskArchiveService mediaTaskArchiveService;
     /** 模型健康采集：终态收口点按成功/失败累加时间桶计数（仅上游结果，内部吞异常） */
     private final ModelHealthRecorder modelHealthRecorder;
+    /** 可灵原始失败样本记录；内部完全隔离异常，不影响终态事务。 */
+    private final KlingTerminalFailureRecorder klingTerminalFailureRecorder;
 
     /** 媒体类型：合成任务，走独立计费/回写分支 */
     private static final String COMPOSE_MEDIA_TYPE = ComposeConstants.MEDIA_TYPE_COMPOSE;
-    /** 存储模式：腾讯云 COS */
-    private static final String UPLOAD_MODE_COS = "cos";
-    /** 腾讯云 COS 域名标识 */
-    private static final String COS_HOST_MARK = ".myqcloud.com";
+
+    /** 保留模块内既有直接构造调用的源兼容；文件存储已不再参与通用终态构造。 */
+    TaskCompletionServiceImpl(AidMediaTaskMapper aidMediaTaskMapper,
+                              BillingFacadeService billingFacadeService,
+                              MediaConcurrencyLimiter concurrencyLimiter,
+                              ApplicationEventPublisher eventPublisher,
+                              ComposeCompletionService composeCompletionService,
+                              com.aid.common.aid.oss.config.OssConfigManager ignoredOssConfigManager,
+                              MediaTaskArchiveService mediaTaskArchiveService,
+                              ModelHealthRecorder modelHealthRecorder,
+                              KlingTerminalFailureRecorder klingTerminalFailureRecorder) {
+        this(aidMediaTaskMapper, billingFacadeService, concurrencyLimiter, eventPublisher,
+                composeCompletionService, mediaTaskArchiveService, modelHealthRecorder,
+                klingTerminalFailureRecorder);
+    }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -70,9 +80,15 @@ public class TaskCompletionServiceImpl implements TaskCompletionService {
         }
 
         String currentStatus = task.getStatus();
+        boolean directLocalCompose = COMPOSE_MEDIA_TYPE.equals(task.getMediaType())
+            && com.aid.compose.config.MpsConfigManager.MODE_LOCAL_FFMPEG.equals(task.getProtocol())
+            && MediaTaskStatus.PENDING.name().equals(currentStatus)
+            && Boolean.TRUE.equals(taskResult.getQuerySuccessful())
+            && Boolean.TRUE.equals(taskResult.getTerminalConfirmed());
         boolean canTransition = MediaTaskStatus.WAIT_POLL.name().equals(currentStatus)
             || MediaTaskStatus.WAIT_CALLBACK.name().equals(currentStatus)
-            || MediaTaskStatus.PROCESSING.name().equals(currentStatus);
+            || MediaTaskStatus.PROCESSING.name().equals(currentStatus)
+            || directLocalCompose;
         if (!canTransition) {
             log.info("completeTask 任务已终态, taskId={}, status={}", taskId, currentStatus);
             return false;
@@ -99,10 +115,14 @@ public class TaskCompletionServiceImpl implements TaskCompletionService {
         String userStr = task.getUserId() != null ? String.valueOf(task.getUserId()) : "";
         LambdaUpdateWrapper<AidMediaTask> casWrapper = new LambdaUpdateWrapper<>();
         casWrapper.eq(AidMediaTask::getId, taskId);
-        casWrapper.in(AidMediaTask::getStatus,
-            MediaTaskStatus.WAIT_POLL.name(),
-            MediaTaskStatus.WAIT_CALLBACK.name(),
-            MediaTaskStatus.PROCESSING.name());
+        if (directLocalCompose) {
+            casWrapper.eq(AidMediaTask::getStatus, MediaTaskStatus.PENDING.name());
+        } else {
+            casWrapper.in(AidMediaTask::getStatus,
+                MediaTaskStatus.WAIT_POLL.name(),
+                MediaTaskStatus.WAIT_CALLBACK.name(),
+                MediaTaskStatus.PROCESSING.name());
+        }
         casWrapper.set(AidMediaTask::getStatus, targetStatus);
         casWrapper.set(AidMediaTask::getUpdateBy, userStr);
         casWrapper.set(AidMediaTask::getUpdateTime, new Date());
@@ -115,9 +135,8 @@ public class TaskCompletionServiceImpl implements TaskCompletionService {
         if (MediaTaskStatus.SUCCEEDED.name().equals(targetStatus)) {
             casWrapper.set(AidMediaTask::getOriginUrl, taskResult.getResultUrl());
             casWrapper.set(AidMediaTask::getErrorMessage, null);
-            // COMPOSE 成片由 MPS 直接写入我方 COS 输出桶（= 当前 COS 存储桶），文件即在我方存储；
-            // 随 origin_url 一并把 oss_url 填成对象相对路径，避免后续再"下载→转存"
-            //（COS 源站私有读会 403，导致 oss_url 空、状态卡 COMPOSING）。读取层按 cdnDomain 拼完整 URL。
+            // COMPOSE 成片已由所选云引擎直接写入当前对象存储，或由本地 FFmpeg 上传到当前存储；
+            // 随 origin_url 一并保存对象相对路径，避免后续再次下载转存。读取层统一按资源访问地址拼接。
             if (COMPOSE_MEDIA_TYPE.equals(task.getMediaType())) {
                 String composeOssUrl = resolveComposeOssRelativePath(taskResult.getResultUrl());
                 if (StrUtil.isNotBlank(composeOssUrl)) {
@@ -134,6 +153,10 @@ public class TaskCompletionServiceImpl implements TaskCompletionService {
         if (rows == 0) {
             log.info("completeTask CAS 失败, taskId={} 已被其他路径处理", taskId);
             return false;
+        }
+        if (MediaTaskStatus.FAILED.name().equals(targetStatus)
+            && StrUtil.isNotBlank(taskResult.getRawErrorMessage())) {
+            klingTerminalFailureRecorder.record(taskId, task.getModelName(), taskResult.getRawErrorMessage());
         }
         mediaTaskArchiveService.archiveAfterCommit(preparedPayload);
 
@@ -163,11 +186,21 @@ public class TaskCompletionServiceImpl implements TaskCompletionService {
             return true;
         }
 
+        Map<String, Object> settleUsage = buildSettleUsage(task, taskResult);
         boolean billingWon;
         if (MediaTaskStatus.SUCCEEDED.name().equals(targetStatus)) {
             billingWon = billingFacadeService.settleBilling(
-                task, buildSettleUsage(task, taskResult));
+                task, settleUsage);
             log.info("completeTask 任务成功, taskId={}, billingWon={}", taskId, billingWon);
+        } else if (MediaType.TEXT.name().equals(task.getMediaType())
+                && task.getBillingStatus() != null
+                && (task.getUpstreamAcceptTime() != null
+                    || ProviderUsageSupport.hasAnyProviderUsage(settleUsage))) {
+            // Provider 已受理/已开始调用后，即使失败且 usage 缺失也按预冻结上限保守结算。
+            billingWon = billingFacadeService.settleBilling(
+                task, settleUsage);
+            log.info("completeTask 文本Provider调用后失败，保守结算, taskId={}, billingWon={}",
+                taskId, billingWon);
         } else {
             billingWon = billingFacadeService.refundBilling(task);
             log.info("completeTask 任务失败, taskId={}, error={}, billingWon={}",
@@ -239,33 +272,46 @@ public class TaskCompletionServiceImpl implements TaskCompletionService {
             usage.put("resultCount", Math.max(actualCount, 1));
             return usage;
         }
-        if (Objects.equals(task.getMediaType(), MediaType.VIDEO.name())
-            && Objects.nonNull(taskResult.getVideoDurationSeconds())
-            && taskResult.getVideoDurationSeconds() > 0) {
+        if (Objects.equals(task.getMediaType(), MediaType.VIDEO.name())) {
             Map<String, Object> usage = new HashMap<>();
-            usage.put("actualDuration", taskResult.getVideoDurationSeconds());
-            return usage;
+            if (Objects.nonNull(taskResult.getVideoDurationSeconds())
+                    && taskResult.getVideoDurationSeconds() > 0) {
+                usage.put("actualDuration", taskResult.getVideoDurationSeconds());
+            }
+            if (Objects.nonNull(taskResult.getInputVideoSeconds())
+                    && taskResult.getInputVideoSeconds() >= 0) {
+                usage.put("actualInputVideoSeconds", taskResult.getInputVideoSeconds());
+            }
+            if (Objects.nonNull(taskResult.getInputImageCount())
+                    && taskResult.getInputImageCount() >= 0) {
+                usage.put("actualInputImageCount", taskResult.getInputImageCount());
+            }
+            if (Objects.nonNull(taskResult.getCompletionTokens())
+                    && taskResult.getCompletionTokens() > 0) {
+                usage.put("completion_tokens", taskResult.getCompletionTokens());
+                usage.put("output_tokens", taskResult.getCompletionTokens());
+            }
+            if (Objects.nonNull(taskResult.getTotalTokens())
+                    && taskResult.getTotalTokens() > 0) {
+                usage.put("total_tokens", taskResult.getTotalTokens());
+            }
+            return usage.isEmpty() ? null : usage;
         }
         return null;
     }
 
     /**
-     * 解析 COMPOSE 成片的 COS 对象相对路径（以 {@code /} 起始，不含协议 / 域名 / query）。
+     * 解析 COMPOSE 成片的存储对象相对路径（以 {@code /} 起始，不含协议 / 域名 / query）。
      *
      * @param resultUrl 上游返回的成片地址
-     * @return COS 对象相对路径，形如 {@code /compose_result/compose_xxx.mp4}；不适用时返回 null
+     * @return 对象相对路径，形如 {@code /compose_result/compose_xxx.mp4}；不适用时返回 null
      */
     private String resolveComposeOssRelativePath(String resultUrl) {
         if (StrUtil.isBlank(resultUrl)) {
             return null;
         }
-        OssProperties properties = ossConfigManager.getOssProperties();
-        // 非 COS 模式不直填：对外 CDN 可能指向别的存储，直引用会拼出错误地址。
-        if (Objects.isNull(properties) || !UPLOAD_MODE_COS.equalsIgnoreCase(properties.getUploadMode())) {
-            return null;
-        }
-        if (!resultUrl.toLowerCase().contains(COS_HOST_MARK)) {
-            return null;
+        if (resultUrl.startsWith("/")) {
+            return resultUrl;
         }
         try {
             // 取 URI path，剥离协议 / 域名 / query。
@@ -407,7 +453,11 @@ public class TaskCompletionServiceImpl implements TaskCompletionService {
             registerAfterCommitReleaseForUnsubmitted(task, wasPending);
             return true;
         }
-        boolean billingWon = billingFacadeService.refundBilling(task);
+        boolean settleProviderCall = MediaType.TEXT.name().equals(task.getMediaType())
+            && task.getBillingStatus() != null && task.getUpstreamAcceptTime() != null;
+        boolean billingWon = settleProviderCall
+            ? billingFacadeService.settleBilling(task, Map.of())
+            : billingFacadeService.refundBilling(task);
         log.info("closeUnsubmittedTask 关闭僵尸任务, taskId={}, billingWon={}", taskId, billingWon);
         if (billingWon) {
             LambdaUpdateWrapper<AidMediaTask> billingUpdate = new LambdaUpdateWrapper<>();
@@ -439,5 +489,32 @@ public class TaskCompletionServiceImpl implements TaskCompletionService {
             eventPublisher.publishEvent(new MediaTaskCompletedEvent(this, tid, userId));
         }
         return billingWon;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public boolean requeueUnsubmittedTask(Long taskId) {
+        AidMediaTask task = aidMediaTaskMapper.selectById(taskId);
+        if (task == null || !MediaTaskStatus.PENDING.name().equals(task.getStatus())
+                || StrUtil.isNotBlank(task.getProviderTaskId())) {
+            return false;
+        }
+        LambdaUpdateWrapper<AidMediaTask> update = new LambdaUpdateWrapper<>();
+        update.eq(AidMediaTask::getId, taskId);
+        update.eq(AidMediaTask::getStatus, MediaTaskStatus.PENDING.name());
+        update.and(w -> w.isNull(AidMediaTask::getProviderTaskId)
+                .or().eq(AidMediaTask::getProviderTaskId, ""));
+        update.set(AidMediaTask::getStatus, MediaTaskStatus.QUEUED.name());
+        update.set(AidMediaTask::getErrorMessage, null);
+        Date now = new Date();
+        update.set(AidMediaTask::getNextPollTime, new Date(now.getTime() + 60_000L));
+        update.set(AidMediaTask::getRetryCount, Objects.requireNonNullElse(task.getRetryCount(), 0) + 1);
+        update.set(AidMediaTask::getUpdateTime, now);
+        if (aidMediaTaskMapper.update(null, update) == 0) {
+            return false;
+        }
+        registerAfterCommitReleaseForUnsubmitted(task, true);
+        log.info("合成未确认任务已重新排队, taskId={}", taskId);
+        return true;
     }
 }

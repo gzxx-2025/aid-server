@@ -54,6 +54,11 @@ public interface TextProviderClient {
                 }
 
                 @Override
+                public void onReasoningDelta(String reasoningDelta) {
+                    // 同步聚合接口只保存最终答案；思考内容仅允许由实时调用方消费。
+                }
+
+                @Override
                 public void onSseDataLine(String dataLine) {
                     if (raw.length() < maxRawChars && dataLine != null) {
                         int room = maxRawChars - raw.length();
@@ -78,19 +83,19 @@ public interface TextProviderClient {
 
                 @Override
                 public void onUsage(Map<String, Object> usage) {
-                    if (usage != null && !usage.isEmpty()) {
-                        usageRef.set(usage);
-                    }
+                    usageRef.updateAndGet(current -> ProviderUsageSupport.merge(current, usage));
                 }
             });
         } catch (IOException e) {
             return ProviderSubmitResult.builder()
                 .rawResponse(e.getMessage())
+                .usage(usageRef.get())
                 .build();
         }
         if (errorRef.get() != null) {
             return ProviderSubmitResult.builder()
                 .rawResponse(errorRef.get())
+                .usage(usageRef.get())
                 .build();
         }
         String rawStr = raw.length() >= maxRawChars

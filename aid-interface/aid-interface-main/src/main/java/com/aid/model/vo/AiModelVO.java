@@ -41,6 +41,9 @@ public class AiModelVO implements Serializable
     /** 单次调用扣除积分 */
     private BigDecimal costCredits;
 
+    /** 是否免费 */
+    private Boolean isFree;
+
     /**
      * 模型优先级(值越大优先级越高)。
      */

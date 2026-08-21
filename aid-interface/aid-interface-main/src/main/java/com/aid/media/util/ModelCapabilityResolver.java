@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.regex.Pattern;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -14,16 +15,7 @@ import cn.hutool.core.collection.CollectionUtil;
 import cn.hutool.core.util.StrUtil;
 import lombok.extern.slf4j.Slf4j;
 
-/**
- * 清晰度档位与画面比例的统一解析口径：白名单与默认值一律取自 {@code aid_ai_model.capability_json}。
- *
- * <p>业务层禁止再写 {@code "2K"} / {@code "1:1"} / 厂商像素尺寸一类的硬编码兜底：
- * 调用方传值则按白名单归一化并返回配置中的规范写法（未命中抛短文案，不静默回退），
- * 未传值则依次回退 capability 默认档、模型表默认档、白名单首项；模型未声明白名单时传值原样放行。
- * 归一化口径与 {@link ModelCapabilityValidator} 共用，保证业务层解析结果必然通过媒体主链路的能力校验。</p>
- *
- * @author 视觉AID
- */
+/** 模型能力参数解析器。 */
 @Slf4j
 public final class ModelCapabilityResolver {
 
@@ -44,6 +36,10 @@ public final class ModelCapabilityResolver {
 
     /** 视频输出比例由输入图决定。 */
     public static final String VIDEO_ASPECT_RATIO_MODE_FOLLOW_INPUT = "FOLLOW_INPUT";
+
+    /** 可用于输入图归一化的具体宽高比。 */
+    private static final Pattern CONCRETE_ASPECT_RATIO =
+            Pattern.compile("(?:0|[1-9]\\d*)(?:\\.\\d+)?:(?:0|[1-9]\\d*)(?:\\.\\d+)?");
 
     /** capability_json 键：输入图适配目标比例的策略（CONTAIN / COVER）。 */
     public static final String KEY_INPUT_ASPECT_RATIO_FIT = "inputAspectRatioFit";
@@ -93,6 +89,57 @@ public final class ModelCapabilityResolver {
                 readText(capability, KEY_DEFAULT_ASPECT_RATIO), modelConfig.getDefaultAspectRatio());
         return resolve(capability, modelConfig.getModelCode(), requested,
                 KEY_ASPECT_RATIO_OPTIONS, fallback, MSG_ASPECT_RATIO_UNSUPPORTED);
+    }
+
+    /** 解析视频画面比例。 */
+    public static String resolveVideoAspectRatio(AiModelConfigVo modelConfig, String requested) {
+        if (!isVideoAspectRatioFollowInput(modelConfig)) {
+            return resolveAspectRatio(modelConfig, requested);
+        }
+        String requestedValue = StrUtil.trimToNull(requested);
+        if (StrUtil.isBlank(requestedValue)) {
+            return resolveVideoProviderAspectRatio(modelConfig);
+        }
+        JsonNode capability = parseCapability(modelConfig.getCapabilityJson());
+        String configuredValue = matchOption(
+                readOptions(capability, KEY_ASPECT_RATIO_OPTIONS), requestedValue);
+        if (Objects.nonNull(configuredValue)) {
+            return configuredValue;
+        }
+        String providerValue = resolveVideoProviderAspectRatio(modelConfig);
+        if (StrUtil.isNotBlank(providerValue)
+                && normalize(providerValue).equals(normalize(requestedValue))) {
+            return providerValue;
+        }
+        String normalized = normalize(requestedValue);
+        if (isConcreteAspectRatio(normalized)) {
+            return normalized;
+        }
+        log.info("跟随输入视频目标比例格式错误: modelCode={}, aspectRatio={}",
+                modelConfig.getModelCode(), requestedValue);
+        throw new ServiceException(MSG_ASPECT_RATIO_UNSUPPORTED);
+    }
+
+    /** 读取 FOLLOW_INPUT 模型提交给 Provider 的比例值。 */
+    public static String resolveVideoProviderAspectRatio(AiModelConfigVo modelConfig) {
+        return resolveAspectRatio(modelConfig, null);
+    }
+
+    /** 判断比例是否为可计算的正数 W:H。 */
+    public static boolean isConcreteAspectRatio(String value) {
+        String normalized = StrUtil.isBlank(value) ? null : normalize(value);
+        if (StrUtil.isBlank(normalized) || !CONCRETE_ASPECT_RATIO.matcher(normalized).matches()) {
+            return false;
+        }
+        String[] dimensions = normalized.split(":", -1);
+        try {
+            double width = Double.parseDouble(dimensions[0]);
+            double height = Double.parseDouble(dimensions[1]);
+            return width > 0D && height > 0D
+                    && Double.isFinite(width) && Double.isFinite(height);
+        } catch (NumberFormatException ex) {
+            return false;
+        }
     }
 
     /**

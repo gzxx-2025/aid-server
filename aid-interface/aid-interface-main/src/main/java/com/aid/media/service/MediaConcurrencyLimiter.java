@@ -13,6 +13,7 @@ import com.aid.aid.service.IAidAiModelService;
 import com.aid.aid.service.IAidAiProviderService;
 import com.aid.aid.service.IAidConfigService;
 import com.aid.media.enums.MediaTaskStatus;
+import com.aid.compose.config.MpsConfigManager;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -89,6 +90,7 @@ public class MediaConcurrencyLimiter {
     private final IAidConfigService aidConfigService;
     private final IAidAiModelService aidAiModelService;
     private final IAidAiProviderService aidAiProviderService;
+    private final MpsConfigManager mpsConfigManager;
 
     // Lua 脚本：四维原子 check + acquire。按平台 → 用户 → 模型 → 供应商顺序判定，全部有余量才一次性 INCR 四个计数。
     // 注意：用 `if g` 而非 `if g ~= false`，因为对不存在的 key 返回 nil 而非 false，
@@ -554,6 +556,11 @@ public class MediaConcurrencyLimiter {
     private ModelMeta resolveModelMeta(String modelCode) {
         if (StrUtil.isBlank(modelCode)) {
             return new ModelMeta(UNLIMITED, null, 0L);
+        }
+        if (Set.of(MpsConfigManager.MODE_TENCENT_MPS, MpsConfigManager.MODE_ALIYUN_IMS,
+                MpsConfigManager.MODE_LOCAL_FFMPEG).contains(modelCode)) {
+            return new ModelMeta(mpsConfigManager.getMaxConcurrency(modelCode), null,
+                    System.currentTimeMillis() + CONFIG_CACHE_TTL_SECONDS * 1000L);
         }
         long now = System.currentTimeMillis();
         ModelMeta cached = modelMetaCache.get(modelCode);

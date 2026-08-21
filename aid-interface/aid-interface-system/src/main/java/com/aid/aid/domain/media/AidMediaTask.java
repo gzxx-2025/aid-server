@@ -52,6 +52,10 @@ public class AidMediaTask extends BaseEntity {
     // 幂等哈希：用于避免重复任务/重复扣费。
     private String requestHash;
 
+    /** 跨进程调用幂等键；可空，非空值由数据库唯一索引保证一次逻辑调用只创建一个任务。 */
+    @TableField("idempotency_key")
+    private String idempotencyKey;
+
     // 请求原文 JSON 快照。
     @ToString.Exclude
     private String requestJson;

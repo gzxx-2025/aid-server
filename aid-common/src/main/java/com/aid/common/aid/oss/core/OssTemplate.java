@@ -3,6 +3,7 @@ package com.aid.common.aid.oss.core;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URI;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -19,9 +20,11 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.multipart.MultipartFile;
 
 import com.aliyun.oss.OSS;
+import com.aliyun.oss.OSSClientBuilder;
 import com.aliyun.oss.model.ObjectMetadata;
 import com.aliyun.oss.model.PutObjectRequest;
 import com.qcloud.cos.COSClient;
+import com.qiniu.common.QiniuException;
 import com.qiniu.http.Response;
 import com.qiniu.storage.BucketManager;
 import com.qiniu.storage.Configuration;
@@ -101,8 +104,16 @@ public class OssTemplate
      */
     public String uploadToLocal(MultipartFile file, String customDir)
     {
+        return uploadToLocal(file, customDir, true);
+    }
+
+    private String uploadToLocal(MultipartFile file, String customDir, boolean validateUpload)
+    {
         // 校验文件
-        validateFile(file);
+        if (validateUpload)
+        {
+            validateFile(file);
+        }
 
         // customDir 白名单 + 规范化 + 前缀断言
         String safeCustomDir = sanitizeCustomDir(customDir);
@@ -273,8 +284,16 @@ public class OssTemplate
      */
     public String uploadToOss(MultipartFile file, String customDir)
     {
+        return uploadToOss(file, customDir, true);
+    }
+
+    private String uploadToOss(MultipartFile file, String customDir, boolean validateUpload)
+    {
         // 校验文件
-        validateFile(file);
+        if (validateUpload)
+        {
+            validateFile(file);
+        }
 
         OssProperties properties = ossConfigManager.getOssProperties();
         long startMs = System.currentTimeMillis();
@@ -414,8 +433,16 @@ public class OssTemplate
      */
     public String uploadToCos(MultipartFile file, String customDir)
     {
+        return uploadToCos(file, customDir, true);
+    }
+
+    private String uploadToCos(MultipartFile file, String customDir, boolean validateUpload)
+    {
         // 校验文件
-        validateFile(file);
+        if (validateUpload)
+        {
+            validateFile(file);
+        }
 
         OssProperties properties = ossConfigManager.getOssProperties();
         long startMs = System.currentTimeMillis();
@@ -551,7 +578,15 @@ public class OssTemplate
      */
     public String uploadToQiniu(MultipartFile file, String customDir)
     {
-        validateFile(file);
+        return uploadToQiniu(file, customDir, true);
+    }
+
+    private String uploadToQiniu(MultipartFile file, String customDir, boolean validateUpload)
+    {
+        if (validateUpload)
+        {
+            validateFile(file);
+        }
         OssProperties properties = ossConfigManager.getOssProperties();
         validateQiniuConfig(properties);
 
@@ -699,6 +734,17 @@ public class OssTemplate
             {
                 closeQiniuResponse(response);
             }
+        }
+        catch (QiniuException e)
+        {
+            // 七牛 Kodo 明确以 612 表示目标资源不存在；删除语义按幂等成功处理。
+            if (e.code() == 612)
+            {
+                log.info("七牛云文件已不存在，按删除成功处理: fileUrl={}", fileUrl);
+                return true;
+            }
+            log.error("七牛云删除文件失败: code={}, error={}", e.code(), e.error(), e);
+            return false;
         }
         catch (Exception e)
         {
@@ -938,19 +984,27 @@ public class OssTemplate
      */
     public String getSignedUrl(String fileUrl, int expireSeconds)
     {
+        return generateSignedUrl(fileUrl, expireSeconds, 24 * 3600, false);
+    }
+
+    /** 按调用场景生成签名，避免模型链接的较长期限改变其它临时链接的既有上限。 */
+    private String generateSignedUrl(String fileUrl, int expireSeconds, int maxExpireSeconds,
+                                     boolean publicOssEndpoint)
+    {
         OssProperties properties = ossConfigManager.getOssProperties();
         String mode = Objects.isNull(properties) ? "oss" : properties.getUploadMode();
 
-        // 上限保护：<= 0 用默认 1 小时；> 24h 压到 24h
+        // <= 0 使用默认 1 小时；上限由具体调用场景决定。
         int clampedExpire;
         if (expireSeconds <= 0)
         {
             clampedExpire = DEFAULT_EXPIRE_SECONDS;
         }
-        else if (expireSeconds > 24 * 3600)
+        else if (expireSeconds > maxExpireSeconds)
         {
-            log.warn("getSignedUrl 过期时间超过 24h 上限，强制 clamp: requested={}s", expireSeconds);
-            clampedExpire = 24 * 3600;
+            log.warn("临时签名过期时间超过场景上限，强制 clamp: requested={}s, max={}s",
+                    expireSeconds, maxExpireSeconds);
+            clampedExpire = maxExpireSeconds;
         }
         else
         {
@@ -964,11 +1018,12 @@ public class OssTemplate
             {
                 validateQiniuConfig(properties);
                 String objectKey = getObjectKeyFromUrl(fileUrl, properties);
-                if (StrUtil.isBlank(objectKey) || StrUtil.isBlank(properties.getCdnDomain()))
+                String resourceDomain = properties.getEffectiveResourceAccessDomain();
+                if (StrUtil.isBlank(objectKey) || StrUtil.isBlank(resourceDomain))
                 {
                     return fileUrl;
                 }
-                String baseUrl = stripDomainTrailingSlash(properties.getCdnDomain()) + "/" + objectKey;
+                String baseUrl = stripDomainTrailingSlash(resourceDomain) + "/" + objectKey;
                 Auth auth = Auth.create(properties.getQiniuAccessKey(), properties.getQiniuSecretKey());
                 return auth.privateDownloadUrl(baseUrl, clampedExpire);
             }
@@ -1017,8 +1072,11 @@ public class OssTemplate
             {
                 // 计算过期时间
                 Date expiration = new Date(System.currentTimeMillis() + clampedExpire * 1000L);
-                // 生成带签名的URL
-                URL url = ossClient.generatePresignedUrl(properties.getBucketName(), objectKey, expiration);
+                // 普通服务端读取继续复用配置的 Endpoint（可为内网）；
+                // 只有提交外部大模型时才改用对应公网 Endpoint 计算签名。
+                URL url = publicOssEndpoint
+                        ? generatePublicOssPresignedUrl(properties, objectKey, expiration)
+                        : ossClient.generatePresignedUrl(properties.getBucketName(), objectKey, expiration);
                 return url.toString();
             }
             return fileUrl;
@@ -1028,6 +1086,153 @@ public class OssTemplate
             log.error("获取签名URL失败：{}", e.getMessage(), e);
             return fileUrl;
         }
+    }
+
+    /**
+     * 仅在向外部大模型实际提交时生成临时访问地址。普通页面展示仍使用资源访问地址，
+     * 不会调用本方法。外部第三方 URL 原样返回；系统自有云存储资源签名失败则明确报错，
+     * 避免把受防盗链保护的地址继续提交给模型。
+     *
+     * @param fileUrl 相对路径或系统资源完整地址
+     * @return 可供外部模型短期读取的地址
+     */
+    public String getModelSignedUrl(String fileUrl)
+    {
+        if (StrUtil.isBlank(fileUrl))
+        {
+            return fileUrl;
+        }
+        OssProperties properties = ossConfigManager.getOssProperties();
+        if (!isManagedResourceUrl(fileUrl, properties))
+        {
+            return fileUrl;
+        }
+        String mode = StrUtil.blankToDefault(properties.getUploadMode(), "local");
+        if ("local".equalsIgnoreCase(mode))
+        {
+            // 本地文件没有对象存储签名协议；保持现有资源访问地址语义。
+            return toResourceAccessUrl(fileUrl, properties);
+        }
+        int hours = Objects.isNull(properties.getModelSignedUrlExpireHours())
+                ? 72 : Math.max(1, Math.min(168, properties.getModelSignedUrlExpireHours()));
+        String signed = generateSignedUrl(fileUrl, hours * 3600, 168 * 3600, true);
+        if (StrUtil.isBlank(signed) || Objects.equals(signed, fileUrl))
+        {
+            log.error("模型资源临时签名失败, mode={}, resource={}", mode, fileUrl);
+            throw new OssException("签名失败");
+        }
+        return signed;
+    }
+
+    /** 判断地址是否属于当前系统配置的存储。 */
+    public boolean isManagedResourceUrl(String fileUrl)
+    {
+        return isManagedResourceUrl(fileUrl, ossConfigManager.getOssProperties());
+    }
+
+    private boolean isManagedResourceUrl(String fileUrl, OssProperties properties)
+    {
+        if (StrUtil.isBlank(fileUrl) || Objects.isNull(properties))
+        {
+            return false;
+        }
+        if (fileUrl.startsWith("/"))
+        {
+            return !fileUrl.startsWith("//") && !fileUrl.contains("..") && !fileUrl.contains("\\")
+                    && !fileUrl.contains("?") && !fileUrl.contains("#")
+                    && fileUrl.chars().noneMatch(Character::isISOControl);
+        }
+        String resourceDomain = stripDomainTrailingSlash(properties.getEffectiveResourceAccessDomain());
+        if (StrUtil.isNotBlank(resourceDomain) && fileUrl.startsWith(resourceDomain + "/"))
+        {
+            return true;
+        }
+        String mode = properties.getUploadMode();
+        if ("cos".equalsIgnoreCase(mode))
+        {
+            return urlHostEquals(fileUrl, properties.getCosBucketName() + ".cos."
+                    + properties.getCosRegion() + ".myqcloud.com");
+        }
+        if ("oss".equalsIgnoreCase(mode))
+        {
+            String endpoint = normalizeOssEndpoint(properties.getEndpoint());
+            return urlHostEquals(fileUrl, properties.getBucketName() + "." + endpoint)
+                    || urlHostEquals(fileUrl, properties.getBucketName() + "." + toPublicOssEndpoint(endpoint));
+        }
+        return false;
+    }
+
+    private boolean urlHostEquals(String fileUrl, String expectedHost)
+    {
+        try
+        {
+            URI uri = URI.create(fileUrl);
+            return StrUtil.equalsIgnoreCase(uri.getHost(), expectedHost)
+                    && StrUtil.isNotBlank(uri.getPath()) && !"/".equals(uri.getPath());
+        }
+        catch (Exception e)
+        {
+            return false;
+        }
+    }
+
+    private String toResourceAccessUrl(String fileUrl, OssProperties properties)
+    {
+        if (!fileUrl.startsWith("/"))
+        {
+            return fileUrl;
+        }
+        String domain = stripDomainTrailingSlash(properties.getEffectiveResourceAccessDomain());
+        if (StrUtil.isBlank(domain))
+        {
+            return fileUrl;
+        }
+        // 本地模式的兼容访问前缀会自动带 /profile，避免与相对资源路径重复拼接。
+        if (domain.endsWith("/profile") && fileUrl.startsWith("/profile/"))
+        {
+            return domain + fileUrl.substring("/profile".length());
+        }
+        return domain + fileUrl;
+    }
+
+    private URL generatePublicOssPresignedUrl(OssProperties properties, String objectKey, Date expiration)
+    {
+        String configuredEndpoint = normalizeOssEndpoint(properties.getEndpoint());
+        String publicEndpoint = toPublicOssEndpoint(configuredEndpoint);
+        if (StrUtil.equalsIgnoreCase(configuredEndpoint, publicEndpoint))
+        {
+            return ossClient.generatePresignedUrl(properties.getBucketName(), objectKey, expiration);
+        }
+        OSS publicClient = new OSSClientBuilder().build(publicEndpoint,
+                properties.getAccessKeyId(), properties.getAccessKeySecret());
+        try
+        {
+            return publicClient.generatePresignedUrl(properties.getBucketName(), objectKey, expiration);
+        }
+        finally
+        {
+            publicClient.shutdown();
+        }
+    }
+
+    private String normalizeOssEndpoint(String endpoint)
+    {
+        return StrUtil.removeSuffix(StrUtil.blankToDefault(endpoint, "")
+                .trim().replaceFirst("(?i)^https?://", ""), "/")
+                .toLowerCase(java.util.Locale.ROOT);
+    }
+
+    private String toPublicOssEndpoint(String endpoint)
+    {
+        String normalized = normalizeOssEndpoint(endpoint);
+        int firstDot = normalized.indexOf('.');
+        if (firstDot < 0)
+        {
+            return normalized.replace("-internal", "").replace("-intranet", "");
+        }
+        String regionHost = normalized.substring(0, firstDot)
+                .replace("-internal", "").replace("-intranet", "");
+        return regionHost + normalized.substring(firstDot);
     }
 
     /**
@@ -1162,6 +1367,34 @@ public class OssTemplate
             return uploadToQiniu(file, customDir);
         }
         return uploadToOss(file, customDir);
+    }
+
+    /**
+     * 上传系统内部生成的文件。跳过面向用户上传入口的扩展名与大小限制，仍执行目录白名单、
+     * 存储凭证和 SDK 上传校验；用于成片等已由本系统生成并验证的受信文件。
+     */
+    public String uploadSystemGeneratedFile(MultipartFile file, String customDir)
+    {
+        if (Objects.isNull(file) || file.isEmpty())
+        {
+            log.error("系统生成文件为空, fileName={}", Objects.isNull(file) ? null : file.getOriginalFilename());
+            throw new OssException("上传失败");
+        }
+        OssProperties properties = ossConfigManager.getOssProperties();
+        String mode = Objects.isNull(properties) ? "local" : properties.getUploadMode();
+        if ("local".equalsIgnoreCase(mode))
+        {
+            return uploadToLocal(file, customDir, false);
+        }
+        if ("cos".equalsIgnoreCase(mode))
+        {
+            return uploadToCos(file, customDir, false);
+        }
+        if ("qiniu".equalsIgnoreCase(mode))
+        {
+            return uploadToQiniu(file, customDir, false);
+        }
+        return uploadToOss(file, customDir, false);
     }
 
     /**

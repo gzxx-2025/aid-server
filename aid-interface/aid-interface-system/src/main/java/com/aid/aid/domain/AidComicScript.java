@@ -2,10 +2,12 @@ package com.aid.aid.domain;
 
 import java.io.Serializable;
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.aid.common.annotation.Excel;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -13,7 +15,7 @@ import lombok.ToString;
 import com.aid.common.core.domain.BaseEntity;
 
 /**
- * 剧本原文与简化版对象 aid_comic_script
+ * 剧本原文对象 aid_comic_script
  *
  * @author 视觉AID
  */
@@ -45,8 +47,10 @@ public class AidComicScript extends BaseEntity implements Serializable
     @Excel(name = "用户上传的原版剧本")
     private String originalText;
 
-    /** AI简化版剧本(保留人物性格等信息用于提取) */
-    @Excel(name = "AI简化版剧本(保留人物性格等信息用于提取)")
+    /** 历史兼容字段，业务不再读写 */
+    @JsonIgnore
+    @TableField(value = "simplified_text", select = false,
+            insertStrategy = FieldStrategy.NEVER, updateStrategy = FieldStrategy.NEVER)
     private String simplifiedText;
 
     /** 是否已执行资产提取(0否 1是) */

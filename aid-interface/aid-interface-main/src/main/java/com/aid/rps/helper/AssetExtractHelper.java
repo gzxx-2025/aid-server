@@ -26,21 +26,28 @@ import com.aid.aid.domain.AidAgent;
 import com.aid.aid.domain.AidComicEpisode;
 import com.aid.aid.domain.AidComicScript;
 import com.aid.aid.domain.AidRolePropScene;
+import com.aid.aid.domain.media.AidMediaTask;
 import com.aid.aid.service.IAidComicEpisodeService;
 import com.aid.aid.service.IAidComicScriptService;
+import com.aid.aid.service.IAidMediaTaskService;
 import com.aid.aid.service.IAidRolePropSceneService;
 import com.aid.common.config.AidAppConfig;
 import com.aid.common.utils.DateUtils;
 import com.aid.domain.vo.AiModelConfigVo;
 import com.aid.media.dto.MediaTaskResponse;
 import com.aid.media.dto.MediaTextGenerateRequest;
+import com.aid.media.provider.TextOutputLimitResolver;
 import com.aid.media.service.IMediaGenerationService;
 import com.aid.rps.model.ExistingAssetLib;
+import com.aid.rps.service.IExtractBillingService;
+import com.aid.rps.service.IExtractBillingService.TextCallBillingContext;
+import com.aid.rps.service.impl.TextTaskExecutionRejectedException;
 import com.aid.service.IAiModelConfigService;
 
 import cn.hutool.core.collection.CollectionUtil;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.crypto.SecureUtil;
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -75,6 +82,12 @@ public class AssetExtractHelper
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private static final String BIZ_TASK_TYPE_EXTRACT = "extract";
+    private static final String CALL_INPUT_SHA_MARKER = ",inputSha=";
+    private static final long REPLAY_CACHE_TTL_MILLIS = 5L * 60L * 1000L;
+    private static final int REPLAY_CACHE_MAX_ENTRIES = 16;
+    private static final long REPLAY_CACHE_MAX_TEXT_CHARS = 16L * 1024L * 1024L;
+    private static final int WRITER_OUTPUT_TOKENS_PER_SOURCE_CHAR = 8;
+    private static final int STANDARD_OUTPUT_TOKENS_PER_SOURCE_CHAR = 4;
 
     /** LLM 异步任务轮询最大等待时间（秒），默认 600s；由 aid.extract.llm-poll.timeout-seconds 配置 */
     @org.springframework.beans.factory.annotation.Value("${aid.extract.llm-poll.timeout-seconds:600}")
@@ -84,9 +97,21 @@ public class AssetExtractHelper
     @org.springframework.beans.factory.annotation.Value("${aid.extract.llm-poll.interval-seconds:3}")
     private long llmPollIntervalSeconds;
 
-    /** LLM 单次输出最大 token 数，默认 16384；太小会导致 JSON 中途被硬截断，由 aid.extract.llm.max-tokens 配置 */
-    @org.springframework.beans.factory.annotation.Value("${aid.extract.llm.max-tokens:16384}")
+    /** LLM 单次输出全局硬上限；具体结构化任务会在此上限内进一步收紧。 */
+    @org.springframework.beans.factory.annotation.Value("${aid.extract.llm.max-tokens:65536}")
     private int llmMaxTokens;
+
+    /** 普通结构化提取的单次输出上限；分镜脚本按本批正文长度单独计算。 */
+    @org.springframework.beans.factory.annotation.Value("${aid.extract.llm.structured-max-tokens:8192}")
+    private int llmStructuredMaxTokens;
+
+    /** 分镜脚本动态输出上限的下限，避免短片段因固定字段较多而被截断。 */
+    @org.springframework.beans.factory.annotation.Value("${aid.extract.llm.storyboard-script-min-tokens:16384}")
+    private int storyboardScriptMinTokens;
+
+    /** 分镜脚本动态输出上限的上限；同时受全局 max-tokens 限制。 */
+    @org.springframework.beans.factory.annotation.Value("${aid.extract.llm.storyboard-script-max-tokens:49152}")
+    private int storyboardScriptMaxTokens;
 
     /** 道具描述清洗：需要移除的 AI 常见后缀模式 */
     private static final Pattern PROP_SUFFIX_PATTERN = Pattern.compile(
@@ -110,12 +135,22 @@ public class AssetExtractHelper
     @Autowired
     private IMediaGenerationService mediaGenerationService;
 
+    @Autowired
+    private IAidMediaTaskService mediaTaskService;
+
+    @Autowired
+    private IExtractBillingService extractBillingService;
+
     /** AI 模型配置查询：读取 supports_system_prompt 决定系统提示词是否分离成 system role */
     @Autowired
     private IAiModelConfigService aiModelConfigService;
 
     /** supports_system_prompt 的本地缓存，避免每次 LLM 调用都聚合查三表 VO */
     private final ConcurrentHashMap<String, CachedFlag> supportsSystemPromptCache = new ConcurrentHashMap<>();
+    private final Object successfulReplayCacheLock = new Object();
+    private final LinkedHashMap<ReplayCacheKey, CachedReplayResults> successfulReplayCache =
+            new LinkedHashMap<>(16, 0.75F, true);
+    private long successfulReplayCacheTextChars;
 
     /** 缓存有效期：5 分钟 */
     private static final long SUPPORTS_SYSTEM_CACHE_TTL_MS = 5 * 60 * 1000L;
@@ -149,14 +184,17 @@ public class AssetExtractHelper
         wrapper.eq(AidComicScript::getUserId, userId);
         wrapper.eq(AidComicScript::getStatus, SCRIPT_STATUS_ACTIVE);
         wrapper.eq(AidComicScript::getDelFlag, DEL_FLAG_NORMAL);
+        wrapper.select(AidComicScript::getOriginalText);
+        // 若存在多条 active，始终以最后更新的一条作为当前剧本。
+        wrapper.orderByDesc(AidComicScript::getUpdateTime);
+        wrapper.orderByDesc(AidComicScript::getId);
         wrapper.last("LIMIT 1");
         AidComicScript script = scriptService.getOne(wrapper, false);
         if (Objects.isNull(script))
         {
             return null;
         }
-        return StrUtil.isNotBlank(script.getSimplifiedText())
-                ? script.getSimplifiedText() : script.getOriginalText();
+        return script.getOriginalText();
     }
 
     /**
@@ -174,6 +212,7 @@ public class AssetExtractHelper
         wrapper.eq(AidComicScript::getUserId, userId);
         wrapper.eq(AidComicScript::getStatus, SCRIPT_STATUS_ACTIVE);
         wrapper.eq(AidComicScript::getDelFlag, DEL_FLAG_NORMAL);
+        wrapper.select(AidComicScript::getOriginalText);
         wrapper.orderByAsc(AidComicScript::getCreateTime);
         List<AidComicScript> scripts = scriptService.list(wrapper);
 
@@ -185,8 +224,7 @@ public class AssetExtractHelper
         StringBuilder sb = new StringBuilder();
         for (AidComicScript script : scripts)
         {
-            String text = StrUtil.isNotBlank(script.getSimplifiedText())
-                    ? script.getSimplifiedText() : script.getOriginalText();
+            String text = script.getOriginalText();
             if (StrUtil.isNotBlank(text))
             {
                 if (!sb.isEmpty())
@@ -280,7 +318,7 @@ public class AssetExtractHelper
         wrapper.eq(AidComicScript::getDelFlag, DEL_FLAG_NORMAL);
         // 只查必要字段，避免加载大文本内容到内存
         wrapper.select(AidComicScript::getId, AidComicScript::getEpisodeId,
-                AidComicScript::getOriginalText, AidComicScript::getSimplifiedText);
+                AidComicScript::getOriginalText);
         List<AidComicScript> scripts = scriptService.list(wrapper);
 
         log.info("字数统计查询: projectId={}, episodeId={}, 查到{}条剧本记录",
@@ -289,17 +327,13 @@ public class AssetExtractHelper
         int totalChars = 0;
         for (AidComicScript script : scripts)
         {
-            // 优先简化版，其次原版
-            String text = StrUtil.isNotBlank(script.getSimplifiedText())
-                    ? script.getSimplifiedText() : script.getOriginalText();
+            String text = script.getOriginalText();
             int len = StrUtil.isNotBlank(text) ? text.length() : 0;
             if (len > 0)
             {
                 totalChars += len;
-                log.info("字数统计明细: scriptId={}, episodeId={}, 使用字段={}, 长度={}",
-                        script.getId(), script.getEpisodeId(),
-                        StrUtil.isNotBlank(script.getSimplifiedText()) ? "simplifiedText" : "originalText",
-                        len);
+                log.info("字数统计明细: scriptId={}, episodeId={}, 使用字段=originalText, 长度={}",
+                        script.getId(), script.getEpisodeId(), len);
             }
             else
             {
@@ -449,20 +483,107 @@ public class AssetExtractHelper
         }
         return lib;
     }
+
+    private record ReplayCacheKey(Long parentTaskId, Long userId, String bizTaskType,
+                                  String modelCode, String currentTraceId,
+                                  String priorTraceId) { }
+
+    private record CachedReplayResults(Map<String, List<MediaTaskResponse>> resultsByIdentity,
+                                       Map<String, List<MediaTaskResponse>> resultsByStableSlot,
+                                       long expireAt, long textChars) { }
     /**
      * 构造统一的 LLM options 参数（max_tokens 等），并显式关闭思考模式把预算全留给 JSON 正文。
      */
     private Map<String, Object> buildLlmOptions()
     {
+        return buildLlmOptions(null, null);
+    }
+
+    private Map<String, Object> buildLlmOptions(String callIdentity, Integer requestedOutputTokens)
+    {
         Map<String, Object> options = new java.util.HashMap<>();
-        if (llmMaxTokens > 0)
+        int outputTokens = resolveOutputTokenCap(callIdentity, requestedOutputTokens);
+        if (outputTokens > 0)
         {
             // 下发通用 max_tokens 字段名，异名厂商由各自 ProviderClient 映射
-            options.put("max_tokens", llmMaxTokens);
+            options.put("max_tokens", outputTokens);
         }
         // 资产提取专用：显式禁用思考模式，把全部输出预算留给 JSON 正文
         options.put("thinking_level", "disabled");
         return options;
+    }
+
+    /**
+     * 分镜批次已经按最多 6000 字拆分，输出上限按本批正文规模增长，不再让每个批次都占用全局 64K 上限。
+     */
+    public int resolveStoryboardScriptOutputTokens(int sourceChars, boolean writerOutput)
+    {
+        long scaled = (long) Math.max(0, sourceChars)
+                * (writerOutput ? WRITER_OUTPUT_TOKENS_PER_SOURCE_CHAR : STANDARD_OUTPUT_TOKENS_PER_SOURCE_CHAR);
+        int minimum = positiveOrDefault(storyboardScriptMinTokens, 16384);
+        int maximum = Math.min(resolveGlobalOutputCap(), positiveOrDefault(storyboardScriptMaxTokens, 49152));
+        if (maximum < minimum)
+        {
+            minimum = maximum;
+        }
+        return (int) Math.max(minimum, Math.min(scaled, maximum));
+    }
+
+    /**
+     * 结构化批量任务按输入条目规模增长。短调用保持 8K，较长角色切片或整批提示词
+     * 最多增长到 48K，避免统一 8K 截断，也不再为每次调用都冻结全局 64K。
+     */
+    public int resolveStructuredOutputTokens(int sourceUnits, int tokensPerUnit)
+    {
+        long scaled = (long) Math.max(0, sourceUnits) * Math.max(1, tokensPerUnit);
+        int minimum = Math.min(resolveGlobalOutputCap(), positiveOrDefault(llmStructuredMaxTokens, 8192));
+        int maximum = Math.min(resolveGlobalOutputCap(), positiveOrDefault(storyboardScriptMaxTokens, 49152));
+        return (int) Math.max(minimum, Math.min(scaled, maximum));
+    }
+
+    private int resolveOutputTokenCap(String callIdentity, Integer requestedOutputTokens)
+    {
+        int globalCap = resolveGlobalOutputCap();
+        if (requestedOutputTokens != null && requestedOutputTokens > 0)
+        {
+            return Math.min(globalCap, requestedOutputTokens);
+        }
+        if (StrUtil.isBlank(callIdentity))
+        {
+            return globalCap;
+        }
+        if (callIdentity.startsWith("stage=script_direct")
+                || callIdentity.startsWith("stage=script_scene"))
+        {
+            return Math.min(globalCap, positiveOrDefault(storyboardScriptMaxTokens, 49152));
+        }
+        return Math.min(globalCap, positiveOrDefault(llmStructuredMaxTokens, 8192));
+    }
+
+    private int resolveGlobalOutputCap()
+    {
+        int configured = positiveOrDefault(llmMaxTokens, TextOutputLimitResolver.FALLBACK_OUTPUT_TOKENS);
+        return Math.min(configured, TextOutputLimitResolver.ABSOLUTE_OUTPUT_TOKENS);
+    }
+
+    private int positiveOrDefault(int value, int fallback)
+    {
+        return value > 0 ? value : fallback;
+    }
+
+    /** 为外层自计费调用写入与实际 LLM 请求一致的输出上限。 */
+    public void applyLlmBillingLimits(Map<String, Object> billingParams, int expectedCallCount)
+    {
+        if (billingParams == null)
+        {
+            return;
+        }
+        int providerCap = llmMaxTokens > 0
+                ? Math.min(llmMaxTokens, TextOutputLimitResolver.ABSOLUTE_OUTPUT_TOKENS)
+                : TextOutputLimitResolver.FALLBACK_OUTPUT_TOKENS;
+        billingParams.put("providerOutputTokenCap", providerCap);
+        billingParams.put("billingOutputTokenCeiling", TextOutputLimitResolver.billingCeiling(providerCap));
+        billingParams.put("expectedCallCount", Math.max(1, expectedCallCount));
     }
 
     /**
@@ -496,11 +617,11 @@ public class AssetExtractHelper
         textRequest.setBizTaskId(bizTaskId);
         textRequest.setBizTaskType(BIZ_TASK_TYPE_EXTRACT);
         textRequest.setUserId(userId);
-        textRequest.setBillingExempt(true);
         textRequest.setPreferNonStream(true);
         textRequest.setOptions(buildLlmOptions());
         textRequest.setTaskPromptDigest(taskPromptDigest);
         textRequest.setMessages(buildMessages(systemPrompt, null, modelCode));
+        applyTextCallBilling(textRequest, bizTaskId, BIZ_TASK_TYPE_EXTRACT, modelCode, null, null);
 
         MediaTaskResponse taskResponse = mediaGenerationService.generateText(textRequest);
         MediaTaskResponse finalResponse = resolveLlmResponse(taskResponse);
@@ -533,11 +654,11 @@ public class AssetExtractHelper
         textRequest.setBizTaskId(bizTaskId);
         textRequest.setBizTaskType(BIZ_TASK_TYPE_EXTRACT);
         textRequest.setUserId(userId);
-        textRequest.setBillingExempt(true);
         textRequest.setPreferNonStream(true);
         textRequest.setOptions(buildLlmOptions());
         textRequest.setTaskPromptDigest(taskPromptDigest);
         textRequest.setMessages(buildMessages(systemPrompt, userContent, modelCode));
+        applyTextCallBilling(textRequest, bizTaskId, BIZ_TASK_TYPE_EXTRACT, modelCode, null, null);
 
         MediaTaskResponse taskResponse = mediaGenerationService.generateText(textRequest);
         MediaTaskResponse finalResponse = resolveLlmResponse(taskResponse);
@@ -582,8 +703,46 @@ public class AssetExtractHelper
     public String callLlmRaw(String systemPrompt, String userContent, String modelCode,
                               Long bizTaskId, Long userId, String taskPromptDigest, String bizTaskType)
     {
+        return callLlmRaw(systemPrompt, userContent, modelCode, bizTaskId, userId,
+                taskPromptDigest, bizTaskType, null);
+    }
+
+    public String callLlmRaw(String systemPrompt, String userContent, String modelCode,
+                              Long bizTaskId, Long userId, String taskPromptDigest,
+                              String bizTaskType, String callIdentity)
+    {
+        return callLlmRaw(systemPrompt, userContent, modelCode, bizTaskId, userId,
+                taskPromptDigest, bizTaskType, callIdentity, StrUtil::isNotBlank);
+    }
+
+    public String callLlmRaw(String systemPrompt, String userContent, String modelCode,
+                              Long bizTaskId, Long userId, String taskPromptDigest,
+                              String bizTaskType, String callIdentity,
+                              java.util.function.Predicate<String> replayValidator)
+    {
+        return callLlmRaw(systemPrompt, userContent, modelCode, bizTaskId, userId,
+                taskPromptDigest, bizTaskType, callIdentity, replayValidator, null);
+    }
+
+    public String callLlmRaw(String systemPrompt, String userContent, String modelCode,
+                              Long bizTaskId, Long userId, String taskPromptDigest,
+                              String bizTaskType, String callIdentity,
+                              java.util.function.Predicate<String> replayValidator,
+                              String expectedTraceId)
+    {
+        return callLlmRaw(systemPrompt, userContent, modelCode, bizTaskId, userId,
+                taskPromptDigest, bizTaskType, callIdentity, replayValidator, expectedTraceId, null);
+    }
+
+    public String callLlmRaw(String systemPrompt, String userContent, String modelCode,
+                              Long bizTaskId, Long userId, String taskPromptDigest,
+                              String bizTaskType, String callIdentity,
+                              java.util.function.Predicate<String> replayValidator,
+                              String expectedTraceId, Integer requestedOutputTokens)
+    {
         MediaTaskResponse finalResponse = callLlmRawForResponse(systemPrompt, userContent, modelCode,
-                bizTaskId, userId, taskPromptDigest, bizTaskType);
+                bizTaskId, userId, taskPromptDigest, bizTaskType, callIdentity, replayValidator,
+                expectedTraceId, requestedOutputTokens);
         return finalResponse == null ? null : finalResponse.getTextContent();
     }
 
@@ -595,16 +754,62 @@ public class AssetExtractHelper
     public MediaTaskResponse callLlmRawForResponse(String systemPrompt, String userContent, String modelCode,
                               Long bizTaskId, Long userId, String taskPromptDigest, String bizTaskType)
     {
+        return callLlmRawForResponse(systemPrompt, userContent, modelCode, bizTaskId, userId,
+                taskPromptDigest, bizTaskType, null);
+    }
+
+    public MediaTaskResponse callLlmRawForResponse(String systemPrompt, String userContent, String modelCode,
+                              Long bizTaskId, Long userId, String taskPromptDigest,
+                              String bizTaskType, String callIdentity)
+    {
+        return callLlmRawForResponse(systemPrompt, userContent, modelCode, bizTaskId, userId,
+                taskPromptDigest, bizTaskType, callIdentity, StrUtil::isNotBlank);
+    }
+
+    public MediaTaskResponse callLlmRawForResponse(String systemPrompt, String userContent, String modelCode,
+                              Long bizTaskId, Long userId, String taskPromptDigest,
+                              String bizTaskType, String callIdentity,
+                              java.util.function.Predicate<String> replayValidator)
+    {
+        return callLlmRawForResponse(systemPrompt, userContent, modelCode, bizTaskId, userId,
+                taskPromptDigest, bizTaskType, callIdentity, replayValidator, null);
+    }
+
+    public MediaTaskResponse callLlmRawForResponse(String systemPrompt, String userContent, String modelCode,
+                              Long bizTaskId, Long userId, String taskPromptDigest,
+                              String bizTaskType, String callIdentity,
+                              java.util.function.Predicate<String> replayValidator,
+                              String expectedTraceId)
+    {
+        return callLlmRawForResponse(systemPrompt, userContent, modelCode, bizTaskId, userId,
+                taskPromptDigest, bizTaskType, callIdentity, replayValidator, expectedTraceId, null);
+    }
+
+    public MediaTaskResponse callLlmRawForResponse(String systemPrompt, String userContent, String modelCode,
+                              Long bizTaskId, Long userId, String taskPromptDigest,
+                              String bizTaskType, String callIdentity,
+                              java.util.function.Predicate<String> replayValidator,
+                              String expectedTraceId, Integer requestedOutputTokens)
+    {
         MediaTextGenerateRequest textRequest = new MediaTextGenerateRequest();
         textRequest.setModelName(modelCode);
         textRequest.setBizTaskId(bizTaskId);
         textRequest.setBizTaskType(StrUtil.isNotBlank(bizTaskType) ? bizTaskType : BIZ_TASK_TYPE_EXTRACT);
         textRequest.setUserId(userId);
-        textRequest.setBillingExempt(true);
         textRequest.setPreferNonStream(true);
-        textRequest.setOptions(buildLlmOptions());
+        textRequest.setOptions(buildLlmOptions(callIdentity, requestedOutputTokens));
         textRequest.setTaskPromptDigest(taskPromptDigest);
         textRequest.setMessages(buildMessages(systemPrompt, userContent, modelCode));
+        TextCallBillingContext billingContext = applyTextCallBilling(textRequest, bizTaskId,
+                textRequest.getBizTaskType(), modelCode, callIdentity, expectedTraceId);
+
+        MediaTaskResponse replay = findSuccessfulLlmResponseForResume(bizTaskId, userId,
+                textRequest.getBizTaskType(), modelCode, textRequest.getCallIdentity(), billingContext,
+                replayValidator);
+        if (Objects.nonNull(replay))
+        {
+            return replay;
+        }
 
         MediaTaskResponse taskResponse = mediaGenerationService.generateText(textRequest);
         return resolveLlmResponse(taskResponse);
@@ -623,14 +828,260 @@ public class AssetExtractHelper
     public JsonNode callLlmWithInputs(String promptTemplate, Map<String, String> userInputs,
                                        String modelCode, Long bizTaskId, Long userId, String taskPromptDigest)
     {
-        String textContent = callLlmRawWithInputs(promptTemplate, userInputs, modelCode,
-                bizTaskId, userId, taskPromptDigest, BIZ_TASK_TYPE_EXTRACT);
+        return callLlmWithInputs(promptTemplate, userInputs, modelCode, bizTaskId, userId,
+                taskPromptDigest, null);
+    }
+
+    public JsonNode callLlmWithInputs(String promptTemplate, Map<String, String> userInputs,
+                                       String modelCode, Long bizTaskId, Long userId,
+                                       String taskPromptDigest, String callIdentity)
+    {
+        return callLlmWithInputs(promptTemplate, userInputs, modelCode, bizTaskId, userId,
+                taskPromptDigest, callIdentity, node -> true);
+    }
+
+    public JsonNode callLlmWithInputs(String promptTemplate, Map<String, String> userInputs,
+                                       String modelCode, Long bizTaskId, Long userId,
+                                       String taskPromptDigest, String callIdentity,
+                                       java.util.function.Predicate<JsonNode> replayValidator)
+    {
+        return callLlmWithInputs(promptTemplate, userInputs, modelCode, bizTaskId, userId,
+                taskPromptDigest, callIdentity, replayValidator, null);
+    }
+
+    public JsonNode callLlmWithInputs(String promptTemplate, Map<String, String> userInputs,
+                                       String modelCode, Long bizTaskId, Long userId,
+                                       String taskPromptDigest, String callIdentity,
+                                       java.util.function.Predicate<JsonNode> replayValidator,
+                                       String expectedTraceId)
+    {
+        return callLlmWithInputs(promptTemplate, userInputs, modelCode, bizTaskId, userId,
+                taskPromptDigest, callIdentity, replayValidator, expectedTraceId, null);
+    }
+
+    public JsonNode callLlmWithInputs(String promptTemplate, Map<String, String> userInputs,
+                                       String modelCode, Long bizTaskId, Long userId,
+                                       String taskPromptDigest, String callIdentity,
+                                       java.util.function.Predicate<JsonNode> replayValidator,
+                                       String expectedTraceId, Integer requestedOutputTokens)
+    {
+        String textContent = callLlmRawWithInputsInternal(promptTemplate, userInputs, modelCode,
+                bizTaskId, userId, taskPromptDigest, BIZ_TASK_TYPE_EXTRACT, callIdentity,
+                raw -> isReplayJsonValid(raw, replayValidator), expectedTraceId,
+                requestedOutputTokens);
         if (StrUtil.isBlank(textContent))
         {
             log.error("LLM返回内容为空");
             throw new RuntimeException("AI提取失败");
         }
         return parseAiResponse(textContent);
+    }
+
+    /**
+     * 生成不含提示词明文的媒体调用身份：stable slot + 实际 model/messages SHA。
+     * 业务完成水位只使用 stable slot；媒体幂等与历史结果精确匹配使用本方法的完整身份。
+     */
+    public String buildLlmCallIdentity(String baseIdentity, String promptTemplate,
+                                       Map<String, String> userInputs, String modelCode)
+    {
+        String systemPrompt = stripPlaceholders(promptTemplate, userInputs);
+        String userContent = buildStructuredUserContent(userInputs);
+        return appendInputSha(baseIdentity, buildMessages(systemPrompt, userContent, modelCode), modelCode);
+    }
+
+    private MediaTaskResponse findSuccessfulLlmResponseForResume(Long bizTaskId, Long userId,
+                                                                 String bizTaskType, String modelCode,
+                                                                 String callIdentity,
+                                                                 TextCallBillingContext billingContext,
+                                                                 java.util.function.Predicate<String> validator)
+    {
+        if (Objects.isNull(billingContext) || !billingContext.mediaTaskBilling()
+                || !extractBillingService.hasActiveResumeBilling(bizTaskId,
+                        billingContext.billingTraceId())
+                || Objects.isNull(bizTaskId) || Objects.isNull(userId)
+                || StrUtil.isBlank(bizTaskType) || StrUtil.isBlank(modelCode)
+                || StrUtil.isBlank(billingContext.priorBillingTraceId())
+                || StrUtil.isBlank(callIdentity))
+        {
+            return null;
+        }
+        ReplayCacheKey cacheKey = new ReplayCacheKey(bizTaskId, userId, bizTaskType,
+                modelCode, billingContext.billingTraceId(), billingContext.priorBillingTraceId());
+        long now = System.currentTimeMillis();
+        CachedReplayResults cached = getCachedReplayResults(cacheKey, now);
+        if (Objects.isNull(cached) || cached.expireAt() <= now)
+        {
+            cached = loadSuccessfulReplayResults(cacheKey, now);
+            cacheReplayResults(cacheKey, cached, now);
+        }
+        // 精确 model/messages SHA 优先；动态资产库会随已完成 chunk 扩充，active resume 下再按
+        // stable slot 回退到上一周期已付费成功结果。候选仍须通过调用方业务 validator。
+        List<MediaTaskResponse> exactCandidates = cached.resultsByIdentity()
+                .getOrDefault(callIdentity, List.of());
+        // 精确身份存在时只校验其最新候选；只有完全没有精确候选才回退到 stable slot 最新候选。
+        // 任一层的最新候选校验失败都直接发起新调用，不穿透到另一层或更老周期。
+        List<MediaTaskResponse> replayCandidates = exactCandidates.isEmpty()
+                ? cached.resultsByStableSlot().getOrDefault(stableCallSlot(callIdentity), List.of())
+                : exactCandidates;
+        for (MediaTaskResponse replay : replayCandidates)
+        {
+            try
+            {
+                if (validator != null && !validator.test(replay.getTextContent()))
+                {
+                    log.warn("历史文本结果未通过业务校验: parentTaskId={}, callIdentity={}, mediaTaskId={}",
+                            bizTaskId, callIdentity, replay.getTaskId());
+                    continue;
+                }
+                log.info("复用已成功文本调用结果: parentTaskId={}, callIdentity={}, mediaTaskId={}",
+                        bizTaskId, callIdentity, replay.getTaskId());
+                return replay;
+            }
+            catch (Exception validationEx)
+            {
+                log.warn("历史文本结果业务校验异常: parentTaskId={}, callIdentity={}, mediaTaskId={}",
+                        bizTaskId, callIdentity, replay.getTaskId());
+            }
+        }
+        return null;
+    }
+
+    private CachedReplayResults getCachedReplayResults(ReplayCacheKey cacheKey, long now)
+    {
+        synchronized (successfulReplayCacheLock)
+        {
+            removeExpiredReplayEntries(now);
+            return successfulReplayCache.get(cacheKey);
+        }
+    }
+
+    private void cacheReplayResults(ReplayCacheKey cacheKey, CachedReplayResults cached, long now)
+    {
+        if (cached.textChars() > REPLAY_CACHE_MAX_TEXT_CHARS)
+        {
+            return;
+        }
+        synchronized (successfulReplayCacheLock)
+        {
+            removeExpiredReplayEntries(now);
+            CachedReplayResults replaced = successfulReplayCache.put(cacheKey, cached);
+            if (Objects.nonNull(replaced))
+            {
+                successfulReplayCacheTextChars -= replaced.textChars();
+            }
+            successfulReplayCacheTextChars += cached.textChars();
+            while (successfulReplayCache.size() > REPLAY_CACHE_MAX_ENTRIES
+                    || successfulReplayCacheTextChars > REPLAY_CACHE_MAX_TEXT_CHARS)
+            {
+                Map.Entry<ReplayCacheKey, CachedReplayResults> eldest =
+                        successfulReplayCache.entrySet().iterator().next();
+                successfulReplayCacheTextChars -= eldest.getValue().textChars();
+                successfulReplayCache.remove(eldest.getKey());
+            }
+        }
+    }
+
+    private void removeExpiredReplayEntries(long now)
+    {
+        var iterator = successfulReplayCache.entrySet().iterator();
+        while (iterator.hasNext())
+        {
+            Map.Entry<ReplayCacheKey, CachedReplayResults> entry = iterator.next();
+            boolean inactive = !extractBillingService.hasActiveResumeBilling(
+                    entry.getKey().parentTaskId(), entry.getKey().currentTraceId());
+            if (entry.getValue().expireAt() <= now || inactive)
+            {
+                successfulReplayCacheTextChars -= entry.getValue().textChars();
+                iterator.remove();
+            }
+        }
+    }
+
+    private CachedReplayResults loadSuccessfulReplayResults(ReplayCacheKey cacheKey, long now)
+    {
+        List<AidMediaTask> candidates = mediaTaskService.list(
+                Wrappers.<AidMediaTask>lambdaQuery()
+                        .select(AidMediaTask::getId, AidMediaTask::getModelName,
+                                AidMediaTask::getRequestJson, AidMediaTask::getResultText)
+                        .eq(AidMediaTask::getBizTaskId, cacheKey.parentTaskId())
+                        .eq(AidMediaTask::getBizTaskType, cacheKey.bizTaskType())
+                        .eq(AidMediaTask::getMediaType, "TEXT")
+                        .eq(AidMediaTask::getStatus, LLM_STATUS_SUCCEEDED)
+                        .eq(AidMediaTask::getUserId, cacheKey.userId())
+                        .eq(AidMediaTask::getModelName, cacheKey.modelCode())
+                        .isNotNull(AidMediaTask::getResultText)
+                        .orderByDesc(AidMediaTask::getId));
+        Map<String, List<MediaTaskResponse>> results = new LinkedHashMap<>();
+        Map<String, List<MediaTaskResponse>> slotResults = new LinkedHashMap<>();
+        long textChars = 0L;
+        for (AidMediaTask candidate : candidates)
+        {
+            try
+            {
+                JsonNode request = OBJECT_MAPPER.readTree(candidate.getRequestJson());
+                String identity = request.path("callIdentity").asText();
+                String attemptId = request.path("billingAttemptId").asText();
+                if (StrUtil.isBlank(identity) || StrUtil.isBlank(candidate.getResultText())
+                        || request.path("billingExempt").asBoolean(false)
+                        || !Objects.equals(cacheKey.priorTraceId(), attemptId))
+                {
+                    continue;
+                }
+                MediaTaskResponse response = MediaTaskResponse.builder()
+                        .taskId(candidate.getId())
+                        .mediaType("TEXT")
+                        .modelName(candidate.getModelName())
+                        .status(LLM_STATUS_SUCCEEDED)
+                        .textContent(candidate.getResultText())
+                        .build();
+                // 查询已按 id 倒序；每个 identity/slot 只保留最近一次已付费成功结果。
+                // 若最近结果未通过当前业务 validator，必须发起新调用，不能继续回退到更老周期，
+                // 否则可能在业务输入曾变更时复用古老但结构合法的输出。
+                if (!results.containsKey(identity))
+                {
+                    results.put(identity, List.of(response));
+                    // 容量只统计真正保留的“每个精确身份最新一条”。同身份更老的重复行不会进入缓存，
+                    // 也不能把它们计入权重，否则会误判超限并导致续生每个调用都重新全量扫描。
+                    textChars += candidate.getResultText().length();
+                }
+                slotResults.putIfAbsent(stableCallSlot(identity), List.of(response));
+            }
+            catch (Exception replayEx)
+            {
+                log.warn("历史文本结果索引跳过: parentTaskId={}, mediaTaskId={}, err={}",
+                        cacheKey.parentTaskId(), candidate.getId(), replayEx.getMessage());
+            }
+        }
+        Map<String, List<MediaTaskResponse>> immutableResults = new LinkedHashMap<>();
+        results.forEach((identity, responses) -> immutableResults.put(identity, List.copyOf(responses)));
+        Map<String, List<MediaTaskResponse>> immutableSlotResults = new LinkedHashMap<>();
+        slotResults.forEach((slot, responses) -> immutableSlotResults.put(slot, List.copyOf(responses)));
+        return new CachedReplayResults(Map.copyOf(immutableResults), Map.copyOf(immutableSlotResults),
+                now + REPLAY_CACHE_TTL_MILLIS, textChars);
+    }
+
+    private String stableCallSlot(String callIdentity)
+    {
+        if (StrUtil.isBlank(callIdentity))
+        {
+            return callIdentity;
+        }
+        int marker = callIdentity.lastIndexOf(CALL_INPUT_SHA_MARKER);
+        return marker >= 0 ? callIdentity.substring(0, marker) : callIdentity;
+    }
+
+    private boolean isReplayJsonValid(String replayText,
+                                      java.util.function.Predicate<JsonNode> replayValidator)
+    {
+        try
+        {
+            JsonNode parsed = parseAiResponse(replayText);
+            return replayValidator == null || replayValidator.test(parsed);
+        }
+        catch (Exception e)
+        {
+            return false;
+        }
     }
 
     /**
@@ -682,6 +1133,53 @@ public class AssetExtractHelper
                                         String modelCode, Long bizTaskId, Long userId,
                                         String taskPromptDigest, String bizTaskType)
     {
+        return callLlmRawWithInputs(promptTemplate, userInputs, modelCode, bizTaskId, userId,
+                taskPromptDigest, bizTaskType, null);
+    }
+
+    public String callLlmRawWithInputs(String promptTemplate, Map<String, String> userInputs,
+                                        String modelCode, Long bizTaskId, Long userId,
+                                        String taskPromptDigest, String bizTaskType,
+                                        String callIdentity)
+    {
+        return callLlmRawWithInputsInternal(promptTemplate, userInputs, modelCode, bizTaskId,
+                userId, taskPromptDigest, bizTaskType, callIdentity, StrUtil::isNotBlank, null, null);
+    }
+
+    /**
+     * 模板化原始文本调用的续生回放版本。validator 只校验历史成功 child 的输出是否仍可被
+     * 当前业务消费；校验不通过时跳过该历史候选，并创建本周期的新 child 调用。
+     */
+    public String callLlmRawWithInputs(String promptTemplate, Map<String, String> userInputs,
+                                        String modelCode, Long bizTaskId, Long userId,
+                                        String taskPromptDigest, String bizTaskType,
+                                        String callIdentity,
+                                        java.util.function.Predicate<String> replayValidator)
+    {
+        return callLlmRawWithInputs(promptTemplate, userInputs, modelCode, bizTaskId, userId,
+                taskPromptDigest, bizTaskType, callIdentity, replayValidator, null);
+    }
+
+    public String callLlmRawWithInputs(String promptTemplate, Map<String, String> userInputs,
+                                        String modelCode, Long bizTaskId, Long userId,
+                                        String taskPromptDigest, String bizTaskType,
+                                        String callIdentity,
+                                        java.util.function.Predicate<String> replayValidator,
+                                        String expectedTraceId)
+    {
+        return callLlmRawWithInputsInternal(promptTemplate, userInputs, modelCode, bizTaskId,
+                userId, taskPromptDigest, bizTaskType, callIdentity, replayValidator,
+                expectedTraceId, null);
+    }
+
+    private String callLlmRawWithInputsInternal(String promptTemplate, Map<String, String> userInputs,
+                                                 String modelCode, Long bizTaskId, Long userId,
+                                                 String taskPromptDigest, String bizTaskType,
+                                                 String callIdentity,
+                                                 java.util.function.Predicate<String> replayValidator,
+                                                 String expectedTraceId,
+                                                 Integer requestedOutputTokens)
+    {
         String systemPrompt = stripPlaceholders(promptTemplate, userInputs);
         String userContent = buildStructuredUserContent(userInputs);
 
@@ -690,15 +1188,104 @@ public class AssetExtractHelper
         textRequest.setBizTaskId(bizTaskId);
         textRequest.setBizTaskType(StrUtil.isNotBlank(bizTaskType) ? bizTaskType : BIZ_TASK_TYPE_EXTRACT);
         textRequest.setUserId(userId);
-        textRequest.setBillingExempt(true);
         textRequest.setPreferNonStream(true);
-        textRequest.setOptions(buildLlmOptions());
+        textRequest.setOptions(buildLlmOptions(callIdentity, requestedOutputTokens));
         textRequest.setTaskPromptDigest(taskPromptDigest);
         textRequest.setMessages(buildMessages(systemPrompt, userContent, modelCode));
+        TextCallBillingContext billingContext = applyTextCallBilling(textRequest, bizTaskId,
+                textRequest.getBizTaskType(), modelCode, callIdentity, expectedTraceId);
+
+        MediaTaskResponse replay = findSuccessfulLlmResponseForResume(bizTaskId, userId,
+                textRequest.getBizTaskType(), modelCode, textRequest.getCallIdentity(), billingContext,
+                replayValidator == null ? StrUtil::isNotBlank : replayValidator);
+        if (Objects.nonNull(replay))
+        {
+            return replay.getTextContent();
+        }
 
         MediaTaskResponse taskResponse = mediaGenerationService.generateText(textRequest);
         MediaTaskResponse finalResponse = resolveLlmResponse(taskResponse);
         return finalResponse.getTextContent();
+    }
+
+    private TextCallBillingContext applyTextCallBilling(MediaTextGenerateRequest request, Long parentTaskId,
+                                                        String bizTaskType, String modelCode,
+                                                        String callIdentity, String expectedTraceId)
+    {
+        TextCallBillingContext context = extractBillingService.resolveTextCallBillingContext(parentTaskId);
+        if (request.getProjectId() == null)
+        {
+            request.setProjectId(context.projectId());
+        }
+        if (request.getEpisodeId() == null)
+        {
+            request.setEpisodeId(context.episodeId());
+        }
+        if (StrUtil.isBlank(expectedTraceId))
+        {
+            if (context.mediaTaskBilling())
+            {
+                throw new TextTaskExecutionRejectedException();
+            }
+        }
+        else if (!Objects.equals(expectedTraceId, context.billingTraceId()))
+        {
+            throw new TextTaskExecutionRejectedException();
+        }
+        request.setBillingExempt(!context.mediaTaskBilling());
+        if (StrUtil.isNotBlank(callIdentity))
+        {
+            // PARENT_TASK 也持久化稳定槽位和输入摘要，父任务才能把并行子调用精确映射到逐次估算。
+            request.setCallIdentity(appendInputSha(callIdentity, request.getMessages(), modelCode));
+        }
+        if (!context.mediaTaskBilling())
+        {
+            // 旧 FROZEN 周期及安全回退周期继续由父任务结算，严禁子任务重复扣费。
+            return context;
+        }
+        if (StrUtil.isBlank(callIdentity))
+        {
+            throw new com.aid.common.exception.ServiceException("调用身份缺失");
+        }
+        String normalizedIdentity = request.getCallIdentity();
+        String identityMaterial = String.join("|",
+                StrUtil.blankToDefault(context.parentTaskType(), "unknown"),
+                String.valueOf(parentTaskId),
+                context.billingTraceId(),
+                StrUtil.blankToDefault(bizTaskType, BIZ_TASK_TYPE_EXTRACT),
+                normalizedIdentity,
+                StrUtil.blankToDefault(modelCode, "unknown"));
+        request.setBillingAttemptId(context.billingTraceId());
+        request.setCallIdentity(normalizedIdentity);
+        request.setCallId(SecureUtil.sha256(identityMaterial));
+        return context;
+    }
+
+    private String appendInputSha(String callIdentity,
+                                  List<MediaTextGenerateRequest.TextMessageItem> messages,
+                                  String modelCode)
+    {
+        if (StrUtil.isBlank(callIdentity))
+        {
+            return callIdentity;
+        }
+        String baseIdentity = callIdentity.trim();
+        int existingMarker = baseIdentity.lastIndexOf(CALL_INPUT_SHA_MARKER);
+        if (existingMarker >= 0)
+        {
+            baseIdentity = baseIdentity.substring(0, existingMarker);
+        }
+        try
+        {
+            String inputMaterial = StrUtil.blankToDefault(modelCode, "unknown") + "|"
+                    + OBJECT_MAPPER.writeValueAsString(messages == null ? List.of() : messages);
+            return baseIdentity + CALL_INPUT_SHA_MARKER + SecureUtil.sha256(inputMaterial);
+        }
+        catch (Exception e)
+        {
+            log.error("文本调用身份摘要失败: callIdentity={}", baseIdentity, e);
+            throw new com.aid.common.exception.ServiceException("调用身份异常");
+        }
     }
 
     /**

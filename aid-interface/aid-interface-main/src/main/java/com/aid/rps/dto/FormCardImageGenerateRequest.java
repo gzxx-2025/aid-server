@@ -6,14 +6,14 @@ import jakarta.validation.constraints.NotEmpty;
 import lombok.Data;
 
 /**
- * 批量角色设定卡生成请求 DTO，基于白底图批量生成角色设定卡（仅 character）。
+ * 批量角色设定卡生成请求 DTO，基于平台白底主图、上传角色图或编辑生成图批量生成角色设定卡（仅 character）。
  *
  * @author 视觉AID
  */
 @Data
 public class FormCardImageGenerateRequest
 {
-    /** 白底图对应的图片实例ID列表（aid_role_prop_scene_form_image.id），批量生成 */
+    /** 角色源图对应的图片实例ID列表（平台白底主图、上传角色图或编辑生成图），批量生成 */
     @NotEmpty(message = "图片ID不能为空")
     private List<Long> imageIds;
 

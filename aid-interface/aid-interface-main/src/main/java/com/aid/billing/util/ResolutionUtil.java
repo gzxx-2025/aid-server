@@ -11,6 +11,7 @@ public final class ResolutionUtil {
     }
 
     /** 常见尺寸到分辨率等级的映射（宽高任意一边达到阈值即归入对应等级） */
+    private static final int THRESHOLD_4K = 3840;
     private static final int THRESHOLD_2K = 2048;
     private static final int THRESHOLD_1K = 1024;
 
@@ -26,7 +27,7 @@ public final class ResolutionUtil {
             return "1K";
         }
         // 统一分隔符
-        String normalized = size.toLowerCase().replace('x', '*');
+        String normalized = size.toLowerCase().replace('x', '*').replace('×', '*');
         String[] parts = normalized.split("\\*");
         if (parts.length < 2) {
             return "1K";
@@ -35,7 +36,7 @@ public final class ResolutionUtil {
             int w = Integer.parseInt(parts[0].trim());
             int h = Integer.parseInt(parts[1].trim());
             int maxDim = Math.max(w, h);
-            if (maxDim >= THRESHOLD_2K * 2) {
+            if (maxDim >= THRESHOLD_4K) {
                 return "4K";
             }
             if (maxDim >= THRESHOLD_2K) {
@@ -89,7 +90,7 @@ public final class ResolutionUtil {
         if (size == null || size.isBlank()) {
             return null;
         }
-        String normalized = size.toLowerCase().replace('x', '*');
+        String normalized = size.toLowerCase().replace('x', '*').replace('×', '*');
         String[] parts = normalized.split("\\*");
         if (parts.length < 2) {
             return null;

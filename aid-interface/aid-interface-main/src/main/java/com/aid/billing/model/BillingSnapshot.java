@@ -30,6 +30,9 @@ public class BillingSnapshot {
     /** 计费规则版本号 */
     private Integer billingVersion;
 
+    /** 本次任务创建时是否免费；历史快照缺失时按收费处理 */
+    private Boolean isFree;
+
     /** 完整计费规则JSON（文本结算重算时使用，避免依赖实时模型配置） */
     private String billingRuleJson;
 
@@ -51,17 +54,68 @@ public class BillingSnapshot {
     /** 预估输出Token数（预扣时由chars估算） */
     private Integer estimatedOutputTokens;
 
+    /** 实际下发给文本供应商的输出硬上限。 */
+    private Integer providerOutputTokenCap;
+
+    /** 供应商上限加文档声明的少量越界保护。 */
+    private Integer billingOutputTokenCeiling;
+
     /** 实际输入Token数（结算时从provider usage获取） */
     private Integer actualInputTokens;
 
     /** 实际输出Token数（结算时从provider usage获取） */
     private Integer actualOutputTokens;
 
+    /** 实际未缓存输入Token。 */
+    private Integer actualUncachedInputTokens;
+
+    /** 实际缓存读取输入Token。 */
+    private Integer actualCachedInputTokens;
+
+    /** 实际缓存写入输入Token。 */
+    private Integer actualCacheWriteInputTokens;
+
+    /** 实际可见正文输出Token。 */
+    private Integer actualVisibleOutputTokens;
+
+    /** 实际思考Token；通常是 actualOutputTokens 的子集。 */
+    private Integer actualReasoningTokens;
+
+    /** 是否捕获供应商真实Usage。 */
+    private Boolean providerUsageCaptured;
+
+    /** 供应商是否返回任一 token 用量字段。 */
+    private Boolean hasAnyProviderUsage;
+
+    /** 供应商输入父级 token 是否完整。 */
+    private Boolean inputUsageComplete;
+
+    /** 供应商输出父级 token 是否完整。 */
+    private Boolean outputUsageComplete;
+
+    /** 供应商输入 token 子桶明细是否完整且自洽。 */
+    private Boolean inputTokenBucketsComplete;
+
+    /** 供应商输出 token 子桶明细是否完整且自洽。 */
+    private Boolean outputTokenBucketsComplete;
+
     /** 输入官方原价（元/百万Token），快照时点值 */
     private BigDecimal inputPricePerMillion;
 
     /** 输出官方原价（元/百万Token），快照时点值 */
     private BigDecimal outputPricePerMillion;
+
+    /** 缓存读取输入价格快照。 */
+    private BigDecimal cachedInputPricePerMillion;
+
+    /** 缓存写入输入价格快照。 */
+    private BigDecimal cacheWritePricePerMillion;
+
+    /** 思考Token价格快照。 */
+    private BigDecimal reasoningPricePerMillion;
+
+    /** Token计费口径快照：AGGREGATE / BUCKETED。 */
+    private String usagePricingMode;
 
     /** 预扣积分 */
     private BigDecimal preHoldAmount;
@@ -127,14 +181,35 @@ public class BillingSnapshot {
      * 图片生成模式快照：{@code TEXT_TO_IMAGE} / {@code IMAGE_EDIT} / {@code UPSCALE}，用于审计 SKU 命中。
      */
     private String generateMode;
-    /** 输入媒体附加费基础额（参考图按张 + 输入视频按秒，未乘倍率；结算时原样叠加，不随实际产出量退差） */
+    /** 输入媒体预冻结附加费基础额（参考图按张 + 输入视频按秒，未乘倍率；上游回传用量时按快照单价重算） */
     private BigDecimal inputMediaAmount;
 
-    /** 输入图片计费张数快照（已按 inputPricing.image.maxCount 截断） */
+    /** 输入图片附加费基础额快照（未乘倍率） */
+    private BigDecimal inputImageAmount;
+
+    /** 输入视频附加费基础额快照（未乘倍率） */
+    private BigDecimal inputVideoAmount;
+
+    /** 输入图片官方单价快照（元/张） */
+    private BigDecimal inputImageUnitPrice;
+
+    /** 输入图片免费张数快照 */
+    private Integer inputImageFreeCount;
+
+    /** 输入视频官方单价快照（元/秒） */
+    private BigDecimal inputVideoUnitPrice;
+
+    /** 输入图片收费张数快照（已按 maxCount 截断总数并扣除 freeCount） */
     private Integer billedInputImageCount;
+
+    /** 上游回传的实际输入图片总数 */
+    private Integer actualInputImageCount;
 
     /** 输入视频计费秒数快照（已按 inputPricing.video.maxSeconds 截断） */
     private Integer billedInputVideoSeconds;
+
+    /** 上游回传的实际输入视频秒数 */
+    private Integer actualInputVideoSeconds;
     /** 每秒单价快照（PER_SECOND 计费口径使用） */
     private BigDecimal pricePerSecond;
 

@@ -17,6 +17,7 @@ import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -37,6 +38,7 @@ import com.aid.agent.IAidAgentService;
 import com.aid.billing.dto.BillingCalcResult;
 import com.aid.billing.dto.BillingInput;
 import com.aid.billing.enums.BillingConstants;
+import com.aid.billing.error.BillingBalanceErrors;
 import com.aid.billing.service.BillingAmountCalculator;
 import com.aid.common.aid.rocketmq.config.RocketMqConfigManager;
 import com.aid.common.aid.rocketmq.core.MqTemplateFactory;
@@ -64,6 +66,7 @@ import com.aid.storyboard.service.impl.StoryboardStepChainService;
 
 import cn.hutool.core.collection.CollectionUtil;
 import cn.hutool.core.convert.Convert;
+import cn.hutool.core.util.IdUtil;
 import cn.hutool.core.util.StrUtil;
 import lombok.extern.slf4j.Slf4j;
 
@@ -80,6 +83,7 @@ public class StoryboardImagePromptServiceImpl implements IStoryboardImagePromptS
     private static final String TASK_STATUS_PENDING = "PENDING";
     private static final String TASK_STATUS_QUEUED = "QUEUED";
     private static final String TASK_STATUS_PROCESSING = "PROCESSING";
+    private static final String TASK_STATUS_FINALIZING = "FINALIZING";
     private static final String TASK_STATUS_SUCCEEDED = "SUCCEEDED";
     private static final String TASK_STATUS_FAILED = "FAILED";
     private static final String TASK_STATUS_PARTIAL_FAILED = "PARTIAL_FAILED";
@@ -89,6 +93,7 @@ public class StoryboardImagePromptServiceImpl implements IStoryboardImagePromptS
             TASK_STATUS_SUCCEEDED, TASK_STATUS_PARTIAL_FAILED);
 
     /** Billing status that can be safely rearmed for another resume round. */
+    private static final String BILLING_STATUS_FROZEN = "FROZEN";
     private static final String BILLING_STATUS_SUCCESS = "SUCCESS";
     private static final String BILLING_STATUS_REFUNDED = "FAILED";
 
@@ -186,6 +191,9 @@ public class StoryboardImagePromptServiceImpl implements IStoryboardImagePromptS
 
     @Autowired
     private IExtractBillingService extractBillingService;
+
+    @Autowired
+    private TransactionTemplate transactionTemplate;
 
     @Autowired
     private BillingAmountCalculator billingAmountCalculator;
@@ -415,6 +423,7 @@ public class StoryboardImagePromptServiceImpl implements IStoryboardImagePromptS
                 params.put("outputTokens", BillingConstants.charsToTokens(outputCharsEstimate));
                 params.put("estimatedOutputChars", outputCharsEstimate);
                 params.put("totalChars", inputChars + outputCharsEstimate);
+                helper.applyLlmBillingLimits(params, 1);
                 BillingInput billingInput = new BillingInput("TEXT", params);
                 BillingCalcResult calc = billingAmountCalculator.calculatePreHoldAmount(modelConfig, billingInput);
                 if (calc != null && calc.isMatched() && calc.getAmount() != null)
@@ -465,9 +474,20 @@ public class StoryboardImagePromptServiceImpl implements IStoryboardImagePromptS
             {
                 try
                 {
+                    AidExtractTask current = extractTaskService.selectAidExtractTaskById(task.getId());
+                    String expectedTraceId = current == null ? null : current.getBillingTraceId();
                     LambdaUpdateWrapper<AidExtractTask> upd = Wrappers.lambdaUpdate();
                     upd.eq(AidExtractTask::getId, task.getId());
+                    upd.eq(AidExtractTask::getUserId, userId);
                     upd.eq(AidExtractTask::getStatus, TASK_STATUS_PENDING);
+                    if (expectedTraceId == null)
+                    {
+                        upd.isNull(AidExtractTask::getBillingTraceId);
+                    }
+                    else
+                    {
+                        upd.eq(AidExtractTask::getBillingTraceId, expectedTraceId);
+                    }
                     upd.set(AidExtractTask::getStatus, TASK_STATUS_FAILED);
                     upd.set(AidExtractTask::getErrorMessage, "提交失败: " + StrUtil.sub(origMsg, 0, 80));
                     upd.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
@@ -534,7 +554,7 @@ public class StoryboardImagePromptServiceImpl implements IStoryboardImagePromptS
     }
 
     @Override
-    public String doStoryboardImagePromptBatch(Long taskId, Long userId)
+    public String doStoryboardImagePromptBatch(Long taskId, Long userId, String dispatchToken)
     {
         AidExtractTask task = extractTaskService.selectAidExtractTaskById(taskId);
         if (Objects.isNull(task) || StrUtil.isBlank(task.getInputSnapshot()))
@@ -542,9 +562,10 @@ public class StoryboardImagePromptServiceImpl implements IStoryboardImagePromptS
             throw new ServiceException("任务不存在");
         }
         String executionTraceId = task.getBillingTraceId();
-        if (StrUtil.isBlank(executionTraceId))
+        if (StrUtil.isBlank(dispatchToken) || StrUtil.isBlank(executionTraceId)
+                || !Objects.equals(dispatchToken, executionTraceId))
         {
-            throw new ServiceException("任务状态异常");
+            throw new TextTaskExecutionRejectedException();
         }
         Map<String, Object> input;
         try
@@ -628,7 +649,7 @@ public class StoryboardImagePromptServiceImpl implements IStoryboardImagePromptS
         {
             if (!isCurrentExecutionCycle(taskId, executionTraceId))
             {
-                throw new ServiceException("任务已失效");
+                throw new TextTaskExecutionRejectedException();
             }
             // 取消检查点
             if (assetExtractService.isTaskCancelled(taskId))
@@ -668,7 +689,10 @@ public class StoryboardImagePromptServiceImpl implements IStoryboardImagePromptS
                 totalInputChars += inputChars;
 
                 String llmRaw = helper.callLlmRaw(systemPrompt, userContent, modelCode,
-                        taskId, userId, /*taskPromptDigest*/ null, BIZ_TASK_TYPE);
+                        taskId, userId, /*taskPromptDigest*/ null, BIZ_TASK_TYPE,
+                        // storyboardId 是跨续生不变的业务序位；remaining 列表会收缩，禁止把本轮循环下标写入 stable slot。
+                        "stage=image_prompt,item=" + sb.getId(),
+                        raw -> StrUtil.isNotBlank(parseLlmOutput(raw)), executionTraceId);
                 if (StrUtil.isBlank(llmRaw))
                 {
                     throw new ServiceException("模型返回为空");
@@ -688,12 +712,14 @@ public class StoryboardImagePromptServiceImpl implements IStoryboardImagePromptS
 
                 if (!isCurrentExecutionCycle(taskId, executionTraceId))
                 {
-                    throw new ServiceException("任务已失效");
+                    throw new TextTaskExecutionRejectedException();
                 }
 
                 // 落库（限定 userId 防越权 + 4 个时间/操作字段）
                 LambdaUpdateWrapper<AidStoryboard> upd = Wrappers.lambdaUpdate();
                 upd.eq(AidStoryboard::getId, sb.getId());
+                upd.eq(AidStoryboard::getProjectId, projectId);
+                upd.eq(AidStoryboard::getEpisodeId, episodeId);
                 upd.eq(AidStoryboard::getUserId, userId);
                 upd.eq(AidStoryboard::getDelFlag, DEL_FLAG_NORMAL);
                 upd.set(AidStoryboard::getImagePrompt, prompt);
@@ -702,7 +728,11 @@ public class StoryboardImagePromptServiceImpl implements IStoryboardImagePromptS
                 upd.set(AidStoryboard::getGridType, gridType);
                 upd.set(AidStoryboard::getUpdateTime, DateUtils.getNowDate());
                 upd.set(AidStoryboard::getUpdateBy, String.valueOf(userId));
-                boolean updated = storyboardService.update(upd);
+                boolean updated = Boolean.TRUE.equals(transactionTemplate.execute(status -> {
+                    extractBillingService.assertTextTaskBusinessCommit(
+                            taskId, userId, executionTraceId);
+                    return storyboardService.update(upd);
+                }));
                 if (!updated)
                 {
                     log.error("分镜图脚本落库失败: taskId={}, storyboardId={}, userId={}", taskId, sb.getId(), userId);
@@ -720,6 +750,10 @@ public class StoryboardImagePromptServiceImpl implements IStoryboardImagePromptS
                 int progress = 10 + (i + 1) * 88 / total;
                 sseManager.sendStepProgress(taskId, "generating", progress,
                         "success", "镜头 " + (i + 1) + " 生成完成", i + 1, total);
+            }
+            catch (TextTaskExecutionRejectedException e)
+            {
+                throw e;
             }
             catch (Exception e)
             {
@@ -740,6 +774,11 @@ public class StoryboardImagePromptServiceImpl implements IStoryboardImagePromptS
                 int progress = 10 + (i + 1) * 88 / total;
                 sseManager.sendStepProgress(taskId, "generating", progress,
                         "failed", "镜头 " + (i + 1) + " 失败", i + 1, total);
+                if (BillingBalanceErrors.isPreholdNotEnough(e))
+                {
+                    // 本次未越过 Provider 边界；已成功镜头保留，后续镜头留给主动续生。
+                    break;
+                }
             }
         }
 
@@ -803,7 +842,8 @@ public class StoryboardImagePromptServiceImpl implements IStoryboardImagePromptS
 
     private boolean hasBillableUsage(Map<String, Object> usageData)
     {
-        return usageCount(usageData.get("successful_call_count")) > 0
+        return usageCount(usageData.get("billable_call_count")) > 0
+                || usageCount(usageData.get("successful_call_count")) > 0
                 || usageCount(usageData.get("usage_call_count")) > 0;
     }
 
@@ -822,7 +862,9 @@ public class StoryboardImagePromptServiceImpl implements IStoryboardImagePromptS
                 Wrappers.<AidExtractTask>lambdaQuery()
                         .select(AidExtractTask::getId)
                         .eq(AidExtractTask::getId, taskId)
-                        .eq(AidExtractTask::getStatus, TASK_STATUS_PROCESSING)
+                        .in(AidExtractTask::getStatus,
+                                TASK_STATUS_PROCESSING, TASK_STATUS_FINALIZING)
+                        .eq(AidExtractTask::getBillingStatus, BILLING_STATUS_FROZEN)
                         .eq(AidExtractTask::getBillingTraceId, executionTraceId)
                         .last("LIMIT 1"), false));
     }
@@ -874,8 +916,9 @@ public class StoryboardImagePromptServiceImpl implements IStoryboardImagePromptS
 
         // 续生防重锁（任务级 30 分钟）
         String resumeLockKey = "storyboard:image_prompt:resume:lock:" + taskId;
+        String resumeLockToken = IdUtil.fastSimpleUUID();
         Boolean resumeLocked = redisCache.redisTemplate.opsForValue()
-                .setIfAbsent(resumeLockKey, "1", 30L * 60L, TimeUnit.SECONDS);
+                .setIfAbsent(resumeLockKey, resumeLockToken, 30L * 60L, TimeUnit.SECONDS);
         String originalStatus = task.getStatus();
         if (resumeLocked == null || !resumeLocked)
         {
@@ -994,6 +1037,7 @@ public class StoryboardImagePromptServiceImpl implements IStoryboardImagePromptS
                 params.put("outputTokens", BillingConstants.charsToTokens(outputCharsEstimate));
                 params.put("estimatedOutputChars", outputCharsEstimate);
                 params.put("totalChars", inputChars + outputCharsEstimate);
+                helper.applyLlmBillingLimits(params, 1);
                 BillingInput billingInput = new BillingInput("TEXT", params);
                 BillingCalcResult calc = billingAmountCalculator.calculatePreHoldAmount(modelConfig, billingInput);
                 if (calc != null && calc.isMatched() && calc.getAmount() != null)
@@ -1047,8 +1091,8 @@ public class StoryboardImagePromptServiceImpl implements IStoryboardImagePromptS
             try
             {
                 taskQueueService.executeWithTaskDispatchLock(taskId, () -> {
-                    taskQueueService.clearCancelRequested(taskId);
-                    assetExtractService.clearCancelFlag(taskId);
+                    taskQueueService.clearCancelRequested(taskId, task.getBillingTraceId());
+                    assetExtractService.clearCancelFlag(taskId, task.getBillingTraceId());
 
                     ResumeBillingContext billingContext = null;
                     try
@@ -1103,7 +1147,7 @@ public class StoryboardImagePromptServiceImpl implements IStoryboardImagePromptS
         }
         finally
         {
-            redisCache.deleteObject(resumeLockKey);
+            projectLockGuard.releaseIfMatch(resumeLockKey, resumeLockToken);
         }
     }
     private AssetExtractTaskVO retryChainAfterPromptsReady(AidExtractTask task)
@@ -1121,7 +1165,8 @@ public class StoryboardImagePromptServiceImpl implements IStoryboardImagePromptS
                     ? ChainTriggerResult.failed("提交失败") : chain;
             String resultJson = appendChainFailure(task.getResultData(), failed);
             List<Long> chainChildTaskIds = chainChildTaskIdsFromResult(resultJson);
-            updatePromptChainTerminal(task.getId(), TASK_STATUS_PARTIAL_FAILED, resultJson, chainMessage(failed, "提交失败"));
+            updatePromptChainTerminal(task.getId(), task.getBillingTraceId(),
+                    TASK_STATUS_PARTIAL_FAILED, resultJson, chainMessage(failed, "提交失败"));
             sendPartialFailedSafely(task.getId(), resultJson, chainMessage(failed, "提交失败"),
                     chainChildTaskIds, failed.getChildTaskType());
             throw new ServiceException(chainMessage(failed, "提交失败"));
@@ -1130,7 +1175,8 @@ public class StoryboardImagePromptServiceImpl implements IStoryboardImagePromptS
         String resultJson = appendChainSuccess(task.getResultData(), chain);
         List<Long> chainChildTaskIds = chainChildTaskIdsFromResult(resultJson);
         String nextStatus = hasPromptFailedItems(resultJson) ? TASK_STATUS_PARTIAL_FAILED : TASK_STATUS_SUCCEEDED;
-        updatePromptChainTerminal(task.getId(), nextStatus, resultJson, null);
+        updatePromptChainTerminal(task.getId(), task.getBillingTraceId(),
+                nextStatus, resultJson, null);
         if (TASK_STATUS_SUCCEEDED.equals(nextStatus))
         {
             sendCompleteSafely(task.getId(), resultJson, chainChildTaskIds, chain.getChildTaskType());
@@ -1321,15 +1367,20 @@ public class StoryboardImagePromptServiceImpl implements IStoryboardImagePromptS
         return Objects.nonNull(chain) ? StrUtil.blankToDefault(chain.getMessage(), fallback) : fallback;
     }
 
-    private void updatePromptChainTerminal(Long taskId, String status, String resultJson, String errorMessage)
+    private void updatePromptChainTerminal(Long taskId, String expectedTraceId,
+                                           String status, String resultJson, String errorMessage)
     {
         LambdaUpdateWrapper<AidExtractTask> update = Wrappers.lambdaUpdate();
         update.eq(AidExtractTask::getId, taskId);
+        update.eq(AidExtractTask::getBillingTraceId, expectedTraceId);
         update.set(AidExtractTask::getStatus, status);
         update.set(AidExtractTask::getResultData, resultJson);
         update.set(AidExtractTask::getErrorMessage, errorMessage);
         update.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
-        extractTaskService.update(update);
+        if (!extractTaskService.update(update))
+        {
+            throw new TextTaskExecutionRejectedException();
+        }
     }
 
     private void sendCompleteSafely(Long taskId, String resultJson, List<Long> chainChildTaskIds, String chainChildTaskType)
@@ -1353,7 +1404,7 @@ public class StoryboardImagePromptServiceImpl implements IStoryboardImagePromptS
             log.error("分镜图脚本续生未能抢回任务，跳过退款: taskId={}", taskId);
             return;
         }
-        taskQueueService.releaseSlots(taskId);
+        taskQueueService.releaseSlots(taskId, billingContext.resumeTraceId());
         try
         {
             extractBillingService.rollbackResumeBilling(taskId, userId, billingContext);
@@ -1362,8 +1413,8 @@ public class StoryboardImagePromptServiceImpl implements IStoryboardImagePromptS
         {
             log.error("分镜图脚本续生计费回滚失败: taskId={}", taskId, rollbackEx);
         }
-        taskQueueService.clearCancelRequested(taskId);
-        assetExtractService.clearCancelFlag(taskId);
+        taskQueueService.clearCancelRequested(taskId, billingContext.resumeTraceId());
+        assetExtractService.clearCancelFlag(taskId, billingContext.resumeTraceId());
     }
 
     private String buildLockKey(Long projectId, Long episodeId)
@@ -2185,7 +2236,8 @@ public class StoryboardImagePromptServiceImpl implements IStoryboardImagePromptS
         boolean enqueued = dualModeTaskDispatcher.dispatch(taskId, projectId, episodeId, userId, modelCode,
                 TASK_TYPE_STORYBOARD_IMAGE_PROMPT_BATCH,
                 () -> batchTaskLocalOrchestrator.run(taskId, userId, LOCAL_SPEC,
-                        () -> doStoryboardImagePromptBatch(taskId, userId),
+                        () -> doStoryboardImagePromptBatch(taskId, userId,
+                                taskQueueService.currentLocalDispatchToken(taskId)),
                         () -> assetExtractService.releaseBatchFormLocks(
                                 taskId, TASK_TYPE_STORYBOARD_IMAGE_PROMPT_BATCH,
                                 taskQueueService.currentLocalDispatchToken(taskId))));
@@ -2203,7 +2255,8 @@ public class StoryboardImagePromptServiceImpl implements IStoryboardImagePromptS
         boolean enqueued = dualModeTaskDispatcher.dispatchNow(taskId, projectId, episodeId, userId,
                 modelCode, TASK_TYPE_STORYBOARD_IMAGE_PROMPT_BATCH,
                 () -> batchTaskLocalOrchestrator.run(taskId, userId, LOCAL_SPEC,
-                        () -> doStoryboardImagePromptBatch(taskId, userId),
+                        () -> doStoryboardImagePromptBatch(taskId, userId,
+                                taskQueueService.currentLocalDispatchToken(taskId)),
                         () -> assetExtractService.releaseBatchFormLocks(
                                 taskId, TASK_TYPE_STORYBOARD_IMAGE_PROMPT_BATCH,
                                 taskQueueService.currentLocalDispatchToken(taskId))),

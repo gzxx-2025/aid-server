@@ -5,6 +5,7 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -162,7 +163,8 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
                 AidComicProject::getProjectType, AidComicProject::getCoverUrl,
                 AidComicProject::getPendingCoverUrl, AidComicProject::getAspectRatio,
                 AidComicProject::getScriptType, AidComicProject::getVideoStyleType,
-                AidComicProject::getVideoStyleValue, AidComicProject::getDefaultGenMode,
+                AidComicProject::getVideoStyleValue, AidComicProject::getStyleSource,
+                AidComicProject::getStyleAssetId, AidComicProject::getDefaultGenMode,
                 AidComicProject::getDefaultCreationMode, AidComicProject::getCurrentStep,
                 AidComicProject::getStatus, AidComicProject::getStatusReason,
                 AidComicProject::getIsPublic, AidComicProject::getPublishTime,
@@ -208,7 +210,8 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
                 AidComicProject::getProjectType, AidComicProject::getCoverUrl,
                 AidComicProject::getPendingCoverUrl, AidComicProject::getAspectRatio,
                 AidComicProject::getScriptType, AidComicProject::getVideoStyleType,
-                AidComicProject::getVideoStyleValue, AidComicProject::getDefaultGenMode,
+                AidComicProject::getVideoStyleValue, AidComicProject::getStyleSource,
+                AidComicProject::getStyleAssetId, AidComicProject::getDefaultGenMode,
                 AidComicProject::getDefaultCreationMode, AidComicProject::getCurrentStep,
                 AidComicProject::getStatus, AidComicProject::getStatusReason,
                 AidComicProject::getIsPublic, AidComicProject::getPublishTime,
@@ -382,6 +385,9 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
         project.setScriptType(request.getScriptType());
         project.setVideoStyleType(styleName);
         project.setVideoStyleValue(stylePrompt);
+        project.setStyleSource(Objects.nonNull(resolvedStyle)
+                ? request.getStyleSource().trim().toLowerCase(Locale.ROOT) : null);
+        project.setStyleAssetId(Objects.nonNull(resolvedStyle) ? request.getStyleAssetId() : null);
         project.setHiddenStylePromptJson(Objects.nonNull(resolvedStyle)
                 ? resolvedStyle.hiddenPromptJson() : null);
         project.setDefaultGenMode(request.getDefaultGenMode());
@@ -426,6 +432,8 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
         ResolvedProjectStyle resolvedStyle = null;
         String candidateStyleName = null;
         String candidateStylePrompt = null;
+        String candidateStyleSource = null;
+        Long candidateStyleAssetId = null;
         if (styleSelectorTouched) {
             if (StrUtil.isBlank(request.getStyleSource()) || Objects.isNull(request.getStyleAssetId())) {
                 log.info("修改项目拒绝：风格来源与ID必须同时传: projectId={}, source={}, assetId={}",
@@ -436,6 +444,8 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
                     request.getStyleSource(), request.getStyleAssetId(), userId);
             candidateStyleName = resolvedStyle.styleName();
             candidateStylePrompt = resolvedStyle.publicPrompt();
+            candidateStyleSource = request.getStyleSource().trim().toLowerCase(Locale.ROOT);
+            candidateStyleAssetId = request.getStyleAssetId();
         } else if (legacyStyleTouched) {
             candidateStyleName = request.getVideoStyleType();
             candidateStylePrompt = request.getVideoStyleValue();
@@ -447,8 +457,10 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
         boolean changingStyle = (styleSelectorTouched || legacyStyleTouched)
                 && (!Objects.equals(candidateStyleName, project.getVideoStyleType())
                 || !Objects.equals(candidateStylePrompt, project.getVideoStyleValue())
-                || (Objects.nonNull(resolvedStyle)
-                && !Objects.equals(resolvedStyle.hiddenPromptJson(), project.getHiddenStylePromptJson())));
+                || (styleSelectorTouched
+                && (!Objects.equals(candidateStyleSource, project.getStyleSource())
+                || !Objects.equals(candidateStyleAssetId, project.getStyleAssetId())
+                || !Objects.equals(resolvedStyle.hiddenPromptJson(), project.getHiddenStylePromptJson()))));
 
         // 公开锁：公开期间展示信息（名称/介绍/封面）随时可改，内容参数字段仍锁定
         boolean touchingContentFields = request.getAspectRatio() != null || request.getScriptType() != null
@@ -457,29 +469,9 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
         if (touchingContentFields) {
             projectContentGuardService.assertProjectEditable(project);
         }
-        // 剧集类型且已有集数时，四个字段不可修改，直接忽略
-        boolean isSeries = ProjectTypeEnum.SERIES.getValue().equals(project.getProjectType());
-        boolean hasEpisodes = false;
-        if (isSeries) {
-            long episodeCount = aidComicEpisodeService.count(
-                    Wrappers.<AidComicEpisode>lambdaQuery()
-                            .eq(AidComicEpisode::getProjectId, project.getId())
-                            .eq(AidComicEpisode::getDelFlag, "0"));
-            hasEpisodes = episodeCount > 0;
-        }
-        boolean lockFields = isSeries && hasEpisodes;
-        if (lockFields) {
-            // 剧集已创建集数，画面比例/剧本类型/视频风格等内容参数不允许修改
-            if (request.getAspectRatio() != null || request.getScriptType() != null || changingStyle) {
-                log.info("项目已创建剧集，内容参数禁止修改, projectId={}", request.getId());
-                throw new ServiceException("已建集不可改");
-            }
-            validateEnumFields(null, null, null,
-                    request.getDefaultGenMode(), request.getDefaultCreationMode());
-        } else {
-            validateEnumFields(null, request.getAspectRatio(), request.getScriptType(),
-                    request.getDefaultGenMode(), request.getDefaultCreationMode());
-        }
+        // 剧集记录只是导入剧本后的内容容器，不能作为项目配置锁；真实下游数据分别由资产锁和分镜锁保护。
+        validateEnumFields(null, request.getAspectRatio(), request.getScriptType(),
+                request.getDefaultGenMode(), request.getDefaultCreationMode());
         // 分镜已生成锁：项目下任意剧集/电影分镜已存在时，禁止切换 经济/性能(defaultGenMode)
         // 与 解说/演绎(scriptType)；分镜未生成时全量放行（与「创作模式锁定」同口径）
         boolean changingGenMode = request.getDefaultGenMode() != null
@@ -540,22 +532,21 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
         if (!reviewMetadata && request.getCoverUrl() != null) {
             project.setCoverUrl(candidateCoverUrl);
         }
-        // 剧集类型且已有集数时 aspectRatio、scriptType、videoStyleType、videoStyleValue 不可修改，直接忽略
-        if (!lockFields) {
-            if (request.getAspectRatio() != null) {
-                project.setAspectRatio(request.getAspectRatio());
-            }
-            if (request.getScriptType() != null) {
-                project.setScriptType(request.getScriptType());
-            }
-            if (changingStyle) {
-                assertStyleSwitchAllowed(project.getId());
-                project.setVideoStyleType(candidateStyleName);
-                project.setVideoStyleValue(candidateStylePrompt);
-                // 新协议复制源模板；旧协议切换清空旧快照，角色链路安全回退新的公开风格。
-                project.setHiddenStylePromptJson(Objects.nonNull(resolvedStyle)
-                        ? resolvedStyle.hiddenPromptJson() : null);
-            }
+        if (request.getAspectRatio() != null) {
+            project.setAspectRatio(request.getAspectRatio());
+        }
+        if (request.getScriptType() != null) {
+            project.setScriptType(request.getScriptType());
+        }
+        if (changingStyle) {
+            assertStyleSwitchAllowed(project.getId());
+            project.setVideoStyleType(candidateStyleName);
+            project.setVideoStyleValue(candidateStylePrompt);
+            project.setStyleSource(candidateStyleSource);
+            project.setStyleAssetId(candidateStyleAssetId);
+            // 新协议复制源模板；旧协议切换清空旧快照，角色链路安全回退新的公开风格。
+            project.setHiddenStylePromptJson(Objects.nonNull(resolvedStyle)
+                    ? resolvedStyle.hiddenPromptJson() : null);
         }
         if (request.getDefaultGenMode() != null) {
             project.setDefaultGenMode(request.getDefaultGenMode());
@@ -591,6 +582,10 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
                 || Objects.isNull(resolvedStyle.hiddenPromptJson()))) {
             // MyBatis-Plus 默认忽略 null，需显式清除旧项目隐藏快照，防止串用上一风格。
             updateWrapper.set(AidComicProject::getHiddenStylePromptJson, null);
+        }
+        if (changingStyle && Objects.isNull(resolvedStyle)) {
+            updateWrapper.set(AidComicProject::getStyleSource, null);
+            updateWrapper.set(AidComicProject::getStyleAssetId, null);
         }
         if (reviewMetadata) {
             // 实体更新默认忽略 null，需显式清空上一次驳回原因。
@@ -1193,6 +1188,8 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
                 .scriptType(project.getScriptType())
                 .videoStyleType(project.getVideoStyleType())
                 .videoStyleValue(project.getVideoStyleValue())
+                .styleSource(project.getStyleSource())
+                .styleAssetId(project.getStyleAssetId())
                 .styleLocked(styleLocked)
                 .defaultGenMode(project.getDefaultGenMode())
                 .defaultCreationMode(project.getDefaultCreationMode())

@@ -16,15 +16,33 @@ public interface ProviderProbe {
     String protocol();
 
     /**
-     * 本 Probe 归属的服务商编码（可选）。当模型 {@code protocol} 取不到专用 Probe 时，
-     * 上层按 {@code aid_ai_provider.provider_code} 回退匹配本方法返回值。
-     * 用于 protocol 为空、但需按厂商做真实探活的场景（如即梦 SigV4 / 火山 Ark SDK）。
-     * 默认返回 null 表示不参与 providerCode 回退匹配。
+     * 本 Probe 归属的服务商编码（可选）。上层优先按服务商选择只读元数据探测，
+     * 未命中时再按模型协议选择安全回退探测。
+     * 默认返回 null 表示不参与服务商匹配。
      *
      * @return 服务商编码；默认 null
      */
     default String providerCode() {
         return null;
+    }
+
+    /**
+     * 判断服务商级探测能否安全使用该模型配置。
+     *
+     * @param model 候选模型
+     * @return 是否支持；默认支持
+     */
+    default boolean supportsModel(AidAiModel model) {
+        return true;
+    }
+
+    /**
+     * 判断当前探测器是否必须取得具体模型配置。
+     *
+     * @return 是否必须传入模型；默认可执行供应商级只读查询
+     */
+    default boolean requiresModel() {
+        return false;
     }
 
     /**

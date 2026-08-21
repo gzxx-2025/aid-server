@@ -11,6 +11,8 @@ import com.aid.media.provider.ProviderSubmitResult;
 import com.aid.media.provider.ProviderTaskResult;
 import com.aid.media.provider.TextChatOpenAiPayloadBuilder;
 import com.aid.media.provider.TextProviderClient;
+import com.aid.media.provider.TextOutputLimitResolver;
+import com.aid.media.provider.TextReasoningOptionsResolver;
 import com.aid.media.provider.TextStreamCallbacks;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -37,6 +39,7 @@ public class GenericOpenAiCompatibleTextProviderClient implements TextProviderCl
     @Override
     public void streamChat(AiModelConfigVo modelConfig, MediaTextGenerateRequest request,
                            TextStreamCallbacks callbacks) throws IOException {
+        TextOutputLimitResolver.normalize(request, modelConfig);
         String url = resolveUrlOrFail(modelConfig, callbacks, true);
         if (url == null) {
             return;
@@ -53,6 +56,15 @@ public class GenericOpenAiCompatibleTextProviderClient implements TextProviderCl
         List<Map<String, Object>> messages = TextChatOpenAiPayloadBuilder.buildMessageMaps(modelConfig, request);
         Map<String, Object> mergedOptions = OpenAiCompatiblePayloadResolver.mergeExtraBody(
                 modelConfig.getExtraBodyJson(), modelConfig.getModelExtraBodyJson(), request.getOptions());
+        mergedOptions = TextReasoningOptionsResolver.resolveOpenAiCompatible(modelConfig, mergedOptions);
+        if (request.getOptions() != null && Boolean.parseBoolean(String.valueOf(
+                request.getOptions().get(TextReasoningOptionsResolver.ENABLED_KEY)))) {
+            if (mergedOptions == null) {
+                mergedOptions = new java.util.LinkedHashMap<>();
+            }
+            // 流式入口的显式思考必须覆盖旧模型 stream=false；chatSync 不经过此分支。
+            mergedOptions.put("stream", true);
+        }
         // 结构化输出：模型声明支持且消息含 JSON 关键词时注入 response_format=json_object，避免格式错误
         mergedOptions = com.aid.media.provider.StructuredOutputSupport
                 .applyJsonModeIfSupported(modelConfig, messages, mergedOptions);
@@ -76,6 +88,7 @@ public class GenericOpenAiCompatibleTextProviderClient implements TextProviderCl
 
     @Override
     public ProviderSubmitResult chatSync(AiModelConfigVo modelConfig, MediaTextGenerateRequest request) {
+        TextOutputLimitResolver.normalize(request, modelConfig);
         String url = OpenAiCompatiblePayloadResolver.buildApiUrl(
                 modelConfig != null ? modelConfig.getBaseUrl() : null,
                 modelConfig != null ? modelConfig.getApiSuffix() : null,
@@ -98,6 +111,7 @@ public class GenericOpenAiCompatibleTextProviderClient implements TextProviderCl
         List<Map<String, Object>> messages = TextChatOpenAiPayloadBuilder.buildMessageMaps(modelConfig, request);
         Map<String, Object> mergedOptions = OpenAiCompatiblePayloadResolver.mergeExtraBody(
                 modelConfig.getExtraBodyJson(), modelConfig.getModelExtraBodyJson(), request.getOptions());
+        mergedOptions = TextReasoningOptionsResolver.resolveOpenAiCompatible(modelConfig, mergedOptions);
         // 结构化输出：模型声明支持且消息含 JSON 关键词时注入 response_format=json_object，避免格式错误
         mergedOptions = com.aid.media.provider.StructuredOutputSupport
                 .applyJsonModeIfSupported(modelConfig, messages, mergedOptions);
@@ -145,7 +159,7 @@ public class GenericOpenAiCompatibleTextProviderClient implements TextProviderCl
     }
 
     /**
-     * 将非流式完整响应适配为文本回调，兼容现有任务聚合与前端 SSE 接口。
+     * 将非流式完整响应适配为正文与 usage 回调；完整 reasoning 不伪装成实时 SSE。
      */
     private void emitSyncResult(ProviderSubmitResult result, TextStreamCallbacks callbacks,
                                 AiModelConfigVo modelConfig, String model) {
@@ -158,6 +172,9 @@ public class GenericOpenAiCompatibleTextProviderClient implements TextProviderCl
         if (StringUtils.isNotBlank(result.getRawResponse())) {
             callbacks.onSseDataLine(result.getRawResponse());
         }
+        if (result.getUsage() != null && !result.getUsage().isEmpty()) {
+            callbacks.onUsage(result.getUsage());
+        }
         if (StringUtils.isBlank(result.getDirectText())) {
             log.error("OpenAI 兼容非流式未返回正文, providerCode={}, model={}, responseLen={}",
                     modelConfig.getProviderCode(), model, StringUtils.length(result.getRawResponse()));
@@ -166,9 +183,6 @@ public class GenericOpenAiCompatibleTextProviderClient implements TextProviderCl
             return;
         }
         callbacks.onDelta(result.getDirectText());
-        if (result.getUsage() != null && !result.getUsage().isEmpty()) {
-            callbacks.onUsage(result.getUsage());
-        }
         callbacks.onComplete();
     }
 

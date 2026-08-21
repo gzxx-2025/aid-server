@@ -34,8 +34,6 @@ public final class BillingInputExtractor {
     private static final int VIDEO_DURATION_HARD_CAP_SECONDS = 300;
     /** TTS text 字符硬上限（与 StoryboardWorkbenchServiceImpl.TTS_TEXT_MAX_LENGTH 对齐）。 */
     private static final int TTS_TEXT_HARD_CAP_CHARS = 50_000;
-    /** Prompt 字符硬上限（inputChars 的保护，避免 BillingEstimateResolver 侧被打爆）。 */
-    private static final int PROMPT_INPUT_HARD_CAP_CHARS = 2_000_000;
 
     private BillingInputExtractor() {
     }
@@ -67,19 +65,28 @@ public final class BillingInputExtractor {
         Map<String, Object> params = new HashMap<>();
         // 分辨率三级取值，保证计费命中的 SKU 与真实出图档位一致：
         // 1) options.resolution 显式档位（Vidu 等厂商为 1080p/2K/4K 枚举，与下发上游的字段同源）
-        // 2) size 本身是档位串（业务层存在 setSize("2K") 的用法）
-        // 3) size 为宽高尺寸串时按像素推断（4K/2K/1K/SD）
+        // 2) options.size 或顶层 size 本身是档位串（业务层存在 setSize("2K") 的用法）
+        // 3) options.size 或顶层 size 为宽高尺寸串时按像素推断（4K/2K/1K/SD）
         String resolution = null;
-        String explicitResolution = extractFromOptions(request.getOptions(), "resolution");
-        if (CharSequenceUtil.isNotBlank(explicitResolution)) {
-            String tier = ResolutionUtil.parseTier(explicitResolution);
-            resolution = CharSequenceUtil.isNotBlank(tier) ? tier : explicitResolution.trim();
+        String effectiveSize = extractFromOptions(request.getOptions(), "size");
+        if (CharSequenceUtil.isBlank(effectiveSize)) {
+            effectiveSize = request.getSize();
+        }
+        if (isGptImageModel(effectiveModelCode)) {
+            // OpenAI 图片协议只使用 size；不能采信额外的 resolution，否则可伪造低档位绕过 4K 计费。
+            resolution = ResolutionUtil.parseResolution(effectiveSize);
+        } else {
+            String explicitResolution = extractFromOptions(request.getOptions(), "resolution");
+            if (CharSequenceUtil.isNotBlank(explicitResolution)) {
+                String tier = ResolutionUtil.parseTier(explicitResolution);
+                resolution = CharSequenceUtil.isNotBlank(tier) ? tier : explicitResolution.trim();
+            }
         }
         if (CharSequenceUtil.isBlank(resolution)) {
-            resolution = ResolutionUtil.parseTier(request.getSize());
+            resolution = ResolutionUtil.parseTier(effectiveSize);
         }
         if (CharSequenceUtil.isBlank(resolution)) {
-            resolution = ResolutionUtil.parseResolution(request.getSize());
+            resolution = ResolutionUtil.parseResolution(effectiveSize);
         }
         params.put("resolution", resolution);
         // 宽高比
@@ -124,10 +131,15 @@ public final class BillingInputExtractor {
         // 参考图张数（gpt-image 等编辑模式按张数预估高保真输入 token 时使用）
         params.put("referenceImageCount", countReferenceImages(request));
         // 保留原始 size 值（TOKEN 模型估算分辨率档位的兜底来源）
-        if (request != null && CharSequenceUtil.isNotBlank(request.getSize())) {
-            params.put("rawSize", request.getSize().trim());
+        if (CharSequenceUtil.isNotBlank(effectiveSize)) {
+            params.put("rawSize", effectiveSize.trim());
         }
         return new BillingInput("IMAGE", params);
+    }
+
+    private static boolean isGptImageModel(String modelCode) {
+        return CharSequenceUtil.isNotBlank(modelCode)
+            && modelCode.toLowerCase().contains("gpt-image");
     }
 
     /**
@@ -248,7 +260,10 @@ public final class BillingInputExtractor {
     public static BillingInput fromVideoRequest(MediaVideoGenerateRequest request) {
         Map<String, Object> params = new HashMap<>();
         // 时长（秒）：加硬上限避免前端塞超大 duration 打爆结算
-        int rawDuration = request.getDurationSeconds() != null ? request.getDurationSeconds() : 5;
+        boolean autoDuration = request.getDurationSeconds() == null
+                || request.getDurationSeconds() == -1;
+        int rawDuration = request.getDurationSeconds() != null ? request.getDurationSeconds()
+                : positiveIntOption(request.getOptions(), "duration", 5);
         if (rawDuration < 1) {
             rawDuration = 5;
         }
@@ -262,14 +277,21 @@ public final class BillingInputExtractor {
             rawDuration = VIDEO_DURATION_HARD_CAP_SECONDS;
         }
         params.put("duration", rawDuration);
+        params.put("autoDuration", autoDuration);
         // 分辨率：显式传入优先，并做档位规范化（1080P→1080p），保证与 SKU match 值一致；
         // 未传时从宽高比推断（默认 720P，SKU 匹配已忽略大小写）
         String resolution = extractFromOptions(request.getOptions(), "resolution");
+        if (CharSequenceUtil.isBlank(resolution)) {
+            resolution = extractFromOptions(request.getOptions(), "size");
+        }
         if (CharSequenceUtil.isNotBlank(resolution)) {
             String tier = ResolutionUtil.parseTier(resolution);
             params.put("resolution", CharSequenceUtil.isNotBlank(tier) ? tier : resolution.trim());
         } else {
             params.put("resolution", ResolutionUtil.inferVideoResolution(request.getAspectRatio()));
+        }
+        if (CharSequenceUtil.isNotBlank(request.getAspectRatio())) {
+            params.put("aspectRatio", request.getAspectRatio().trim());
         }
         // 音画同出标记（Vidu 视频 SKU 维度之一）：优先取 DTO.audio，其次 options.audio；缺省 false。
         // 音画同出档位通常更贵，预扣方向宁高勿低，仅在显式开启时记 true。
@@ -281,24 +303,60 @@ public final class BillingInputExtractor {
             }
         }
         params.put("audio", Boolean.TRUE.equals(audio));
+        String audioMode = extractFromOptions(request.getOptions(), "audioMode");
+        if (CharSequenceUtil.isBlank(audioMode)) {
+            audioMode = extractFromOptions(request.getOptions(), "audio");
+        }
+        if (CharSequenceUtil.isBlank(audioMode)) {
+            audioMode = Boolean.TRUE.equals(audio) ? "native" : "off";
+        } else if ("true".equalsIgnoreCase(audioMode)) {
+            audioMode = "native";
+        } else if ("false".equalsIgnoreCase(audioMode)) {
+            audioMode = "off";
+        }
+        params.put("audioMode", audioMode.trim().toLowerCase());
         // 输入媒体计费参数：参考图张数 + 输入视频段数/秒数（供 inputPricing 附加费计算，未配置价的模型不受影响）
         params.put("referenceImageCount", countVideoInputImages(request));
-        params.put("inputVideoCount", countInputVideos(request.getOptions()));
-        params.put("inputVideoSeconds", extractInputVideoSeconds(request.getOptions()));
-        // 生成模式：有图片则为图生视频
-        params.put("generateMode",
-                CharSequenceUtil.isNotBlank(request.getImageUrl()) ? "IMAGE_TO_VIDEO" : "TEXT_TO_VIDEO");
-        // 从options中提取额外的generateMode覆盖（仅允许白名单值）
-        // 限制 generateMode 只能是合法枚举，防止前端伪造任意字符串命中更便宜的 SKU
-        String mode = extractFromOptions(request.getOptions(), "generateMode");
-        if (CharSequenceUtil.isNotBlank(mode)
-                && ("TEXT_TO_VIDEO".equalsIgnoreCase(mode)
-                        || "IMAGE_TO_VIDEO".equalsIgnoreCase(mode)
-                        || "EDGE_TO_VIDEO".equalsIgnoreCase(mode)
-                        || "MULTI_TO_VIDEO".equalsIgnoreCase(mode))) {
-            params.put("generateMode", mode.toUpperCase());
+        int inputVideoCount = countInputVideos(request.getOptions());
+        params.put("inputVideoCount", inputVideoCount);
+        int inputVideoSeconds = extractInputVideoSeconds(request.getOptions());
+        // MiniMax H3 按上游实际输入视频秒数结算。预冻结阶段不采信客户端自报时长，
+        // 有参考视频时留 0 交给 inputPricing.video.maxSeconds 按官方 15 秒上限冻结。
+        if (isMinimaxH3VideoModel(request.getModelName()) && inputVideoCount > 0) {
+            inputVideoSeconds = 0;
         }
+        params.put("inputVideoSeconds", inputVideoSeconds);
+        // 既有供应商允许通过白名单 options.generateMode 声明 EDGE/MULTI 等业务模式；
+        // Kling 则只按真实下发素材推导，避免前端伪造计费档位。
+        String generateMode = countVideoInputImages(request) > 0 ? "IMAGE_TO_VIDEO" : "TEXT_TO_VIDEO";
+        if (isKlingVideoModel(request.getModelName())) {
+            generateMode = inputVideoCount > 0 ? "VIDEO_TO_VIDEO" : generateMode;
+        } else {
+            String requestedMode = extractFromOptions(request.getOptions(), "generateMode");
+            if (isLegacyVideoGenerateMode(requestedMode)) {
+                generateMode = requestedMode.trim().toUpperCase();
+            }
+        }
+        params.put("generateMode", generateMode);
         return new BillingInput("VIDEO", params);
+    }
+
+    private static boolean isKlingVideoModel(String modelName) {
+        return CharSequenceUtil.isNotBlank(modelName)
+                && modelName.trim().toLowerCase().startsWith("kling-3.0-");
+    }
+
+    private static boolean isMinimaxH3VideoModel(String modelName) {
+        return CharSequenceUtil.isNotBlank(modelName)
+                && modelName.trim().toLowerCase().startsWith("minimax-h3-");
+    }
+
+    private static boolean isLegacyVideoGenerateMode(String mode) {
+        return CharSequenceUtil.isNotBlank(mode)
+                && ("TEXT_TO_VIDEO".equalsIgnoreCase(mode)
+                || "IMAGE_TO_VIDEO".equalsIgnoreCase(mode)
+                || "EDGE_TO_VIDEO".equalsIgnoreCase(mode)
+                || "MULTI_TO_VIDEO".equalsIgnoreCase(mode));
     }
 
     /**
@@ -326,14 +384,15 @@ public final class BillingInputExtractor {
     }
 
     /**
-     * 统计输入视频段数：options.video_url / videoUrl 单段 + referenceVideos / videos 列表。
+     * 统计实际 Provider 会读取的输入视频：任一单视频字段只计一段，另计显式列表。
      */
     private static int countInputVideos(Map<String, Object> options) {
         if (options == null || options.isEmpty()) {
             return 0;
         }
         int count = 0;
-        for (String key : new String[]{"video_url", "videoUrl", "inputVideoUrl"}) {
+        for (String key : new String[]{"featureVideoUrl", "referenceVideoUrl", "baseVideoUrl",
+                "inputVideoUrl", "videoUrl", "video_url"}) {
             Object v = options.get(key);
             if (v != null && CharSequenceUtil.isNotBlank(String.valueOf(v))) {
                 count++;
@@ -343,6 +402,14 @@ public final class BillingInputExtractor {
         count += sizeOfList(options.get("referenceVideos"));
         count += sizeOfList(options.get("videos"));
         return count;
+    }
+
+    private static int positiveIntOption(Map<String, Object> options, String key, int fallback) {
+        if (options == null || options.get(key) == null) {
+            return fallback;
+        }
+        int value = toInt(options.get(key));
+        return value > 0 ? value : fallback;
     }
 
     /**
@@ -389,62 +456,50 @@ public final class BillingInputExtractor {
      */
     public static BillingInput fromTextRequest(MediaTextGenerateRequest request) {
         Map<String, Object> params = new HashMap<>();
-        // 输入字数：统计prompt和messages的content长度
-        int inputChars = 0;
-        if (CharSequenceUtil.isNotBlank(request.getPrompt())) {
-            inputChars += request.getPrompt().length();
-        }
-        if (CollectionUtil.isNotEmpty(request.getMessages())) {
-            for (MediaTextGenerateRequest.TextMessageItem msg : request.getMessages()) {
-                if (msg.getContent() != null) {
-                    inputChars += msg.getContent().length();
-                }
-            }
-        }
-        // inputChars 硬上限，避免结算估算溢出
-        if (inputChars > PROMPT_INPUT_HARD_CAP_CHARS) {
-            inputChars = PROMPT_INPUT_HARD_CAP_CHARS;
-        }
+        int inputChars = TextTokenEstimator.saturatedCharacterCount(request);
+        int conservativeInputTokens = TextTokenEstimator.estimateRequestConservative(request);
+        int balancedInputTokens = TextTokenEstimator.estimateRequestBalanced(request);
         params.put("inputChars", inputChars);
+        params.put("inputTokens", conservativeInputTokens);
+        params.put("conservativeInputTokens", conservativeInputTokens);
+        params.put("balancedInputTokens", balancedInputTokens);
 
-        // 预冻结统一换算：5字=4token → tokens = ceil(chars * 4 / 5)
-        int estimatedInputTokens = BillingConstants.charsToTokens(inputChars);
-        params.put("inputTokens", estimatedInputTokens);
-
-        // 预估输出：优先 estimatedOutputChars（字符），其次 max_tokens（token）
         int estimatedOutputChars = BillingConstants.DEFAULT_ESTIMATED_OUTPUT_CHARS;
-        int estimatedOutputTokens = BillingConstants.charsToTokens(estimatedOutputChars);
-        Object estOutputCharsObj = extractFromOptionsObj(request.getOptions(), "estimatedOutputChars");
-        if (estOutputCharsObj != null) {
-            // estimatedOutputChars 是字符单位，用统一公式转 token
-            estimatedOutputChars = toInt(estOutputCharsObj);
-            // 硬上限保护，避免前端塞超大 estimatedOutputChars 引发结算溢出
-            if (estimatedOutputChars > TEXT_ESTIMATED_OUTPUT_CHARS_HARD_CAP) {
-                estimatedOutputChars = TEXT_ESTIMATED_OUTPUT_CHARS_HARD_CAP;
-            }
-            if (estimatedOutputChars < 0) {
-                estimatedOutputChars = BillingConstants.DEFAULT_ESTIMATED_OUTPUT_CHARS;
-            }
-            estimatedOutputTokens = BillingConstants.charsToTokens(estimatedOutputChars);
-        } else {
-            Object maxTokens = extractFromOptionsObj(request.getOptions(), "max_tokens");
-            if (maxTokens != null) {
-                // max_tokens 已经是 token 单位，直接使用
-                estimatedOutputTokens = toInt(maxTokens);
-                if (estimatedOutputTokens > TEXT_ESTIMATED_OUTPUT_TOKENS_HARD_CAP) {
-                    estimatedOutputTokens = TEXT_ESTIMATED_OUTPUT_TOKENS_HARD_CAP;
-                }
-                if (estimatedOutputTokens < 0) {
-                    estimatedOutputTokens = BillingConstants.charsToTokens(BillingConstants.DEFAULT_ESTIMATED_OUTPUT_CHARS);
-                }
-            }
+        Object requestedOutputChars = extractFromOptionsObj(request.getOptions(), "estimatedOutputChars");
+        if (requestedOutputChars != null) {
+            estimatedOutputChars = Math.max(0,
+                    Math.min(toInt(requestedOutputChars), TEXT_ESTIMATED_OUTPUT_CHARS_HARD_CAP));
         }
-        params.put("outputTokens", estimatedOutputTokens);
-        // 兼容旧 SKU 匹配：totalChars 仍用字符
+        int providerOutputTokens = optionalPositiveTokenLimit(extractFromOptionsObj(request.getOptions(),
+                com.aid.media.provider.TextOutputLimitResolver.PROVIDER_OUTPUT_TOKENS_KEY));
+        int billingOutputTokens = optionalPositiveTokenLimit(extractFromOptionsObj(request.getOptions(),
+                com.aid.media.provider.TextOutputLimitResolver.BILLING_OUTPUT_TOKENS_KEY));
+        if (providerOutputTokens <= 0) {
+            providerOutputTokens = optionalPositiveTokenLimit(extractFromOptionsObj(request.getOptions(),
+                    com.aid.media.provider.TextReasoningOptionsResolver.MAX_OUTPUT_TOKENS_KEY));
+        }
+        if (providerOutputTokens <= 0) {
+            providerOutputTokens = com.aid.media.provider.TextOutputLimitResolver.FALLBACK_OUTPUT_TOKENS;
+        }
+        if (billingOutputTokens <= 0) {
+            billingOutputTokens = com.aid.media.provider.TextOutputLimitResolver.billingCeiling(providerOutputTokens);
+        }
+        Object reasoningBudget = extractFromOptionsObj(request.getOptions(), "_aid_reasoning_budget_tokens");
+        int normalizedReasoningBudget = reasoningBudget == null ? 0 : positiveTokenBudget(reasoningBudget);
+        boolean reasoningEnabled = Boolean.parseBoolean(String.valueOf(
+                extractFromOptionsObj(request.getOptions(), "_aid_reasoning_enabled")));
+        params.put("outputTokens", billingOutputTokens);
+        params.put("providerOutputTokenCap", providerOutputTokens);
+        params.put("billingOutputTokenCeiling", billingOutputTokens);
+        params.put("reasoningEnabled", reasoningEnabled);
+        params.put("reasoningOverridePresent", request.getOptions() != null
+                && request.getOptions().containsKey("_aid_reasoning_enabled"));
+        params.put("reasoningBudgetTokens", normalizedReasoningBudget);
+        params.put("reasoningBudgetOverridePresent", normalizedReasoningBudget > 0);
+        params.put("outputLimitPresent", true);
         params.put("estimatedOutputChars", estimatedOutputChars);
-        params.put("totalChars", inputChars + estimatedOutputChars);
-        // 多模态输入图张数（options.images / referenceImages）：供 inputPricing 图片附加费计算；
-        // 常规 Token 模型输入图已折算进 token，不配置 inputPricing 时本参数不产生费用
+        params.put("totalChars", (int) Math.min((long) inputChars + estimatedOutputChars, Integer.MAX_VALUE));
+
         Map<String, Object> textOptions = request.getOptions();
         if (textOptions != null) {
             int imageCount = sizeOfList(textOptions.get("images")) + sizeOfList(textOptions.get("referenceImages"));
@@ -452,7 +507,6 @@ public final class BillingInputExtractor {
                 params.put("referenceImageCount", imageCount);
             }
         }
-
         return new BillingInput("TEXT", params);
     }
 
@@ -486,6 +540,32 @@ public final class BillingInputExtractor {
         } catch (NumberFormatException e) {
             return BillingConstants.DEFAULT_ESTIMATED_OUTPUT_CHARS;
         }
+    }
+
+    private static int optionalPositiveTokenLimit(Object value) {
+        if (value == null) {
+            return 0;
+        }
+        long parsed;
+        try {
+            parsed = value instanceof Number number
+                    ? number.longValue() : Long.parseLong(String.valueOf(value));
+        } catch (Exception ignored) {
+            return 0;
+        }
+        return (int) Math.max(0L, Math.min(parsed, TEXT_ESTIMATED_OUTPUT_TOKENS_HARD_CAP));
+    }
+
+    /** 思考预算允许 0 表示不覆盖厂商默认；非法值归 0，正数与输出上限使用同一硬上限。 */
+    private static int positiveTokenBudget(Object value) {
+        long parsed;
+        try {
+            parsed = value instanceof Number number
+                    ? number.longValue() : Long.parseLong(String.valueOf(value));
+        } catch (Exception ignored) {
+            return 0;
+        }
+        return (int) Math.max(0L, Math.min(parsed, TEXT_ESTIMATED_OUTPUT_TOKENS_HARD_CAP));
     }
 
     /**

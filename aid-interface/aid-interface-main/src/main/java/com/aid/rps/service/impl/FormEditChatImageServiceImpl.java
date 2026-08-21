@@ -1129,6 +1129,7 @@ public class FormEditChatImageServiceImpl implements IFormEditChatImageService
         // 入队 + 多维并发调度（LOCAL 派发），名额放行后由本地派发执行器执行此 job。
         Runnable editChatJob = () ->
         {
+            String dispatchToken = taskQueueService.currentLocalDispatchToken(taskId);
             try
             {
                 if (assetExtractService.isTaskCancelled(taskId))
@@ -1302,7 +1303,7 @@ public class FormEditChatImageServiceImpl implements IFormEditChatImageService
                 safeReleaseLock(lockKey, lockToken);
                 try
                 {
-                    assetExtractService.clearCancelFlag(taskId);
+                    assetExtractService.clearCancelFlag(taskId, dispatchToken);
                 }
                 catch (Exception ignore)
                 {
@@ -1311,7 +1312,7 @@ public class FormEditChatImageServiceImpl implements IFormEditChatImageService
                 // 释放多维并发名额 + 执行租约（幂等）
                 try
                 {
-                    assetExtractService.releaseTaskSlots(taskId);
+                    assetExtractService.releaseTaskSlots(taskId, dispatchToken);
                 }
                 catch (Exception ignore)
                 {

@@ -50,7 +50,8 @@ public class ErrorNormalizer {
         }
         ServiceException balanceException = findUserBalanceException(ex);
         if (Objects.nonNull(balanceException)) {
-            return TaskErrorResult.of(TaskErrorCode.USER_BALANCE_NOT_ENOUGH,
+            TaskErrorCode code = TaskErrorCode.valueOf(balanceException.getDetailMessage());
+            return TaskErrorResult.of(code,
                     balanceException.getMessage());
         }
         if (ex instanceof ServiceException serviceException) {
@@ -183,7 +184,7 @@ public class ErrorNormalizer {
         }
         if (containsAny(lower, "prompt", "input text", "text input")
                 && containsAny(lower, "sensitive", "risk not pass", "policy violation",
-                "content filter", "moderation", "audit illegal")) {
+                "content safety policy", "content filter", "moderation", "audit illegal")) {
             return withUserMessage(TaskErrorCode.UPSTREAM_CONTENT_FILTERED, rawMessage,
                     "提示词未通过内容审核，请修改后重试");
         }
@@ -199,7 +200,8 @@ public class ErrorNormalizer {
             return TaskErrorResult.of(TaskErrorCode.PROVIDER_BUSY, rawMessage);
         }
         if (containsAny(lower, "content_policy_violation", "unable to generate this content",
-                "blocked by safety", "sensitive content", "captcha", "内容未通过审核",
+                "blocked by safety", "blocked by the content safety policy", "sensitive content", "captcha",
+                "内容未通过审核", "内容未通过安全校验",
                 "验证码图片")) {
             return TaskErrorResult.of(TaskErrorCode.UPSTREAM_CONTENT_FILTERED, rawMessage);
         }
@@ -323,10 +325,12 @@ public class ErrorNormalizer {
         Throwable current = throwable;
         int depth = 0;
         while (Objects.nonNull(current) && depth < 10) {
-            if (current instanceof ServiceException serviceException
-                    && Objects.equals(serviceException.getDetailMessage(),
-                    TaskErrorCode.USER_BALANCE_NOT_ENOUGH.name())) {
-                return serviceException;
+            if (current instanceof ServiceException serviceException) {
+                String marker = serviceException.getDetailMessage();
+                if (Objects.equals(marker, TaskErrorCode.USER_BALANCE_NOT_ENOUGH.name())
+                        || Objects.equals(marker, TaskErrorCode.USER_PREHOLD_BALANCE_NOT_ENOUGH.name())) {
+                    return serviceException;
+                }
             }
             current = current.getCause();
             depth++;

@@ -16,6 +16,9 @@ public class MpsConfigSaveRequest {
     /** 合成功能总开关 */
     private Boolean enabled;
 
+    /** tencent-mps / aliyun-ims / local-ffmpeg */
+    private String processMode;
+
     /** 腾讯云 SecretId（密钥，脱敏回写保护） */
     private String secretId;
 
@@ -24,6 +27,26 @@ public class MpsConfigSaveRequest {
 
     /** MPS 接口地域 */
     private String region;
+
+    private String tencentSecretId;
+    private String tencentSecretKey;
+    private String tencentRegion;
+    private String tencentCallbackUrl;
+    private Integer tencentMaxConcurrency;
+
+    private String aliyunAccessKeyId;
+    private String aliyunAccessKeySecret;
+    private String aliyunRegion;
+    private String aliyunCallbackUrl;
+    private Integer aliyunMaxConcurrency;
+
+    private String ffmpegPath;
+    private String ffprobePath;
+    private String ffmpegTempDir;
+    private Integer ffmpegTimeoutSeconds;
+    private Integer ffmpegMaxConcurrency;
+    private Integer ffmpegThreads;
+    private String ffmpegFontFile;
 
     /** 成片输出 COS 桶 */
     private String outputBucket;
@@ -45,6 +68,20 @@ public class MpsConfigSaveRequest {
 
     /** 分辨率档单价 JSON（元/分钟） */
     private String pricingTiers;
+
+    private BigDecimal tencentPriceSd;
+    private BigDecimal tencentPriceHd;
+    private BigDecimal tencentPriceFhd;
+    private BigDecimal tencentPrice2k;
+    private BigDecimal tencentPrice4k;
+
+    private BigDecimal aliyunPriceSd;
+    private BigDecimal aliyunPriceHd;
+    private BigDecimal aliyunPriceFhd;
+    private BigDecimal aliyunPrice2k;
+    private BigDecimal aliyunPrice4k;
+
+    private BigDecimal localUnitPrice;
 
     /** 元 → 积分汇率 */
     private Integer creditRate;

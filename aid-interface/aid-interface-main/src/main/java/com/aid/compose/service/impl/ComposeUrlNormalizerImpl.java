@@ -6,6 +6,7 @@ import java.util.Objects;
 import org.springframework.stereotype.Service;
 
 import com.aid.common.aid.oss.config.OssConfigManager;
+import com.aid.common.aid.oss.core.OssTemplate;
 import com.aid.common.aid.oss.properties.OssProperties;
 import com.aid.common.aid.oss.util.MediaUrlResolver;
 import com.aid.compose.service.ComposeUrlNormalizer;
@@ -19,8 +20,8 @@ import lombok.extern.slf4j.Slf4j;
 
 /**
  * 下发上游素材 URL 的校验 + 地址改写实现。
- * 职责：先对「传入完整地址」做结构校验 + 白名单 + 可达性校验（保证素材有效），
- * 再把地址交给公用改写器 {@link MediaUrlResolver#toProviderUrl(String)}——
+ * 职责：先对「传入完整地址」做结构与白名单校验；系统自有对象由对应处理引擎确认，
+ * 外部白名单素材再执行可达性校验并交给公用改写器 {@link MediaUrlResolver#toProviderUrl(String)}——
  * COS 模式且命中本站 CDN 主域名时改用 COS 源站/内网 endpoint 下发，其余模式原样下发。
  * 错误文案携带素材类型标签（如「背景音乐异常」），便于用户定位是哪类素材出了问题。
  *
@@ -46,6 +47,9 @@ public class ComposeUrlNormalizerImpl implements ComposeUrlNormalizer {
     /** OSS 配置管理器（复用 uploadMode/cdnDomain/cosCdnDomain/localDomain/imageUrlWhitelist） */
     private final OssConfigManager ossConfigManager;
 
+    /** 系统自有资源归属判断；自有对象不依赖公共下载域名的 HEAD 结果。 */
+    private final OssTemplate ossTemplate;
+
     /** 公用地址改写器：负责 COS 模式下的源站 endpoint 改写 */
     private final MediaUrlResolver mediaUrlResolver;
 
@@ -63,10 +67,25 @@ public class ComposeUrlNormalizerImpl implements ComposeUrlNormalizer {
             log.error("URL结构非法(blob/data/嵌套协议), label={}, url={}", label, url);
             throw new RuntimeException(label + "异常");
         }
+        if (url.startsWith("/")) {
+            if (url.startsWith("//") || url.contains("..") || url.contains("\\")
+                    || url.contains("?") || url.contains("#")
+                    || url.chars().anyMatch(Character::isISOControl)) {
+                log.error("系统素材相对路径非法, label={}, url={}", label, url);
+                throw new RuntimeException(label + "异常");
+            }
+            // 系统只持久化对象相对路径；云引擎使用原生桶输入，本地引擎映射到 profile 根目录。
+            return url;
+        }
         OssProperties oss = ossConfigManager.getOssProperties();
         if (!inWhitelist(url, oss)) {
             log.error("URL未通过白名单校验, label={}, url={}", label, url);
             throw new RuntimeException(label + "异常");
+        }
+        if (ossTemplate.isManagedResourceUrl(url)) {
+            // 防盗链或私有桶可能拒绝公共地址 HEAD；自有对象由云处理原生桶输入或本地临时签名读取，
+            // 真实存在性最终仍由对应处理引擎确认。
+            return url;
         }
         if (!isReachable(url)) {
             log.error("URL经HEAD探测不可达, label={}, url={}", label, url);

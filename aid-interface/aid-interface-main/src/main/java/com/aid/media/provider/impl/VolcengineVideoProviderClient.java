@@ -1,7 +1,13 @@
 package com.aid.media.provider.impl;
 
 
+import cn.hutool.http.HttpRequest;
+import cn.hutool.http.HttpResponse;
 import cn.hutool.json.JSONUtil;
+import cn.hutool.json.JSONObject;
+import com.aid.common.exception.ServiceException;
+import com.aid.common.constant.HttpConstants;
+import com.aid.common.utils.ProviderEndpointUtils;
 import com.aid.domain.vo.AiModelConfigVo;
 import com.aid.media.constants.VolcengineConstants;
 import com.aid.media.dto.MediaVideoGenerateRequest;
@@ -13,34 +19,43 @@ import com.aid.media.provider.ReferenceImageBase64Support;
 import com.aid.media.provider.ReferenceImageLimiter;
 import com.aid.media.provider.ReferencePromptSanitizer;
 import com.aid.media.provider.VideoProviderClient;
-import com.aid.media.provider.volcengine.VolcengineServiceManager;
 import com.volcengine.ark.runtime.model.content.generation.CreateContentGenerationTaskRequest;
 import com.volcengine.ark.runtime.model.content.generation.CreateContentGenerationTaskResult;
-import com.volcengine.ark.runtime.model.content.generation.GetContentGenerationTaskRequest;
 import com.volcengine.ark.runtime.model.content.generation.GetContentGenerationTaskResponse;
-import com.volcengine.ark.runtime.service.ArkService;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
- * 火山引擎 Seedance（豆包）视频生成：基于方舟 Ark Java SDK，异步提交 + 轮询查询。
+ * 火山引擎 Seedance 视频生成，复用官方 DTO 映射并按配置的 HTTP 路径提交与查询。
  */
 @Slf4j
 @Component
 public class VolcengineVideoProviderClient implements VideoProviderClient {
 
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
+            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+
     /** Seedance 2.0 多模态参考图官方上限 9；运营可在 capability_json.maxReferenceImages 覆盖。 */
     private static final int DEFAULT_MAX_REFERENCE_IMAGES = 9;
+    private static final int DEFAULT_MAX_REFERENCE_VIDEOS = 10;
 
-    @Autowired
-    private VolcengineServiceManager volcengineServiceManager;
+    private static final String SCENE_LEGACY = "legacy";
+    private static final String SCENE_TEXT = "text";
+    private static final String SCENE_FIRST_FRAME = "first_frame";
+    private static final String SCENE_FIRST_LAST_FRAME = "first_last_frame";
+    private static final String SCENE_REFERENCE = "reference";
+    private static final String SCENE_EDIT = "edit";
+    private static final String SCENE_EXTEND = "extend";
 
     @Override
     public String protocol() {
@@ -56,13 +71,6 @@ public class VolcengineVideoProviderClient implements VideoProviderClient {
 
     @Override
     public ProviderSubmitResult submit(AiModelConfigVo modelConfig, MediaVideoGenerateRequest request) {
-        // Seedance 是唯一真会下发参考音频的视频通道：条数按 capability 截断后，正文里编号越界的
-        // @音频N 必须一并降级，否则模型读到「参考音频3」却在 contents 里找不到第 3 条。
-        // 参考图同理，两者共用一套编号越界规则。
-        ReferencePromptSanitizer.sanitizeInPlace(request,
-                ReferenceImageLimiter.resolveMax(modelConfig, DEFAULT_MAX_REFERENCE_IMAGES),
-                ReferenceAudioLimiter.limit(request.getReferenceAudios(), modelConfig, "Volcengine").size());
-        ArkService service = volcengineServiceManager.getService(modelConfig.getApiKey(), modelConfig.getBaseUrl());
         String effectiveModel = resolveEffectiveModel(modelConfig, request);
         List<CreateContentGenerationTaskRequest.Content> contents = buildContents(request, modelConfig);
         CreateContentGenerationTaskRequest createRequest = buildCreateRequest(effectiveModel, contents, request, modelConfig);
@@ -72,7 +80,14 @@ public class VolcengineVideoProviderClient implements VideoProviderClient {
 
         CreateContentGenerationTaskResult result;
         try {
-            result = service.createContentGenerationTask(createRequest);
+            HttpResult response = doPost(buildSubmitUrl(modelConfig), modelConfig.getApiKey(),
+                    OBJECT_MAPPER.writeValueAsString(createRequest));
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                log.error("Volcengine 视频生成提交失败, model={}, httpStatus={}, responseLength={}",
+                        effectiveModel, response.statusCode(), StringUtils.length(response.body()));
+                return ProviderSubmitResult.builder().rawResponse(response.body()).build();
+            }
+            result = OBJECT_MAPPER.readValue(response.body(), CreateContentGenerationTaskResult.class);
         } catch (Exception e) {
             log.error("Volcengine 视频生成提交失败, model={}", effectiveModel, e);
             return ProviderSubmitResult.builder()
@@ -91,24 +106,37 @@ public class VolcengineVideoProviderClient implements VideoProviderClient {
 
     @Override
     public ProviderTaskResult query(AiModelConfigVo modelConfig, String providerTaskId) {
-        ArkService service = volcengineServiceManager.getService(modelConfig.getApiKey(), modelConfig.getBaseUrl());
-
-        GetContentGenerationTaskRequest req = GetContentGenerationTaskRequest.builder()
-                .taskId(providerTaskId)
-                .build();
-
-        GetContentGenerationTaskResponse resp;
+        String raw;
         try {
-            resp = service.getContentGenerationTask(req);
+            HttpResult response = doGet(buildQueryUrl(modelConfig, providerTaskId), modelConfig.getApiKey());
+            raw = response.body();
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                log.warn("Volcengine 视频生成查询HTTP异常, taskId={}, httpStatus={}, responseLength={}",
+                        providerTaskId, response.statusCode(), StringUtils.length(raw));
+                return ProviderTaskResult.builder()
+                        .status(VolcengineConstants.TASK_STATUS_PROCESSING)
+                        .errorMessage("上游查询暂不可用")
+                        .rawResponse(raw)
+                        .querySuccessful(Boolean.FALSE)
+                        .terminalConfirmed(Boolean.FALSE)
+                        .build();
+            }
+            return parseQueryResponse(modelConfig, raw, providerTaskId);
         } catch (Exception e) {
             log.error("Volcengine 视频生成查询失败, taskId={}", providerTaskId, e);
             return ProviderTaskResult.builder()
                     .status(VolcengineConstants.TASK_STATUS_PROCESSING)
-                    .errorMessage(e.getMessage())
+                    .errorMessage("上游查询暂不可用")
                     .querySuccessful(Boolean.FALSE)
                     .terminalConfirmed(Boolean.FALSE)
                     .build();
         }
+    }
+
+    ProviderTaskResult parseQueryResponse(AiModelConfigVo modelConfig, String raw, String providerTaskId)
+            throws Exception {
+        GetContentGenerationTaskResponse resp = OBJECT_MAPPER.readValue(
+                raw, GetContentGenerationTaskResponse.class);
         String videoUrl = null;
         if (resp.getContent() != null) {
             videoUrl = resp.getContent().getVideoUrl();
@@ -127,7 +155,7 @@ public class VolcengineVideoProviderClient implements VideoProviderClient {
                     .status(VolcengineConstants.TASK_STATUS_PROCESSING)
                     .errorMessage(StringUtils.isBlank(resp.getStatus())
                             ? "上游响应缺少状态" : "上游返回未知状态:" + resp.getStatus())
-                    .rawResponse(JSONUtil.toJsonStr(resp))
+                    .rawResponse(raw)
                     .querySuccessful(Boolean.FALSE)
                     .providerStatus(resp.getStatus())
                     .terminalConfirmed(Boolean.FALSE)
@@ -137,7 +165,22 @@ public class VolcengineVideoProviderClient implements VideoProviderClient {
             return ProviderTaskResult.builder()
                     .status(VolcengineConstants.TASK_STATUS_PROCESSING)
                     .errorMessage("上游成功但结果链接未就绪")
-                    .rawResponse(JSONUtil.toJsonStr(resp))
+                    .rawResponse(raw)
+                    .querySuccessful(Boolean.FALSE)
+                    .providerStatus(resp.getStatus())
+                    .terminalConfirmed(Boolean.FALSE)
+                    .build();
+        }
+        int completionTokens = resp.getUsage() == null ? 0 : resp.getUsage().getCompletionTokens();
+        int totalTokens = resp.getUsage() == null ? 0 : resp.getUsage().getTotalTokens();
+        if (VolcengineConstants.TASK_STATUS_SUCCEEDED.equals(normalized)
+                && requiresPositiveCompletionTokens(modelConfig) && completionTokens <= 0) {
+            // TOKEN 视频只能依据方舟真实 usage 结算。结果链先于 usage 可见时继续轮询，
+            // 由统一调度超时机制最终结束，不得用最大预冻金额当实际费用。
+            return ProviderTaskResult.builder()
+                    .status(VolcengineConstants.TASK_STATUS_PROCESSING)
+                    .errorMessage("上游成功但Token用量未就绪")
+                    .rawResponse(raw)
                     .querySuccessful(Boolean.FALSE)
                     .providerStatus(resp.getStatus())
                     .terminalConfirmed(Boolean.FALSE)
@@ -147,17 +190,38 @@ public class VolcengineVideoProviderClient implements VideoProviderClient {
                 .status(normalized)
                 .resultUrl(videoUrl)
                 .errorMessage(errorMessage)
-                .rawResponse(JSONUtil.toJsonStr(resp))
+                .rawResponse(raw)
                 .querySuccessful(Boolean.TRUE)
                 .providerStatus(resp.getStatus())
                 .terminalConfirmed(isTerminalStatus(resp.getStatus()))
+                .videoDurationSeconds(resp.getDuration() == null || resp.getDuration() <= 0
+                        ? null : Math.toIntExact(Math.min(resp.getDuration(), Integer.MAX_VALUE)))
+                .completionTokens(completionTokens <= 0 ? null : completionTokens)
+                .totalTokens(totalTokens <= 0 ? null : totalTokens)
                 .build();
     }
 
-    private List<CreateContentGenerationTaskRequest.Content> buildContents(MediaVideoGenerateRequest request,
-                                                                           AiModelConfigVo modelConfig) {
+    private boolean requiresPositiveCompletionTokens(AiModelConfigVo modelConfig) {
+        if (modelConfig == null || StringUtils.isBlank(modelConfig.getBillingRuleJson())) {
+            return false;
+        }
+        try {
+            JSONObject billingRule = JSONUtil.parseObj(modelConfig.getBillingRuleJson());
+            return "TOKEN".equalsIgnoreCase(billingRule.getStr("meterType"))
+                    && "VIDEO".equalsIgnoreCase(billingRule.getStr("chargeType"));
+        } catch (Exception ex) {
+            log.warn("Volcengine 视频查询无法解析计费规则, model={}, err={}",
+                    modelConfig.getModelCode(), ex.getMessage());
+            return false;
+        }
+    }
+
+    List<CreateContentGenerationTaskRequest.Content> buildContents(MediaVideoGenerateRequest request,
+                                                                    AiModelConfigVo modelConfig) {
+        validateSceneMaterials(request, modelConfig);
         List<CreateContentGenerationTaskRequest.Content> contents = new ArrayList<>();
         Map<String, Object> options = request.getOptions();
+        String scene = resolveScene(modelConfig);
         // Base64 传图开关：官方 image 支持 data URI（data:image/<格式>;base64,...），启用时下载转内联下发
         boolean useBase64 = ReferenceImageBase64Support.isBase64Enabled(modelConfig);
 
@@ -169,7 +233,12 @@ public class VolcengineVideoProviderClient implements VideoProviderClient {
         }
 
         String lastFrameUrl = getOptionString(options, VolcengineConstants.OPTIONS_LAST_FRAME_IMAGE_URL);
-        if (StringUtils.isNotBlank(request.getImageUrl()) && StringUtils.isNotBlank(lastFrameUrl)) {
+        if (SCENE_FIRST_LAST_FRAME.equals(scene)) {
+            require(!hasRawReferenceVideos(options) && !hasRawReferenceImages(options)
+                            && !hasRawReferenceAudios(request),
+                    "首尾帧不接收其他参考素材", modelConfig);
+            require(StringUtils.isNotBlank(request.getImageUrl()) && StringUtils.isNotBlank(lastFrameUrl),
+                    "首尾帧不能为空", modelConfig);
             contents.add(CreateContentGenerationTaskRequest.Content.builder()
                     .type(VolcengineConstants.CONTENT_TYPE_IMAGE_URL)
                     .imageUrl(CreateContentGenerationTaskRequest.ImageUrl.builder()
@@ -182,44 +251,173 @@ public class VolcengineVideoProviderClient implements VideoProviderClient {
                             .url(toBase64IfEnabled(lastFrameUrl, useBase64)).build())
                     .role(VolcengineConstants.ROLE_LAST_FRAME)
                     .build());
-        } else {
-            List<String> referenceImages = ReferenceImageLimiter.limit(
-                    getOptionStringList(options, VolcengineConstants.OPTIONS_REFERENCE_IMAGES),
-                    modelConfig, DEFAULT_MAX_REFERENCE_IMAGES, "Volcengine");
-            if (!referenceImages.isEmpty()) {
-                for (String refUrl : referenceImages) {
-                    contents.add(CreateContentGenerationTaskRequest.Content.builder()
-                            .type(VolcengineConstants.CONTENT_TYPE_IMAGE_URL)
-                            .imageUrl(CreateContentGenerationTaskRequest.ImageUrl.builder()
-                                    .url(toBase64IfEnabled(refUrl, useBase64)).build())
-                            .role(VolcengineConstants.ROLE_REFERENCE)
-                            .build());
-                }
-            } else if (StringUtils.isNotBlank(request.getImageUrl())) {
+        } else if (SCENE_FIRST_FRAME.equals(scene)) {
+            require(!hasRawReferenceVideos(options) && StringUtils.isBlank(lastFrameUrl)
+                            && !hasRawReferenceImages(options) && !hasRawReferenceAudios(request),
+                    "首帧不接收其他参考素材", modelConfig);
+            require(StringUtils.isNotBlank(request.getImageUrl()), "首帧不能为空", modelConfig);
+            contents.add(imageContent(request.getImageUrl(), VolcengineConstants.ROLE_FIRST_FRAME, useBase64));
+        } else if (SCENE_REFERENCE.equals(scene) || SCENE_EDIT.equals(scene) || SCENE_EXTEND.equals(scene)) {
+            List<String> referenceImages = collectReferenceImages(request, modelConfig);
+            List<String> referenceVideos = collectReferenceVideos(options, modelConfig);
+            List<ReferenceAudioInput> referenceAudios = ReferenceAudioLimiter.limit(
+                    request.getReferenceAudios(), modelConfig, "Volcengine");
+            require(!SCENE_EDIT.equals(scene) && !SCENE_EXTEND.equals(scene) || !referenceVideos.isEmpty(),
+                    "参考视频不能为空", modelConfig);
+            require(!SCENE_REFERENCE.equals(scene)
+                            || !referenceImages.isEmpty() || !referenceVideos.isEmpty() || !referenceAudios.isEmpty(),
+                    "参考素材不能为空", modelConfig);
+            for (String refUrl : referenceImages) {
+                contents.add(imageContent(refUrl, VolcengineConstants.ROLE_REFERENCE, useBase64));
+            }
+            for (String refUrl : referenceVideos) {
                 contents.add(CreateContentGenerationTaskRequest.Content.builder()
-                        .type(VolcengineConstants.CONTENT_TYPE_IMAGE_URL)
-                        .imageUrl(CreateContentGenerationTaskRequest.ImageUrl.builder()
-                                .url(toBase64IfEnabled(request.getImageUrl(), useBase64)).build())
+                        .type(VolcengineConstants.CONTENT_TYPE_VIDEO_URL)
+                        .videoUrl(CreateContentGenerationTaskRequest.VideoUrl.builder().url(refUrl).build())
+                        .role(VolcengineConstants.ROLE_REFERENCE_VIDEO)
                         .build());
             }
+            addReferenceAudios(contents, referenceAudios);
+        } else if (SCENE_TEXT.equals(scene)) {
+            require(StringUtils.isBlank(request.getImageUrl()) && StringUtils.isBlank(lastFrameUrl)
+                            && !hasRawReferenceImages(options) && !hasRawReferenceVideos(options)
+                            && !hasRawReferenceAudios(request),
+                    "文生视频不接收素材", modelConfig);
+        } else {
+            // 兼容既有 Seedance 2.0 配置。
+            if (StringUtils.isNotBlank(request.getImageUrl()) && StringUtils.isNotBlank(lastFrameUrl)) {
+                contents.add(imageContent(request.getImageUrl(), VolcengineConstants.ROLE_FIRST_FRAME, useBase64));
+                contents.add(imageContent(lastFrameUrl, VolcengineConstants.ROLE_LAST_FRAME, useBase64));
+            } else {
+                List<String> referenceImages = collectReferenceImages(request, modelConfig);
+                if (!referenceImages.isEmpty()) {
+                    for (String refUrl : referenceImages) {
+                        contents.add(imageContent(refUrl, VolcengineConstants.ROLE_REFERENCE, useBase64));
+                    }
+                } else if (StringUtils.isNotBlank(request.getImageUrl())) {
+                    contents.add(imageContent(request.getImageUrl(), null, useBase64));
+                }
+                for (String refUrl : collectReferenceVideos(options, modelConfig)) {
+                    contents.add(CreateContentGenerationTaskRequest.Content.builder()
+                            .type(VolcengineConstants.CONTENT_TYPE_VIDEO_URL)
+                            .videoUrl(CreateContentGenerationTaskRequest.VideoUrl.builder().url(refUrl).build())
+                            .role(VolcengineConstants.ROLE_REFERENCE_VIDEO)
+                            .build());
+                }
+            }
+            addReferenceAudios(contents, ReferenceAudioLimiter.limit(
+                    request.getReferenceAudios(), modelConfig, "Volcengine"));
         }
 
-        List<ReferenceAudioInput> referenceAudios = ReferenceAudioLimiter.limit(
-                request.getReferenceAudios(), modelConfig, "Volcengine");
+        applySeedancePromptContract(request, contents);
+        return contents;
+    }
+
+    private void applySeedancePromptContract(MediaVideoGenerateRequest request,
+                                              List<CreateContentGenerationTaskRequest.Content> contents) {
+        int imageCount = 0;
+        int videoCount = 0;
+        int audioCount = 0;
+        for (CreateContentGenerationTaskRequest.Content content : contents) {
+            if (VolcengineConstants.CONTENT_TYPE_IMAGE_URL.equals(content.getType())) {
+                imageCount++;
+            } else if (VolcengineConstants.CONTENT_TYPE_VIDEO_URL.equals(content.getType())) {
+                videoCount++;
+            } else if (VolcengineConstants.CONTENT_TYPE_AUDIO_URL.equals(content.getType())) {
+                audioCount++;
+            }
+        }
+        ReferencePromptSanitizer.sanitizeInPlaceForSeedance(request, imageCount, videoCount, audioCount);
+        if (!contents.isEmpty() && VolcengineConstants.CONTENT_TYPE_TEXT.equals(contents.get(0).getType())) {
+            contents.set(0, CreateContentGenerationTaskRequest.Content.builder()
+                    .type(VolcengineConstants.CONTENT_TYPE_TEXT)
+                    .text(request.getPrompt())
+                    .build());
+        }
+    }
+
+    private CreateContentGenerationTaskRequest.Content imageContent(String url, String role, boolean useBase64) {
+        return CreateContentGenerationTaskRequest.Content.builder()
+                .type(VolcengineConstants.CONTENT_TYPE_IMAGE_URL)
+                .imageUrl(CreateContentGenerationTaskRequest.ImageUrl.builder()
+                        .url(toBase64IfEnabled(url, useBase64)).build())
+                .role(role)
+                .build();
+    }
+
+    private void addReferenceAudios(List<CreateContentGenerationTaskRequest.Content> contents,
+                                    List<ReferenceAudioInput> referenceAudios) {
         for (ReferenceAudioInput audio : referenceAudios) {
             if (audio == null || StringUtils.isBlank(audio.getSampleUrl())) {
                 continue;
             }
-            // Seedance 官方协议：type=audio_url、role=reference_audio。
             contents.add(CreateContentGenerationTaskRequest.Content.builder()
                     .type(VolcengineConstants.CONTENT_TYPE_AUDIO_URL)
-                    .audioUrl(CreateContentGenerationTaskRequest.AudioUrl.builder()
-                            .url(audio.getSampleUrl()).build())
+                    .audioUrl(CreateContentGenerationTaskRequest.AudioUrl.builder().url(audio.getSampleUrl()).build())
                     .role(VolcengineConstants.ROLE_REFERENCE_AUDIO)
                     .build());
         }
+    }
 
-        return contents;
+    private List<String> collectReferenceImages(MediaVideoGenerateRequest request, AiModelConfigVo modelConfig) {
+        Set<String> images = new LinkedHashSet<>();
+        if (StringUtils.isNotBlank(request.getImageUrl())) {
+            images.add(request.getImageUrl());
+        }
+        images.addAll(getOptionStringList(request.getOptions(), VolcengineConstants.OPTIONS_REFERENCE_IMAGES));
+        images.addAll(getOptionStringList(request.getOptions(), "images"));
+        return ReferenceImageLimiter.limit(new ArrayList<>(images), modelConfig,
+                DEFAULT_MAX_REFERENCE_IMAGES, "Volcengine");
+    }
+
+    private List<String> collectReferenceVideos(Map<String, Object> options, AiModelConfigVo modelConfig) {
+        Set<String> videos = new LinkedHashSet<>();
+        for (String key : new String[]{"featureVideoUrl", VolcengineConstants.OPTIONS_REFERENCE_VIDEO_URL, "baseVideoUrl",
+                "inputVideoUrl", "videoUrl", "video_url"}) {
+            String value = getOptionString(options, key);
+            if (StringUtils.isNotBlank(value)) {
+                videos.add(value);
+            }
+        }
+        videos.addAll(getOptionStringList(options, VolcengineConstants.OPTIONS_REFERENCE_VIDEOS));
+        videos.addAll(getOptionStringList(options, "videos"));
+        int max = readCapabilityInt(modelConfig, "maxReferenceVideos", DEFAULT_MAX_REFERENCE_VIDEOS);
+        List<String> result = new ArrayList<>(videos);
+        if (max == 0) {
+            return Collections.emptyList();
+        }
+        if (max > 0 && result.size() > max) {
+            log.warn("Volcengine 参考视频超过上限按顺序截断: max={}, actual={}", max, result.size());
+            return new ArrayList<>(result.subList(0, max));
+        }
+        return result;
+    }
+
+    private boolean hasRawReferenceVideos(Map<String, Object> options) {
+        if (options == null || options.isEmpty()) {
+            return false;
+        }
+        for (String key : new String[]{"featureVideoUrl", VolcengineConstants.OPTIONS_REFERENCE_VIDEO_URL, "baseVideoUrl",
+                "inputVideoUrl", "videoUrl", "video_url"}) {
+            if (StringUtils.isNotBlank(getOptionString(options, key))) {
+                return true;
+            }
+        }
+        return !getOptionStringList(options, VolcengineConstants.OPTIONS_REFERENCE_VIDEOS).isEmpty()
+                || !getOptionStringList(options, "videos").isEmpty();
+    }
+
+    private boolean hasRawReferenceImages(Map<String, Object> options) {
+        return !getOptionStringList(options, VolcengineConstants.OPTIONS_REFERENCE_IMAGES).isEmpty()
+                || !getOptionStringList(options, "images").isEmpty();
+    }
+
+    private boolean hasRawReferenceAudios(MediaVideoGenerateRequest request) {
+        if (request == null || request.getReferenceAudios() == null) {
+            return false;
+        }
+        return request.getReferenceAudios().stream()
+                .anyMatch(audio -> audio != null && StringUtils.isNotBlank(audio.getSampleUrl()));
     }
 
     /**
@@ -234,23 +432,37 @@ public class VolcengineVideoProviderClient implements VideoProviderClient {
         return converted.isEmpty() ? imageUrl : converted.get(0);
     }
 
-    private CreateContentGenerationTaskRequest buildCreateRequest(
+    CreateContentGenerationTaskRequest buildCreateRequest(
             String model,
             List<CreateContentGenerationTaskRequest.Content> contents,
             MediaVideoGenerateRequest request,
             AiModelConfigVo modelConfig) {
 
+        validateSceneOptions(request, modelConfig);
         CreateContentGenerationTaskRequest.Builder builder = CreateContentGenerationTaskRequest.builder()
                 .model(model)
                 .content(contents)
                 .watermark(VolcengineConstants.DEFAULT_WATERMARK);
 
-        if (StringUtils.isNotBlank(request.getAspectRatio())) {
-            builder.ratio(request.getAspectRatio());
+        String ratio = StringUtils.defaultIfBlank(request.getAspectRatio(), modelConfig.getDefaultAspectRatio());
+        if (StringUtils.isNotBlank(ratio)) {
+            builder.ratio(ratio);
+        }
+        String resolution = getOptionString(request.getOptions(), VolcengineConstants.OPTIONS_RESOLUTION);
+        if (StringUtils.isBlank(resolution)) {
+            resolution = getOptionString(request.getOptions(), "size");
+        }
+        if (StringUtils.isBlank(resolution)) {
+            resolution = modelConfig.getDefaultSizeCode();
+        }
+        if (StringUtils.isNotBlank(resolution)) {
+            builder.resolution(resolution.trim().toLowerCase());
         }
 
         if (request.getDurationSeconds() != null) {
             builder.duration(request.getDurationSeconds().longValue());
+        } else if (modelConfig.getDefaultDurationSeconds() != null) {
+            builder.duration(modelConfig.getDefaultDurationSeconds().longValue());
         } else {
             builder.duration(VolcengineConstants.DEFAULT_VIDEO_DURATION_SECONDS);
         }
@@ -258,6 +470,107 @@ public class VolcengineVideoProviderClient implements VideoProviderClient {
         applyVideoOptions(builder, request, modelConfig);
 
         return builder.build();
+    }
+
+    /** 任务落库和预冻结前的无网络完整契约校验。 */
+    public static void validateFullRequest(AiModelConfigVo modelConfig, MediaVideoGenerateRequest request) {
+        VolcengineVideoProviderClient validator = new VolcengineVideoProviderClient();
+        validator.validateSceneMaterials(request, modelConfig);
+        validator.validateSceneOptions(request, modelConfig);
+        validator.validateOutputFormat(request, modelConfig);
+    }
+
+    private void validateSceneMaterials(MediaVideoGenerateRequest request, AiModelConfigVo modelConfig) {
+        require(request != null, "请求不能为空", modelConfig);
+        String scene = resolveScene(modelConfig);
+        if (SCENE_LEGACY.equals(scene)) {
+            return;
+        }
+        Map<String, Object> options = request.getOptions();
+        String lastFrameUrl = getOptionString(options, VolcengineConstants.OPTIONS_LAST_FRAME_IMAGE_URL);
+        List<String> videos = collectReferenceVideos(options, modelConfig);
+        List<ReferenceAudioInput> audios = ReferenceAudioLimiter.limit(
+                request.getReferenceAudios(), modelConfig, "Volcengine");
+        int maxMaterials = readCapabilityInt(modelConfig, "maxReferenceMaterials", -1);
+        int dispatchedMaterials = collectReferenceImages(request, modelConfig).size() + videos.size() + audios.size();
+        require(maxMaterials <= 0 || dispatchedMaterials <= maxMaterials,
+                "参考素材超过上限", modelConfig);
+        if (SCENE_TEXT.equals(scene)) {
+            require(StringUtils.isBlank(request.getImageUrl()) && StringUtils.isBlank(lastFrameUrl)
+                            && !hasRawReferenceImages(options) && !hasRawReferenceVideos(options)
+                            && !hasRawReferenceAudios(request),
+                    "文生视频不接收素材", modelConfig);
+        } else if (SCENE_FIRST_FRAME.equals(scene)) {
+            require(StringUtils.isNotBlank(request.getImageUrl()), "首帧不能为空", modelConfig);
+            require(StringUtils.isBlank(lastFrameUrl) && !hasRawReferenceImages(options)
+                            && !hasRawReferenceVideos(options) && !hasRawReferenceAudios(request),
+                    "首帧不接收其他参考素材", modelConfig);
+        } else if (SCENE_FIRST_LAST_FRAME.equals(scene)) {
+            require(StringUtils.isNotBlank(request.getImageUrl()) && StringUtils.isNotBlank(lastFrameUrl),
+                    "首尾帧不能为空", modelConfig);
+            require(!hasRawReferenceImages(options) && !hasRawReferenceVideos(options)
+                            && !hasRawReferenceAudios(request),
+                    "首尾帧不接收其他参考素材", modelConfig);
+        } else {
+            List<String> images = collectReferenceImages(request, modelConfig);
+            if (SCENE_REFERENCE.equals(scene)) {
+                require(!images.isEmpty() || !videos.isEmpty() || !audios.isEmpty(),
+                        "参考素材不能为空", modelConfig);
+            } else {
+                require(!videos.isEmpty(), "参考视频不能为空", modelConfig);
+            }
+        }
+    }
+
+    /** 2.5 场景约束必须在服务端再校验，API 直调不能绕过后台能力配置。 */
+    private void validateSceneOptions(MediaVideoGenerateRequest request, AiModelConfigVo modelConfig) {
+        String scene = resolveScene(modelConfig);
+        if (SCENE_LEGACY.equals(scene)) {
+            return;
+        }
+        String ratio = StringUtils.defaultIfBlank(request.getAspectRatio(), modelConfig.getDefaultAspectRatio());
+        Integer duration = request.getDurationSeconds() == null
+                ? modelConfig.getDefaultDurationSeconds() : request.getDurationSeconds();
+        String resolution = getOptionString(request.getOptions(), VolcengineConstants.OPTIONS_RESOLUTION);
+        if (StringUtils.isBlank(resolution)) {
+            resolution = getOptionString(request.getOptions(), "size");
+        }
+        if (StringUtils.isBlank(resolution)) {
+            resolution = modelConfig.getDefaultSizeCode();
+        }
+        require("480p".equalsIgnoreCase(resolution) || "720p".equalsIgnoreCase(resolution),
+                "分辨率无效", modelConfig);
+        if (SCENE_FIRST_FRAME.equals(scene) || SCENE_FIRST_LAST_FRAME.equals(scene)
+                || SCENE_EDIT.equals(scene) || SCENE_EXTEND.equals(scene)) {
+            require("adaptive".equalsIgnoreCase(ratio), "比例必须自适应", modelConfig);
+        } else {
+            require(isSeedance25Ratio(ratio), "比例无效", modelConfig);
+        }
+        if (SCENE_EDIT.equals(scene)) {
+            require(duration != null && duration == -1, "编辑时长必须自动", modelConfig);
+        } else {
+            require(duration != null && (duration == -1 || duration >= 4 && duration <= 30),
+                    "时长范围无效", modelConfig);
+        }
+    }
+
+    private void validateOutputFormat(MediaVideoGenerateRequest request, AiModelConfigVo modelConfig) {
+        if (SCENE_LEGACY.equals(resolveScene(modelConfig))) {
+            return;
+        }
+        String outputFormat = getOptionString(request.getOptions(), VolcengineConstants.JSON_OUTPUT_FORMAT);
+        if (StringUtils.isBlank(outputFormat)) {
+            outputFormat = readCapabilityString(modelConfig, "defaultOutputFormat");
+        }
+        require(StringUtils.isBlank(outputFormat) || "mp4".equalsIgnoreCase(outputFormat)
+                        || "mov".equalsIgnoreCase(outputFormat),
+                "输出格式无效", modelConfig);
+    }
+
+    private boolean isSeedance25Ratio(String ratio) {
+        return ratio != null && ("adaptive".equalsIgnoreCase(ratio)
+                || "16:9".equals(ratio) || "9:16".equals(ratio) || "4:3".equals(ratio)
+                || "3:4".equals(ratio) || "1:1".equals(ratio) || "21:9".equals(ratio));
     }
 
     private void applyVideoOptions(CreateContentGenerationTaskRequest.Builder builder,
@@ -270,6 +583,7 @@ public class VolcengineVideoProviderClient implements VideoProviderClient {
         }
 
         if (options == null || options.isEmpty()) {
+            applySeedance25SceneOptions(builder, modelConfig, null);
             return;
         }
 
@@ -299,6 +613,31 @@ public class VolcengineVideoProviderClient implements VideoProviderClient {
 
         if (options.containsKey(VolcengineConstants.OPTIONS_CALLBACK_URL)) {
             builder.callbackUrl(String.valueOf(options.get(VolcengineConstants.OPTIONS_CALLBACK_URL)));
+        }
+        applySeedance25SceneOptions(builder, modelConfig, options);
+    }
+
+    private void applySeedance25SceneOptions(CreateContentGenerationTaskRequest.Builder builder,
+                                              AiModelConfigVo modelConfig, Map<String, Object> options) {
+        String scene = resolveScene(modelConfig);
+        if (SCENE_LEGACY.equals(scene)) {
+            return;
+        }
+        String outputFormat = getOptionString(options, VolcengineConstants.JSON_OUTPUT_FORMAT);
+        if (StringUtils.isBlank(outputFormat)) {
+            outputFormat = readCapabilityString(modelConfig, "defaultOutputFormat");
+        }
+        if (StringUtils.isNotBlank(outputFormat)) {
+            String normalized = outputFormat.trim().toLowerCase();
+            require("mp4".equals(normalized) || "mov".equals(normalized), "输出格式无效", modelConfig);
+            builder.outputFormat(normalized);
+        }
+        if (SCENE_REFERENCE.equals(scene)) {
+            builder.omniReferenceTaskType("auto");
+        } else if (SCENE_EDIT.equals(scene)) {
+            builder.omniReferenceTaskType("edit");
+        } else if (SCENE_EXTEND.equals(scene)) {
+            builder.omniReferenceTaskType("extend");
         }
     }
 
@@ -361,6 +700,101 @@ public class VolcengineVideoProviderClient implements VideoProviderClient {
         return VolcengineConstants.DEFAULT_VIDEO_MODEL;
     }
 
+    String resolveScene(AiModelConfigVo modelConfig) {
+        String configured = readCapabilityString(modelConfig, "videoScenario");
+        if (StringUtils.isBlank(configured)) {
+            return SCENE_LEGACY;
+        }
+        String normalized = configured.trim().toLowerCase();
+        return switch (normalized) {
+            case SCENE_TEXT, SCENE_FIRST_FRAME, SCENE_FIRST_LAST_FRAME,
+                    SCENE_REFERENCE, SCENE_EDIT, SCENE_EXTEND -> normalized;
+            default -> throw new ServiceException("视频场景配置无效");
+        };
+    }
+
+    private String readCapabilityString(AiModelConfigVo modelConfig, String key) {
+        if (modelConfig == null || StringUtils.isBlank(modelConfig.getCapabilityJson())) {
+            return null;
+        }
+        try {
+            JSONObject json = JSONUtil.parseObj(modelConfig.getCapabilityJson());
+            return json.getStr(key);
+        } catch (Exception ex) {
+            log.warn("Volcengine capability_json解析失败, model={}, key={}, err={}",
+                    modelConfig.getModelCode(), key, ex.getMessage());
+            return null;
+        }
+    }
+
+    private int readCapabilityInt(AiModelConfigVo modelConfig, String key, int fallback) {
+        if (modelConfig == null || StringUtils.isBlank(modelConfig.getCapabilityJson())) {
+            return fallback;
+        }
+        try {
+            Integer value = JSONUtil.parseObj(modelConfig.getCapabilityJson()).getInt(key);
+            return value == null ? fallback : value;
+        } catch (Exception ex) {
+            log.warn("Volcengine capability_json解析失败, model={}, key={}, err={}",
+                    modelConfig.getModelCode(), key, ex.getMessage());
+            return fallback;
+        }
+    }
+
+    static String buildSubmitUrl(AiModelConfigVo modelConfig) {
+        if (modelConfig == null) {
+            throw new IllegalArgumentException("模型配置不能为空");
+        }
+        return ProviderEndpointUtils.buildSubmitUrl(
+                modelConfig.getBaseUrl(), modelConfig.getApiSuffix());
+    }
+
+    static String buildQueryUrl(AiModelConfigVo modelConfig, String providerTaskId) {
+        if (modelConfig == null) {
+            throw new IllegalArgumentException("模型配置不能为空");
+        }
+        return ProviderEndpointUtils.buildTaskQueryUrl(
+                modelConfig.getBaseUrl(), modelConfig.getTaskQuerySuffix(), providerTaskId);
+    }
+
+    private HttpResult doPost(String url, String apiKey, String body) {
+        requireApiKey(apiKey);
+        try (HttpResponse response = HttpRequest.post(url)
+                .header(HttpConstants.HEADER_AUTHORIZATION, HttpConstants.AUTH_BEARER_PREFIX + apiKey.trim())
+                .header(HttpConstants.HEADER_CONTENT_TYPE, HttpConstants.CONTENT_TYPE_JSON)
+                .body(body)
+                .timeout(VolcengineConstants.HTTP_TIMEOUT_SECONDS * 1000)
+                .execute()) {
+            return new HttpResult(response.getStatus(), response.body());
+        }
+    }
+
+    private HttpResult doGet(String url, String apiKey) {
+        requireApiKey(apiKey);
+        try (HttpResponse response = HttpRequest.get(url)
+                .header(HttpConstants.HEADER_AUTHORIZATION, HttpConstants.AUTH_BEARER_PREFIX + apiKey.trim())
+                .header(HttpConstants.HEADER_CONTENT_TYPE, HttpConstants.CONTENT_TYPE_JSON)
+                .timeout(VolcengineConstants.HTTP_TIMEOUT_SECONDS * 1000)
+                .execute()) {
+            return new HttpResult(response.getStatus(), response.body());
+        }
+    }
+
+    private void requireApiKey(String apiKey) {
+        if (StringUtils.isBlank(apiKey)) {
+            throw new IllegalArgumentException("方舟密钥未配置");
+        }
+    }
+
+    private void require(boolean condition, String message, AiModelConfigVo modelConfig) {
+        if (condition) {
+            return;
+        }
+        log.error("Volcengine Seedance参数校验失败, model={}, reason={}",
+                modelConfig == null ? null : modelConfig.getModelCode(), message);
+        throw new ServiceException(message);
+    }
+
     private String getOptionString(Map<String, Object> options, String key) {
         if (options == null || !options.containsKey(key)) {
             return null;
@@ -384,5 +818,8 @@ public class VolcengineVideoProviderClient implements VideoProviderClient {
             return result;
         }
         return Collections.emptyList();
+    }
+
+    private record HttpResult(int statusCode, String body) {
     }
 }

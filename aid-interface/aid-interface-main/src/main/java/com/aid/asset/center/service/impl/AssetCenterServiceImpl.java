@@ -771,6 +771,10 @@ public class AssetCenterServiceImpl implements IAssetCenterService {
 
     private AssetCenterDetailVO detailScript(AssetCenterCategoryEnum cat, Long id, Long userId) {
         AidComicScript s = aidComicScriptService.getOne(Wrappers.<AidComicScript>lambdaQuery()
+                .select(AidComicScript::getId, AidComicScript::getProjectId,
+                        AidComicScript::getEpisodeId, AidComicScript::getOriginalText,
+                        AidComicScript::getComicVersion, AidComicScript::getStatus,
+                        AidComicScript::getIsExtracted, AidComicScript::getCreateTime)
                 .eq(AidComicScript::getId, id)
                 .eq(AidComicScript::getUserId, userId)
                 .eq(AidComicScript::getDelFlag, DEL_FLAG_NORMAL)
@@ -778,7 +782,6 @@ public class AssetCenterServiceImpl implements IAssetCenterService {
         ensureExist(s, cat, id, userId);
         Map<String, Object> content = new LinkedHashMap<>();
         content.put("originalText", s.getOriginalText());
-        content.put("simplifiedText", s.getSimplifiedText());
         content.put("comicVersion", s.getComicVersion());
         content.put("status", s.getStatus());
         content.put("isExtracted", s.getIsExtracted());

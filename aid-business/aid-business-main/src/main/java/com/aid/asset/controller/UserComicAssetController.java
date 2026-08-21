@@ -11,6 +11,7 @@ import com.aid.common.core.controller.BaseController;
 import com.aid.common.core.domain.AjaxResult;
 import com.aid.common.utils.SecurityUtils;
 import jakarta.annotation.Resource;
+import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -19,6 +20,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.HashMap;
 import java.util.Map;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
 /**
  * C端用户自定义参考资产Controller
@@ -30,6 +33,7 @@ import java.util.Map;
 @Slf4j
 @RestController
 @RequestMapping("/api/user/asset/custom")
+@Tag(name = "C端个人参考素材")
 public class UserComicAssetController extends BaseController {
 
     @Resource
@@ -39,7 +43,7 @@ public class UserComicAssetController extends BaseController {
      * 创建用户参考资产
      */
     @PostMapping("/create")
-    public AjaxResult create(@RequestBody(required = false) UserComicAssetCreateRequest request) {
+    public AjaxResult create(@Valid @RequestBody UserComicAssetCreateRequest request) {
         Long userId = SecurityUtils.getUserId();
         Long id = userComicAssetService.createAsset(request, userId);
         Map<String, Object> data = new HashMap<>();
@@ -58,10 +62,12 @@ public class UserComicAssetController extends BaseController {
     }
 
     /**
-     * 合并分页查询「个人 + 官方」资产（个人在前、官方在后）。
+     * 合并分页查询「个人 + 官方」资产（官方推荐、个人、官方非推荐）。
      * 每条带 sourceFlag：custom 个人(可编辑/删除) / official 官方(只读)，便于前端判断操作权限。
      */
     @PostMapping("/page")
+    @Operation(summary = "合并分页查询个人与官方素材",
+            description = "官方推荐风格优先，其后为个人素材与官方非推荐素材；支持风格分类筛选")
     public AjaxResult page(@RequestBody(required = false) MergedAssetPageRequest request) {
         Long userId = SecurityUtils.getUserId();
         Map<String, Object> data = userComicAssetService.pageMergedAssets(request, userId);

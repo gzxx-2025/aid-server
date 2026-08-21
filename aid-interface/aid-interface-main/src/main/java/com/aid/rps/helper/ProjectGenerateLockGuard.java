@@ -13,6 +13,7 @@ import com.aid.aid.domain.AidExtractTask;
 import com.aid.aid.service.IAidExtractTaskService;
 import com.aid.common.core.redis.RedisCache;
 
+import cn.hutool.core.util.IdUtil;
 import cn.hutool.core.util.StrUtil;
 import lombok.extern.slf4j.Slf4j;
 
@@ -80,8 +81,8 @@ public class ProjectGenerateLockGuard
     public AcquireResult tryAcquireWithStaleClean(String lockKey, long ttlSeconds,
                                                   String taskType, Long projectId, Long episodeId)
     {
-        // token 取当前毫秒值，用于后续判断锁年龄 + CAS 释放
-        String lockToken = String.valueOf(System.currentTimeMillis());
+        // 时间戳供僵尸判断，UUID 保证不同获取周期的 CAS token 绝不复用。
+        String lockToken = System.currentTimeMillis() + ":" + IdUtil.fastSimpleUUID();
         Boolean locked = redisCache.redisTemplate.opsForValue()
                 .setIfAbsent(lockKey, lockToken, ttlSeconds, TimeUnit.SECONDS);
         if (Boolean.TRUE.equals(locked))
@@ -176,7 +177,9 @@ public class ProjectGenerateLockGuard
         }
         try
         {
-            long acquiredAt = Long.parseLong(tokenWithTs);
+            int separator = tokenWithTs.indexOf(':');
+            String timestamp = separator >= 0 ? tokenWithTs.substring(0, separator) : tokenWithTs;
+            long acquiredAt = Long.parseLong(timestamp);
             return System.currentTimeMillis() - acquiredAt > STALE_GRACE_MS;
         }
         catch (NumberFormatException ignored)
@@ -217,7 +220,7 @@ public class ProjectGenerateLockGuard
      * CAS 释放锁：仅当锁当前值仍等于持锁 token 时才 DEL，避免误删他人重抢的新锁。
      *
      * @param lockKey  锁 key
-     * @param token    抢锁时 {@link AcquireResult#getToken()} 返回的 token，可空（空时走裸 DEL 兼容老调用）
+     * @param token    抢锁时 {@link AcquireResult#getToken()} 返回的 token；缺失时拒绝释放
      */
     public void releaseIfMatch(String lockKey, String token)
     {
@@ -227,9 +230,7 @@ public class ProjectGenerateLockGuard
         }
         if (StrUtil.isBlank(token))
         {
-            // 兼容：调用方未传 token（如 Consumer 跨进程释放），退化为裸 DEL
-            try { redisCache.deleteObject(lockKey); }
-            catch (Exception e) { log.warn("项目级锁裸 DEL 释放异常: key={}, msg={}", lockKey, e.getMessage()); }
+            log.warn("项目级锁缺少持锁令牌，已拒绝释放: key={}", lockKey);
             return;
         }
         // 复用 casDeleteIfMatch（返回值在此场景不关键，删不掉说明锁已被自愈清理或被他人重抢，无需感知）

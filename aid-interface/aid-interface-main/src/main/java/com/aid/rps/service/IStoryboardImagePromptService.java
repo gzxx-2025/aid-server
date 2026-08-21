@@ -39,7 +39,7 @@ public interface IStoryboardImagePromptService
      * 若全部失败则向上抛异常让 Consumer 标记 FAILED；若部分失败则正常返回，业务侧自行
      * 把父任务推进到 PARTIAL_FAILED。
      */
-    String doStoryboardImagePromptBatch(Long taskId, Long userId);
+    String doStoryboardImagePromptBatch(Long taskId, Long userId, String dispatchToken);
 
     /**
      * 续生：仅对 {@code PARTIAL_FAILED} 终态任务可调，重跑未生成 image_prompt 的镜头。

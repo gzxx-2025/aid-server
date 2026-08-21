@@ -39,6 +39,7 @@ import com.aid.media.dto.MediaAudioGenerateRequest;
 import com.aid.media.enums.MediaTaskStatus;
 import com.aid.media.enums.MediaType;
 import com.aid.media.service.IMediaGenerationService;
+import com.aid.media.util.ModelCapabilityResolver;
 import com.aid.media.util.UploadedMediaPathValidator;
 import com.aid.model.service.IAiModelBusinessService;
 import com.aid.model.vo.AiModelVO;
@@ -87,6 +88,8 @@ public class StoryboardWorkbenchServiceImpl implements IStoryboardWorkbenchServi
     /** 选中标记 */
     private static final int SELECTED_YES = 1;
     private static final int SELECTED_NO = 0;
+    /** 生成成功状态 */
+    private static final int GEN_STATUS_SUCCESS = 1;
     /** 产物类型常量 */
     private static final String RECORD_TYPE_IMAGE = "image";
     private static final String RECORD_TYPE_VIDEO = "video";
@@ -786,6 +789,18 @@ public class StoryboardWorkbenchServiceImpl implements IStoryboardWorkbenchServi
         creationStepService.checkStepUnlocked(request.getProjectId(), episodeId, userId,
                 CreationStepEnum.STORYBOARD.getValue());
 
+        AidStoryboard sourceStoryboard = null;
+        if (Objects.nonNull(request.getSourceStoryboardId())) {
+            sourceStoryboard = getStoryboardWithOwnerCheck(request.getSourceStoryboardId(), userId);
+            boolean sameScope = Objects.equals(sourceStoryboard.getProjectId(), request.getProjectId())
+                    && Objects.equals(sourceStoryboard.getEpisodeId(), episodeId);
+            if (!sameScope) {
+                log.error("复制分镜范围不一致, sourceStoryboardId={}, projectId={}, episodeId={}",
+                        sourceStoryboard.getId(), request.getProjectId(), episodeId);
+                throw new ServiceException("分镜范围不一致");
+            }
+        }
+
         Long insertAfterSort = request.getInsertAfterSort();
         long nextSort;
         boolean insertedAtPosition = Objects.nonNull(insertAfterSort) && insertAfterSort >= 0;
@@ -822,20 +837,135 @@ public class StoryboardWorkbenchServiceImpl implements IStoryboardWorkbenchServi
         storyboard.setEpisodeId(episodeId);
         storyboard.setUserId(userId);
         storyboard.setSortOrder(nextSort);
-        storyboard.setScriptParams(synchronizeScriptParamsShotNumber(null, nextSort));
+        if (Objects.nonNull(sourceStoryboard)) {
+            copyStoryboardContent(sourceStoryboard, storyboard);
+        }
+        storyboard.setScriptParams(synchronizeScriptParamsShotNumber(
+                storyboard.getScriptParams(), nextSort));
         // 默认标题
         storyboard.setTitle(StrUtil.isNotBlank(request.getTitle())
                 ? request.getTitle() : buildDefaultStoryboardTitle(nextSort));
         storyboard.setDelFlag(DEL_FLAG_NORMAL);
         storyboard.setCreateBy(String.valueOf(userId));
         storyboard.setCreateTime(DateUtils.getNowDate());
-        aidStoryboardService.save(storyboard);
+        if (!aidStoryboardService.save(storyboard)) {
+            log.error("创建分镜失败, projectId={}, episodeId={}", request.getProjectId(), episodeId);
+            throw new ServiceException("创建分镜失败");
+        }
+        if (Objects.nonNull(sourceStoryboard)) {
+            cloneStoryboardMediaRecords(sourceStoryboard, storyboard, userId);
+        }
         if (insertedAtPosition) {
             // 插入导致后续分镜整体后移，必须同步修正这些分镜的全局镜号镜像和默认标题。
             synchronizeStoryboardNumberFieldsByScope(request.getProjectId(), episodeId, userId);
         }
-        // 新建分镜此刻必然没有主图（尚未生成/选定），直接传 null，省去一次无意义的 gen_record 查询
+        if (Objects.nonNull(sourceStoryboard)) {
+            // 复制响应立即返回新记录自己的最终图片/原视频字段，刷新前后保持同一数据口径。
+            return buildStoryboardVO(storyboard);
+        }
+        // 普通新建分镜此刻必然没有产物，直接返回基础字段，省去无意义反查。
         return buildStoryboardVO(storyboard, null);
+    }
+
+    /** 复制分镜主表内可复用的业务内容，批次与来源场次等生成链路元数据不继承。 */
+    private void copyStoryboardContent(AidStoryboard source, AidStoryboard target) {
+        target.setStoryScript(source.getStoryScript());
+        target.setDialogueText(source.getDialogueText());
+        target.setScriptParams(source.getScriptParams());
+        target.setImagePrompt(source.getImagePrompt());
+        target.setImagePromptRaw(source.getImagePromptRaw());
+        target.setGridType(source.getGridType());
+        target.setVideoPrompt(source.getVideoPrompt());
+        target.setVideoPromptImage(source.getVideoPromptImage());
+    }
+
+    /**
+     * 克隆已成功的图片与原视频业务记录，并把记录间依赖及最终产物指针重映射到副本。
+     * 配音、对口型和合成视频不复制，副本保持待重新配音状态。
+     */
+    private void cloneStoryboardMediaRecords(AidStoryboard source, AidStoryboard target, Long userId) {
+        List<String> copyableGenTypes = new ArrayList<>(IMAGE_GEN_TYPES);
+        copyableGenTypes.addAll(ORIGINAL_VIDEO_GEN_TYPES);
+        List<AidGenRecord> sourceRecords = aidGenRecordService.list(Wrappers.<AidGenRecord>lambdaQuery()
+                .eq(AidGenRecord::getStoryboardId, source.getId())
+                .eq(AidGenRecord::getUserId, userId)
+                .eq(AidGenRecord::getDelFlag, DEL_FLAG_NORMAL)
+                .eq(AidGenRecord::getStatus, GEN_STATUS_SUCCESS)
+                .in(AidGenRecord::getGenType, copyableGenTypes)
+                .orderByAsc(AidGenRecord::getId));
+        if (CollectionUtil.isEmpty(sourceRecords)) {
+            return;
+        }
+
+        Date now = DateUtils.getNowDate();
+        String operator = String.valueOf(userId);
+        Map<Long, Long> clonedIdBySourceId = new LinkedHashMap<>();
+        Map<Long, AidGenRecord> clonedRecordBySourceId = new LinkedHashMap<>();
+        for (AidGenRecord sourceRecord : sourceRecords) {
+            AidGenRecord cloned = copyStoryboardMediaRecord(sourceRecord, target, now, operator);
+            if (!aidGenRecordService.save(cloned) || Objects.isNull(cloned.getId())) {
+                log.error("复制分镜产物失败, sourceStoryboardId={}, sourceRecordId={}",
+                        source.getId(), sourceRecord.getId());
+                throw new ServiceException("复制分镜失败");
+            }
+            clonedIdBySourceId.put(sourceRecord.getId(), cloned.getId());
+            clonedRecordBySourceId.put(sourceRecord.getId(), cloned);
+        }
+
+        for (AidGenRecord sourceRecord : sourceRecords) {
+            AidGenRecord cloned = clonedRecordBySourceId.get(sourceRecord.getId());
+            cloned.setBaseImageId(clonedIdBySourceId.get(sourceRecord.getBaseImageId()));
+            cloned.setFirstImageId(clonedIdBySourceId.get(sourceRecord.getFirstImageId()));
+            cloned.setLastImageId(clonedIdBySourceId.get(sourceRecord.getLastImageId()));
+            if (Objects.nonNull(cloned.getBaseImageId()) || Objects.nonNull(cloned.getFirstImageId())
+                    || Objects.nonNull(cloned.getLastImageId())) {
+                cloned.setUpdateTime(now);
+                cloned.setUpdateBy(operator);
+                if (!aidGenRecordService.updateById(cloned)) {
+                    log.error("复制分镜产物依赖失败, sourceRecordId={}, clonedRecordId={}",
+                            sourceRecord.getId(), cloned.getId());
+                    throw new ServiceException("复制分镜失败");
+                }
+            }
+        }
+
+        target.setFinalImageId(clonedIdBySourceId.get(source.getFinalImageId()));
+        target.setFinalVideoId(clonedIdBySourceId.get(source.getFinalVideoId()));
+        target.setFinalAudioId(null);
+        target.setUpdateTime(now);
+        target.setUpdateBy(operator);
+        if (!aidStoryboardService.updateById(target)) {
+            log.error("复制分镜指针失败, sourceStoryboardId={}, targetStoryboardId={}",
+                    source.getId(), target.getId());
+            throw new ServiceException("复制分镜失败");
+        }
+    }
+
+    /** 构造与来源文件共享 OSS 地址、但拥有独立业务归属的生成记录副本。 */
+    private AidGenRecord copyStoryboardMediaRecord(AidGenRecord source, AidStoryboard target,
+                                                    Date now, String operator) {
+        AidGenRecord cloned = new AidGenRecord();
+        cloned.setUserId(target.getUserId());
+        cloned.setProjectId(target.getProjectId());
+        cloned.setEpisodeId(target.getEpisodeId());
+        cloned.setStoryboardId(target.getId());
+        cloned.setGenType(source.getGenType());
+        cloned.setFileUrl(source.getFileUrl());
+        cloned.setStatus(GEN_STATUS_SUCCESS);
+        cloned.setGenParams(source.getGenParams());
+        cloned.setModelId(source.getModelId());
+        cloned.setPromptText(source.getPromptText());
+        cloned.setUserInputText(source.getUserInputText());
+        cloned.setVideoDuration(source.getVideoDuration());
+        cloned.setSoundDesc(source.getSoundDesc());
+        cloned.setCostCredits(BigDecimal.ZERO);
+        cloned.setIsSelected(source.getIsSelected());
+        cloned.setDelFlag(DEL_FLAG_NORMAL);
+        cloned.setCreateTime(now);
+        cloned.setCreateBy(operator);
+        cloned.setUpdateTime(now);
+        cloned.setUpdateBy(operator);
+        return cloned;
     }
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -881,8 +1011,11 @@ public class StoryboardWorkbenchServiceImpl implements IStoryboardWorkbenchServi
         }
         return affected;
     }
-    /** 单次拖拽排序的分镜数量上限，防止超大列表逐条 UPDATE 锤库 */
-    private static final int MAX_BATCH_SORT = 500;
+    /** 单次拖拽排序的分镜数量上限，与分镜任务总镜头上限保持一致。 */
+    private static final int MAX_BATCH_SORT = 5000;
+
+    /** 排序批量写入大小。 */
+    private static final int SORT_UPDATE_BATCH_SIZE = 200;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -920,15 +1053,31 @@ public class StoryboardWorkbenchServiceImpl implements IStoryboardWorkbenchServi
             log.info("分镜排序跨项目/剧集混传被拒绝, scopes={}", scopeCount);
             throw new ServiceException("参数有误");
         }
+        AidStoryboard scope = storyboards.get(0);
+        long activeCount = aidStoryboardService.count(Wrappers.<AidStoryboard>lambdaQuery()
+                .eq(AidStoryboard::getProjectId, scope.getProjectId())
+                .eq(AidStoryboard::getEpisodeId, scope.getEpisodeId())
+                .eq(AidStoryboard::getUserId, userId)
+                .eq(AidStoryboard::getDelFlag, DEL_FLAG_NORMAL));
+        if (activeCount != sortedIds.size()) {
+            log.info("分镜排序必须提交完整列表, projectId={}, episodeId={}, expect={}, actual={}",
+                    scope.getProjectId(), scope.getEpisodeId(), activeCount, sortedIds.size());
+            throw new ServiceException("排序列表不完整");
+        }
+        Date updateTime = DateUtils.getNowDate();
+        List<AidStoryboard> sortUpdates = new ArrayList<>(sortedIds.size());
         for (int i = 0; i < sortedIds.size(); i++) {
-            LambdaUpdateWrapper<AidStoryboard> wrapper = Wrappers.lambdaUpdate();
-            wrapper.eq(AidStoryboard::getId, sortedIds.get(i));
-            wrapper.eq(AidStoryboard::getUserId, userId);
-            wrapper.eq(AidStoryboard::getDelFlag, DEL_FLAG_NORMAL);
-            wrapper.set(AidStoryboard::getSortOrder, (long) (i + 1));
-            wrapper.set(AidStoryboard::getUpdateBy, String.valueOf(userId));
-            wrapper.set(AidStoryboard::getUpdateTime, DateUtils.getNowDate());
-            aidStoryboardService.update(wrapper);
+            AidStoryboard update = new AidStoryboard();
+            update.setId(sortedIds.get(i));
+            update.setSortOrder((long) (i + 1));
+            update.setUpdateBy(String.valueOf(userId));
+            update.setUpdateTime(updateTime);
+            sortUpdates.add(update);
+        }
+        if (!aidStoryboardService.updateBatchById(sortUpdates, SORT_UPDATE_BATCH_SIZE)) {
+            log.error("分镜排序批量写入失败, projectId={}, episodeId={}, size={}",
+                    scope.getProjectId(), scope.getEpisodeId(), sortedIds.size());
+            throw new ServiceException("排序失败，请重试");
         }
         synchronizeStoryboardNumberFieldsByIds(sortedIds, userId);
     }
@@ -968,6 +1117,8 @@ public class StoryboardWorkbenchServiceImpl implements IStoryboardWorkbenchServi
         if (CollectionUtil.isEmpty(storyboards)) {
             return;
         }
+        List<AidStoryboard> updates = new ArrayList<>();
+        Date updateTime = DateUtils.getNowDate();
         for (AidStoryboard storyboard : storyboards) {
             if (Objects.isNull(storyboard.getId()) || Objects.isNull(storyboard.getSortOrder())) {
                 continue;
@@ -981,19 +1132,22 @@ public class StoryboardWorkbenchServiceImpl implements IStoryboardWorkbenchServi
             if (!paramsChanged && !titleChanged) {
                 continue;
             }
-            LambdaUpdateWrapper<AidStoryboard> wrapper = Wrappers.lambdaUpdate();
-            wrapper.eq(AidStoryboard::getId, storyboard.getId());
-            wrapper.eq(AidStoryboard::getUserId, userId);
-            wrapper.eq(AidStoryboard::getDelFlag, DEL_FLAG_NORMAL);
+            AidStoryboard update = new AidStoryboard();
+            update.setId(storyboard.getId());
             if (paramsChanged) {
-                wrapper.set(AidStoryboard::getScriptParams, synchronizedParams);
+                update.setScriptParams(synchronizedParams);
             }
             if (titleChanged) {
-                wrapper.set(AidStoryboard::getTitle, synchronizedTitle);
+                update.setTitle(synchronizedTitle);
             }
-            wrapper.set(AidStoryboard::getUpdateBy, String.valueOf(userId));
-            wrapper.set(AidStoryboard::getUpdateTime, DateUtils.getNowDate());
-            aidStoryboardService.update(wrapper);
+            update.setUpdateBy(String.valueOf(userId));
+            update.setUpdateTime(updateTime);
+            updates.add(update);
+        }
+        if (CollectionUtil.isNotEmpty(updates)
+                && !aidStoryboardService.updateBatchById(updates, SORT_UPDATE_BATCH_SIZE)) {
+            log.error("分镜编号批量同步失败, size={}, userId={}", updates.size(), userId);
+            throw new ServiceException("排序失败，请重试");
         }
     }
 
@@ -1358,7 +1512,10 @@ public class StoryboardWorkbenchServiceImpl implements IStoryboardWorkbenchServi
         BigDecimal costCredits = BillingConstants.normalizeAccountAmount(
                 billingPriceMultiplierService.apply(
                         model.getCostCredits(), model.getBillingMultiplier()));
-        String stableTraceId = buildStableBillingTraceId(userId, request, assembledPrompt);
+        String videoAspectRatioCandidate = isImageType
+                ? null : resolveVideoAspectRatioCandidate(request, project);
+        String stableTraceId = buildStableBillingTraceId(
+                userId, request, assembledPrompt, videoAspectRatioCandidate);
 
         // 扣费走 freeze → settle/refund 两阶段，保证任何异常路径都能退回冻结资金。
         if (costCredits != null && costCredits.compareTo(BigDecimal.ZERO) > 0) {
@@ -1488,7 +1645,12 @@ public class StoryboardWorkbenchServiceImpl implements IStoryboardWorkbenchServi
                 videoRequest.setModelName(videoAgentModel.getModelCode());
             }
             AiModelConfigVo videoModelConfig = aiModelConfigService.selectByModelCode(videoAgentModel.getModelCode());
+            videoRequest.setAspectRatio(resolveVideoAspectRatio(request, project, videoModelConfig));
             agentDefaultParamsApplier.applyToVideo(videoAgentModel, videoRequest, videoModelConfig);
+
+            payload.put("aspectRatio", videoRequest.getAspectRatio());
+            record.setRemark(JSON.toJSONString(payload));
+            options.put("payloadSnapshot", JSON.toJSONString(payload));
 
             taskResponse = mediaGenerationService.generateVideo(videoRequest);
             log.info("大模型生视频任务已提交, taskId={}, status={}",
@@ -2521,14 +2683,23 @@ public class StoryboardWorkbenchServiceImpl implements IStoryboardWorkbenchServi
     /** 计费幂等 traceId 时间桶宽度（毫秒）：桶内同参数重复请求（双击/网络重试）幂等防重复扣费 */
     private static final long BILLING_TRACE_BUCKET_MS = 10_000L;
 
-    /**
-     * 构造请求级幂等 traceId。
-     * 以（userId + storyboardId + genType + modelId + genParams + baseImage/firstImage/lastImage + videoDuration）
-     * 组合成稳定哈希，并叠加 10 秒时间桶：桶内同参数双击/重试 traceId 相同，
-     * accountUpdateService 层按 traceId+changeType 幂等跳过重复扣费；
-     * 跨桶的同参数请求（用户主动重抽）视为新一次生成，正常计费，避免"同参重抽永久免费"漏账。
-     */
-    private String buildStableBillingTraceId(Long userId, GenerateMediaRequest request, String assembledPrompt) {
+    /** 解析工作台出片宽高比。 */
+    private String resolveVideoAspectRatio(GenerateMediaRequest request, AidComicProject project,
+            AiModelConfigVo modelConfig) {
+        return ModelCapabilityResolver.resolveVideoAspectRatio(
+                modelConfig, resolveVideoAspectRatioCandidate(request, project));
+    }
+
+    /** 读取工作台出片宽高比候选值。 */
+    private String resolveVideoAspectRatioCandidate(GenerateMediaRequest request, AidComicProject project) {
+        String requestValue = Objects.isNull(request) ? null : request.getAspectRatio();
+        String projectValue = Objects.isNull(project) ? null : project.getAspectRatio();
+        return StrUtil.trimToNull(StrUtil.isNotBlank(requestValue) ? requestValue : projectValue);
+    }
+
+    /** 构造请求级计费幂等标识。 */
+    private String buildStableBillingTraceId(Long userId, GenerateMediaRequest request, String assembledPrompt,
+            String videoAspectRatioCandidate) {
         StringBuilder sb = new StringBuilder();
         sb.append("sb-gen:")
                 .append(userId).append('|')
@@ -2540,6 +2711,7 @@ public class StoryboardWorkbenchServiceImpl implements IStoryboardWorkbenchServi
                 .append(request.getFirstImageId() == null ? "" : request.getFirstImageId()).append('|')
                 .append(request.getLastImageId() == null ? "" : request.getLastImageId()).append('|')
                 .append(request.getVideoDuration() == null ? "" : request.getVideoDuration()).append('|')
+                .append(StrUtil.blankToDefault(videoAspectRatioCandidate, "")).append('|')
                 .append(JSON.toJSONString(request.getGenParams())).append('|')
                 .append(System.currentTimeMillis() / BILLING_TRACE_BUCKET_MS);
         return cn.hutool.crypto.digest.DigestUtil.sha256Hex(sb.toString());

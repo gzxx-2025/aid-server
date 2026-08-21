@@ -1,6 +1,7 @@
 package com.aid.media.cleanup;
 
 import java.util.Collection;
+import java.util.Map;
 
 /**
  * 媒体文件 OSS 清理服务：硬删除数据时清理其关联的 OSS/COS/本地文件。
@@ -16,4 +17,20 @@ public interface IMediaOssCleanupService
      * @param fileUrls 文件 URL 或相对路径集合（内部自动清洗去重）
      */
     void cleanupFiles(Collection<String> fileUrls);
+
+    /**
+     * 同步清理文件；共享引用视为无需删除，任一真实删除失败返回 false。
+     *
+     * @param fileUrls 文件 URL 或相对路径集合
+     * @return 是否全部安全处理完成
+     */
+    boolean cleanupFilesNow(Collection<String> fileUrls);
+
+    /**
+     * 批量同步清理文件，并分别返回每个输入地址的处理结果。
+     *
+     * @param fileUrls 文件 URL 或相对路径集合
+     * @return 原始地址到处理结果的映射；共享引用视为成功，真实删除失败为 false
+     */
+    Map<String, Boolean> cleanupFilesNowByFile(Collection<String> fileUrls);
 }

@@ -14,7 +14,7 @@ public interface IMediaBillingService {
     /**
      * 预冻结：任务提交前冻结预估费用。
      * 成功时 task.billingStatus=FROZEN, task.frozenAmount=冻结金额。
-     * 失败时抛 ServiceException（余额不足），billingStatus=FAILED。
+     * 失败时抛 ServiceException（预扣余额不足），billingStatus=FAILED。
      *
      * @param task        媒体任务（需已设置 userId）
      * @param modelConfig 模型配置（含 costCredits 单价）

@@ -772,6 +772,7 @@ public class StoryboardEditImageServiceImpl implements IStoryboardEditImageServi
                           int imageCount, String rawPrompt,
                           String lockKey, String lockToken, String genParamsJson)
     {
+        String dispatchToken = taskQueueService.currentLocalDispatchToken(taskId);
         try
         {
             // 取消检查点①：异步启动后
@@ -916,7 +917,7 @@ public class StoryboardEditImageServiceImpl implements IStoryboardEditImageServi
             safeReleaseLock(lockKey, lockToken);
             try
             {
-                assetExtractService.clearCancelFlag(taskId);
+                assetExtractService.clearCancelFlag(taskId, dispatchToken);
             }
             catch (Exception ignore)
             {
@@ -924,7 +925,7 @@ public class StoryboardEditImageServiceImpl implements IStoryboardEditImageServi
             // 释放多维并发名额 + 执行租约（幂等）
             try
             {
-                assetExtractService.releaseTaskSlots(taskId);
+                assetExtractService.releaseTaskSlots(taskId, dispatchToken);
             }
             catch (Exception ignore)
             {

@@ -37,7 +37,7 @@ public class AidStoryboard extends BaseEntity implements Serializable
     @Excel(name = "剧集ID")
     private Long episodeId;
 
-    /** 来源场景ID(分镜脚本批量生成时记录,NULL表示历史数据或手动创建) */
+    /** 来源场景ID；分镜生成时记录，未绑定场景的人工数据为 NULL */
     @Excel(name = "来源场景ID")
     @TableField(value = "source_scene_id")
     private Long sourceSceneId;
@@ -65,7 +65,7 @@ public class AidStoryboard extends BaseEntity implements Serializable
     /**
      * 所属批次 aid_storyboard_batch.id。
      * 分镜批量任务产出的分镜会带上批次 ID，手动新建的分镜为 NULL。
-     * 用于断点续生时按批次定位旧分镜，以及全局二级排序。
+     * 用于断点续生时按批次定位生成来源，不参与播放排序。
      */
     @Excel(name = "所属批次ID")
     @TableField(value = "batch_id")
@@ -73,9 +73,8 @@ public class AidStoryboard extends BaseEntity implements Serializable
 
     /**
      * 来源场次 sceneCode。
-     * 分镜来源 location 的 sceneCode，用于全局二级排序：
-     * 同剧集多场景按 sceneCode 升序排列能保证剧情时间线正确。
-     * 手动新建的分镜为 NULL。
+     * 同一场次内的多个分镜共享该编码，仅用于来源追踪和场次分组；
+     * 最终播放、预览和合成顺序始终以 sort_order 为准。手动新建的分镜为 NULL。
      */
     @Excel(name = "来源场次序号")
     @TableField(value = "source_scene_code")

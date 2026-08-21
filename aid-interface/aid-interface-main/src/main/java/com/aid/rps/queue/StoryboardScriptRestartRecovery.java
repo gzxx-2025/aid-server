@@ -19,6 +19,7 @@ import com.aid.aid.service.IAidStoryboardBatchService;
 import com.aid.aid.service.IAidStoryboardShotGroupPlanService;
 import com.aid.billing.service.IAccountUpdateService;
 import com.aid.common.utils.DateUtils;
+import com.aid.rps.helper.StoryboardResumeBillingExecutor;
 import com.aid.rps.service.IExtractBillingService;
 
 import cn.hutool.core.collection.CollectionUtil;
@@ -26,7 +27,7 @@ import cn.hutool.core.util.StrUtil;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 分镜脚本批量任务「重启自愈」专属回收组件，只依赖底层服务、不反向依赖高层 Service，避免循环依赖。
+ * 回收服务重启中断的分镜脚本批量任务。
  *
  * @author 视觉AID
  */
@@ -45,7 +46,7 @@ public class StoryboardScriptRestartRecovery implements BatchTaskRestartRecovery
     private static final String BATCH_STATUS_FAILED = "FAILED";
     private static final String BATCH_STATUS_CANCELLED = "CANCELLED";
 
-    private static final String BILLING_STATUS_REFUNDED = "REFUNDED";
+    private static final String BILLING_STATUS_FROZEN = "FROZEN";
 
     private static final String TASK_STATUS_FAILED = "FAILED";
     private static final String TASK_STATUS_PARTIAL_FAILED = "PARTIAL_FAILED";
@@ -56,7 +57,6 @@ public class StoryboardScriptRestartRecovery implements BatchTaskRestartRecovery
 
     /** 续生标记前缀（resume 接口写入 task.remark：RESUME_TRACE:{traceId}|FROZEN:{amount}） */
     private static final String RESUME_MARKER_PREFIX = "RESUME_TRACE:";
-    private static final String RESUME_MARKER_FROZEN_SEP = "|FROZEN:";
 
     @Autowired
     private IAidExtractTaskService extractTaskService;
@@ -139,7 +139,7 @@ public class StoryboardScriptRestartRecovery implements BatchTaskRestartRecovery
             LambdaUpdateWrapper<AidStoryboardBatch> upd = Wrappers.lambdaUpdate();
             upd.eq(AidStoryboardBatch::getId, b.getId());
             upd.set(AidStoryboardBatch::getStatus, BATCH_STATUS_FAILED);
-            upd.set(AidStoryboardBatch::getBillingStatus, BILLING_STATUS_REFUNDED);
+            upd.set(AidStoryboardBatch::getBillingStatus, BILLING_STATUS_FROZEN);
             upd.set(AidStoryboardBatch::getErrorMessage, "服务重启中断");
             upd.set(AidStoryboardBatch::getUpdateTime, DateUtils.getNowDate());
             storyboardBatchService.update(upd);
@@ -174,21 +174,27 @@ public class StoryboardScriptRestartRecovery implements BatchTaskRestartRecovery
         // 续生轮：父任务 remark 带 RESUME_TRACE 标记（resume 接口写入，未跑完则未清除）
         boolean isResume = StrUtil.isNotBlank(task.getRemark()) && task.getRemark().startsWith(RESUME_MARKER_PREFIX);
 
+        boolean billingSucceeded = false;
         try
         {
             if (isResume)
             {
-                settleResumeRound(taskId, userId, task.getRemark(), allBatches);
+                billingSucceeded = settleResumeRound(taskId, userId, task.getRemark(), allBatches);
             }
             else
             {
                 // 首跑被中断：父任务一次冻结，整笔退回（含已成功批次——重启属系统侧故障，从宽退款）
-                extractBillingService.refundBilling(taskId, userId, task.getBillingTraceId());
+                billingSucceeded = extractBillingService.refundBilling(
+                        taskId, userId, task.getBillingTraceId());
             }
         }
         catch (Exception billingEx)
         {
             log.error("[RESTART-RECOVER] 分镜脚本任务回收计费异常: taskId={}", taskId, billingEx);
+        }
+        if (billingSucceeded && !isResume)
+        {
+            markAllBatchesRefunded(allBatches);
         }
 
         LambdaUpdateWrapper<AidExtractTask> taskUpd = Wrappers.lambdaUpdate();
@@ -205,15 +211,21 @@ public class StoryboardScriptRestartRecovery implements BatchTaskRestartRecovery
         if (succeededCount > 0)
         {
             taskUpd.set(AidExtractTask::getStatus, TASK_STATUS_PARTIAL_FAILED);
-            taskUpd.set(AidExtractTask::getErrorMessage, "服务重启中断，部分已完成，可继续生成");
+            taskUpd.set(AidExtractTask::getErrorMessage, billingSucceeded
+                    ? "服务重启中断，部分已完成，可继续生成"
+                    : "服务重启中断，计费处理中");
         }
         else
         {
             taskUpd.set(AidExtractTask::getStatus, TASK_STATUS_FAILED);
-            taskUpd.set(AidExtractTask::getErrorMessage, "服务重启中断，已退回");
+            taskUpd.set(AidExtractTask::getErrorMessage, billingSucceeded
+                    ? "服务重启中断，已退回"
+                    : "服务重启中断，计费处理中");
         }
-        // 清除续生标记，避免下一轮续生拿到旧 traceId 误结算
-        taskUpd.set(AidExtractTask::getRemark, null);
+        if (billingSucceeded && isResume)
+        {
+            taskUpd.set(AidExtractTask::getRemark, null);
+        }
         taskUpd.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
         boolean updated = extractTaskService.update(taskUpd);
 
@@ -222,40 +234,26 @@ public class StoryboardScriptRestartRecovery implements BatchTaskRestartRecovery
         return updated;
     }
 
-    /**
-     * 续生轮计费收尾：取本轮（retry_round 最大）批次，成功累加结算、失败/取消累加退回，统一走 resume trace。
-     */
-    private void settleResumeRound(Long taskId, Long userId, String marker, List<AidStoryboardBatch> allBatches)
+    /** 收口续生标记所对应轮次的计费。 */
+    private boolean settleResumeRound(Long taskId, Long userId, String marker,
+                                      List<AidStoryboardBatch> allBatches)
     {
-        String resumeTraceId;
+        StoryboardResumeBillingExecutor.ResumeMarker resumeMarker;
         try
         {
-            int p1 = marker.indexOf(RESUME_MARKER_PREFIX) + RESUME_MARKER_PREFIX.length();
-            int p2 = marker.indexOf(RESUME_MARKER_FROZEN_SEP);
-            resumeTraceId = (p2 > p1) ? marker.substring(p1, p2) : marker.substring(p1);
+            resumeMarker = StoryboardResumeBillingExecutor.parseMarker(marker);
         }
         catch (Exception e)
         {
             log.error("[RESTART-RECOVER] 解析 RESUME_TRACE 失败，跳过续生结算（交统一补偿兜底）: taskId={}, remark={}",
                     taskId, marker, e);
-            return;
+            return false;
         }
-        if (StrUtil.isBlank(resumeTraceId) || CollectionUtil.isEmpty(allBatches))
-        {
-            return;
-        }
-
-        // 本轮续生批次 = retry_round 最大的那一轮
-        int maxRound = allBatches.stream()
-                .map(b -> Objects.isNull(b.getRetryRound()) ? 0 : b.getRetryRound())
-                .max(Integer::compareTo)
-                .orElse(0);
         List<AidStoryboardBatch> thisRound = allBatches.stream()
-                .filter(b -> (Objects.isNull(b.getRetryRound()) ? 0 : b.getRetryRound()) == maxRound)
+                .filter(b -> Objects.equals(b.getRetryRound(), resumeMarker.retryRound()))
                 .collect(Collectors.toList());
 
         BigDecimal succeededAmount = BigDecimal.ZERO;
-        BigDecimal unsuccessAmount = BigDecimal.ZERO;
         for (AidStoryboardBatch b : thisRound)
         {
             BigDecimal amt = Objects.isNull(b.getFrozenAmount()) ? BigDecimal.ZERO : b.getFrozenAmount();
@@ -263,23 +261,62 @@ public class StoryboardScriptRestartRecovery implements BatchTaskRestartRecovery
             {
                 succeededAmount = succeededAmount.add(amt);
             }
-            else if (BATCH_STATUS_FAILED.equalsIgnoreCase(b.getStatus())
-                    || BATCH_STATUS_CANCELLED.equalsIgnoreCase(b.getStatus()))
-            {
-                unsuccessAmount = unsuccessAmount.add(amt);
-            }
         }
+        BigDecimal unsuccessAmount = resumeMarker.frozenAmount()
+                .subtract(succeededAmount).max(BigDecimal.ZERO);
 
-        // 账户操作按 traceId 幂等：本轮未跑完结算前被中断，此处为首次结算，不会重复打钱
-        if (succeededAmount.compareTo(BigDecimal.ZERO) > 0)
+        BigDecimal finalSucceededAmount = succeededAmount;
+        StoryboardResumeBillingExecutor.BillingResult result = StoryboardResumeBillingExecutor.execute(() ->
         {
-            accountUpdateService.settle(userId, succeededAmount, resumeTraceId, BIZ_TYPE_CREATE, "分镜脚本续生结算");
-        }
-        if (unsuccessAmount.compareTo(BigDecimal.ZERO) > 0)
+            if (finalSucceededAmount.compareTo(BigDecimal.ZERO) > 0)
+            {
+                accountUpdateService.settle(userId, finalSucceededAmount, resumeMarker.traceId(),
+                        BIZ_TYPE_CREATE, "分镜脚本续生结算");
+            }
+        }, () -> {
+            if (unsuccessAmount.compareTo(BigDecimal.ZERO) > 0)
+            {
+                accountUpdateService.refund(userId, unsuccessAmount, resumeMarker.traceId(),
+                        BIZ_TYPE_CREATE, "分镜脚本续生退款");
+            }
+        });
+        if (!result.succeeded())
         {
-            accountUpdateService.refund(userId, unsuccessAmount, resumeTraceId, BIZ_TYPE_CREATE, "分镜脚本续生退款");
+            log.error("[RESTART-RECOVER] 分镜脚本续生轮结算失败: taskId={}, traceId={}",
+                    taskId, resumeMarker.traceId(), result.error());
+            return false;
         }
+        markResumeRoundBillingTerminal(thisRound);
         log.info("[RESTART-RECOVER] 分镜脚本续生轮结算完成: taskId={}, traceId={}, round={}, settled={}, refunded={}",
-                taskId, resumeTraceId, maxRound, succeededAmount, unsuccessAmount);
+                taskId, resumeMarker.traceId(), resumeMarker.retryRound(), succeededAmount, unsuccessAmount);
+        return true;
+    }
+
+    private void markResumeRoundBillingTerminal(List<AidStoryboardBatch> batches)
+    {
+        for (AidStoryboardBatch batch : batches)
+        {
+            LambdaUpdateWrapper<AidStoryboardBatch> update = Wrappers.lambdaUpdate();
+            update.eq(AidStoryboardBatch::getId, batch.getId());
+            update.set(AidStoryboardBatch::getBillingStatus,
+                    StoryboardResumeBillingExecutor.terminalBatchBillingStatus(
+                            false, BATCH_STATUS_SUCCEEDED.equalsIgnoreCase(batch.getStatus())));
+            update.set(AidStoryboardBatch::getUpdateTime, DateUtils.getNowDate());
+            storyboardBatchService.update(update);
+        }
+    }
+
+    private void markAllBatchesRefunded(List<AidStoryboardBatch> batches)
+    {
+        for (AidStoryboardBatch batch : batches)
+        {
+            LambdaUpdateWrapper<AidStoryboardBatch> update = Wrappers.lambdaUpdate();
+            update.eq(AidStoryboardBatch::getId, batch.getId());
+            update.set(AidStoryboardBatch::getBillingStatus,
+                    StoryboardResumeBillingExecutor.terminalBatchBillingStatus(true,
+                            BATCH_STATUS_SUCCEEDED.equalsIgnoreCase(batch.getStatus())));
+            update.set(AidStoryboardBatch::getUpdateTime, DateUtils.getNowDate());
+            storyboardBatchService.update(update);
+        }
     }
 }

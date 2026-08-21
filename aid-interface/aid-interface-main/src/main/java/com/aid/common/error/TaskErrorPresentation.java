@@ -57,11 +57,10 @@ public final class TaskErrorPresentation
         String message = resolveShortMessage(result, fallbackMessage);
         ServiceException exception = new ServiceException(message);
         String rawMessage = Objects.isNull(result) ? null : result.getRawMessage();
-        if (Objects.nonNull(result) && TaskErrorCode.USER_BALANCE_NOT_ENOUGH.name()
-                .equals(result.getErrorCode()))
+        if (Objects.nonNull(result) && isUserBalanceError(result.getErrorCode()))
         {
             // 继续携带内部标记，避免异常再次经过异步包装后丢失用户余额语义。
-            exception.setDetailMessage(TaskErrorCode.USER_BALANCE_NOT_ENOUGH.name());
+            exception.setDetailMessage(result.getErrorCode());
         }
         else if (StrUtil.isNotBlank(rawMessage))
         {
@@ -89,6 +88,7 @@ public final class TaskErrorPresentation
     {
         String message = switch (StrUtil.blankToDefault(result.getErrorCode(), ""))
         {
+            case "USER_PREHOLD_BALANCE_NOT_ENOUGH" -> "预扣余额不足";
             case "USER_BALANCE_NOT_ENOUGH" -> "余额不足";
             case "USER_INPUT_INVALID" -> "生成设置有误，请调整";
             case "USER_CONTENT_VIOLATION" -> "内容需调整后重试";
@@ -119,5 +119,11 @@ public final class TaskErrorPresentation
             default -> StrUtil.blankToDefault(fallbackMessage, "任务执行异常");
         };
         return StrUtil.sub(message, 0, EXCEPTION_MESSAGE_MAX_LENGTH);
+    }
+
+    private static boolean isUserBalanceError(String errorCode)
+    {
+        return TaskErrorCode.USER_BALANCE_NOT_ENOUGH.name().equals(errorCode)
+                || TaskErrorCode.USER_PREHOLD_BALANCE_NOT_ENOUGH.name().equals(errorCode);
     }
 }

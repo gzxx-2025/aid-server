@@ -29,8 +29,8 @@ import com.aid.aid.mapper.AidUserProfileMapper;
 import com.aid.aid.service.IAidBalanceLogService;
 import com.aid.aid.service.IAidUserProfileService;
 import com.aid.billing.enums.BillingConstants;
+import com.aid.billing.error.BillingBalanceErrors;
 import com.aid.billing.service.IAccountUpdateService;
-import com.aid.common.error.TaskErrorCode;
 import com.aid.common.core.redis.RedisCache;
 import com.aid.common.exception.ServiceException;
 import com.aid.common.utils.DateUtils;
@@ -133,7 +133,7 @@ public class AccountUpdateServiceImpl implements IAccountUpdateService
 
     /**
      * 冻结：锁内事务中完成幂等检查 + 余额校验 + 冻结，防止并发超额冻结。
-     * 余额不足时抛 ServiceException("余额不足")，由调用方感知。
+     * 余额不足时抛带预扣错误码的业务异常，由调用方感知。
      * 采用条件 SQL 扣减（UPDATE ... SET balance=balance-? WHERE balance>=?），
      * 即使 Redis 锁被动过期、另一线程已改动 balance，也不会发生 Lost Update。
      */
@@ -165,7 +165,7 @@ public class AccountUpdateServiceImpl implements IAccountUpdateService
                 if (balance.compareTo(normalizedAmount) < 0)
                 {
                     log.info("冻结余额不足, userId={}, balance={}, amount={}", userId, balance, normalizedAmount);
-                    throw userBalanceNotEnoughException();
+                    throw BillingBalanceErrors.preholdNotEnough();
                 }
 
                 // 条件扣减：balance -= amount AND frozen += amount，WHERE balance >= amount
@@ -173,8 +173,9 @@ public class AccountUpdateServiceImpl implements IAccountUpdateService
                         normalizedAmount, null);
                 if (affected == 0)
                 {
-                    // 并发窗口：另一事务在读-写之间已扣掉余额
-                    log.warn("冻结并发冲突，触发重试, userId={}, amount={}", userId, normalizedAmount);
+                    // 0 行还可能表示档案已删除/不存在，不能一律误报为余额不足。
+                    // 明确余额不足已由上方锁内读取校验；此处保留安全的系统异常语义。
+                    log.warn("冻结条件更新未命中, userId={}, amount={}", userId, normalizedAmount);
                     throw new ServiceException("系统繁忙");
                 }
                 BigDecimal afterBalance = balance.subtract(normalizedAmount);
@@ -363,7 +364,7 @@ public class AccountUpdateServiceImpl implements IAccountUpdateService
                 {
                     log.info("直接消费余额不足, userId={}, balance={}, amount={}",
                             userId, balance, normalizedAmount);
-                    throw userBalanceNotEnoughException();
+                    throw BillingBalanceErrors.balanceNotEnough();
                 }
 
                 // 条件扣减 balance（balance -= amount AND balance >= amount），totalConsumption += amount
@@ -517,7 +518,7 @@ public class AccountUpdateServiceImpl implements IAccountUpdateService
                 {
                     log.info("管理员扣减余额不足, userId={}, balance={}, delta={}",
                             userId, balance, normalizedDelta);
-                    throw userBalanceNotEnoughException();
+                    throw BillingBalanceErrors.balanceNotEnough();
                 }
 
                 // 仅调整 balance（不动累计充值/消费），扣减时条件保护 balance >= |delta|
@@ -599,17 +600,8 @@ public class AccountUpdateServiceImpl implements IAccountUpdateService
         {
             log.info("余额前置预检不足, userId={}, balance={}, required={}",
                     userId, balance, normalizedAmount);
-            throw userBalanceNotEnoughException();
+            throw BillingBalanceErrors.preholdNotEnough();
         }
-    }
-
-    /**
-     * 使用内部错误码标记用户余额不足，避免与供应商返回的同名错误混淆。
-     */
-    private ServiceException userBalanceNotEnoughException()
-    {
-        return new ServiceException("余额不足")
-                .setDetailMessage(TaskErrorCode.USER_BALANCE_NOT_ENOUGH.name());
     }
     /**
      * 幂等检查：根据 traceId + changeType 查询是否已执行过该账户操作。

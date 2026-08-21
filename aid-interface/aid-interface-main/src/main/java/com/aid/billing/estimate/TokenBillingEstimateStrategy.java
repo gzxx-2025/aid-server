@@ -1,12 +1,18 @@
 package com.aid.billing.estimate;
 
 import cn.hutool.core.text.CharSequenceUtil;
+import cn.hutool.json.JSONUtil;
 import com.aid.billing.dto.BillingInput;
 import com.aid.billing.enums.BillingConstants;
+import com.aid.billing.model.BillingRule;
+import com.aid.billing.model.VideoTokenEstimateRule;
+import com.aid.common.exception.ServiceException;
 import com.aid.domain.vo.AiModelConfigVo;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.Map;
 
 /**
@@ -33,7 +39,125 @@ public class TokenBillingEstimateStrategy implements BillingEstimateStrategy {
         // 图片模型走 TOKEN 计费：按模型族子分发估算
         if ("IMAGE".equalsIgnoreCase(mediaType)) {
             enrichForImageToken(params, modelCode);
+            return;
         }
+        if ("VIDEO".equalsIgnoreCase(mediaType)) {
+            enrichForVideoToken(params, modelConfig);
+        }
+    }
+
+    /**
+     * 按 billing_rule_json.videoTokenEstimate 的显式规则估算视频 completion tokens。
+     * 未配置规则时保持原参数不变，禁止仅凭模型编码套用厂商公式。
+     */
+    private void enrichForVideoToken(Map<String, Object> params, AiModelConfigVo modelConfig) {
+        if (modelConfig == null || CharSequenceUtil.isBlank(modelConfig.getBillingRuleJson())) {
+            return;
+        }
+        BillingRule billingRule;
+        try {
+            billingRule = JSONUtil.toBean(modelConfig.getBillingRuleJson(), BillingRule.class);
+        } catch (Exception ex) {
+            log.warn("解析视频Token估算规则失败, modelCode={}, err={}", modelConfig.getModelCode(), ex.getMessage());
+            throw new ServiceException("视频计费配置无效");
+        }
+        VideoTokenEstimateRule rule = billingRule == null ? null : billingRule.getVideoTokenEstimate();
+        if (!isUsableVideoRule(rule)) {
+            if (billingRule != null && "VIDEO".equalsIgnoreCase(billingRule.getChargeType())) {
+                log.error("视频TOKEN计费缺少有效估算规则, modelCode={}", modelConfig.getModelCode());
+                throw new ServiceException("视频计费配置无效");
+            }
+            return;
+        }
+
+        int outputSeconds = Boolean.TRUE.equals(params.get("autoDuration"))
+                ? rule.getAutoDurationMaxSeconds()
+                : Math.max(1, safeGetInt(params, "duration", rule.getAutoDurationMaxSeconds()));
+        int inputSeconds = 0;
+        if (safeGetInt(params, "inputVideoCount", 0) > 0) {
+            // 预冻结不信任客户端自报的输入时长，按官方总时长上限冻结；成功后按 usage.completion_tokens 结算退款。
+            inputSeconds = Math.max(rule.getInputVideoMaxSeconds(), 0);
+        }
+
+        int[] dimensions = resolveVideoDimensions(rule, params);
+        if (dimensions == null) {
+            log.error("视频Token估算缺少分辨率尺寸, modelCode={}, resolution={}, ratio={}",
+                    modelConfig.getModelCode(), strParam(params, "resolution"), strParam(params, "aspectRatio"));
+            throw new ServiceException("视频计费配置无效");
+        }
+        int tokens = estimatePixelVideoTokens(dimensions[0], dimensions[1], rule.getFramesPerSecond(),
+                rule.getTokenDivisor(), outputSeconds, inputSeconds,
+                rule.getMinimumInputSecondsNumerator(), rule.getMinimumInputSecondsDenominator());
+        params.put("inputTokens", 0);
+        params.put("outputTokens", tokens);
+        params.put("estimatedOutputVideoSeconds", outputSeconds);
+        params.put("estimatedInputVideoSeconds", inputSeconds);
+        log.info("[TOKEN估算-视频] modelCode={}, resolution={}, ratio={}, outputSeconds={}, inputSeconds={}, outputTokens={}",
+                modelConfig.getModelCode(), strParam(params, "resolution"), strParam(params, "aspectRatio"),
+                outputSeconds, inputSeconds, tokens);
+    }
+
+    private boolean isUsableVideoRule(VideoTokenEstimateRule rule) {
+        return rule != null
+                && "PIXEL_FPS".equalsIgnoreCase(rule.getStrategy())
+                && rule.getFramesPerSecond() != null && rule.getFramesPerSecond() > 0
+                && rule.getTokenDivisor() != null && rule.getTokenDivisor() > 0
+                && rule.getAutoDurationMaxSeconds() != null && rule.getAutoDurationMaxSeconds() > 0
+                && rule.getDimensions() != null && !rule.getDimensions().isEmpty();
+    }
+
+    private int[] resolveVideoDimensions(VideoTokenEstimateRule rule, Map<String, Object> params) {
+        String resolution = strParam(params, "resolution");
+        Map<String, int[]> ratios = null;
+        String resolvedResolution = null;
+        if (resolution != null) {
+            for (Map.Entry<String, Map<String, int[]>> entry : rule.getDimensions().entrySet()) {
+                if (entry.getKey().equalsIgnoreCase(resolution)) {
+                    ratios = entry.getValue();
+                    resolvedResolution = entry.getKey();
+                    break;
+                }
+            }
+        }
+        if (ratios == null && CharSequenceUtil.isNotBlank(rule.getFallbackResolution())) {
+            for (Map.Entry<String, Map<String, int[]>> entry : rule.getDimensions().entrySet()) {
+                if (entry.getKey().equalsIgnoreCase(rule.getFallbackResolution())) {
+                    ratios = entry.getValue();
+                    resolvedResolution = entry.getKey();
+                    break;
+                }
+            }
+        }
+        if (ratios == null || ratios.isEmpty()) {
+            return null;
+        }
+        params.put("resolution", resolvedResolution);
+        String ratio = strParam(params, "aspectRatio");
+        if (ratio == null || "adaptive".equalsIgnoreCase(ratio)) {
+            ratio = "default";
+        }
+        int[] result = ratios.get(ratio);
+        return result != null ? result : ratios.get("default");
+    }
+
+    /** 官方像素 token 公式，HALF_UP 与价格附表中的 .5 token 取整一致。 */
+    static int estimatePixelVideoTokens(int width, int height, int fps, int divisor,
+                                        int outputSeconds, int inputSeconds,
+                                        Integer minimumInputNumerator, Integer minimumInputDenominator) {
+        int billedInputSeconds = Math.max(inputSeconds, 0);
+        if (billedInputSeconds > 0 && minimumInputNumerator != null && minimumInputNumerator > 0
+                && minimumInputDenominator != null && minimumInputDenominator > 0) {
+            int minimum = (outputSeconds * minimumInputNumerator + minimumInputDenominator - 1)
+                    / minimumInputDenominator;
+            billedInputSeconds = Math.max(billedInputSeconds, minimum);
+        }
+        long totalSeconds = (long) Math.max(outputSeconds, 0) + billedInputSeconds;
+        BigDecimal raw = BigDecimal.valueOf(width)
+                .multiply(BigDecimal.valueOf(height))
+                .multiply(BigDecimal.valueOf(fps))
+                .multiply(BigDecimal.valueOf(totalSeconds))
+                .divide(BigDecimal.valueOf(divisor), 0, RoundingMode.HALF_UP);
+        return raw.min(BigDecimal.valueOf(Integer.MAX_VALUE)).intValue();
     }
     /**
      * 图片 TOKEN 模型估算入口：按模型族分发。

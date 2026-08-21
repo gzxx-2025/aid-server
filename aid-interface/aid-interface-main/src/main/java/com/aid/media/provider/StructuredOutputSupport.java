@@ -20,14 +20,13 @@ import lombok.extern.slf4j.Slf4j;
  * {@code response_format={"type":"json_object"}}，让上游直接返回可解析的标准 JSON，
  * 避免 ```json 包裹等多余文本导致下游解析失败。
  * <p>
- * 规则（与阿里百炼《结构化输出》官方文档对齐，OpenAI 兼容协议通用）：
+ * 规则：
  * <ol>
  *   <li>业务显式传入 response_format 时尊重业务配置，不覆盖；</li>
  *   <li>capability 未打标的模型完全不受影响（方舟 Seed 2.x Pro 等官方无此能力的模型不得打标）；</li>
  *   <li>消息不含 "JSON" 关键词时不注入——官方会直接报错
  *       {@code 'messages' must contain the word 'json' in some form}；</li>
- *   <li>注入时移除 max_tokens / max_completion_tokens：官方要求开启结构化输出时禁用，
- *       否则 JSON 可能被截断产生无效输出（移除后按模型最大输出长度兜底）。</li>
+ *   <li>JSON Mode 仍保留统一输出上限；达到上限时由业务按 finish_reason=length 处理。</li>
  * </ol>
  */
 @Slf4j
@@ -38,6 +37,7 @@ public final class StructuredOutputSupport {
 
     /** capability_json 中的 JSON Mode 支持标记键 */
     public static final String CAPABILITY_SUPPORTS_JSON_OBJECT = "supportsJsonObject";
+    public static final String ENABLED_KEY = "_aid_structured_output_enabled";
 
     /** OpenAI 兼容请求体字段：返回内容格式 */
     private static final String KEY_RESPONSE_FORMAT = "response_format";
@@ -45,7 +45,7 @@ public final class StructuredOutputSupport {
     /** response_format.type 取值：JSON 模式 */
     private static final String TYPE_JSON_OBJECT = "json_object";
 
-    /** 官方要求开启结构化输出时禁用的输出长度限制字段 */
+    /** 统一输出长度限制字段。 */
     private static final String KEY_MAX_TOKENS = "max_tokens";
     private static final String KEY_MAX_COMPLETION_TOKENS = "max_completion_tokens";
 
@@ -63,6 +63,12 @@ public final class StructuredOutputSupport {
     public static Map<String, Object> applyJsonModeIfSupported(AiModelConfigVo modelConfig,
                                                                List<Map<String, Object>> messages,
                                                                Map<String, Object> mergedOptions) {
+        if (mergedOptions != null && mergedOptions.containsKey(ENABLED_KEY)) {
+            boolean enabled = Boolean.parseBoolean(String.valueOf(mergedOptions.remove(ENABLED_KEY)));
+            if (!enabled) {
+                return mergedOptions.isEmpty() ? null : mergedOptions;
+            }
+        }
         // 业务显式配置 response_format：尊重业务，不覆盖
         if (mergedOptions != null && mergedOptions.containsKey(KEY_RESPONSE_FORMAT)) {
             return mergedOptions;
@@ -78,11 +84,9 @@ public final class StructuredOutputSupport {
         Map<String, Object> responseFormat = new LinkedHashMap<>();
         responseFormat.put("type", TYPE_JSON_OBJECT);
         out.put(KEY_RESPONSE_FORMAT, responseFormat);
-        // 官方要求：开启结构化输出时禁用输出长度限制，防止 JSON 中途截断产生无效输出
-        Object removedMaxTokens = out.remove(KEY_MAX_TOKENS);
-        Object removedMaxCompletion = out.remove(KEY_MAX_COMPLETION_TOKENS);
-        log.info("结构化输出注入 JSON Mode: modelCode={}, 移除max_tokens={}, 移除max_completion_tokens={}",
-                modelConfig.getModelCode(), removedMaxTokens, removedMaxCompletion);
+        // JSON Mode 保留统一硬上限，避免实际请求与预冻结失去成本边界。
+        log.info("结构化输出注入 JSON Mode: modelCode={}, max_tokens={}, max_completion_tokens={}",
+                modelConfig.getModelCode(), out.get(KEY_MAX_TOKENS), out.get(KEY_MAX_COMPLETION_TOKENS));
         return out;
     }
 

@@ -7,6 +7,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.aid.common.constant.HttpConstants;
+import com.aid.common.utils.ProviderEndpointUtils;
 import com.aid.common.oss.entity.UploadResult;
 import com.aid.common.oss.factory.OssFactory;
 import com.aid.domain.vo.AiModelConfigVo;
@@ -530,24 +531,8 @@ public class AgnesImageProviderClient implements ImageProviderClient {
     /**
      * 构建 API URL：base_url + api_suffix（路径全部来自数据库配置）。
      */
-    private String buildApiUrl(String baseUrl, String apiSuffix) {
-        if (StringUtils.isBlank(baseUrl)) {
-            log.error("Agnes 图片 baseUrl 为空，请在 aid_ai_provider 表配置 base_url");
-            throw new IllegalArgumentException(AgnesConstants.ERROR_BASE_URL_EMPTY);
-        }
-        if (StringUtils.isBlank(apiSuffix)) {
-            log.error("Agnes 图片 apiSuffix 为空，请在 aid_ai_model 表配置 api_suffix");
-            throw new IllegalArgumentException(AgnesConstants.ERROR_API_SUFFIX_EMPTY);
-        }
-        String base = baseUrl.trim();
-        if (base.endsWith("/")) {
-            base = base.substring(0, base.length() - 1);
-        }
-        String suffix = apiSuffix.trim();
-        if (!suffix.startsWith("/")) {
-            suffix = "/" + suffix;
-        }
-        return base + suffix;
+    static String buildApiUrl(String baseUrl, String apiSuffix) {
+        return ProviderEndpointUtils.buildSubmitUrl(baseUrl, apiSuffix);
     }
 
     /**

@@ -1236,6 +1236,7 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
     private void runAsyncBatch(ImageBatchJob batch)
     {
         Long taskId = batch.taskId;
+        String dispatchToken = taskQueueService.currentLocalDispatchToken(taskId);
         // 同步提交阶段是否已登记心跳续租：仅 PROCESSING 抢占成功后才登记，finally 据此决定是否移出心跳集合。
         boolean heartbeatActivated = false;
         try
@@ -1243,7 +1244,7 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
             if (assetExtractService.isTaskCancelled(taskId))
             {
                 if (updateTaskCancelled(taskId)) { sseManager.sendCancelled(taskId, "用户取消"); }
-                releaseBatchLocksAndSlots(batch);
+                releaseBatchLocksAndSlots(batch, dispatchToken);
                 return;
             }
             if (!updateTaskStatus(taskId, TASK_STATUS_PROCESSING, null, TASK_STATUS_PENDING))
@@ -1259,7 +1260,7 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
             if (assetExtractService.isTaskCancelled(taskId))
             {
                 if (updateTaskCancelled(taskId)) { sseManager.sendCancelled(taskId, "用户取消"); }
-                releaseBatchLocksAndSlots(batch);
+                releaseBatchLocksAndSlots(batch, dispatchToken);
                 return;
             }
 
@@ -1341,7 +1342,7 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
             {
                 if (cancelImageBatchAtCheckpoint(taskId))
                 {
-                    releaseBatchLocksAndSlots(batch);
+                    releaseBatchLocksAndSlots(batch, dispatchToken);
                 }
                 return;
             }
@@ -1362,7 +1363,7 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
             log.error("分镜批量出图提交阶段失败: taskId={}", taskId, e);
             TaskErrorResult errorResult = ErrorNormalizer.normalize(e);
             if (updateTaskFailed(taskId, errorResult)) { sseManager.sendError(taskId, errorResult); }
-            releaseBatchLocksAndSlots(batch);
+            releaseBatchLocksAndSlots(batch, dispatchToken);
         }
         finally
         {
@@ -1376,11 +1377,11 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
     }
 
     /** 释放本批次镜头锁 + 取消标记 + 并发名额（取消/失败/提交异常路径用；正常异步路径由收尾释放）。 */
-    private void releaseBatchLocksAndSlots(ImageBatchJob batch)
+    private void releaseBatchLocksAndSlots(ImageBatchJob batch, String dispatchToken)
     {
         for (ShotLock l : batch.shotLocks) { releaseLockIfMine(l.key, l.token); }
-        try { assetExtractService.clearCancelFlag(batch.taskId); } catch (Exception ignore) { /* ignore */ }
-        try { assetExtractService.releaseTaskSlots(batch.taskId); } catch (Exception ignore) { /* ignore */ }
+        try { assetExtractService.clearCancelFlag(batch.taskId, dispatchToken); } catch (Exception ignore) { /* ignore */ }
+        try { assetExtractService.releaseTaskSlots(batch.taskId, dispatchToken); } catch (Exception ignore) { /* ignore */ }
     }
 
     private boolean cancelImageBatchAtCheckpoint(Long taskId)
@@ -1727,7 +1728,7 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
             boolean enqueued;
             try
             {
-                try { assetExtractService.clearCancelFlag(taskId); } catch (Exception ignore) { /* ignore */ }
+                try { assetExtractService.clearCancelFlag(taskId, task.getBillingTraceId()); } catch (Exception ignore) { /* ignore */ }
                 enqueued = buildJobsAndEnqueue(taskId, projectId, episodeId, userId, resolvedModelCode, modelId,
                         modelConfig, agentCode, aspectRatio, size, negativePrompt, userInputF, perShotCount, prepared,
                         heldLocks, newSubtasks, originalTotalShots, seedSuccessCount, seedRecordIds, seedItems,
@@ -2361,8 +2362,8 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
         finally
         {
             releaseShotLocksFromSnapshot(task);
-            try { assetExtractService.clearCancelFlag(taskId); } catch (Exception ignore) { /* ignore */ }
-            try { assetExtractService.releaseTaskSlots(taskId); } catch (Exception ignore) { /* ignore */ }
+            try { assetExtractService.clearCancelFlag(taskId, task.getBillingTraceId()); } catch (Exception ignore) { /* ignore */ }
+            try { assetExtractService.releaseTaskSlots(taskId, task.getBillingTraceId()); } catch (Exception ignore) { /* ignore */ }
             fanInSupport.cleanup(taskId);
         }
     }

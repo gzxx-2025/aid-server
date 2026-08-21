@@ -39,12 +39,7 @@ import cn.hutool.http.HttpResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
-/**
- * 视频输入图比例归一化服务。
- *
- * <p>仅处理 capability.videoAspectRatioMode=FOLLOW_INPUT 的模型。图片按配置选择居中补边或居中裁剪，
- * 经统一对象存储上传后写入任务请求快照；任务终态恢复原始 URL 并删除临时对象，避免临时文件长期残留。</p>
- */
+/** 视频输入图比例归一化服务。 */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -96,21 +91,21 @@ public class VideoInputAspectRatioNormalizer {
         if (Objects.isNull(request) || !ModelCapabilityResolver.isVideoAspectRatioFollowInput(modelConfig)) {
             return false;
         }
+        String targetAspectRatio = ModelCapabilityResolver.resolveVideoAspectRatio(
+                modelConfig, request.getAspectRatio());
         Map<String, Object> options = request.getOptions();
         if (options != null && options.containsKey(MediaInternalOptionKeys.NORMALIZED_VIDEO_INPUTS)) {
-            return false;
+            return applyProviderAspectRatio(modelConfig, request);
+        }
+        if (!ModelCapabilityResolver.isConcreteAspectRatio(targetAspectRatio)) {
+            return applyProviderAspectRatio(modelConfig, request);
         }
         if (options != null) {
             // 请求来源可能传入不可变 Map；统一复制后再执行 URL 替换与跟踪信息写入。
             options = new LinkedHashMap<>(options);
             request.setOptions(options);
         }
-        String aspectRatio = StrUtil.trimToNull(request.getAspectRatio());
-        if (StrUtil.isBlank(aspectRatio)) {
-            aspectRatio = ModelCapabilityResolver.resolveAspectRatio(modelConfig, null);
-            request.setAspectRatio(aspectRatio);
-        }
-        double targetRatio = parseAspectRatio(aspectRatio);
+        double targetRatio = parseAspectRatio(targetAspectRatio);
         int shortEdge = resolveShortEdge(options);
         String fitMode = resolveFitMode(modelConfig);
         Map<String, String> sourceToNormalized = new LinkedHashMap<>();
@@ -129,8 +124,9 @@ public class VideoInputAspectRatioNormalizer {
             deleteTemporaryObjects(normalizedToSource.keySet());
             throw ex;
         }
+        boolean ratioChanged = applyProviderAspectRatio(modelConfig, request);
         if (normalizedToSource.isEmpty()) {
-            return false;
+            return ratioChanged;
         }
         if (options == null) {
             options = new LinkedHashMap<>();
@@ -139,7 +135,17 @@ public class VideoInputAspectRatioNormalizer {
         options.put(MediaInternalOptionKeys.NORMALIZED_VIDEO_INPUTS, normalizedToSource);
         log.info("视频输入图比例已归一化: modelCode={}, aspectRatio={}, fitMode={}, imageCount={}",
                 modelConfig == null ? null : modelConfig.getModelCode(),
-                aspectRatio, fitMode, normalizedToSource.size());
+                targetAspectRatio, fitMode, normalizedToSource.size());
+        return true;
+    }
+
+    /** 将内部输入图目标比例恢复为 Provider 参数值。 */
+    private boolean applyProviderAspectRatio(AiModelConfigVo modelConfig, MediaVideoGenerateRequest request) {
+        String providerAspectRatio = ModelCapabilityResolver.resolveVideoProviderAspectRatio(modelConfig);
+        if (Objects.equals(request.getAspectRatio(), providerAspectRatio)) {
+            return false;
+        }
+        request.setAspectRatio(providerAspectRatio);
         return true;
     }
 
@@ -342,7 +348,8 @@ public class VideoInputAspectRatioNormalizer {
     }
 
     private double parseAspectRatio(String value) {
-        String[] parts = StrUtil.blankToDefault(value, "").split(":");
+        String normalized = ModelCapabilityResolver.normalize(StrUtil.blankToDefault(value, ""));
+        String[] parts = normalized.split(":");
         if (parts.length != 2) {
             log.info("视频目标比例格式错误: aspectRatio={}", value);
             throw new ServiceException("画面比例不支持");

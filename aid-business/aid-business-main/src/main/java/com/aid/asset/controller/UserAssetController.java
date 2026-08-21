@@ -13,6 +13,8 @@ import com.aid.common.core.controller.BaseController;
 import com.aid.common.core.domain.AjaxResult;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
 /**
  * 用户资产Controller
@@ -24,6 +26,7 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 @RestController
 @RequestMapping("/api/user/asset")
+@Tag(name = "C端官方素材")
 public class UserAssetController extends BaseController
 {
     @Resource
@@ -35,6 +38,7 @@ public class UserAssetController extends BaseController
      * 该表只存储风格、姿势、表情、效果、文件等可复用素材，不存储角色/场景/道具主资产
      */
     @PostMapping("/official/query")
+    @Operation(summary = "查询官方素材", description = "支持类型、名称与风格分类筛选；推荐风格优先并稳定排序")
     public AjaxResult officialQuery(@RequestBody(required = false) OfficialAssetQueryRequest request)
     {
         List<AidComicAsset> list = userAssetBusinessService.queryOfficialAssetList(request);
@@ -52,6 +56,19 @@ public class UserAssetController extends BaseController
                 .assetName(asset.getAssetName())
                 .promptText(asset.getPromptText())
                 .imageUrl(asset.getImageUrl())
+                .categories(asset.getCategories())
+                .isRecommended(Boolean.TRUE.equals(asset.getIsRecommended()))
+                .sortOrder(asset.getSortOrder())
                 .build();
+    }
+
+    /**
+     * 查询风格分类选项。
+     */
+    @PostMapping("/style/category/list")
+    @Operation(summary = "查询风格分类", description = "返回稳定code与中文label，首项all为虚拟全部分类")
+    public AjaxResult styleCategoryList()
+    {
+        return success(userAssetBusinessService.listStyleCategoryOptions());
     }
 }

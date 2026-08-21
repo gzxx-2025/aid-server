@@ -1,6 +1,7 @@
 package com.aid.aid.domain;
 
 import java.io.Serializable;
+import java.util.List;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
@@ -12,6 +13,8 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
 import com.aid.common.core.domain.BaseEntity;
+import com.aid.aid.vo.StyleCategoryVO;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 /**
  * 项目提取资产对象 aid_comic_asset
@@ -22,6 +25,7 @@ import com.aid.common.core.domain.BaseEntity;
 @EqualsAndHashCode(callSuper = true)
 @ToString(callSuper = true)
 @TableName(value = "aid_comic_asset")
+@Schema(description = "官方素材")
 public class AidComicAsset extends BaseEntity implements Serializable
 {
     private static final long serialVersionUID = 1L;
@@ -54,6 +58,29 @@ public class AidComicAsset extends BaseEntity implements Serializable
     @Excel(name = "主图")
     @MediaUrl
     private String imageUrl;
+
+    /** 是否为推荐风格 */
+    @Schema(description = "是否推荐；仅风格素材可配置")
+    private Boolean isRecommended;
+
+    /** 展示排序号，数值越小越靠前 */
+    @Schema(description = "展示排序号，数值越小越靠前", example = "1000")
+    private Integer sortOrder;
+
+    /** 风格分类筛选代码 */
+    @TableField(exist = false)
+    @Schema(description = "查询条件：风格分类代码；all或空表示全部")
+    private String categoryCode;
+
+    /** 后台维护风格分类时使用的代码列表 */
+    @TableField(exist = false)
+    @Schema(description = "后台维护字段：风格分类代码列表")
+    private List<String> categoryCodes;
+
+    /** 风格分类标签 */
+    @TableField(exist = false)
+    @Schema(description = "风格分类标签，按分类展示顺序返回")
+    private List<StyleCategoryVO> categories;
 
     /** 删除标志（0代表存在 1代表删除） */
     private String delFlag;

@@ -1,5 +1,6 @@
 package com.aid.media.provider;
 
+import com.aid.common.utils.ProviderEndpointUtils;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -74,11 +75,7 @@ public final class OpenAiCompatiblePayloadResolver {
         if (StringUtils.isBlank(baseUrl) || StringUtils.isBlank(apiSuffix)) {
             return null;
         }
-        String base = baseUrl.trim();
-        if (base.endsWith("/")) {
-            base = base.substring(0, base.length() - 1);
-        }
-        String url = base + apiSuffix;
+        String url = ProviderEndpointUtils.buildSubmitUrl(baseUrl, apiSuffix);
         if (StringUtils.isBlank(extraQueryJson)) {
             return url;
         }

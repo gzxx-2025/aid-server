@@ -67,6 +67,9 @@ public class RpsFormVO {
     /** 角色外观完整视觉描述，仅 character 返回 */
     private String descriptions;
 
+    /** 出图主提示词，仅 scene / prop 返回 */
+    private String prompt;
+
     /** 子形象编号（对应 expectedAppearances 数组下标，0=默认），仅 character 返回 */
     private Integer appearanceId;
     /** 概要说明（场景用途 / 道具简介），scene / prop 返回 */

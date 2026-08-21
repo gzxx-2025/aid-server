@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.stereotype.Service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
@@ -46,11 +47,18 @@ import com.aid.enums.AspectRatioEnum;
 import com.aid.enums.MediaTypeEnum;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.core.io.FileUtil;
-import java.io.File;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileVisitResult;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.Objects;
 import java.util.Set;
+
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -60,7 +68,7 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 @Service
-public class PromptLibBusinessServiceImpl implements IPromptLibBusinessService
+public class PromptLibBusinessServiceImpl implements IPromptLibBusinessService, SmartInitializingSingleton
 {
     @Autowired
     private IAidPromptLibService aidPromptLibService;
@@ -458,6 +466,47 @@ public class PromptLibBusinessServiceImpl implements IPromptLibBusinessService
     private static final String PROMPT_LIB_DIR = "lib/prompts";
 
     /**
+     * 服务启动时删除提示词文件缓存，确保数据库中的最新内容在首次读取时重新落盘。
+     */
+    @Override
+    public void afterSingletonsInstantiated() {
+        Path cacheDirectory;
+        try {
+            cacheDirectory = resolvePromptCacheDirectory();
+        } catch (RuntimeException e) {
+            log.error("提示词文件缓存启动清理跳过: errorType={}", e.getClass().getSimpleName());
+            return;
+        }
+        if (Files.notExists(cacheDirectory)) {
+            return;
+        }
+        try {
+            Files.walkFileTree(cacheDirectory, new SimpleFileVisitor<>() {
+                @Override
+                public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) throws IOException {
+                    Files.deleteIfExists(file);
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult postVisitDirectory(Path directory, IOException exception) throws IOException {
+                    if (exception != null) {
+                        throw exception;
+                    }
+                    if (!directory.equals(cacheDirectory)) {
+                        Files.deleteIfExists(directory);
+                    }
+                    return FileVisitResult.CONTINUE;
+                }
+            });
+            log.info("提示词文件缓存启动清理完成: path={}", cacheDirectory);
+        } catch (IOException | RuntimeException e) {
+            log.error("提示词文件缓存启动清理失败: path={}, errorType={}",
+                    cacheDirectory, e.getClass().getSimpleName());
+        }
+    }
+
+    /**
      * 获取提示词文件内容
      * 优先从本地 lib/prompts 目录读取缓存文件，若不存在则从数据库查询后写入文件
      *
@@ -480,9 +529,9 @@ public class PromptLibBusinessServiceImpl implements IPromptLibBusinessService
             throw new RuntimeException("不支持的语言");
         }
 
-        String basePath = AidAppConfig.getProfile() + "/" + PROMPT_LIB_DIR;
-        File zhFile = new File(basePath + "/" + remark + "_zh.txt");
-        File enFile = new File(basePath + "/" + remark + "_en.txt");
+        Path cacheDirectory = resolvePromptCacheDirectory();
+        Path zhFile = resolvePromptCacheFile(cacheDirectory, remark, "zh");
+        Path enFile = resolvePromptCacheFile(cacheDirectory, remark, "en");
 
         String zhContent = null;
         String enContent = null;
@@ -490,19 +539,24 @@ public class PromptLibBusinessServiceImpl implements IPromptLibBusinessService
         // 根据 lang 决定需要读取哪些文件
         boolean needZh = StrUtil.isBlank(lang) || "zh".equals(lang);
         boolean needEn = StrUtil.isBlank(lang) || "en".equals(lang);
-        boolean zhExists = zhFile.exists();
-        boolean enExists = enFile.exists();
+        boolean zhExists = Files.isRegularFile(zhFile);
+        boolean enExists = Files.isRegularFile(enFile);
 
         // 所需文件均已缓存，直接读取
         if ((!needZh || zhExists) && (!needEn || enExists)) {
             log.info("提示词文件已存在，直接读取");
-            if (needZh) {
-                zhContent = FileUtil.readString(zhFile, StandardCharsets.UTF_8);
+            try {
+                if (needZh) {
+                    zhContent = FileUtil.readString(zhFile.toFile(), StandardCharsets.UTF_8);
+                }
+                if (needEn) {
+                    enContent = FileUtil.readString(enFile.toFile(), StandardCharsets.UTF_8);
+                }
+                return PromptFileContentVO.builder().zhContent(zhContent).enContent(enContent).build();
+            } catch (RuntimeException e) {
+                log.warn("提示词文件缓存读取失败，回退数据库: errorType={}",
+                        e.getClass().getSimpleName());
             }
-            if (needEn) {
-                enContent = FileUtil.readString(enFile, StandardCharsets.UTF_8);
-            }
-            return PromptFileContentVO.builder().zhContent(zhContent).enContent(enContent).build();
         }
 
         // 文件不存在，从数据库查询并落地为文件缓存
@@ -519,16 +573,16 @@ public class PromptLibBusinessServiceImpl implements IPromptLibBusinessService
             throw new RuntimeException("未找到对应的提示词数据");
         }
 
-        FileUtil.mkdir(basePath);
+        FileUtil.mkdir(cacheDirectory.toFile());
 
         // 中英文内容各自写入缓存文件
         if (StrUtil.isNotBlank(promptLib.getPromptContent())) {
-            FileUtil.writeString(promptLib.getPromptContent(), zhFile, StandardCharsets.UTF_8);
-            log.info("已写入中文提示词文件: {}", zhFile.getAbsolutePath());
+            FileUtil.writeString(promptLib.getPromptContent(), zhFile.toFile(), StandardCharsets.UTF_8);
+            log.info("已写入中文提示词文件: {}", zhFile);
         }
         if (StrUtil.isNotBlank(promptLib.getPromptContentEn())) {
-            FileUtil.writeString(promptLib.getPromptContentEn(), enFile, StandardCharsets.UTF_8);
-            log.info("已写入英文提示词文件: {}", enFile.getAbsolutePath());
+            FileUtil.writeString(promptLib.getPromptContentEn(), enFile.toFile(), StandardCharsets.UTF_8);
+            log.info("已写入英文提示词文件: {}", enFile);
         }
 
         // 按 lang 返回对应内容
@@ -539,5 +593,41 @@ public class PromptLibBusinessServiceImpl implements IPromptLibBusinessService
             enContent = promptLib.getPromptContentEn();
         }
         return PromptFileContentVO.builder().zhContent(zhContent).enContent(enContent).build();
+    }
+
+    private Path resolvePromptCacheDirectory() {
+        String profile = AidAppConfig.getProfile();
+        if (StrUtil.isBlank(profile)) {
+            log.error("提示词缓存目录未配置");
+            throw new ServiceException("存储目录未配置");
+        }
+        Path profileDirectory = Path.of(profile).toAbsolutePath().normalize();
+        Path cacheDirectory = profileDirectory.resolve(PROMPT_LIB_DIR).normalize();
+        if (!cacheDirectory.startsWith(profileDirectory) || cacheDirectory.equals(profileDirectory)) {
+            log.error("提示词缓存目录越界: profile={}, cache={}", profileDirectory, cacheDirectory);
+            throw new ServiceException("存储目录错误");
+        }
+        if (Files.isSymbolicLink(cacheDirectory)) {
+            log.error("提示词缓存目录是符号链接，拒绝访问: path={}", cacheDirectory);
+            throw new ServiceException("存储目录错误");
+        }
+        return cacheDirectory;
+    }
+
+    private Path resolvePromptCacheFile(Path cacheDirectory, String remark, String language) {
+        if (StrUtil.isBlank(remark) || remark.indexOf('\0') >= 0) {
+            log.info("提示词缓存文件名为空或含非法字符");
+            throw new ServiceException("文件名错误");
+        }
+        Path file = cacheDirectory.resolve(remark + "_" + language + ".txt").normalize();
+        if (!Objects.equals(cacheDirectory, file.getParent())) {
+            log.info("提示词缓存文件路径越界: remark={}", remark);
+            throw new ServiceException("文件名错误");
+        }
+        if (Files.isSymbolicLink(file)) {
+            log.info("提示词缓存文件是符号链接，拒绝访问: remark={}", remark);
+            throw new ServiceException("文件名错误");
+        }
+        return file;
     }
 }

@@ -2,6 +2,7 @@ package com.aid.rps.dto;
 
 import com.fasterxml.jackson.annotation.JsonAlias;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 import java.util.List;
@@ -20,6 +21,7 @@ public class RpsUpdateMainRequest
     private Long id;
 
     /** 资产名称 */
+    @Size(max = 100, message = "名称不能超过100字")
     private String name;
 
     /** 别名(逗号分隔)，兼容 aliases / aliasesName */

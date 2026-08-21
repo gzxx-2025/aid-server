@@ -69,6 +69,7 @@ public class TaskQueueService
     private static final String STATUS_QUEUED = "QUEUED";
     private static final String STATUS_PROCESSING = "PROCESSING";
     private static final String STATUS_FINALIZING = "FINALIZING";
+    private static final String STATUS_RECOVERING = "RECOVERING";
     private static final String DEL_FLAG_NORMAL = "0";
     private static final String RESUME_STATE_PREPARED = "PREPARED";
     private static final String RESUME_STATE_FUNDS_FROZEN = "FUNDS_FROZEN";
@@ -78,6 +79,8 @@ public class TaskQueueService
     private static final String DISPATCH_ACCEPTED_PREFIX = "taskq:dispatch-accepted:";
     /** 覆盖 RocketMQ 默认多级重试窗口；超时仍未领取则不再永久判活。 */
     private static final long MQ_DELIVERY_RECEIPT_MAX_AGE_MS = TimeUnit.HOURS.toMillis(6);
+    /** MQ 首次投递可能早于同步发送方释放派发锁，Consumer 应在重投前等待该短暂临界区收敛。 */
+    private static final long MQ_CONSUMER_DISPATCH_LOCK_WAIT_SECONDS = 10L;
     private static final long WORKER_CLAIM_LOCK_WAIT_SECONDS = 5L;
 
     /** 终态集合：处于这些状态的任务必须释放名额 */
@@ -346,14 +349,6 @@ public class TaskQueueService
     }
 
     /**
-     * 注册本实例 LOCAL 任务的执行 Runnable（仅 dispatchMode=LOCAL 需要），须在入队前调用。
-     */
-    public void registerLocalJob(Long taskId, Runnable job)
-    {
-        localJobRegistry.register(taskId, job);
-    }
-
-    /**
      * 返回当前 LOCAL worker 所属派发周期令牌。仅当线程上下文中的 taskId 与入参一致时返回，
      * 防止线程池复用或嵌套任务把上一任务令牌带入下一任务。
      */
@@ -437,7 +432,7 @@ public class TaskQueueService
             return null;
         }
         Long taskId = message.getTaskId();
-        RLock lock = acquireDispatchLock(taskId);
+        RLock lock = acquireMqConsumerDispatchLock(taskId);
         if (lock == null)
         {
             log.info("MQ周期校验暂未获取派发锁: taskId={}", taskId);
@@ -634,7 +629,7 @@ public class TaskQueueService
                 }
                 if (Objects.equals(localOwner, leaseManager.getInstanceId())
                         && STATUS_QUEUED.equals(status)
-                        && !localJobRegistry.contains(taskId))
+                        && !localJobRegistry.contains(taskId, ctx.getDispatchToken()))
                 {
                     return false;
                 }
@@ -655,7 +650,7 @@ public class TaskQueueService
                     }
                     return !localMode
                             || !Objects.equals(localOwner, leaseManager.getInstanceId())
-                            || localJobRegistry.contains(taskId);
+                            || localJobRegistry.contains(taskId, ctx.getDispatchToken());
                 }
                 if (localMode)
                 {
@@ -743,11 +738,11 @@ public class TaskQueueService
             {
                 return false;
             }
-            localJobRegistry.register(taskId, wrapLocalJob(ctx, job));
+            localJobRegistry.register(taskId, ctx.getDispatchToken(), wrapLocalJob(ctx, job));
             boolean queued = doEnqueueLockHeld(ctx, true);
             if (!queued)
             {
-                localJobRegistry.remove(taskId);
+                localJobRegistry.remove(taskId, ctx.getDispatchToken());
             }
             return queued;
         }
@@ -802,7 +797,7 @@ public class TaskQueueService
                             // MQ 任务无本地 job，remove 为无害 no-op。
                             if (status != STATUS_COMMITTED)
                             {
-                                try { localJobRegistry.remove(fctx.getTaskId()); }
+                                try { localJobRegistry.remove(fctx.getTaskId(), fctx.getDispatchToken()); }
                                 catch (Exception ignore) { }
                             }
                         }
@@ -868,10 +863,7 @@ public class TaskQueueService
         catch (Exception e)
         {
             log.error("任务入队写Redis失败，回滚QUEUED→PENDING并清理痕迹, taskId={}", taskId, e);
-            try { stringRedisTemplate.opsForZSet().remove(TaskQueueKeys.WAIT_ZSET, String.valueOf(taskId)); }
-            catch (Exception ignore) { }
-            try { stringRedisTemplate.delete(TaskQueueKeys.ctxKey(taskId)); }
-            catch (Exception ignore) { }
+            clearQueueReceiptLockHeld(taskId, ctx.getDispatchToken(), false);
             LambdaUpdateWrapper<AidExtractTask> rb = Wrappers.lambdaUpdate();
             rb.eq(AidExtractTask::getId, taskId);
             rb.eq(AidExtractTask::getStatus, STATUS_QUEUED);
@@ -1244,14 +1236,8 @@ public class TaskQueueService
             log.info("入队失败兜底跳过，任务状态已变化: taskId={}", taskId);
             return;
         }
-        // CAS 成功落 FAILED 后，再清外围资源
-        try { stringRedisTemplate.opsForZSet().remove(TaskQueueKeys.WAIT_ZSET, String.valueOf(taskId)); }
-        catch (Exception ignore) { }
-        try { stringRedisTemplate.delete(TaskQueueKeys.ctxKey(taskId)); }
-        catch (Exception ignore) { }
-        // 清理可能已注册的本地执行 job（submitLocalTask 在事务内走延迟入队时已注册），MQ 任务调用无害
-        try { localJobRegistry.remove(taskId); }
-        catch (Exception ignore) { }
+        // CAS 成功落 FAILED 后，再按本轮 token 清外围资源；禁止迟到回调清掉后继周期。
+        releaseSlotsLockHeld(taskId, ctx.getDispatchToken());
         // 推 SSE 失败终态：SSE 轮询只读 Redis 快照，若不推则已连接前端只见 connected/心跳、看不到 FAILED
         try { sseManager.sendError(taskId, "入队失败"); }
         catch (Exception ignore) { }
@@ -1259,7 +1245,7 @@ public class TaskQueueService
         // 业务收尾：入队失败时提交防重锁通常已被 submit 持有，这里一并释放 + 清 worker cancel flag，避免用户等 TTL。幂等、不抛出。
         if (taskFinalizer != null)
         {
-            try { taskFinalizer.onQueueTaskTerminated(taskId); }
+            try { taskFinalizer.onQueueTaskTerminated(taskId, ctx.getDispatchToken()); }
             catch (Exception e) { log.warn("入队失败业务收尾回调异常(忽略): taskId={}", taskId, e); }
         }
     }
@@ -1285,6 +1271,29 @@ public class TaskQueueService
             // Redis 异常：偏保守不放行，避免无锁并发派发。
             log.warn("抢派发锁异常, 跳过本任务, taskId={}", taskId, e);
             return null;
+        }
+    }
+
+    /** MQ Consumer 有界等待同步发送方释放本任务派发锁，超时后交由 RocketMQ 重投。 */
+    private RLock acquireMqConsumerDispatchLock(Long taskId)
+    {
+        RLock lock = redissonClient.getLock(TaskQueueKeys.dispatchLockKey(taskId));
+        try
+        {
+            return lock.tryLock(MQ_CONSUMER_DISPATCH_LOCK_WAIT_SECONDS, TimeUnit.SECONDS)
+                    ? lock : null;
+        }
+        catch (InterruptedException e)
+        {
+            Thread.currentThread().interrupt();
+            log.info("MQ周期校验等待派发锁被中断: taskId={}", taskId);
+            throw new ServiceException("系统繁忙");
+        }
+        catch (Exception e)
+        {
+            log.warn("MQ周期校验获取派发锁异常: taskId={}, errorType={}",
+                    taskId, e.getClass().getSimpleName());
+            throw new ServiceException("系统繁忙");
         }
     }
 
@@ -1502,8 +1511,10 @@ public class TaskQueueService
                 String status = current == null ? null : current.getStatus();
                 if (status == null || TERMINAL_STATUS.contains(status))
                 {
+                    QueuedTaskContext terminalCtx = current == null ? loadCtx(taskId) : null;
                     releaseSlotsLockHeld(taskId,
-                            current == null ? null : current.getBillingTraceId());
+                            current != null ? current.getBillingTraceId()
+                                    : (terminalCtx == null ? null : terminalCtx.getDispatchToken()));
                     continue;
                 }
                 // 非终态：租约存活才续期；租约失活留给自过期/僵尸对账。
@@ -1577,9 +1588,7 @@ public class TaskQueueService
                 if (task != null && !Objects.equals(ctx.getDispatchToken(), task.getBillingTraceId()))
                 {
                     log.warn("清理跨周期队列收据: taskId={}", taskId);
-                    stringRedisTemplate.opsForZSet().remove(TaskQueueKeys.WAIT_ZSET, member);
-                    stringRedisTemplate.delete(TaskQueueKeys.ctxKey(taskId));
-                    localJobRegistry.remove(taskId);
+                    clearQueueReceiptLockHeld(taskId, ctx.getDispatchToken(), true);
                     continue;
                 }
                 // 其余非 QUEUED 态（null/已删除、终态、PROCESSING、历史脏态等）→ 移出等待集（不该再排队）。
@@ -1587,13 +1596,16 @@ public class TaskQueueService
                 //   并被 refreshQueuePositions（不查 DB）持续误推"排队中"快照。
                 if (!STATUS_QUEUED.equals(status) && !STATUS_PENDING.equals(status))
                 {
-                    stringRedisTemplate.opsForZSet().remove(TaskQueueKeys.WAIT_ZSET, member);
                     // ctx 不只是排队展示：后续 releaseSlots() 会优先靠它释放 user/model/provider 维度名额。
                     //   仅 null/终态 才删 ctx（此时已无需释放或已释放）；PROCESSING/WAIT_POLL/INIT 等"仍在跑"的非终态脏成员
                     //   保留 ctx，留给其真正终态时按 ctx 精确释放维度名额，避免模型 provider 配置变更 / DB 回退异常时 provider 维度释放不全。
                     if (status == null || TERMINAL_STATUS.contains(status))
                     {
-                        stringRedisTemplate.delete(TaskQueueKeys.ctxKey(taskId));
+                        clearQueueReceiptLockHeld(taskId, ctx.getDispatchToken(), true);
+                    }
+                    else
+                    {
+                        stringRedisTemplate.opsForZSet().remove(TaskQueueKeys.WAIT_ZSET, member);
                     }
                     continue;
                 }
@@ -1601,7 +1613,7 @@ public class TaskQueueService
                 // 放行前命中「取消请求」：tryCancelQueuedOrPending 抢派发锁失败降级时会打此标记。此刻任务仍 QUEUED 未派发，
                 // 在锁内直接队列层取消（CAS QUEUED→CANCELLED + 释放名额/出队 + 退款 + 推 cancelled），杜绝"已请求取消的排队任务仍被放行执行"。
                 // 放在 owner-gate 之前：取消无需本地 job，任一实例的 drain 命中即可取消（不区分 owner）。
-                if (isCancelRequested(taskId))
+                if (isCancelRequested(taskId, ctx.getDispatchToken()))
                 {
                     LambdaUpdateWrapper<AidExtractTask> cx = Wrappers.lambdaUpdate();
                     cx.eq(AidExtractTask::getId, taskId);
@@ -1613,12 +1625,13 @@ public class TaskQueueService
                     int cxRows = extractTaskService.getBaseMapper().update(null, cx);
                     if (cxRows > 0)
                     {
-                        releaseSlots(taskId);
+                        releaseSlotsLockHeld(taskId, ctx.getDispatchToken());
                         try
                         {
                             if (ctx.getUserId() != null)
                             {
-                                extractBillingService.refundBilling(taskId, ctx.getUserId());
+                                extractBillingService.refundBilling(
+                                        taskId, ctx.getUserId(), ctx.getDispatchToken());
                             }
                         }
                         catch (Exception e)
@@ -1629,12 +1642,12 @@ public class TaskQueueService
                         // 业务收尾：释放 taskType 业务防重锁 + 清 worker cancel flag（队列层无法直接做，回调业务 Service）
                         if (taskFinalizer != null)
                         {
-                            try { taskFinalizer.onQueueTaskTerminated(taskId); }
+                            try { taskFinalizer.onQueueTaskTerminated(taskId, ctx.getDispatchToken()); }
                             catch (Exception e) { log.warn("队列取消业务收尾回调异常(忽略): taskId={}", taskId, e); }
                         }
                         log.info("放行前命中取消请求，已在队列层取消: taskId={}", taskId);
                     }
-                    clearCancelRequested(taskId);
+                    clearCancelRequested(taskId, ctx.getDispatchToken());
                     continue;
                 }
 
@@ -1647,7 +1660,7 @@ public class TaskQueueService
                         String owner = ctx.getOwnerInstanceId();
                         boolean ownerDead = StrUtil.isBlank(owner) || !leaseManager.isInstanceAlive(owner);
                         boolean localJobLost = Objects.equals(owner, leaseManager.getInstanceId())
-                                && !localJobRegistry.contains(taskId);
+                                && !localJobRegistry.contains(taskId, ctx.getDispatchToken());
                         boolean acceptedOrRunning = hasAcceptedDispatchReceipt(
                                 taskId, ctx.getDispatchToken()) || leaseManager.isAlive(taskId);
                         if (ownerDead || (localJobLost && !acceptedOrRunning))
@@ -1844,7 +1857,7 @@ public class TaskQueueService
             if (StrUtil.isBlank(ctx.getOwnerInstanceId())
                     || !leaseManager.isInstanceAlive(ctx.getOwnerInstanceId())
                     || !Objects.equals(ctx.getOwnerInstanceId(), leaseManager.getInstanceId())
-                    || !localJobRegistry.contains(taskId))
+                    || !localJobRegistry.contains(taskId, ctx.getDispatchToken()))
             {
                 return false;
             }
@@ -1938,7 +1951,7 @@ public class TaskQueueService
                 && extractBillingService.hasActiveResumeBilling(taskId, ctx.getDispatchToken())
                 && extractBillingService.rollbackResumeAfterQueueFailure(taskId, ctx.getUserId()))
         {
-            finishResumeRollbackResources(taskId);
+            finishResumeRollbackResources(taskId, ctx.getDispatchToken());
             log.warn("续跑派发失败已恢复原任务: taskId={}", taskId);
             return;
         }
@@ -1978,21 +1991,22 @@ public class TaskQueueService
         {
             if (ctx.getUserId() != null)
             {
-                extractBillingService.refundBilling(taskId, ctx.getUserId());
+                extractBillingService.refundBilling(
+                        taskId, ctx.getUserId(), ctx.getDispatchToken());
             }
         }
         catch (Exception e)
         {
             log.error("失败退款异常, 需人工核对, taskId={}", taskId, e);
         }
-        releaseSlots(taskId);
+        releaseSlots(taskId, ctx.getDispatchToken());
         try { sseManager.sendError(taskId, errorMessage); } catch (Exception ignore) { }
         wechatNotifyService.notifyTaskTerminal(taskId);
         // 业务收尾：释放 taskType 业务防重锁 + 清 worker cancel flag（队列层无法直接做，回调业务 Service）。
         // 与取消路径同一套收尾，避免失败/退款后业务锁仍占用到 TTL 才能重新提交。
         if (taskFinalizer != null)
         {
-            try { taskFinalizer.onQueueTaskTerminated(taskId); }
+            try { taskFinalizer.onQueueTaskTerminated(taskId, ctx.getDispatchToken()); }
             catch (Exception e) { log.warn("失败收口业务收尾回调异常(忽略): taskId={}", taskId, e); }
         }
     }
@@ -2056,17 +2070,12 @@ public class TaskQueueService
                 // 状态已被其它分支推进（取消/已 PROCESSING 等）→ 不接管，交默认逻辑
                 return false;
             }
-            // 清队列痕迹 + 释放名额 + 业务收尾（释放续生镜头锁）；不退款
-            try { stringRedisTemplate.opsForZSet().remove(TaskQueueKeys.WAIT_ZSET, String.valueOf(taskId)); }
-            catch (Exception ignore) { }
-            try { stringRedisTemplate.delete(TaskQueueKeys.ctxKey(taskId)); }
-            catch (Exception ignore) { }
-            try { localJobRegistry.remove(taskId); }
-            catch (Exception ignore) { }
-            releaseSlots(taskId);
+            // 清队列痕迹 + 释放名额 + 业务收尾（释放续生镜头锁）；不退款。
+            // 必须携带本轮 token，禁止迟到的旧收尾删除下一轮 ctx/local job。
+            releaseSlots(taskId, dispatchToken);
             if (taskFinalizer != null)
             {
-                try { taskFinalizer.onQueueTaskTerminated(taskId); }
+                try { taskFinalizer.onQueueTaskTerminated(taskId, dispatchToken); }
                 catch (Exception e) { log.warn("视频续生回滚业务收尾回调异常(忽略): taskId={}", taskId, e); }
             }
             // 推 SSE 终态：用旧 resultData 推一次 PARTIAL_FAILED，写终态快照，避免前端停在 queued/admitted 直到重连
@@ -2139,8 +2148,7 @@ public class TaskQueueService
         {
             // 已被取消/推进：撤回刚加入的等待集条目 + 清 ctx，放弃重排
             log.warn("可重试回退时任务已非PENDING, 撤回入队并放弃重排: taskId={}", taskId);
-            try { stringRedisTemplate.opsForZSet().remove(TaskQueueKeys.WAIT_ZSET, member); } catch (Exception ignore) { }
-            try { stringRedisTemplate.delete(TaskQueueKeys.ctxKey(taskId)); } catch (Exception ignore) { }
+            clearQueueReceiptLockHeld(taskId, ctx.getDispatchToken(), false);
             return;
         }
 
@@ -2151,22 +2159,14 @@ public class TaskQueueService
         catch (Exception e) { log.warn("可重试回退推送排队事件失败(忽略, 由本拍 refresh 自愈), taskId={}", taskId, e); }
     }
     /**
-     * 释放任务的双维名额 + 租约 + ctx + 出等待集（幂等）。
-     * 终态、取消、僵尸回收、对账统一调用。维度信息优先取 ctx，缺失回退查 DB。
-     */
-    public void releaseSlots(Long taskId)
-    {
-        releaseSlots(taskId, currentLocalDispatchToken(taskId));
-    }
-
-    /**
      * 按派发周期释放外围资源。带令牌入口供 MQ/LOCAL worker 在 finally 中使用，
      * 后续会在同一 task 派发锁内核对 DB 与 ctx，避免旧周期误删新周期资源。
      */
     public void releaseSlots(Long taskId, String dispatchToken)
     {
-        if (taskId == null)
+        if (taskId == null || StrUtil.isBlank(dispatchToken))
         {
+            log.warn("释放任务资源缺少派发周期，保守跳过: taskId={}", taskId);
             return;
         }
         RLock lock = null;
@@ -2223,18 +2223,27 @@ public class TaskQueueService
             return;
         }
 
-        String expectedToken = StrUtil.isBlank(dispatchToken) ? null : dispatchToken;
         String dbToken = task == null ? null : task.getBillingTraceId();
         String ctxToken = ctx == null ? null : ctx.getDispatchToken();
-        if (expectedToken != null && !Objects.equals(expectedToken, dbToken))
+        String expectedToken = dispatchToken;
+        if (StrUtil.isBlank(expectedToken))
+        {
+            log.warn("锁内释放任务资源缺少派发周期，保守跳过: taskId={}", taskId);
+            return;
+        }
+        boolean dbMatches = expectedToken != null && Objects.equals(expectedToken, dbToken);
+        boolean ctxMatches = expectedToken != null && Objects.equals(expectedToken, ctxToken);
+        if (expectedToken != null && ctx != null && !ctxMatches)
+        {
+            log.info("跳过跨周期队列上下文释放: taskId={}", taskId);
+            return;
+        }
+        if (expectedToken != null && !dbMatches && !ctxMatches)
         {
             // Saga 回滚会把主表 trace 恢复为旧周期，此时仍允许清理由当前新 token 留下的 ctx。
             // 其它不匹配均视为旧 worker 迟到，严禁删除当前周期资源。
-            if (ctx == null || !Objects.equals(expectedToken, ctxToken))
-            {
-                log.info("跳过跨周期资源释放: taskId={}", taskId);
-                return;
-            }
+            log.info("跳过跨周期资源释放: taskId={}", taskId);
+            return;
         }
 
         Long userId = ctx != null && (expectedToken == null || Objects.equals(expectedToken, ctxToken))
@@ -2245,12 +2254,7 @@ public class TaskQueueService
         catch (Exception e) { log.warn("释放并发名额异常(忽略), taskId={}", taskId, e); }
         try { leaseManager.release(taskId); }
         catch (Exception e) { log.warn("释放执行租约异常(忽略), taskId={}", taskId, e); }
-        try { localJobRegistry.remove(taskId); }
-        catch (Exception ignore) { }
-        try { stringRedisTemplate.opsForZSet().remove(TaskQueueKeys.WAIT_ZSET, String.valueOf(taskId)); }
-        catch (Exception e) { log.warn("出等待集异常(忽略), taskId={}", taskId, e); }
-        try { stringRedisTemplate.delete(TaskQueueKeys.ctxKey(taskId)); }
-        catch (Exception e) { log.warn("清排队上下文异常(忽略), taskId={}", taskId, e); }
+        clearQueueReceiptLockHeld(taskId, expectedToken, true);
         try { stringRedisTemplate.delete(LEGACY_MQ_RECEIPT_PREFIX + taskId); }
         catch (Exception e) { log.warn("清旧MQ收据标记异常(忽略), taskId={}", taskId, e); }
         try { stringRedisTemplate.delete(DISPATCH_ACCEPTED_PREFIX + taskId); }
@@ -2261,19 +2265,33 @@ public class TaskQueueService
     }
 
     /**
-     * 从等待队列移除（取消 QUEUED 任务时调用，未占名额，仅清队列 + ctx）。
+     * 调用方必须持有 task 派发锁。ctx 存在时按 dispatchToken 比较后再删除；
+     * local job 自身也执行同 token 的 compare-and-remove，旧周期无法删除新执行体。
      */
-    public void removeFromQueue(Long taskId)
+    private boolean clearQueueReceiptLockHeld(Long taskId, String dispatchToken,
+                                                boolean removeLocalJob)
     {
-        if (taskId == null)
+        if (taskId == null || StrUtil.isBlank(dispatchToken))
         {
-            return;
+            log.warn("清理队列收据缺少派发周期，保守跳过: taskId={}", taskId);
+            return false;
         }
-        stringRedisTemplate.opsForZSet().remove(TaskQueueKeys.WAIT_ZSET, String.valueOf(taskId));
-        stringRedisTemplate.delete(TaskQueueKeys.ctxKey(taskId));
-        stringRedisTemplate.delete(LEGACY_MQ_RECEIPT_PREFIX + taskId);
-        stringRedisTemplate.delete(DISPATCH_ACCEPTED_PREFIX + taskId);
-        localJobRegistry.remove(taskId);
+        QueuedTaskContext current = loadCtx(taskId);
+        if (current != null && !Objects.equals(dispatchToken, current.getDispatchToken()))
+        {
+            log.info("跳过跨周期队列收据清理: taskId={}", taskId);
+            return false;
+        }
+        try { stringRedisTemplate.opsForZSet().remove(TaskQueueKeys.WAIT_ZSET, String.valueOf(taskId)); }
+        catch (Exception e) { log.warn("出等待集异常(忽略), taskId={}", taskId, e); }
+        try { stringRedisTemplate.delete(TaskQueueKeys.ctxKey(taskId)); }
+        catch (Exception e) { log.warn("清排队上下文异常(忽略), taskId={}", taskId, e); }
+        if (removeLocalJob)
+        {
+            try { localJobRegistry.remove(taskId, dispatchToken); }
+            catch (Exception e) { log.warn("清本地执行体异常(忽略), taskId={}", taskId, e); }
+        }
+        return true;
     }
 
     /** 取消时抢派发锁的最大尝试次数：与 refresh/reaper 的瞬时持锁错开；真正在 dispatch 的任务会持锁较久 → 最终失败转 cancel flag */
@@ -2321,9 +2339,24 @@ public class TaskQueueService
         }
         try
         {
+            AidExtractTask current = extractTaskService.getOne(
+                    Wrappers.<AidExtractTask>lambdaQuery()
+                            .select(AidExtractTask::getId, AidExtractTask::getStatus,
+                                    AidExtractTask::getBillingTraceId)
+                            .eq(AidExtractTask::getId, taskId)
+                            .last("LIMIT 1"), false);
+            if (current == null
+                    || (!STATUS_PENDING.equals(current.getStatus())
+                            && !STATUS_QUEUED.equals(current.getStatus()))
+                    || StrUtil.isBlank(current.getBillingTraceId()))
+            {
+                return false;
+            }
+            String expectedTraceId = current.getBillingTraceId();
             LambdaUpdateWrapper<AidExtractTask> upd = Wrappers.lambdaUpdate();
             upd.eq(AidExtractTask::getId, taskId);
             upd.in(AidExtractTask::getStatus, STATUS_PENDING, STATUS_QUEUED);
+            upd.eq(AidExtractTask::getBillingTraceId, expectedTraceId);
             upd.set(AidExtractTask::getStatus, "CANCELLED");
             upd.set(AidExtractTask::getErrorMessage, "用户取消");
             upd.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
@@ -2334,8 +2367,8 @@ public class TaskQueueService
                 return false;
             }
             // 锁内释放名额 + 出队 + 清 ctx：此刻 drain 抢不到锁，绝不会再 dispatch 本任务
-            releaseSlots(taskId);
-            clearCancelRequested(taskId);
+            releaseSlotsLockHeld(taskId, expectedTraceId);
+            clearCancelRequested(taskId, expectedTraceId);
             log.info("队列任务已原子取消: taskId={}", taskId);
             return true;
         }
@@ -2380,7 +2413,7 @@ public class TaskQueueService
                     if (!extractBillingService.hasActiveResumeBilling(
                             taskId, context.resumeTraceId()))
                     {
-                        finishResumeRollbackResources(taskId);
+                        finishResumeRollbackResources(taskId, context.resumeTraceId());
                     }
                 }
             }
@@ -2522,7 +2555,7 @@ public class TaskQueueService
                 return;
             }
             if (Objects.equals(owner, leaseManager.getInstanceId())
-                    && localJobRegistry.contains(taskId))
+                    && localJobRegistry.contains(taskId, queuedContext.getDispatchToken()))
             {
                 // job 尚在 registry 说明执行器并未接受；补回 WAIT 后按本 token 重派。
                 try
@@ -2588,7 +2621,7 @@ public class TaskQueueService
             // owner 仍存活，由 owner 的调度拍处理；本实例不得读取其内存 registry。
             return false;
         }
-        if (!localJobRegistry.contains(ctx.getTaskId()))
+        if (!localJobRegistry.contains(ctx.getTaskId(), ctx.getDispatchToken()))
         {
             if (allowAcceptedReceipt
                     && hasAcceptedDispatchReceipt(ctx.getTaskId(), ctx.getDispatchToken()))
@@ -2637,18 +2670,18 @@ public class TaskQueueService
         {
             return;
         }
-        finishResumeRollbackResources(recovery.taskId());
+        finishResumeRollbackResources(recovery.taskId(), recovery.context().resumeTraceId());
     }
 
-    private void finishResumeRollbackResources(Long taskId)
+    private void finishResumeRollbackResources(Long taskId, String resumeTraceId)
     {
-        releaseSlots(taskId);
-        clearCancelRequested(taskId);
+        releaseSlots(taskId, resumeTraceId);
+        clearCancelRequested(taskId, resumeTraceId);
         if (taskFinalizer != null)
         {
             try
             {
-                taskFinalizer.onQueueTaskTerminated(taskId);
+                taskFinalizer.onQueueTaskTerminated(taskId, resumeTraceId);
             }
             catch (Exception e)
             {
@@ -2662,8 +2695,18 @@ public class TaskQueueService
     {
         try
         {
+            AidExtractTask task = extractTaskService.getOne(
+                    Wrappers.<AidExtractTask>lambdaQuery()
+                            .select(AidExtractTask::getId, AidExtractTask::getBillingTraceId)
+                            .eq(AidExtractTask::getId, taskId).last("LIMIT 1"), false);
+            String dispatchToken = task == null ? null : task.getBillingTraceId();
+            if (StrUtil.isBlank(dispatchToken))
+            {
+                log.warn("取消请求缺少派发周期，保守跳过: taskId={}", taskId);
+                return;
+            }
             stringRedisTemplate.opsForValue().set(
-                    TaskQueueKeys.cancelReqKey(taskId), "1", 30, TimeUnit.MINUTES);
+                    TaskQueueKeys.cancelReqKey(taskId), dispatchToken, 30, TimeUnit.MINUTES);
         }
         catch (Exception e)
         {
@@ -2672,11 +2715,13 @@ public class TaskQueueService
     }
 
     /** 是否存在「取消请求」标记。 */
-    private boolean isCancelRequested(Long taskId)
+    private boolean isCancelRequested(Long taskId, String dispatchToken)
     {
         try
         {
-            return Boolean.TRUE.equals(stringRedisTemplate.hasKey(TaskQueueKeys.cancelReqKey(taskId)));
+            String storedToken = stringRedisTemplate.opsForValue().get(TaskQueueKeys.cancelReqKey(taskId));
+            // "1" 兼容升级前已写入且仍在 TTL 内的取消标记。
+            return "1".equals(storedToken) || Objects.equals(dispatchToken, storedToken);
         }
         catch (Exception e)
         {
@@ -2686,10 +2731,24 @@ public class TaskQueueService
     }
 
     /** 清除「取消请求」标记。 */
-    public void clearCancelRequested(Long taskId)
+    public void clearCancelRequested(Long taskId, String dispatchToken)
     {
-        try { stringRedisTemplate.delete(TaskQueueKeys.cancelReqKey(taskId)); }
-        catch (Exception ignore) { }
+        if (taskId == null || StrUtil.isBlank(dispatchToken))
+        {
+            return;
+        }
+        try
+        {
+            stringRedisTemplate.execute(new DefaultRedisScript<>(
+                            "local v=redis.call('GET', KEYS[1]); "
+                                    + "if v==ARGV[1] or v=='1' then return redis.call('DEL', KEYS[1]) end; return 0",
+                            Long.class),
+                    List.of(TaskQueueKeys.cancelReqKey(taskId)), dispatchToken);
+        }
+        catch (Exception e)
+        {
+            log.warn("按周期清除取消请求异常: taskId={}", taskId, e);
+        }
     }
     /**
      * 查询任务在等待队列中的位次（1-based）。
@@ -2753,9 +2812,32 @@ public class TaskQueueService
      * 清空指定任务的执行租约（单实例重启自愈时，对启动前快照内的 PROCESSING 任务调用，
      * 仅清这批，避免误清启动后新进程刚写的租约）。
      */
-    public void clearLease(Long taskId)
+    public void clearLease(Long taskId, String expectedDispatchToken)
     {
-        leaseManager.release(taskId);
+        if (taskId == null || StrUtil.isBlank(expectedDispatchToken))
+        {
+            log.warn("清理执行租约缺少派发周期，保守跳过: taskId={}", taskId);
+            return;
+        }
+        executeWithTaskDispatchLock(taskId, () -> {
+            AidExtractTask current = extractTaskService.getOne(
+                    Wrappers.<AidExtractTask>lambdaQuery()
+                            .select(AidExtractTask::getId, AidExtractTask::getStatus,
+                                    AidExtractTask::getBillingTraceId)
+                            .eq(AidExtractTask::getId, taskId)
+                            .last("LIMIT 1"), false);
+            if (current == null
+                    || !Objects.equals(expectedDispatchToken, current.getBillingTraceId())
+                    || !(STATUS_PROCESSING.equals(current.getStatus())
+                    || STATUS_FINALIZING.equals(current.getStatus())
+                    || STATUS_RECOVERING.equals(current.getStatus())))
+            {
+                log.info("清理执行租约跳过，任务周期/状态已变化: taskId={}", taskId);
+                return Boolean.FALSE;
+            }
+            leaseManager.release(taskId);
+            return Boolean.TRUE;
+        });
     }
 
     /**

@@ -18,7 +18,9 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * OpenAI 兼容 SSE（chat/completions stream）的 HTTP 拉取与增量解析，供多厂商文本 Provider 复用。
@@ -93,31 +95,59 @@ public final class OpenAiStyleChatStream {
         }
         if (resp.statusCode() < 200 || resp.statusCode() >= 300) {
             log.error("非流式文本上游HTTP失败, url={}, status={}, bodyLen={}", url, resp.statusCode(), body.length());
-            return ProviderSubmitResult.builder().rawResponse(body).build();
+            return ProviderSubmitResult.builder()
+                    .rawResponse(ProviderErrorSanitizer.fromHttp(resp.statusCode(), body)).build();
         }
         // 解析非流式 JSON 响应：choices[0].message.content + usage
         try {
             JsonNode root = MAPPER.readTree(body);
+            Map<String, Object> usage = parseUsageFromRoot(root);
             // 提取文本
-            String text = null;
             JsonNode choices = root.path("choices");
             if (choices.isArray() && !choices.isEmpty()) {
-                JsonNode message = choices.get(0).path("message");
-                text = textOrNull(message.get("content"));
+                JsonNode choice = choices.get(0);
+                String finishReason = textOrNull(choice.get("finish_reason"));
+                String finishError = TextFinishReasonSupport.openAiFailureMessage(finishReason);
+                JsonNode message = choice.path("message");
+                if (hasToolCall(message)) {
+                    finishError = "生成方式不支持";
+                }
+                if (finishError != null) {
+                    log.info("非流式文本未完整终止: url={}, finishReason={}, usage={}",
+                            url, finishReason, usage);
+                    return ProviderSubmitResult.builder()
+                            .rawResponse(finishError)
+                            .usage(usage.isEmpty() ? null : usage)
+                            .build();
+                }
+                String text = textOrNull(message.get("content"));
+                String reasoning = textOrNull(message.get("reasoning_content"));
+                log.info("非流式文本响应解析: url={}, hasText={}, hasReasoning={}, usage={}", url,
+                        StringUtils.isNotBlank(text), StringUtils.isNotBlank(reasoning), usage);
+                if (StringUtils.isBlank(text)) {
+                    return ProviderSubmitResult.builder()
+                            .rawResponse("响应内容为空")
+                            .usage(usage.isEmpty() ? null : usage)
+                            .build();
+                }
+                return ProviderSubmitResult.builder()
+                        .directText(text)
+                        .directReasoning(reasoning)
+                        .rawResponse(truncateRaw(ReasoningContentSanitizer.sanitizeJson(body)))
+                        .usage(usage.isEmpty() ? null : usage)
+                        .build();
             }
-            // 提取 usage
-            Map<String, Object> usage = parseUsageFromRoot(root);
-            log.info("非流式文本响应解析: url={}, hasText={}, usage={}", url, StringUtils.isNotBlank(text), usage);
+            log.info("非流式文本响应缺少 choices: url={}, usage={}", url, usage);
             return ProviderSubmitResult.builder()
-                .directText(text)
-                .rawResponse(truncateRaw(body))
+                .rawResponse("上游终止异常")
                 .usage(usage.isEmpty() ? null : usage)
                 .build();
         } catch (Exception e) {
-            log.error("非流式文本响应解析失败, url={}, bodyLen={}", url, body.length(), e);
+            log.error("非流式文本响应解析失败, url={}, bodyLen={}, errorType={}",
+                    url, body.length(), e.getClass().getSimpleName());
             return ProviderSubmitResult.builder()
                 .directText(null)
-                .rawResponse(truncateRaw(body))
+                .rawResponse("解析响应失败")
                 .build();
         }
     }
@@ -128,23 +158,150 @@ public final class OpenAiStyleChatStream {
     static Map<String, Object> parseUsageFromRoot(JsonNode root) {
         Map<String, Object> usage = new HashMap<>();
         JsonNode usageNode = root.path("usage");
-        if (usageNode.isMissingNode() || usageNode.isNull()) {
+        if (!usageNode.isObject()) {
             return usage;
         }
-        if (usageNode.has("prompt_tokens")) {
-            int v = usageNode.get("prompt_tokens").asInt();
-            usage.put("prompt_tokens", v);
-            usage.put("input_tokens", v);
+        Integer inputTokens = firstNonNegativeInt(usageNode, "prompt_tokens", "input_tokens");
+        Integer outputTokens = firstNonNegativeInt(usageNode, "completion_tokens", "output_tokens");
+        Integer totalTokens = firstNonNegativeInt(usageNode, "total_tokens");
+        if (inputTokens != null) {
+            usage.put("prompt_tokens", inputTokens);
+            usage.put("input_tokens", inputTokens);
         }
-        if (usageNode.has("completion_tokens")) {
-            int v = usageNode.get("completion_tokens").asInt();
-            usage.put("completion_tokens", v);
-            usage.put("output_tokens", v);
+        if (outputTokens != null) {
+            usage.put("completion_tokens", outputTokens);
+            usage.put("output_tokens", outputTokens);
         }
-        if (usageNode.has("total_tokens")) {
-            usage.put("total_tokens", usageNode.get("total_tokens").asInt());
+        if (totalTokens != null) {
+            usage.put("total_tokens", totalTokens);
+        } else if (inputTokens != null && outputTokens != null) {
+            usage.put("total_tokens", saturatedAdd(inputTokens, outputTokens));
         }
+        JsonNode promptDetails = usageNode.get("prompt_tokens_details");
+        boolean promptDetailsObject = promptDetails != null && promptDetails.isObject();
+        ParsedTokenField detailCached = parseTokenField(promptDetails,
+                "cached_tokens", "cache_read_tokens");
+        ParsedTokenField rootCacheHit = parseTokenField(usageNode, "prompt_cache_hit_tokens");
+        Integer cachedTokens = rootCacheHit.value() != null
+                ? rootCacheHit.value() : detailCached.value();
+        boolean cachedConflict = rootCacheHit.value() != null && detailCached.value() != null
+                && !Objects.equals(rootCacheHit.value(), detailCached.value());
+        ParsedTokenField directCacheWrite = parseTokenField(
+                promptDetails, "cache_write_tokens", "cached_tokens_written");
+        JsonNode cacheCreation = promptDetailsObject ? promptDetails.get("cache_creation") : null;
+        ParsedTokenField cacheCreationTokens = parseTokenField(cacheCreation,
+                "cache_creation_input_tokens", "ephemeral_5m_input_tokens");
+        boolean cacheCreationInvalid = cacheCreation != null
+                && (!cacheCreation.isObject() || !cacheCreationTokens.present()
+                || cacheCreationTokens.invalid());
+        Integer cacheWriteTokens = directCacheWrite.value();
+        if (cacheCreationTokens.value() != null) {
+            cacheWriteTokens = cacheWriteTokens == null
+                    ? cacheCreationTokens.value() : Math.max(cacheWriteTokens, cacheCreationTokens.value());
+        }
+        // OpenAI 明细对象内仅返回 cached_tokens 时，缺省写缓存量按协议为零。
+        if (!directCacheWrite.present() && cacheCreation == null
+                && promptDetailsObject && detailCached.value() != null && !detailCached.invalid()) {
+            cacheWriteTokens = 0;
+        }
+        ParsedTokenField rootCacheMiss = parseTokenField(usageNode, "prompt_cache_miss_tokens");
+        Integer uncachedTokens = rootCacheMiss.value();
+        JsonNode completionDetails = usageNode.path("completion_tokens_details");
+        Integer reasoningTokens = firstNonNegativeInt(completionDetails, "reasoning_tokens");
+        if (cachedTokens != null) {
+            usage.put("cached_input_tokens", cachedTokens);
+            usage.put("cache_read_input_tokens", cachedTokens);
+        }
+        if (cacheWriteTokens != null) {
+            usage.put("cache_write_input_tokens", cacheWriteTokens);
+        }
+        boolean inputBucketFieldsValid = promptDetailsObject
+                && !detailCached.invalid() && !rootCacheHit.invalid() && !rootCacheMiss.invalid()
+                && !directCacheWrite.invalid() && !cacheCreationInvalid && !cachedConflict;
+        boolean inputBucketsConsistent = inputBucketFieldsValid
+                && inputTokens != null && cachedTokens != null
+                && cacheWriteTokens != null
+                && (long) cachedTokens + cacheWriteTokens <= inputTokens;
+        if (uncachedTokens != null) {
+            usage.put("uncached_input_tokens", uncachedTokens);
+            inputBucketsConsistent = inputBucketsConsistent
+                    && (long) uncachedTokens + cachedTokens + cacheWriteTokens == inputTokens;
+        } else if (inputBucketsConsistent) {
+            usage.put("uncached_input_tokens", inputTokens - cachedTokens - cacheWriteTokens);
+        }
+        boolean outputBucketsConsistent = outputTokens != null && reasoningTokens != null
+                && reasoningTokens <= outputTokens;
+        if (reasoningTokens != null) {
+            usage.put("reasoning_tokens", reasoningTokens);
+        }
+        if (outputBucketsConsistent) {
+            usage.put("visible_output_tokens", outputTokens - reasoningTokens);
+        }
+        if (usage.isEmpty()) {
+            return usage;
+        }
+        usage.put("provider_usage_captured", inputTokens != null && outputTokens != null);
+        usage.put("input_usage_complete", inputTokens != null);
+        usage.put("output_usage_complete", outputTokens != null);
+        usage.put("input_token_buckets_complete", inputBucketsConsistent);
+        usage.put("output_token_buckets_complete", outputBucketsConsistent);
         return usage;
+    }
+
+    private static Integer firstNonNegativeInt(JsonNode node, String... names) {
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return null;
+        }
+        for (String name : names) {
+            JsonNode value = node.get(name);
+            if (value != null && value.isIntegralNumber() && value.canConvertToLong()) {
+                long tokens = value.asLong();
+                if (tokens >= 0L) {
+                    return tokens > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) tokens;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static ParsedTokenField parseTokenField(JsonNode node, String... names) {
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return new ParsedTokenField(null, false, false);
+        }
+        Integer parsed = null;
+        boolean present = false;
+        boolean invalid = false;
+        for (String name : names) {
+            JsonNode value = node.get(name);
+            if (value == null) {
+                continue;
+            }
+            present = true;
+            if (!value.isIntegralNumber() || !value.canConvertToLong()) {
+                invalid = true;
+                continue;
+            }
+            long tokens = value.asLong();
+            if (tokens < 0L || tokens > Integer.MAX_VALUE) {
+                invalid = true;
+                continue;
+            }
+            int normalized = (int) tokens;
+            if (parsed != null && !Objects.equals(parsed, normalized)) {
+                invalid = true;
+            } else {
+                parsed = normalized;
+            }
+        }
+        return new ParsedTokenField(parsed, present, invalid);
+    }
+
+    private record ParsedTokenField(Integer value, boolean present, boolean invalid) {
+    }
+
+    private static int saturatedAdd(int left, int right) {
+        long sum = (long) left + right;
+        return sum > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) sum;
     }
 
     private static String truncateRaw(String raw) {
@@ -190,18 +347,12 @@ public final class OpenAiStyleChatStream {
             String errBody = readAllAndClose(resp.body());
             log.error("文本流式上游 HTTP 失败, url={}, status={}, bodyLen={}",
                     url, resp.statusCode(), StringUtils.length(errBody));
-            // 保留 HTTP 状态码前缀，便于 ErrorNormalizer 归一化
-            String hint;
-            if (resp.statusCode() == 404) {
-                hint = "HTTP 404（请检查 aid_ai_provider.base_url 是否为百炼 OpenAI 兼容基址，例如 https://dashscope.aliyuncs.com/compatible-mode/v1）";
-            } else {
-                hint = "HTTP " + resp.statusCode();
-            }
-            String errorDetail = org.apache.commons.lang3.StringUtils.defaultIfBlank(errBody, hint);
-            callbacks.onError(errorDetail, null);
+            callbacks.onError(ProviderErrorSanitizer.fromHttp(resp.statusCode(), errBody), null);
             return;
         }
         AtomicBoolean sawDone = new AtomicBoolean(false);
+        AtomicBoolean sawNormalFinish = new AtomicBoolean(false);
+        AtomicReference<String> terminalFailure = new AtomicReference<>();
         AtomicBoolean fatal = new AtomicBoolean(false);
         // 累计字节数，超过上限立即终止并抛错
         long totalBytes = 0;
@@ -220,16 +371,25 @@ public final class OpenAiStyleChatStream {
                     continue;
                 }
                 String data = line.substring("data:".length()).trim();
-                callbacks.onSseDataLine(data);
+                callbacks.onSseDataLine(ReasoningContentSanitizer.sanitizeJson(data));
                 if ("[DONE]".equals(data)) {
                     sawDone.set(true);
                     break;
                 }
-                if (!emitDeltasFromChunk(data, callbacks)) {
+                if (!emitDeltasFromChunk(data, callbacks, sawNormalFinish, terminalFailure)) {
                     fatal.set(true);
                     break;
                 }
             }
+        }
+        if (!fatal.get() && terminalFailure.get() != null) {
+            callbacks.onError(terminalFailure.get(), null);
+            fatal.set(true);
+        }
+        if (!fatal.get() && !sawNormalFinish.get()) {
+            log.warn("文本流式上游缺少正常终止原因, url={}, sawDone={}", url, sawDone.get());
+            callbacks.onError("上游终止异常", null);
+            fatal.set(true);
         }
         if (!fatal.get()) {
             if (!sawDone.get()) {
@@ -242,7 +402,9 @@ public final class OpenAiStyleChatStream {
     /**
      * @return false 表示解析致命错误，应终止流且不再 onComplete。
      */
-    private static boolean emitDeltasFromChunk(String dataJson, TextStreamCallbacks callbacks) {
+    private static boolean emitDeltasFromChunk(String dataJson, TextStreamCallbacks callbacks,
+                                               AtomicBoolean sawNormalFinish,
+                                               AtomicReference<String> terminalFailure) {
         if (StringUtils.isBlank(dataJson)) {
             return true;
         }
@@ -262,18 +424,42 @@ public final class OpenAiStyleChatStream {
             // 再提取 delta 文本（choices 为空时跳过 delta，但 usage 已处理）。
             JsonNode choices = root.path("choices");
             if (choices.isArray() && !choices.isEmpty()) {
-                JsonNode delta = choices.get(0).path("delta");
+                JsonNode choice = choices.get(0);
+                JsonNode finishNode = choice.get("finish_reason");
+                JsonNode delta = choice.path("delta");
+                if (hasToolCall(delta)) {
+                    terminalFailure.compareAndSet(null, "生成方式不支持");
+                }
+                if (finishNode != null && !finishNode.isNull()) {
+                    String finishReason = finishNode.isTextual() ? finishNode.asText() : finishNode.toString();
+                    if (!"null".equalsIgnoreCase(StringUtils.trim(finishReason))) {
+                        String finishError = TextFinishReasonSupport.openAiFailureMessage(finishReason);
+                        if (finishError != null) {
+                            log.info("文本流式上游未完整终止: finishReason={}", finishReason);
+                            terminalFailure.compareAndSet(null, finishError);
+                        } else {
+                            sawNormalFinish.set(true);
+                        }
+                    }
+                }
+                if (terminalFailure.get() != null) {
+                    return true;
+                }
                 String content = textOrNull(delta.get("content"));
                 if (StringUtils.isNotBlank(content)) {
                     callbacks.onDelta(content);
                 }
-                // 忽略 reasoning_content（模型思考过程），只保留 content（实际输出）
+                String reasoning = textOrNull(delta.get("reasoning_content"));
+                if (StringUtils.isNotBlank(reasoning)) {
+                    callbacks.onReasoningDelta(reasoning);
+                }
             }
 
             return true;
         } catch (Exception e) {
-            log.warn("解析 SSE data 片段失败, data={}", dataJson, e);
-            callbacks.onError("解析流数据失败", e);
+            log.warn("解析 SSE data 片段失败, dataLen={}, errorType={}",
+                    dataJson.length(), e.getClass().getSimpleName());
+            callbacks.onError("解析流数据失败", null);
             return false;
         }
     }
@@ -286,6 +472,16 @@ public final class OpenAiStyleChatStream {
             return n.asText();
         }
         return n.toString();
+    }
+
+    private static boolean hasToolCall(JsonNode messageOrDelta) {
+        if (messageOrDelta == null || messageOrDelta.isMissingNode() || messageOrDelta.isNull()) {
+            return false;
+        }
+        JsonNode toolCalls = messageOrDelta.get("tool_calls");
+        JsonNode functionCall = messageOrDelta.get("function_call");
+        return toolCalls != null && !toolCalls.isNull() && !toolCalls.isEmpty()
+                || functionCall != null && !functionCall.isNull() && !functionCall.isEmpty();
     }
 
     private static String readAllAndClose(InputStream in) throws IOException {

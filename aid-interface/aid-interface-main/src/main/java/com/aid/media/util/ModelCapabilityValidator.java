@@ -22,17 +22,7 @@ import cn.hutool.core.collection.CollectionUtil;
 import cn.hutool.core.util.StrUtil;
 import lombok.extern.slf4j.Slf4j;
 
-/**
- * 模型能力参数统一校验器：按 {@code aid_ai_model.capability_json} 声明的白名单
- * 校验前端透传的清晰度档位 / 画面比例 / 视频时长，防止不合法参数直达厂商造成调用失败。
- *
- * <p>校验语义与 TTS 情感白名单（{@code VoiceEmotionCapability}）对齐：
- * 供应商声明（capability_json）是唯一标准；<strong>白名单缺失/为空 = 模型未声明该能力，不拦截</strong>；
- * 白名单非空则严格命中（归一化后比对），未命中先 log 再抛短文案。
- * 入参为空（业务未传该参数）不校验，默认值由业务/Provider 各自兜底。</p>
- *
- * @author 视觉AID
- */
+/** 模型能力参数校验器。 */
 @Slf4j
 public final class ModelCapabilityValidator {
 
@@ -47,6 +37,7 @@ public final class ModelCapabilityValidator {
 
     /** capability_json 键：是否支持音画同出用户开关 */
     private static final String KEY_SUPPORTS_AUDIO = "supportsAudio";
+    private static final String KEY_DEFAULT_AUDIO = "defaultAudio";
 
     /** options 中业务侧音画同出键（火山 Seedance 等历史写法） */
     private static final String OPTION_GENERATE_AUDIO = "generate_audio";
@@ -126,7 +117,9 @@ public final class ModelCapabilityValidator {
                 || Boolean.TRUE.equals(modelConfig.getSupportsAspectRatio())) {
             return;
         }
-        Object removed = removeAspectRatioOptions(request.getOptions());
+        Map<String, Object> options = mutableOptions(request.getOptions());
+        request.setOptions(options);
+        Object removed = removeAspectRatioOptions(options);
         if (Objects.nonNull(removed)) {
             log.warn("模型未声明画面比例能力已剔除图片比例参数: modelCode={}, aspectRatio={}",
                     modelConfig.getModelCode(), removed);
@@ -134,18 +127,23 @@ public final class ModelCapabilityValidator {
     }
 
     /**
-     * 归一化视频画面比例：口径与 {@link #normalizeImageAspectRatio} 一致，同时清理顶层 aspectRatio。
+     * 归一化视频画面比例参数，并保留 FOLLOW_INPUT 模型的内部输入图目标。
      *
      * @param modelConfig 模型聚合配置
      * @param request     视频生成请求（会被原地归一化）
      */
     public static void normalizeVideoAspectRatio(AiModelConfigVo modelConfig, MediaVideoGenerateRequest request) {
-        if (Objects.isNull(modelConfig) || Objects.isNull(request)
-                || Boolean.TRUE.equals(modelConfig.getSupportsAspectRatio())) {
+        if (Objects.isNull(modelConfig) || Objects.isNull(request)) {
             return;
         }
-        Object removed = removeAspectRatioOptions(request.getOptions());
-        if (ModelCapabilityResolver.isVideoAspectRatioFollowInput(modelConfig)) {
+        boolean followInput = ModelCapabilityResolver.isVideoAspectRatioFollowInput(modelConfig);
+        if (Boolean.TRUE.equals(modelConfig.getSupportsAspectRatio()) && !followInput) {
+            return;
+        }
+        Map<String, Object> options = mutableOptions(request.getOptions());
+        request.setOptions(options);
+        Object removed = removeAspectRatioOptions(options);
+        if (followInput) {
             if (StrUtil.isBlank(request.getAspectRatio()) && Objects.nonNull(removed)) {
                 request.setAspectRatio(String.valueOf(removed).trim());
             }
@@ -182,6 +180,10 @@ public final class ModelCapabilityValidator {
         return removed;
     }
 
+    private static Map<String, Object> mutableOptions(Map<String, Object> options) {
+        return Objects.isNull(options) ? null : new LinkedHashMap<>(options);
+    }
+
     /**
      * 校验视频生成参数（清晰度档位 + 画面比例 + 时长）。
      *
@@ -203,8 +205,14 @@ public final class ModelCapabilityValidator {
         validateOption(capability, KEY_SIZE_OPTIONS, resolution,
                 modelConfig.getModelCode(), ModelCapabilityResolver.MSG_SIZE_UNSUPPORTED);
         String ratio = StrUtil.isNotBlank(aspectRatio) ? aspectRatio : readFirstText(options, OPTION_RATIO_KEYS);
-        validateOption(capability, KEY_ASPECT_RATIO_OPTIONS, ratio,
-                modelConfig.getModelCode(), ModelCapabilityResolver.MSG_ASPECT_RATIO_UNSUPPORTED);
+        if (ModelCapabilityResolver.isVideoAspectRatioFollowInput(modelConfig)) {
+            if (StrUtil.isNotBlank(ratio)) {
+                ModelCapabilityResolver.resolveVideoAspectRatio(modelConfig, ratio);
+            }
+        } else {
+            validateOption(capability, KEY_ASPECT_RATIO_OPTIONS, ratio,
+                    modelConfig.getModelCode(), ModelCapabilityResolver.MSG_ASPECT_RATIO_UNSUPPORTED);
+        }
         validateDuration(capability, durationSeconds, modelConfig.getModelCode());
     }
 
@@ -234,19 +242,19 @@ public final class ModelCapabilityValidator {
         JsonNode capability = ModelCapabilityResolver.parseCapability(modelConfig.getCapabilityJson());
         boolean supportsAudio = capability != null
                 && capability.path(KEY_SUPPORTS_AUDIO).asBoolean(false);
-        // 支持音画同出且未显式传值：默认开启有声
+        // 兼容旧模型：未声明 defaultAudio 时仍默认开启；只有能力明确声明 false 才默认无声。
         if (Objects.isNull(audio) && supportsAudio) {
-            audio = Boolean.TRUE;
+            JsonNode configuredDefault = capability.get(KEY_DEFAULT_AUDIO);
+            audio = configuredDefault != null && configuredDefault.isBoolean()
+                    ? configuredDefault.asBoolean() : Boolean.TRUE;
             request.setAudio(audio);
         }
         if (Objects.isNull(audio)) {
             return;
         }
         // 同步写入 options，供火山等仍读 generate_audio 的 Provider 使用
-        if (Objects.isNull(options)) {
-            options = new LinkedHashMap<>();
-            request.setOptions(options);
-        }
+        options = Objects.isNull(options) ? new LinkedHashMap<>() : new LinkedHashMap<>(options);
+        request.setOptions(options);
         options.put(OPTION_GENERATE_AUDIO, audio);
 
         if (!supportsAudio) {

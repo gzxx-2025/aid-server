@@ -47,8 +47,11 @@ public class RpsFormImageDetailVO
     @MediaUrl
     private String imageUrl;
 
-    /** 来源类型：ai_auto / ai_builder / ai_manual / upload / official / migrate */
+    /** 来源类型：ai_auto / ai_builder / ai_multi_view / ai_edit_chat / ai_manual / upload / official / migrate */
     private String sourceType;
+
+    /** C端展示提示词；仅自动生图和编辑作图来源返回 */
+    private String promptText;
 
     /** 提示词下标（0-based） */
     private Integer descriptionIndex;
@@ -62,11 +65,7 @@ public class RpsFormImageDetailVO
     /** 失败原因（imageStatus=failed 时） */
     private String failReason;
 
-    /**
-     * 参考图列表（已反序列化）。
-     * 注：{@code @MediaUrl} 注解 Target 仅 FIELD/METHOD，不支持 TYPE_USE，本字段元素不会被自动拼域名；
-     * 若前端需要完整 URL，存入时确保已是完整 URL 即可。
-     */
+    /** 参考图列表（已反序列化并解析为完整访问 URL）。 */
     private List<String> referenceImages;
 
     /** 排序号 */

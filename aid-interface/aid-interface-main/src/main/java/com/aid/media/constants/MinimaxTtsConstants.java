@@ -1,7 +1,7 @@
 package com.aid.media.constants;
 
 /**
- * MiniMax TTS（openapi.minimaxi.com）异步长文本语音合成相关常量。
+ * MiniMax TTS 异步长文本语音合成相关常量。
  *
  * @author 视觉AID
  */
@@ -18,13 +18,6 @@ public final class MinimaxTtsConstants
 
     /** 默认模型 */
     public static final String DEFAULT_MODEL = "speech-2.8-hd";
-    public static final String SUBMIT_PATH = "/v1/t2a_async_v2";
-    public static final String QUERY_PATH = "/v1/query/t2a_async_query";
-    public static final String FILE_RETRIEVE_PATH = "/v1/files/retrieve";
-    public static final String VOICE_LIST_PATH = "/v1/get_voice";
-
-    /** 同步非流式语音合成（新版统一改用此接口）：一次请求直返 hex 音频 */
-    public static final String T2A_SYNC_PATH = "/v1/t2a_v2";
 
     /** 同步接口 text 官方上限：长度限制小于 10000 字符（异步长文本 5 万上限不适用于同步） */
     public static final int SYNC_TEXT_MAX_LENGTH = 10_000;

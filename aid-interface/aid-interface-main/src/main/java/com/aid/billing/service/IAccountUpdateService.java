@@ -17,12 +17,14 @@ public interface IAccountUpdateService {
      * @param traceId       计费追踪ID
      * @param bizType       业务类型（extract/media）
      * @param bizName       业务描述
+     * @throws com.aid.common.exception.ServiceException 预扣余额不足
      */
     void freeze(Long userId, BigDecimal amount, String traceId, String bizType, String bizName);
 
     /**
      * 冻结并记录本次业务实际使用的模型编码。
      * 多模型业务使用英文逗号分隔，供消费明细转换为前端展示名称。
+     * @throws com.aid.common.exception.ServiceException 预扣余额不足
      */
     void freeze(Long userId, BigDecimal amount, String traceId, String bizType, String bizName,
                 String modelCode);
@@ -129,7 +131,7 @@ public interface IAccountUpdateService {
     com.aid.aid.domain.AidUserProfile getProfile(Long userId);
 
     /**
-     * 余额充足性前置预检（只读，不加锁不冻结）：可用余额 < 预估金额时抛「余额不足」。
+     * 余额充足性前置预检（只读，不加锁不冻结）：可用余额 < 预估金额时抛「预扣余额不足」。
      * 用于生成类任务在「建任务记录之前」快速拦截，避免余额不足时空建任务再回滚；
      * 最终以 {@link #freeze} 锁内校验为准，本方法只是提前失败的轻量防线。
      *

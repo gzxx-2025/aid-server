@@ -6,6 +6,7 @@ import cn.hutool.http.HttpResponse;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.aid.common.constant.HttpConstants;
+import com.aid.common.utils.ProviderEndpointUtils;
 import com.aid.common.oss.entity.UploadResult;
 import com.aid.common.oss.factory.OssFactory;
 import com.aid.domain.vo.AiModelConfigVo;
@@ -39,6 +40,9 @@ import java.util.Map;
 public class OpenAiImageProviderClient implements ImageProviderClient {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final String OPERATION_PLACEHOLDER = "{operation}";
+    private static final String OPERATION_GENERATIONS = "generations";
+    private static final String OPERATION_EDITS = "edits";
 
     @Override
     public String protocol() {
@@ -58,11 +62,6 @@ public class OpenAiImageProviderClient implements ImageProviderClient {
                     modelConfig == null ? null : modelConfig.getModelCode());
             return ProviderSubmitResult.builder().rawResponse(OpenAiImageConstants.ERROR_API_KEY_EMPTY).build();
         }
-        String base = normalizeBaseUrl(modelConfig.getBaseUrl());
-        if (base == null) {
-            return ProviderSubmitResult.builder().rawResponse(OpenAiImageConstants.ERROR_BASE_URL_EMPTY).build();
-        }
-
         String model = resolveEffectiveModel(modelConfig, request);
         List<String> images = resolveReferenceImages(request, modelConfig);
         // 清洗排在参考图定型之后：正文的「图片N」编号必须与真正下发的张数一一对应，
@@ -79,7 +78,13 @@ public class OpenAiImageProviderClient implements ImageProviderClient {
             return ProviderSubmitResult.builder().rawResponse(OpenAiImageConstants.ERROR_SERIALIZE).build();
         }
 
-        String url = base + (edit ? OpenAiImageConstants.PATH_EDITS : resolveGenerationsPath(modelConfig));
+        String url;
+        try {
+            url = buildApiUrl(modelConfig, edit);
+        } catch (IllegalArgumentException e) {
+            log.error("OpenAI 图片路径无效, modelCode={}, reason={}", modelConfig.getModelCode(), e.getMessage());
+            return ProviderSubmitResult.builder().rawResponse("模型路径无效").build();
+        }
         log.info("OpenAI 图片提交, url={}, model={}, edit={}, refImageCount={}, n={}, size={}, quality={}, promptLen={}",
                 url, model, edit, images.size(), body.get(OpenAiImageConstants.JSON_N),
                 body.get(OpenAiImageConstants.JSON_SIZE), body.get(OpenAiImageConstants.JSON_QUALITY),
@@ -472,24 +477,25 @@ public class OpenAiImageProviderClient implements ImageProviderClient {
         return StringUtils.isNotBlank(resolved) ? resolved : OpenAiImageConstants.DEFAULT_IMAGE_MODEL;
     }
 
-    /** 规范化 base_url：去尾部斜杠；为空返回 null。 */
-    private String normalizeBaseUrl(String baseUrl) {
-        if (StringUtils.isBlank(baseUrl)) {
-            log.error("OpenAI 图片 baseUrl 为空，请在 aid_ai_provider 表配置 base_url");
-            return null;
+    /** 按受控操作名构建 OpenAI 图片提交 URL。 */
+    static String buildApiUrl(AiModelConfigVo modelConfig, boolean edit) {
+        if (modelConfig == null) {
+            log.warn("OpenAI 图片端点校验失败, reason=modelConfig");
+            throw new IllegalArgumentException("模型配置无效");
         }
-        String base = baseUrl.trim();
-        return base.endsWith("/") ? base.substring(0, base.length() - 1) : base;
-    }
-
-    /** 文生图路径：优先用模型配置的 api_suffix，否则官方默认 /v1/images/generations。 */
-    private String resolveGenerationsPath(AiModelConfigVo modelConfig) {
-        String suffix = modelConfig == null ? null : modelConfig.getApiSuffix();
-        if (StringUtils.isBlank(suffix)) {
-            return OpenAiImageConstants.PATH_GENERATIONS;
+        String suffix = ProviderEndpointUtils.normalizeSubmitPath(modelConfig.getApiSuffix());
+        String operation = edit ? OPERATION_EDITS : OPERATION_GENERATIONS;
+        int placeholderIndex = suffix.indexOf(OPERATION_PLACEHOLDER);
+        if (placeholderIndex >= 0) {
+            if (placeholderIndex != suffix.lastIndexOf(OPERATION_PLACEHOLDER)) {
+                log.warn("OpenAI 图片端点校验失败, reason=operationTemplate");
+                throw new IllegalArgumentException("模型路径模板无效");
+            }
+            suffix = suffix.replace(OPERATION_PLACEHOLDER, operation);
+        } else if (edit && suffix.endsWith('/' + OPERATION_GENERATIONS)) {
+            suffix = suffix.substring(0, suffix.length() - OPERATION_GENERATIONS.length()) + OPERATION_EDITS;
         }
-        String s = suffix.trim();
-        return s.startsWith("/") ? s : "/" + s;
+        return ProviderEndpointUtils.buildSubmitUrl(modelConfig.getBaseUrl(), suffix);
     }
 
     private String getStringOption(Map<String, Object> options, String key) {

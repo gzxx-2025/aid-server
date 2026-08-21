@@ -22,4 +22,7 @@ public class SettleRule {
 
     /** 是否允许补扣 */
     private boolean allowExtraCharge;
+
+    /** Token计费口径：AGGREGATE（父级总量）或 BUCKETED（互斥子桶）。 */
+    private String usagePricingMode;
 }

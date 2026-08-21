@@ -23,11 +23,6 @@ public final class VolcengineTtsConstants {
 
     public static final String DEFAULT_MODEL = "seed-tts-2.0";
 
-    // --- HTTP 路径（openspeech 网关固定）---
-
-    /** 单向流式 HTTP 合成接口（新版，X-Api-Key 鉴权，一次请求流式返回音频分片） */
-    public static final String UNIDIRECTIONAL_PATH = "/api/v3/tts/unidirectional";
-
     public static final int HTTP_TIMEOUT_MS = 30_000;
 
     /** 流式合成读流超时（合成耗时随文本长度增长，放宽到 120s） */

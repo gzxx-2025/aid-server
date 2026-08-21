@@ -11,10 +11,13 @@ import com.aid.billing.enums.BillingConstants;
 import com.aid.billing.enums.MeterType;
 import com.aid.billing.enums.TextSettleStatus;
 import com.aid.billing.model.BillingSnapshot;
+import com.aid.billing.model.BillingRule;
 import com.aid.billing.estimate.BillingEstimateResolver;
 import com.aid.billing.service.BillingAmountCalculator;
 import com.aid.billing.service.BillingFacadeService;
+import com.aid.billing.service.BillingRuleResolver;
 import com.aid.billing.service.IAccountUpdateService;
+import com.aid.billing.util.TextReasoningBillingResolver;
 import com.aid.common.exception.ServiceException;
 import com.aid.domain.vo.AiModelConfigVo;
 import com.aid.media.service.IMediaBillingService;
@@ -26,7 +29,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -40,6 +42,7 @@ public class BillingFacadeServiceImpl implements BillingFacadeService {
 
     private final BillingAmountCalculator billingAmountCalculator;
     private final BillingEstimateResolver billingEstimateResolver;
+    private final BillingRuleResolver billingRuleResolver;
     private final IMediaBillingService mediaBillingService;
     private final AidMediaTaskMapper aidMediaTaskMapper;
     private final IAccountUpdateService accountUpdateService;
@@ -52,11 +55,11 @@ public class BillingFacadeServiceImpl implements BillingFacadeService {
      * LONGTEXT 列物理上支持 4GB，但业务侧按 `length() * 4 / 5` 估算 token 时超大字符串会直接把扣费打爆；
      * 100 万字符 ≈ 50 万 token，已覆盖任何合法 LLM 输出，超过部分一律视为异常/污染数据。
      */
-    private static final int RESULT_TEXT_ESTIMATE_MAX_CHARS = 1_000_000;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void prepareBilling(AidMediaTask task, AiModelConfigVo modelConfig, BillingInput billingInput) {
+        TextReasoningBillingResolver.enrich(billingInput, modelConfig);
         // 预冻结参数估算：按 meterType 分发，增补 inputTokens/outputTokens 等预估值
         billingEstimateResolver.enrichEstimate(billingInput, modelConfig);
 
@@ -142,10 +145,12 @@ public class BillingFacadeServiceImpl implements BillingFacadeService {
         task.setTextSettleStatus(TextSettleStatus.PROCESSING);
 
         try {
-            // 无usageData时，从task.resultText估算实际输出字数
+            // 思考请求缺少供应商完整 usage 时不得按可见正文退款：思考 token 不可见。
+            // 保留原始部分 usage 交给计算器写入已捕获侧和完整性审计；计算器会按预冻结上限保守结算。
             Map<String, Object> effectiveUsage = usageData;
-            if (effectiveUsage == null || effectiveUsage.isEmpty()) {
-                effectiveUsage = estimateUsageFromResultText(task);
+            if (meterType == MeterType.TOKEN && !hasCompleteTokenUsage(effectiveUsage)) {
+                log.error("文本请求未返回完整父级usage，按预冻结结算, taskId={}, model={}",
+                        task.getId(), task.getModelName());
             }
 
             // 重新计算实际金额
@@ -180,8 +185,20 @@ public class BillingFacadeServiceImpl implements BillingFacadeService {
                 logTextRefundSummary(task, snapshot, preHoldAmount, actualAmount, refundAmount);
             } else if (meterType == MeterType.TOKEN && actualAmount != null
                     && actualAmount.compareTo(preHoldAmount) > 0) {
-                // TOKEN 补扣：actual > preHold，从可用余额补扣差额
                 BigDecimal extraRequired = actualAmount.subtract(preHoldAmount);
+                if (!allowsExtraCharge(snapshot)) {
+                    task.setActualCost(preHoldAmount);
+                    if (settleCalc.getSnapshot() != null) {
+                        settleCalc.getSnapshot().setActualAmount(preHoldAmount);
+                        settleCalc.getSnapshot().setRefundAmount(BigDecimal.ZERO);
+                        settleCalc.getSnapshot().setExtraChargeRequired(extraRequired);
+                        settleCalc.getSnapshot().setExtraChargeActual(BigDecimal.ZERO);
+                        settleCalc.getSnapshot().setPartialExtraCharge(Boolean.FALSE);
+                    }
+                    log.info("TOKEN超预扣但规则禁止补扣，按预冻结封顶, taskId={}, preHold={}, calculated={}",
+                            task.getId(), preHoldAmount, actualAmount);
+                } else {
+                // TOKEN 补扣：仅规则明确允许时从可用余额补扣差额。
                 BigDecimal actualExtraCharged = accountUpdateService.settleExtraCharge(
                         task.getUserId(), extraRequired, task.getBillingTraceId(),
                         "settle_extra", "TOKEN超预扣补扣");
@@ -200,6 +217,7 @@ public class BillingFacadeServiceImpl implements BillingFacadeService {
                 // 补扣明细日志
                 logTokenExtraCharge(task, snapshot, meterType, preHoldAmount,
                         actualAmount, extraRequired, actualExtraCharged, partial, finalSettled);
+                }
             } else {
                 // actual == preHold 或非 TOKEN 的 actual >= preHold，按预扣金额结算
                 task.setActualCost(preHoldAmount);
@@ -239,6 +257,23 @@ public class BillingFacadeServiceImpl implements BillingFacadeService {
         }
 
         return true;
+    }
+
+    private boolean allowsExtraCharge(BillingSnapshot snapshot) {
+        if (snapshot == null || CharSequenceUtil.isBlank(snapshot.getBillingRuleJson())) {
+            return false;
+        }
+        try {
+            AiModelConfigVo config = new AiModelConfigVo();
+            config.setBillingMode(BillingConstants.MODE_SKU);
+            config.setBillingRuleJson(snapshot.getBillingRuleJson());
+            BillingRule rule = billingRuleResolver.parseRule(config);
+            return rule != null && rule.getSettleRule() != null
+                    && rule.getSettleRule().isAllowExtraCharge();
+        } catch (Exception e) {
+            log.error("补扣规则解析失败，按禁止补扣处理, model={}", snapshot.getModelName(), e);
+            return false;
+        }
     }
 
     @Override
@@ -315,36 +350,25 @@ public class BillingFacadeServiceImpl implements BillingFacadeService {
         }
     }
 
-    /**
-     * 从task.resultText估算实际输出字数，用于文本结算。
-     * 当上游未返回usage时作为降级方案。
-     * 对 resultText 长度做上限保护，防止异常超长字符串导致 token 估算溢出。
-     */
-    private Map<String, Object> estimateUsageFromResultText(AidMediaTask task) {
-        Map<String, Object> usage = new HashMap<>();
-
-        if (CharSequenceUtil.isNotBlank(task.getResultText())) {
-            int rawLen = task.getResultText().length();
-            int outputChars = Math.min(rawLen, RESULT_TEXT_ESTIMATE_MAX_CHARS);
-            if (rawLen > RESULT_TEXT_ESTIMATE_MAX_CHARS) {
-                log.warn("resultText 估算长度超过上限, taskId={}, rawLen={}, cappedAt={}",
-                        task.getId(), rawLen, RESULT_TEXT_ESTIMATE_MAX_CHARS);
-            }
-            usage.put("output_chars_estimate", outputChars);
-            // 统一 5字=4token 换算，与预冻结口径一致
-            usage.put("output_tokens_estimate", BillingConstants.charsToTokens(outputChars));
-
-            // 从计费快照中取inputChars（带兜底）
-            BillingSnapshot snapshot = parseSnapshot(task.getBillingSnapshotJson());
-            int inputChars = 0;
-            if (snapshot != null && snapshot.getRequestParams() != null) {
-                inputChars = safeToInt(snapshot.getRequestParams().get("inputChars"));
-            }
-            usage.put("input_chars_estimate", inputChars);
-            usage.put("input_tokens_estimate", BillingConstants.charsToTokens(inputChars));
-            usage.put("total_chars_estimate", inputChars + outputChars);
+    private boolean hasCompleteTokenUsage(Map<String, Object> usage) {
+        if (usage == null || usage.isEmpty()) {
+            return false;
         }
-        return usage;
+        if (usage.containsKey("provider_usage_captured")
+                && !Boolean.parseBoolean(String.valueOf(usage.get("provider_usage_captured")))) {
+            return false;
+        }
+        if (usage.containsKey("input_usage_complete")
+                && !Boolean.parseBoolean(String.valueOf(usage.get("input_usage_complete")))) {
+            return false;
+        }
+        if (usage.containsKey("output_usage_complete")
+                && !Boolean.parseBoolean(String.valueOf(usage.get("output_usage_complete")))) {
+            return false;
+        }
+        boolean hasInput = usage.containsKey("input_tokens") || usage.containsKey("prompt_tokens");
+        boolean hasOutput = usage.containsKey("output_tokens") || usage.containsKey("completion_tokens");
+        return hasInput && hasOutput;
     }
 
     private int safeToInt(Object value) {
@@ -498,6 +522,7 @@ public class BillingFacadeServiceImpl implements BillingFacadeService {
         copy.setBillingMode(original.getBillingMode());
         copy.setBillingRuleJson(original.getBillingRuleJson());
         copy.setBillingVersion(original.getBillingVersion());
+        copy.setIsFree(original.getIsFree());
         copy.setBaseUrl(original.getBaseUrl());
         copy.setApiKey(original.getApiKey());
         copy.setApiSecret(original.getApiSecret());

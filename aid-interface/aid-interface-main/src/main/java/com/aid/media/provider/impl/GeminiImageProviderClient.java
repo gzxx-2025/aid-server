@@ -25,6 +25,7 @@ import com.aid.common.constant.HttpConstants;
 import com.aid.common.oss.entity.UploadResult;
 import com.aid.common.oss.factory.OssFactory;
 import com.aid.domain.vo.AiModelConfigVo;
+import com.aid.common.utils.ProviderEndpointUtils;
 import com.aid.media.constants.GeminiConstants;
 import com.aid.media.dto.MediaImageGenerateRequest;
 import com.aid.media.provider.ImageProviderClient;
@@ -548,11 +549,8 @@ public class GeminiImageProviderClient implements ImageProviderClient {
         }
         return body;
     }
-    /**
-     * 构建 URL：{base_url}{api_suffix}{model}:generateContent
-     * 与 GeminiTextProviderClient 保持一致
-     */
-    private String buildGenerateContentUrl(String baseUrl, String apiSuffix, String model) {
+    /** 构建包含受控 {model} 占位符的 Gemini 提交 URL。 */
+    static String buildGenerateContentUrl(String baseUrl, String apiSuffix, String model) {
         if (StringUtils.isBlank(baseUrl)) {
             log.error("Gemini 图片 baseUrl 为空，请在 aid_ai_provider 表配置 base_url");
             throw new IllegalArgumentException("配置缺失");
@@ -561,18 +559,15 @@ public class GeminiImageProviderClient implements ImageProviderClient {
             log.error("Gemini 图片 apiSuffix 为空，请在 aid_ai_model 表配置 api_suffix");
             throw new IllegalArgumentException("配置缺失");
         }
-        String base = baseUrl.trim();
-        if (base.endsWith("/")) {
-            base = base.substring(0, base.length() - 1);
-        }
         String suffix = apiSuffix.trim();
-        if (!suffix.startsWith("/")) {
-            suffix = "/" + suffix;
+        if (!suffix.contains("{model}")) {
+            if (suffix.endsWith("/")) {
+                suffix = suffix + "{model}" + GeminiConstants.OPERATION_GENERATE_CONTENT;
+            } else {
+                return ProviderEndpointUtils.buildSubmitUrl(baseUrl, suffix);
+            }
         }
-        if (!suffix.endsWith("/")) {
-            suffix = suffix + "/";
-        }
-        return base + suffix + model + GeminiConstants.OPERATION_GENERATE_CONTENT;
+        return ProviderEndpointUtils.buildModelSubmitUrl(baseUrl, suffix, model);
     }
 
     /**

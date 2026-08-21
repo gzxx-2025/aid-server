@@ -58,6 +58,18 @@ public class MediaTextGenerateRequest {
     private String taskPromptDigest;
 
     /**
+     * 内部幂等调用ID：由父任务类型、父ID、父计费trace、业务阶段及序号共同生成；
+     * 同一父周期重投必须保持不变，不允许用 prompt/requestHash 代替。
+     */
+    private String callId;
+
+    /** 父计费周期ID（内部使用），用于账单归组及审计。 */
+    private String billingAttemptId;
+
+    /** 可读的业务调用身份（内部使用），例如 stage=scene,chunk=2。 */
+    private String callIdentity;
+
+    /**
      * 单条对话消息：对应上游 messages 数组元素。
      */
     @Data

@@ -33,15 +33,15 @@ public class AidStoryboardBatch extends BaseEntity implements Serializable
     @Excel(name = "父任务ID")
     private Long parentTaskId;
 
-    /** 所属主表 aid_role_prop_scene.id */
+    /** 场次批次任务关联的场景ID；剧本切片批次为 NULL */
     @Excel(name = "场景ID")
     private Long sceneId;
 
-    /** 批次序号（从 0 起，同 scene_id 内连续） */
+    /** 直驱任务为父任务内剧本切片序号；场次批次任务为同一场景内批次序号 */
     @Excel(name = "批次序号")
     private Integer batchIndex;
 
-    /** 该批包含的 sceneCode JSON 数组（如 ["003","004","005"]） */
+    /** 场次编码 JSON；直驱批次初始化为 []，成功后回填实际派生编码 */
     @Excel(name = "场次序号清单JSON")
     private String shotCodes;
 
@@ -65,7 +65,7 @@ public class AidStoryboardBatch extends BaseEntity implements Serializable
     @Excel(name = "重试轮次")
     private Integer retryRound;
 
-    /** 该批 LLM 输出 JSON 数组 */
+    /** 该批 LLM 原始结果 JSON */
     @TableField(value = "result_data")
     private String resultData;
 

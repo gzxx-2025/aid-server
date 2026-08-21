@@ -1,49 +1,79 @@
 aid-master/
 ├── aid-business/                         Web 接口层
-│   ├── aid-business-main/                C 端成片导出与进度查询接口
+│   ├── aid-business-main/                C 端成片导出、进度查询、腾讯云 MPS/阿里云 IMS 回调、可灵签名回调及 MiniMax H3 匿名唤醒回调
 │   └── aid-business-system/
+│       ├── com/aid/aid/controller/AidAiProviderOperationsController.java  供应商余额与上游任务运维接口
 │       ├── com/aid/aid/controller/AidUserProfileController.java  后台 C 端用户管理与新增入口
 │       ├── com/aid/aid/controller/SystemUpgradeController.java  系统升级、部署配置诊断、HTTPS证书安全安装与官方资源包初始化接口
 │       ├── com/aid/config/asr/           腾讯云语音识别后台配置与视频测试接口
+│       ├── com/aid/config/mps/           三种媒体处理方式的普通字段配置、存储归属及地域校验
+│       ├── com/aid/config/storage/       文件存储整组保存、公共资源地址、模型签名时长及在途任务保护
 │       └── com/aid/config/test/tester/OssConnectivityTester.java  本地、OSS、COS、七牛云读写删除连通性测试
 ├── aid-common/                           公共组件（复用腾讯云 TC3 签名）
-│   ├── com/aid/common/aid/oss/           本地、阿里云OSS、腾讯云COS、七牛云Kodo统一文件存储
+│   ├── com/aid/common/aid/oss/           本地、阿里云OSS、腾讯云COS、七牛云Kodo统一文件存储及模型临时签名地址
 │   ├── com/aid/common/aid/sms/           阿里云、腾讯云、短信宝统一短信工具与动态配置
 │   └── com/aid/common/utils/GatewayUrlUtils.java  API基础网关地址校验与规范化
 ├── aid-interface/
 │   ├── aid-interface-main/               业务服务层
 │   │   ├── src/main/java/com/aid/
 │   │   │   ├── auth/                     登录、发码与扫码注册认证流程
+│   │   │   ├── asset/                    系统风格分类查询、推荐优先与个人/系统三段合并分页
 │   │   │   ├── common/error/rule/ErrorLogRuleConversionService.java  错误样本生成规则草稿、规则创建与样本状态回写
 │   │   │   ├── promotion/                邀请码预校验、注册绑定与返佣业务
 │   │   │   ├── compose/
-│   │   │   │   ├── config/               腾讯云语音识别强类型配置与缓存
-│   │   │   │   ├── domain/               合成领域对象（含精确时间戳字幕）
+│   │   │   │   ├── config/               语音识别与三种媒体处理方式的强类型配置及缓存
+│   │   │   │   ├── domain/               合成领域对象、厂商无关合成计划及文件存储归属快照
 │   │   │   │   ├── dto/                  导出、时间轴、后台配置及识别测试出入参
 │   │   │   │   ├── enums/                分镜字幕识别检查点状态
-│   │   │   │   ├── service/              当前视频解析、同步自动字幕、配置与测试服务接口
-│   │   │   │   ├── service/impl/         导出编排、服务端台词整批兜底、原声视频字幕排布、逐分镜断点识别及临时视频测试实现
+│   │   │   │   ├── service/              当前视频解析、同步自动字幕、配置测试及媒体处理回调服务接口
+│   │   │   │   ├── service/impl/         导出编排、腾讯云 MPS/阿里云 IMS 回调补偿、服务端台词兜底及临时视频测试实现
 │   │   │   │   └── util/                 最终人声音源选择、台词/媒体指纹、双人及多人说话人重匹配与正文限长字幕分屏工具
 │   │   │   ├── media/
-│   │   │   │   ├── dto/                  厂商无关的语音识别标准结果
-│   │   │   │   └── provider/             语音识别扩展点、腾讯云录音识别与 Vidu 音画对白字幕约束实现
+│   │   │   │   ├── cleanup/              生成产物级联清理、共享业务文件引用保护与事务后 OSS 清理
+│   │   │   │   ├── dto/                  厂商无关结果及可灵回调上下文
+│   │   │   │   ├── provider/             腾讯云 MPS、阿里云 IMS、本地 FFmpeg、可灵 3.0 与 MiniMax H3 Provider 实现
+│   │   │   │   └── service/              模型资源临时签名、厂商并发排队、上游权威终态、回调唤醒及任务补偿收口
 │   │   │   ├── project/service/ProjectStyleSnapshotService.java  官方/自定义风格解析、项目隐藏模板快照与角色提示词回退
 │   │   │   ├── projectgenconfig/matrix/   生成池矩阵解析、后台配置及按模型场景能力返回清晰度/比例选项
-│   │   │   ├── storyboard/               分镜视频生成与选片同步
+│   │   │   ├── rps/assembler/StoryboardVideoPromptContinuityAssembler.java  相邻分镜连续性校验、任务快照恢复与结构化上下文装配
+│   │   │   ├── rps/enums/VideoPromptContinuityMode.java  视频提示词连续性模式枚举
+│   │   │   ├── rps/helper/StoryboardWriterContentParser.java  专业分镜十字段内容对象解析与历史数组兼容
+│   │   │   ├── rps/service/impl/RpsFormImageBusinessServiceImpl.java  形态图片查询及按来源安全组装 C 端展示提示词
+│   │   │   ├── rps/helper/StoryboardDirectRefundExecutor.java  直驱分镜退款动作与资金终态结果收口
+│   │   │   ├── rps/helper/StoryboardDirectTaskSnapshotValidator.java  最新剧本与场景资产任务快照一致性校验
+│   │   │   ├── rps/helper/StoryboardDirectWritePolicy.java  首个实际镜头批次的覆盖与兼容场次清理决策
+│   │   │   ├── rps/helper/StoryboardResumeBillingExecutor.java  分镜续生结算与退款资金动作收口
+│   │   │   ├── rps/helper/StoryboardSceneEnvelopeParser.java  分镜 scenes[].shots[] 严格解析、场景绑定与剧本覆盖校验
+│   │   │   ├── rps/helper/StoryboardScriptCoveragePlanner.java  剧本文档参考资料、结构提示、有效正文、画面指令与确定性批次规划
+│   │   │   ├── rps/helper/StoryboardVisualDirectiveValidator.java  分镜有效正文区间及锚点画面指令字段校验
+│   │   │   ├── rps/helper/StoryboardSelectiveTimelinePlanner.java  选择性覆盖分镜的原时间线插入位置规划
+│   │   │   ├── rps/helper/StoryboardScriptBatchPlanner.java  最新剧本非空保序切片与历史场次批次兼容
+│   │   │   ├── rps/helper/StoryboardTimelineNumbering.java  分镜时间线排序号与编号镜像字段同步
+│   │   │   ├── storyboard/               分镜原子复制、图片/原视频产物重映射、视频生成、选片同步、可灵参考策略与 MiniMax H3 五场景策略
 │   │   │   ├── upgrade/                  升级器通信、部署配置诊断、HTTPS证书安全安装及官方资源包服务
 │   │   │   └── user/                     后台 C 端用户创建、账户信息与出入参
 │   │   └── src/test/java/com/aid/
 │   │       ├── auth/service/              发码前邀请码校验与 public-config 登录渠道独立开关/异常降级测试
+│   │       ├── asset/service/             风格分类与三段式跨源分页测试
+│   │       ├── billing/                   可灵计费入参兼容、官方价格 SQL 与生产计费匹配测试
 │   │       ├── common/error/rule/         错误样本转规则草稿、命中校验与状态回写测试
 │   │       ├── compose/                   无人声字幕检查点复用与陈旧成片回调隔离测试
-│   │       ├── media/provider/            腾讯云真实视频语音识别诊断测试（凭证环境变量控制）
+│   │       ├── media/provider/            可灵九场景/签名/提交重试，以及 MiniMax H3 五场景请求、官方用量与 Provider 契约测试
+│   │       ├── media/service/impl/        可灵提交/终态失败样本、新旧回调与 MiniMax H3 回调唤醒、CAS 赢家去重、降级轮询、超时退款及终态幂等测试
 │   │       ├── promotion/service/impl/    邀请码严格校验与注册绑定测试
 │   │       ├── project/service/            隐藏风格 JSON 固定协议、非法值与兼容回退测试
-│   │       ├── rps/queue/                 批量任务终态分类测试
-│   │       ├── storyboard/service/impl/   上传分镜视频秒数必传校验测试
+│   │       ├── rps/queue/                 批量任务终态分类与 MQ 派发锁等待/周期校验测试
+│   │       ├── rps/helper/                分镜场次包装、原文覆盖、剧本切片、写入策略、任务快照、时间线编号与续生计费测试
+│   │       ├── rps/service/impl/          形态图片展示提示词来源分流、批量查询与敏感信息隔离测试
+│   │       ├── storyboard/service/impl/   分镜内容/媒体原子复制、上传视频秒数必传及可灵规划后首帧/参考素材校验测试
+│   │       ├── storyboard/video/impl/     可灵参考槽位与 MiniMax H3 五场景分镜素材路由测试
 │   │       ├── upgrade/service/impl/      官方资源包校验安装与失败保留旧资源测试
 │   │       └── user/service/impl/         后台新增用户与账户查询测试
-│   └── aid-interface-system/             实体、Mapper 与领域服务
+│   └── aid-interface-system/             实体、Mapper 与领域服务，含系统风格分类关系、推荐与稳定排序维护
+│       ├── com/aid/aid/domain/dto/ProviderUpstreamTaskQuery.java  上游任务精确/游标查询参数
+│       ├── com/aid/aid/service/impl/ProviderUpstreamOperationsServiceImpl.java  可灵余额/任务与 MiniMax H3 最近任务查询实现
+│       ├── com/aid/aid/service/support/ModelBillingActivationValidator.java  新模型启用前计费完整性闸门
+│       ├── src/test/                       可灵供应商配置、可灵/MiniMax H3 上游运维与计费闸门回归测试
 │       ├── com/aid/aid/domain/AidEpisodeEditor.java  正式/待审成片及各自素材指纹槽位
 │       ├── com/aid/aid/util/HiddenStylePromptJsonUtils.java  character/scene/prop 隐藏风格 JSON 校验与规范化
 │       └── com/aid/aid/domain/dto/AidAiProviderStatusRequest.java  服务商启停专用入参
@@ -54,9 +84,19 @@ aid-master/
     ├── alter_account_amount_precision.sql 账户账本与任务计费金额四位小数迁移
     ├── v1.0.0-beta.2.sql                上一测试版本的幂等数据库迁移脚本
     ├── v1.0.0-beta.3.sql                上一测试版本的幂等数据库迁移脚本
-    ├── v1.0.0-beta.4.sql                隐藏风格字段、查询索引与 51 个官方风格的幂等迁移脚本
+    ├── v1.0.0-beta.4.sql                隐藏风格字段、查询索引与 51 个内置风格的幂等迁移脚本
     ├── v1.0.0-beta.5.sql                登录渠道开关补齐且保留已有配置值的幂等迁移脚本
+    ├── v1.0.0-beta.6.sql                模型、计费、风格、分镜协议、统一资源地址、媒体处理及配置唯一性的幂等迁移脚本
+    ├── private/v1.0.0-beta.6-scene-storyboard-decoupling-operations.sql  场景资产与分镜场次职责拆分独立迁移
     └── update_creation_flow_step_names.sql  已有引导配置的流程名称更新脚本
+
+aid-interface/aid-interface-main/src/test/java/com/aid/storyboard/video/impl/
+├── KlingVideoReferenceStrategyTest.java            可灵 Omni 首帧与参考图总槽位回归测试
+└── MinimaxH3VideoReferenceStrategyTest.java        MiniMax H3 五场景分镜素材路由回归测试
 
 version/
 └── version.md                          飞书版本发布记录，后续版本内容继续追加
+
+参考文件/扩展文件/线上使用/
+├── 场景提取【拆分版】-aid_scene_extractor.txt  仅输出 16 字段场景视觉资产
+└── *分镜脚本提取*【拆分版】*.txt             五种分镜模式统一 scenes[].shots[]、有效剧情覆盖及锚点画面指令协议

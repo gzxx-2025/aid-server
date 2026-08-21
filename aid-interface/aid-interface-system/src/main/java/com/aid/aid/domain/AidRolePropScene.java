@@ -5,7 +5,7 @@ import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
-import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.aid.common.annotation.Excel;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -44,6 +44,11 @@ public class AidRolePropScene extends BaseEntity implements Serializable
     /** 名称(场景/角色/道具) */
     @Excel(name = "名称(场景/角色/道具)")
     private String name;
+
+    /** 名称业务键 */
+    @JsonIgnore
+    @TableField(value = "name_normalized")
+    private String nameNormalized;
 
     /** 别名(逗号分隔) */
     @Excel(name = "别名")
@@ -97,15 +102,23 @@ public class AidRolePropScene extends BaseEntity implements Serializable
     @Excel(name = "创建来源")
     private String createSource;
 
-    /**
-     * 该主表场次序号。
-     * 来源于场景提取时 LLM 输出的 sceneCode（被 SceneCodeAllocator 全局覆盖后）。
-     * 同剧集多个场景按 first_scene_code 升序排列，对应剧情时间线。
-     */
+    /** 场次编号兼容展示字段；分镜时间线顺序仅认 sort_order。 */
     @Excel(name = "首个场次序号")
     private String firstSceneCode;
 
     /** 删除标志(0代表存在 2代表删除) */
     private String delFlag;
+
+    /** 删除原因 */
+    @JsonIgnore
+    private String deleteReason;
+
+    /** 删除时间 */
+    @JsonIgnore
+    private java.util.Date deletedAt;
+
+    /** 触发删除的任务ID */
+    @JsonIgnore
+    private Long deleteTaskId;
 
 }

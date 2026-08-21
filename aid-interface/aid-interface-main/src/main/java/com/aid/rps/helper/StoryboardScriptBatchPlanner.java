@@ -4,13 +4,17 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Component;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.aid.aid.domain.AidRolePropScene;
 import com.aid.aid.domain.AidScenePlot;
+import com.aid.rps.helper.StoryboardScriptCoveragePlanner.CoverageBatch;
+import com.aid.rps.helper.StoryboardScriptCoveragePlanner.StructureCue;
+import com.aid.rps.helper.StoryboardScriptCoveragePlanner.VisualDirective;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import cn.hutool.core.collection.CollectionUtil;
 import cn.hutool.core.util.StrUtil;
@@ -18,7 +22,7 @@ import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 分镜脚本批次切片器（按场次拆批：一个 plot = 一批，batchIndex 为全局时序序号）。
+ * 为当前剧本切片和场次兼容数据规划分镜批次。
  *
  * @author 视觉AID
  */
@@ -31,7 +35,7 @@ public class StoryboardScriptBatchPlanner
     private static final String MERGE_SEPARATOR = "\n\n";
 
     /**
-     * 按场次拆批：一个 plot（场次）= 一批，batchIndex 为全局时序序号（0 起）。
+     * 规划场次兼容分镜批次。
      *
      * @param plots       已按全局 scene_code（场次时序）升序排列的剧情节拍列表
      * @param sceneIndex  scene_id → AidRolePropScene 索引（用于回填 sceneName 等元信息）
@@ -66,6 +70,80 @@ public class StoryboardScriptBatchPlanner
         log.info("StoryboardScriptBatchPlanner 拆批完成（按场次）: 输入plot={}, 输出batch={}（一场次一批）",
                 plots.size(), result.size());
         return result;
+    }
+
+    /**
+     * 按最新版剧本切片建立批次，场景归属由分镜智能体在每个切片内判断。
+     *
+     * @param scriptChunks 保序的剧本切片
+     * @return 与切片一一对应的批次计划
+     */
+    public List<BatchPlanItem> planScriptChunks(List<String> scriptChunks)
+    {
+        List<BatchPlanItem> result = new ArrayList<>();
+        List<String> canonicalChunks = canonicalizeScriptChunks(scriptChunks);
+        if (canonicalChunks.isEmpty())
+        {
+            return result;
+        }
+        for (int i = 0; i < canonicalChunks.size(); i++)
+        {
+            String chunk = canonicalChunks.get(i);
+            BatchPlanItem item = new BatchPlanItem();
+            item.setBatchIndex(i);
+            item.setCharCount(chunk.length());
+            item.setMergedPlotContent(chunk);
+            result.add(item);
+        }
+        return result;
+    }
+
+    /**
+     * 将语义覆盖批次映射为现有任务批次计划。
+     *
+     * @param coverageBatches 有效正文覆盖批次
+     * @return 与覆盖批次一一对应的任务计划
+     */
+    public List<BatchPlanItem> planCoverageBatches(List<CoverageBatch> coverageBatches)
+    {
+        List<BatchPlanItem> result = new ArrayList<>();
+        if (CollectionUtil.isEmpty(coverageBatches))
+        {
+            return result;
+        }
+        for (CoverageBatch coverageBatch : coverageBatches)
+        {
+            if (Objects.isNull(coverageBatch) || StrUtil.isBlank(coverageBatch.narrativeText()))
+            {
+                continue;
+            }
+            BatchPlanItem item = new BatchPlanItem();
+            item.setBatchIndex(coverageBatch.batchIndex());
+            item.setCharCount(coverageBatch.charCount());
+            item.setMergedPlotContent(coverageBatch.narrativeText());
+            item.setReferenceContext(coverageBatch.referenceContext());
+            item.setStructureCues(new ArrayList<>(coverageBatch.structureCues()));
+            item.setVisualDirectives(new ArrayList<>(coverageBatch.directives()));
+            result.add(item);
+        }
+        return result;
+    }
+
+    /**
+     * 规范化为非空保序剧本切片。
+     *
+     * @param scriptChunks 原始剧本切片
+     * @return 连续编号可用的剧本切片
+     */
+    public List<String> canonicalizeScriptChunks(List<String> scriptChunks)
+    {
+        if (CollectionUtil.isEmpty(scriptChunks))
+        {
+            return new ArrayList<>();
+        }
+        return scriptChunks.stream()
+                .filter(StrUtil::isNotBlank)
+                .collect(Collectors.toCollection(ArrayList::new));
     }
 
     /**
@@ -124,7 +202,7 @@ public class StoryboardScriptBatchPlanner
         /** scene 名（用于日志展示） */
         private String sceneName;
 
-        /** 全局时序批次序号（从 0 起，按 scene_code 升序），即该场次在全片中的顺序位 */
+        /** 批次序号；直驱任务按剧本切片，场次批次任务按 scene_code */
         private Integer batchIndex;
 
         /** 该批包含的 plot.id 列表（顺序与遍历一致） */
@@ -141,6 +219,15 @@ public class StoryboardScriptBatchPlanner
 
         /** 合并字段：plotContent 多段用空行连接 */
         private String mergedPlotContent;
+
+        /** 原始剧本文档中正文前的只读参考资料 */
+        private String referenceContext;
+
+        /** 当前批次绑定的幕、场景头和时间段结构提示 */
+        private List<StructureCue> structureCues = new ArrayList<>();
+
+        /** 当前批次必须落实且不进入剧本内容字段的视觉指令 */
+        private List<VisualDirective> visualDirectives = new ArrayList<>();
 
         /** 合并字段：characters 去重合并（每个 plot 的 characters 是 JSON 数组字符串） */
         private List<String> mergedCharacters = new ArrayList<>();
@@ -191,6 +278,8 @@ public class StoryboardScriptBatchPlanner
 
         /**
          * 把一个 plot 追加到当前批，更新所有合并字段。
+         *
+         * @param p 场次兼容数据
          */
         public void appendPlot(AidScenePlot p)
         {

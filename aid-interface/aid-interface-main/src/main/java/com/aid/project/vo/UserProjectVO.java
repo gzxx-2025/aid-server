@@ -43,6 +43,12 @@ public class UserProjectVO {
     /** 视频风格值字符串（前端传什么存什么） */
     private String videoStyleValue;
 
+    /** 风格来源：official 官方 / custom 用户自定义 */
+    private String styleSource;
+
+    /** 风格在对应来源表中的资产ID */
+    private Long styleAssetId;
+
     /** 是否已因资产或提取任务锁定风格切换 */
     private Boolean styleLocked;
 

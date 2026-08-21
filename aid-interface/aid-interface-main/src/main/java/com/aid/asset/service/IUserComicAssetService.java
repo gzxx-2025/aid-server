@@ -38,7 +38,7 @@ public interface IUserComicAssetService {
     Map<String, Object> listAsset(UserComicAssetListRequest request, Long userId);
 
     /**
-     * 合并分页查询「个人 + 官方」资产（个人在前、官方在后）。
+     * 合并分页查询「个人 + 官方」资产（官方推荐、个人、官方非推荐）。
      *
      * @param request 查询条件
      * @param userId  当前用户ID

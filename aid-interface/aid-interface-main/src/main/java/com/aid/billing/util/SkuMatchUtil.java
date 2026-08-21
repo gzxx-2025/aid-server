@@ -1,5 +1,6 @@
 package com.aid.billing.util;
 
+import java.util.Collection;
 import java.util.Map;
 
 /**
@@ -48,11 +49,25 @@ public final class SkuMatchUtil {
             // 等值匹配：忽略大小写。清晰度/生成模式等枚举在不同来源大小写不统一
             // （计费推断产出 720P，Vidu 官方档位是 720p），大小写敏感会导致 SKU 永远落兜底。
             Object actualValue = actualParams.get(key);
-            if (!String.valueOf(matchValue).equalsIgnoreCase(String.valueOf(actualValue))) {
+            if (!matchesValue(matchValue, actualValue)) {
                 return false;
             }
         }
         return true;
+    }
+
+    /**
+     * 等值条件支持单值及枚举集合，集合中任一值命中即可。
+     */
+    private static boolean matchesValue(Object matchValue, Object actualValue) {
+        if (matchValue instanceof Collection<?> candidates) {
+            return candidates.stream().anyMatch(candidate -> equalsIgnoreCase(candidate, actualValue));
+        }
+        return equalsIgnoreCase(matchValue, actualValue);
+    }
+
+    private static boolean equalsIgnoreCase(Object expected, Object actual) {
+        return String.valueOf(expected).equalsIgnoreCase(String.valueOf(actual));
     }
 
     /**

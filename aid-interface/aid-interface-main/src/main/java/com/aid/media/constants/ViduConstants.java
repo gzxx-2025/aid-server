@@ -123,17 +123,6 @@ public final class ViduConstants {
     /** size 形如 1024*1024 时的分隔 */
     public static final String SIZE_DIMENSION_SPLIT_REGEX = "\\*";
 
-    // --- 端点路径常量（仅供前端展示/DB 种子/场景推断参考，运行时一律用 base_url + api_suffix 拼接，不在代码硬拼）---
-
-    public static final String PATH_TEXT2VIDEO = "/ent/v2/text2video";
-    public static final String PATH_IMG2VIDEO = "/ent/v2/img2video";
-    public static final String PATH_START_END2VIDEO = "/ent/v2/start-end2video";
-    public static final String PATH_REFERENCE2VIDEO = "/ent/v2/reference2video";
-    public static final String PATH_MULTIFRAME = "/ent/v2/multiframe";
-    public static final String PATH_REFERENCE2IMAGE = "/ent/v2/reference2image";
-    /** 查询生成物端点（含任务ID占位符 %s）：用于 task_query_suffix 缺省参考 */
-    public static final String PATH_TASK_CREATIONS = "/ent/v2/tasks/%s/creations";
-
     // --- 音画/通用请求体字段 ---
 
     /** 是否使用音视频直出能力 */

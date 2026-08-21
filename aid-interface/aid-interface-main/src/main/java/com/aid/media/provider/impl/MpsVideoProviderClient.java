@@ -1,15 +1,23 @@
 package com.aid.media.provider.impl;
 
+import java.net.URI;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
 import org.springframework.stereotype.Component;
 
 import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import com.aid.compose.config.MpsConfigManager;
 import com.aid.compose.config.MpsProperties;
+import com.aid.compose.exception.ComposeUpstreamUnavailableException;
 import com.aid.common.moderation.tencent.TencentCloudTc3Signer;
+import com.aid.common.aid.oss.config.OssConfigManager;
+import com.aid.common.aid.oss.properties.OssProperties;
 import com.aid.domain.vo.AiModelConfigVo;
 import com.aid.media.dto.MediaVideoGenerateRequest;
 import com.aid.media.enums.MediaTaskStatus;
@@ -60,11 +68,21 @@ public class MpsVideoProviderClient implements VideoProviderClient {
     /** 查询任务详情 Action */
     private static final String ACTION_DESCRIBE_TASK = "DescribeTaskDetail";
 
+    /** 查询最近任务 Action（仅用于 SessionId 去重后的任务 ID 恢复） */
+    private static final String ACTION_DESCRIBE_TASKS = "DescribeTasks";
+
+    /** 腾讯云 SessionId 重复错误码 */
+    private static final String ERROR_DUPLICATE_SESSION_ID = "InvalidParameterValue.SessionId";
+
+    /** 恢复扫描最多反查的编辑任务数，避免罕见异常路径放大上游请求 */
+    private static final int MAX_RECOVERY_DETAILS = 100;
+
     /** HTTP 超时（毫秒） */
     private static final int HTTP_TIMEOUT_MS = 30_000;
 
     /** MPS 配置管理器 */
     private final MpsConfigManager mpsConfigManager;
+    private final OssConfigManager ossConfigManager;
 
     @Override
     public String protocol() {
@@ -85,15 +103,37 @@ public class MpsVideoProviderClient implements VideoProviderClient {
             throw new RuntimeException("合成失败");
         }
         String payload = JSON.toJSONString(body);
+        validateOutputOwnership(parse(payload));
         String raw = doRequest(ACTION_EDIT_MEDIA, payload);
         JSONObject root = parse(raw);
         JSONObject response = root.getJSONObject("Response");
         if (Objects.isNull(response)) {
             log.error("MPS EditMedia 响应异常, responseLen={}", StrUtil.length(raw));
-            throw new RuntimeException("合成失败");
+            throw new ComposeUpstreamUnavailableException("提交待确认");
         }
         JSONObject error = response.getJSONObject("Error");
         if (Objects.nonNull(error)) {
+            String errorCode = error.getString("Code");
+            if (ERROR_DUPLICATE_SESSION_ID.equalsIgnoreCase(errorCode)) {
+                JSONObject submitBody = parse(payload);
+                String recoveredTaskId = recoverDuplicateTaskId(
+                        submitBody.getString("SessionId"), submitBody.getString("SessionContext"),
+                        submitBody.getString("OutputObjectPath"));
+                if (StrUtil.isNotBlank(recoveredTaskId)) {
+                    log.info("MPS EditMedia 重复提交已恢复原任务, providerTaskId={}", recoveredTaskId);
+                    return ProviderSubmitResult.builder()
+                            .providerTaskId(recoveredTaskId)
+                            .rawResponse(raw)
+                            .build();
+                }
+                log.warn("MPS EditMedia SessionId 已存在但暂未恢复任务 ID, sessionContext={}",
+                        submitBody.getString("SessionContext"));
+                throw new ComposeUpstreamUnavailableException("任务待恢复");
+            }
+            if (isRetryableApiError(errorCode)) {
+                log.warn("MPS EditMedia 上游暂不可用, error={}", error);
+                throw new ComposeUpstreamUnavailableException("上游暂不可用");
+            }
             log.error("MPS EditMedia 提交失败, error={}", error);
             throw new RuntimeException("合成失败");
         }
@@ -107,6 +147,122 @@ public class MpsVideoProviderClient implements VideoProviderClient {
                 .providerTaskId(taskId)
                 .rawResponse(raw)
                 .build();
+    }
+
+    /**
+     * SessionId 重复时，在三天去重窗口内的编辑任务中反查详情，并匹配唯一输出对象路径。
+     * DescribeTasks 不提供会话字段过滤，因此只扫描三种状态各自最新一页，并设置总详情查询上限。
+     */
+    private String recoverDuplicateTaskId(String sessionId, String sessionContext, String outputObjectPath) {
+        if (StrUtil.isBlank(sessionId) || StrUtil.isBlank(sessionContext)
+                || StrUtil.isBlank(outputObjectPath)) {
+            return null;
+        }
+        // SessionId 的去重窗口是三天。应用长时间停机后仍需覆盖整个窗口，避免一直命中重复错误却无法恢复。
+        String startTime = Instant.now().minus(3, ChronoUnit.DAYS).toString();
+        String endTime = Instant.now().plus(1, ChronoUnit.MINUTES).toString();
+        int checked = 0;
+        for (String status : List.of("PROCESSING", "WAITING", "FINISH")) {
+            JSONObject listRequest = new JSONObject();
+            listRequest.put("Status", status);
+            listRequest.put("Limit", 100);
+            listRequest.put("StartTime", startTime);
+            listRequest.put("EndTime", endTime);
+            JSONObject listResponse = parse(doRequest(ACTION_DESCRIBE_TASKS, listRequest.toJSONString()))
+                    .getJSONObject("Response");
+            if (Objects.isNull(listResponse) || Objects.nonNull(listResponse.getJSONObject("Error"))) {
+                continue;
+            }
+            JSONArray taskSet = listResponse.getJSONArray("TaskSet");
+            if (Objects.isNull(taskSet)) {
+                continue;
+            }
+            for (Object itemValue : taskSet) {
+                if (!(itemValue instanceof JSONObject item)
+                        || !"EditMediaTask".equalsIgnoreCase(item.getString("TaskType"))) {
+                    continue;
+                }
+                if (++checked > MAX_RECOVERY_DETAILS) {
+                    return null;
+                }
+                String candidateTaskId = item.getString("TaskId");
+                if (StrUtil.isBlank(candidateTaskId)) {
+                    continue;
+                }
+                JSONObject detailRequest = new JSONObject();
+                detailRequest.put("TaskId", candidateTaskId);
+                JSONObject detailResponse = parse(doRequest(ACTION_DESCRIBE_TASK, detailRequest.toJSONString()))
+                        .getJSONObject("Response");
+                if (matchesRecoveredTask(detailResponse, sessionId, sessionContext, outputObjectPath)) {
+                    return candidateTaskId;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * MPS 的 DescribeTaskDetail 文档未承诺回传 SessionId/SessionContext，因此恢复主依据是每个系统任务
+     * 唯一的输出对象路径；若响应额外带回会话字段，则同时做一致性校验。
+     */
+    private boolean matchesRecoveredTask(JSONObject response, String sessionId, String sessionContext,
+                                         String expectedOutputPath) {
+        if (Objects.isNull(response)
+                || !"EditMediaTask".equalsIgnoreCase(response.getString("TaskType"))) {
+            return false;
+        }
+        String returnedSessionId = response.getString("SessionId");
+        String returnedContext = response.getString("SessionContext");
+        if ((StrUtil.isNotBlank(returnedSessionId) && !sessionId.equals(returnedSessionId))
+                || (StrUtil.isNotBlank(returnedContext) && !sessionContext.equals(returnedContext))) {
+            return false;
+        }
+        JSONObject editTask = response.getJSONObject("EditMediaTask");
+        JSONObject output = editTask == null ? null : editTask.getJSONObject("Output");
+        String actualPath = output == null ? null : output.getString("Path");
+        return outputPathMatches(expectedOutputPath, actualPath);
+    }
+
+    private boolean outputPathMatches(String expected, String actual) {
+        if (StrUtil.isBlank(expected) || StrUtil.isBlank(actual)) {
+            return false;
+        }
+        if (expected.equals(actual)) {
+            return true;
+        }
+        String marker = ".{format}";
+        if (!expected.endsWith(marker)) {
+            return false;
+        }
+        String prefix = expected.substring(0, expected.length() - marker.length());
+        if (!actual.startsWith(prefix + ".")) {
+            return false;
+        }
+        String extension = actual.substring(prefix.length() + 1);
+        return extension.matches("[A-Za-z0-9]{1,10}");
+    }
+
+    /** 判断腾讯云业务错误是否属于可重试的瞬态错误。 */
+    private boolean isRetryableApiError(String errorCode) {
+        return StrUtil.startWithIgnoreCase(errorCode, "InternalError")
+                || StrUtil.startWithIgnoreCase(errorCode, "RequestLimitExceeded")
+                || StrUtil.startWithIgnoreCase(errorCode, "LimitExceeded");
+    }
+
+    /** 排队期间若管理员切换了存储桶，拒绝把旧任务继续输出到原 COS。 */
+    private void validateOutputOwnership(JSONObject submitBody) {
+        OssProperties current = ossConfigManager.getOssProperties();
+        JSONObject output = submitBody == null ? null : submitBody.getJSONObject("OutputStorage");
+        JSONObject cos = output == null ? null : output.getJSONObject("CosOutputStorage");
+        if (current == null || !"cos".equalsIgnoreCase(current.getUploadMode()) || cos == null
+                || !StrUtil.equals(cos.getString("Bucket"), current.getCosBucketName())
+                || !StrUtil.equalsIgnoreCase(cos.getString("Region"), current.getCosRegion())) {
+            log.error("MPS输出存储归属已变化, currentMode={}, currentBucket={}, requestBucket={}",
+                    current == null ? null : current.getUploadMode(),
+                    current == null ? null : current.getCosBucketName(),
+                    cos == null ? null : cos.getString("Bucket"));
+            throw new IllegalStateException("存储已变更");
+        }
     }
 
     @Override
@@ -186,11 +342,40 @@ public class MpsVideoProviderClient implements VideoProviderClient {
                         .terminalConfirmed(Boolean.FALSE)
                         .build();
             }
+            if (!isOwnedCosUrl(resultUrl)) {
+                log.error("MPS输出不属于当前COS, providerTaskId={}, resultUrl={}", providerTaskId, resultUrl);
+                return ProviderTaskResult.builder()
+                        .status(MediaTaskStatus.FAILED.name())
+                        .providerStatus(mpsStatus)
+                        .errorMessage("输出归属错误")
+                        .rawErrorMessage("MPS output storage mismatch")
+                        .rawResponse(raw)
+                        .querySuccessful(Boolean.TRUE)
+                        .terminalConfirmed(Boolean.TRUE)
+                        .build();
+            }
         } else if (MediaTaskStatus.FAILED.name().equals(normalized)) {
             String err = StrUtil.isNotBlank(message) ? message : ("ErrCode=" + errCode);
             builder.errorMessage(err);
         }
         return builder.build();
+    }
+
+    /** 成片必须仍属于后台当前 COS；在途任务期间存储归属变更会被保存接口阻止。 */
+    private boolean isOwnedCosUrl(String value) {
+        try {
+            OssProperties storage = ossConfigManager.getOssProperties();
+            if (storage == null || !"cos".equalsIgnoreCase(storage.getUploadMode())) {
+                return false;
+            }
+            URI uri = URI.create(value);
+            String expectedHost = storage.getCosBucketName() + ".cos."
+                    + storage.getCosRegion() + ".myqcloud.com";
+            return StrUtil.equalsIgnoreCase(uri.getHost(), expectedHost)
+                    && StrUtil.isNotBlank(uri.getPath()) && !"/".equals(uri.getPath());
+        } catch (Exception e) {
+            return false;
+        }
     }
     /**
      * 归一化 MPS 任务状态：WAITING/PROCESSING → PROCESSING；FINISH + ErrCode==0 → SUCCEEDED；FINISH + ErrCode!=0 → FAILED。
@@ -258,12 +443,12 @@ public class MpsVideoProviderClient implements VideoProviderClient {
                 region = cos.getString("Region");
             }
         }
-        MpsProperties props = mpsConfigManager.getMpsProperties();
+        OssProperties storageProps = ossConfigManager.getOssProperties();
         if (StrUtil.isBlank(bucket)) {
-            bucket = props.getOutputBucket();
+            bucket = storageProps.getCosBucketName();
         }
         if (StrUtil.isBlank(region)) {
-            region = props.getOutputRegion();
+            region = storageProps.getCosRegion();
         }
         if (StrUtil.isBlank(bucket) || StrUtil.isBlank(region)) {
             return null;
@@ -308,11 +493,12 @@ public class MpsVideoProviderClient implements VideoProviderClient {
      * @return 上游原始响应
      */
     private String doRequest(String action, String payload) {
-        if (!mpsConfigManager.isConfigured()) {
+        MpsProperties props = mpsConfigManager.getMpsProperties();
+        if (StrUtil.isBlank(props.getSecretId()) || StrUtil.isBlank(props.getSecretKey())
+                || StrUtil.isBlank(props.getRegion())) {
             log.error("MPS 未配置, 无法调用 {}", action);
             throw new RuntimeException("未配置");
         }
-        MpsProperties props = mpsConfigManager.getMpsProperties();
         long timestamp = System.currentTimeMillis() / 1000L;
         Map<String, String> headers = TencentCloudTc3Signer.buildHeaders(
                 MPS_SERVICE, MPS_HOST, action, MPS_VERSION,
@@ -323,7 +509,14 @@ public class MpsVideoProviderClient implements VideoProviderClient {
                 .body(payload)
                 .timeout(HTTP_TIMEOUT_MS)
                 .execute()) {
+            if (response.getStatus() == 408 || response.getStatus() == 429 || response.getStatus() >= 500) {
+                throw new ComposeUpstreamUnavailableException("上游暂不可用");
+            }
             return response.body();
+        } catch (ComposeUpstreamUnavailableException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new ComposeUpstreamUnavailableException("上游暂不可用", e);
         }
     }
 

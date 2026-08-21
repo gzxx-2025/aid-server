@@ -2,6 +2,7 @@ package com.aid.media.provider;
 
 import lombok.Builder;
 import lombok.Data;
+import lombok.ToString;
 
 import java.util.List;
 import java.util.Map;
@@ -18,6 +19,10 @@ public class ProviderSubmitResult {
 
     // 直出文本（同步 Chat 类接口返回的助手正文，无 URL 时使用）。
     private String directText;
+
+    /** 上游公开的思考内容；仅在内存回调链路短暂存在，禁止写入任务或业务表。 */
+    @ToString.Exclude
+    private String directReasoning;
 
     // 厂商原始响应内容。
     private String rawResponse;

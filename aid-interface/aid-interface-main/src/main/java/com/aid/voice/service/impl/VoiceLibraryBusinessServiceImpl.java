@@ -608,7 +608,7 @@ public class VoiceLibraryBusinessServiceImpl implements IVoiceLibraryBusinessSer
 
     /**
      * 拒绝对"仅允许同步维护"的服务商进行手动新增/编辑。
-     * 当前只有 MiniMax 走远程同步（{@code /v1/get_voice}），手动新增/编辑会和同步逻辑冲突
+     * 当前只有 MiniMax 走远程同步（从模型提交路径派生只读音色查询路径），手动新增/编辑会和同步逻辑冲突
      * （同步会覆盖 name/remark、软删不存在的音色），所以在业务层直接拦截。
      * 判定条件：模型所属 provider 的 {@code provider_code} equalsIgnoreCase 'minimax'。
      */

@@ -43,6 +43,15 @@ public class BillingSku {
     /** 输出官方原价（元/百万Token），仅 TEXT SKU 使用；null时降级到 price */
     private BigDecimal outputPricePerMillion;
 
+    /** 缓存读取输入官方原价（元/百万Token）；为空时回退普通输入价。 */
+    private BigDecimal cachedInputPricePerMillion;
+
+    /** 缓存写入输入官方原价（元/百万Token）；为空时回退普通输入价。 */
+    private BigDecimal cacheWritePricePerMillion;
+
+    /** 思考Token官方原价（元/百万Token）；为空时回退普通输出价。 */
+    private BigDecimal reasoningPricePerMillion;
+
     /** 输入媒体计费（参考图/输入视频附加费）SKU 级覆盖；null 时回退规则级 inputPricing */
     private InputMediaPricing inputPricing;
 

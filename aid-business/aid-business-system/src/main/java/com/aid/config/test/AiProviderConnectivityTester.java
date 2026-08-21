@@ -3,6 +3,7 @@ package com.aid.config.test;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 import org.springframework.stereotype.Component;
 
@@ -40,7 +41,7 @@ public class AiProviderConnectivityTester implements ConfigConnectivityTester {
     /** protocol → Probe 映射（Spring 注入所有 Probe 实现构建） */
     private final Map<String, ProviderProbe> probeMap = new HashMap<>();
 
-    /** providerCode → Probe 映射（protocol 取不到时按厂商回退，如即梦 SigV4 / 火山 Ark） */
+    /** providerCode → Probe 映射（厂商元数据探测优先于通用协议回退） */
     private final Map<String, ProviderProbe> providerProbeMap = new HashMap<>();
 
     /**
@@ -89,18 +90,20 @@ public class AiProviderConnectivityTester implements ConfigConnectivityTester {
                 log.error("AI 服务商探活失败: 未配置密钥, providerCode={}", providerCode);
                 return ConfigTestResult.fail("未配置密钥");
             }
-            //    否则取该服务商下任一「协议有专用探活」的模型走 protocol 探活；都没有则退化连通性。
             ProbeResult probeResult;
             ProviderProbe providerProbe = providerProbeMap.get(providerCode);
-            if (providerProbe != null) {
-                // providerCode 级探活不依赖具体模型（自建签名/固定端点），无需取模型
-                probeResult = providerProbe.probe(null, provider);
+            AidAiModel probeModel = pickModelForProbe(providerId, providerProbe);
+            if (providerProbe != null
+                    && (probeModel != null || !providerProbe.requiresModel())) {
+                // 即梦等查询必须使用可解析模型的真实 req_key；没有启用模型时可安全复用停用配置做只读查询。
+                probeResult = providerProbe.probe(probeModel, provider);
             } else {
-                AidAiModel probeModel = pickEnabledModelForProbe(providerId);
-                if (probeModel != null && probeMap.containsKey(probeModel.getProtocol())) {
-                    probeResult = probeMap.get(probeModel.getProtocol()).probe(probeModel, provider);
+                AidAiModel protocolModel = providerProbe == null
+                        ? probeModel : pickModelForProbe(providerId, null);
+                if (protocolModel != null && probeMap.containsKey(protocolModel.getProtocol())) {
+                    probeResult = probeMap.get(protocolModel.getProtocol()).probe(protocolModel, provider);
                 } else {
-                    // 退化：仅校验网关连通 + 密钥非空（前面已校验密钥）
+                    // 退化结果只代表网关可达，不代表密钥或模型有效
                     probeResult = ProviderConnectivitySupport.checkBaseUrl(provider.getBaseUrl(), providerCode);
                 }
             }
@@ -124,24 +127,37 @@ public class AiProviderConnectivityTester implements ConfigConnectivityTester {
     }
 
     /**
-     * 取该服务商下任一启用模型；优先返回协议已注册专用探活的模型，否则返回任意启用模型。
+     * 取该服务商下适合当前探测器的模型，优先启用配置。
+     *
+     * @param providerId   服务商主键
+     * @param providerProbe 服务商专用探测器，可空
+     * @return 可用于探测的模型；无匹配时返回 null
      */
-    private AidAiModel pickEnabledModelForProbe(Long providerId) {
+    private AidAiModel pickModelForProbe(Long providerId, ProviderProbe providerProbe) {
         AidAiModel query = new AidAiModel();
         query.setProviderId(providerId);
-        query.setStatus(STATUS_ENABLED);
         List<AidAiModel> models = modelService.selectAidAiModelList(query);
         if (models == null || models.isEmpty()) {
             return null;
         }
-        // 优先挑协议有专用探活的模型（如文本模型可真探活）
         for (AidAiModel model : models) {
-            if (StrUtil.isNotBlank(model.getProtocol()) && probeMap.containsKey(model.getProtocol())) {
+            if (Objects.equals(STATUS_ENABLED, model.getStatus()) && supportsProbe(model, providerProbe)) {
                 return model;
             }
         }
-        // 没有专用探活协议则返回首个启用模型（仅用于退化连通性）
-        return models.get(0);
+        for (AidAiModel model : models) {
+            if (supportsProbe(model, providerProbe)) {
+                return model;
+            }
+        }
+        return null;
+    }
+
+    private boolean supportsProbe(AidAiModel model, ProviderProbe providerProbe) {
+        if (providerProbe != null) {
+            return providerProbe.supportsModel(model);
+        }
+        return StrUtil.isNotBlank(model.getProtocol()) && probeMap.containsKey(model.getProtocol());
     }
 
     /**
@@ -149,7 +165,9 @@ public class AiProviderConnectivityTester implements ConfigConnectivityTester {
      */
     private ConfigTestResult toTestResult(ProbeResult probeResult, String providerCode) {
         if (probeResult != null && probeResult.isOk()) {
-            return ConfigTestResult.ok(probeResult.getMessage(), providerCode);
+            ConfigTestResult result = ConfigTestResult.ok(probeResult.getMessage(), providerCode);
+            result.setDetails(probeResult.getDetail());
+            return result;
         }
         ConfigTestResult result = ConfigTestResult.fail(
                 probeResult == null ? "测试失败" : probeResult.getMessage());

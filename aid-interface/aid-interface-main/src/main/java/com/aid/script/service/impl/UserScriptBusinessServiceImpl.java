@@ -152,6 +152,11 @@ public class UserScriptBusinessServiceImpl implements IUserScriptBusinessService
     {
         return aidComicScriptService.getOne(
                 Wrappers.<AidComicScript>lambdaQuery()
+                        .select(AidComicScript::getId, AidComicScript::getProjectId,
+                                AidComicScript::getEpisodeId, AidComicScript::getOriginalText,
+                                AidComicScript::getIsExtracted, AidComicScript::getComicVersion,
+                                AidComicScript::getStatus, AidComicScript::getCreateTime,
+                                AidComicScript::getUpdateTime)
                         .eq(AidComicScript::getProjectId, projectId)
                         .eq(AidComicScript::getEpisodeId, episodeId)
                         .eq(AidComicScript::getUserId, userId)
@@ -166,6 +171,7 @@ public class UserScriptBusinessServiceImpl implements IUserScriptBusinessService
     {
         AidComicScript script = aidComicScriptService.getOne(
                 Wrappers.<AidComicScript>lambdaQuery()
+                        .select(AidComicScript::getId, AidComicScript::getProjectId)
                         .eq(AidComicScript::getId, id)
                         .eq(AidComicScript::getUserId, userId)
                         .eq(AidComicScript::getDelFlag, "0"));
@@ -182,6 +188,11 @@ public class UserScriptBusinessServiceImpl implements IUserScriptBusinessService
         getAndCheckProject(request.getProjectId(), userId);
 
         LambdaQueryWrapper<AidComicScript> wrapper = Wrappers.lambdaQuery();
+        wrapper.select(AidComicScript::getId, AidComicScript::getProjectId,
+                AidComicScript::getEpisodeId, AidComicScript::getOriginalText,
+                AidComicScript::getIsExtracted, AidComicScript::getComicVersion,
+                AidComicScript::getStatus, AidComicScript::getCreateTime,
+                AidComicScript::getUpdateTime);
         wrapper.eq(AidComicScript::getProjectId, request.getProjectId());
         wrapper.eq(AidComicScript::getUserId, userId);
         wrapper.eq(AidComicScript::getDelFlag, "0");
@@ -211,6 +222,11 @@ public class UserScriptBusinessServiceImpl implements IUserScriptBusinessService
         // 优先查询当前使用中的剧本(status=1)
         AidComicScript script = aidComicScriptService.getOne(
                 Wrappers.<AidComicScript>lambdaQuery()
+                        .select(AidComicScript::getId, AidComicScript::getProjectId,
+                                AidComicScript::getEpisodeId, AidComicScript::getOriginalText,
+                                AidComicScript::getIsExtracted, AidComicScript::getComicVersion,
+                                AidComicScript::getStatus, AidComicScript::getCreateTime,
+                                AidComicScript::getUpdateTime)
                         .eq(AidComicScript::getProjectId, projectId)
                         .eq(AidComicScript::getEpisodeId, episodeId)
                         .eq(AidComicScript::getUserId, userId)
@@ -221,6 +237,11 @@ public class UserScriptBusinessServiceImpl implements IUserScriptBusinessService
         if (script == null) {
             script = aidComicScriptService.getOne(
                     Wrappers.<AidComicScript>lambdaQuery()
+                            .select(AidComicScript::getId, AidComicScript::getProjectId,
+                                    AidComicScript::getEpisodeId, AidComicScript::getOriginalText,
+                                    AidComicScript::getIsExtracted, AidComicScript::getComicVersion,
+                                    AidComicScript::getStatus, AidComicScript::getCreateTime,
+                                    AidComicScript::getUpdateTime)
                             .eq(AidComicScript::getProjectId, projectId)
                             .eq(AidComicScript::getEpisodeId, episodeId)
                             .eq(AidComicScript::getUserId, userId)
@@ -287,7 +308,6 @@ public class UserScriptBusinessServiceImpl implements IUserScriptBusinessService
             newScript.setEpisodeId(currentScript.getEpisodeId());
             newScript.setUserId(userId);
             newScript.setOriginalText(originalText);
-            newScript.setSimplifiedText(currentScript.getSimplifiedText());
             newScript.setComicVersion(currentScript.getComicVersion() + 1);
             newScript.setStatus(ScriptStatusEnum.IN_USE.getValue());
             newScript.setIsExtracted(currentScript.getIsExtracted());

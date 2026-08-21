@@ -1,6 +1,10 @@
 package com.aid.config.test;
 
+import java.util.Objects;
+
 import com.aid.model.probe.ProbeResult;
+import com.aid.model.probe.impl.ProbeHttpResponse;
+import com.aid.model.probe.impl.ProbeHttpSupport;
 
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.http.HttpRequest;
@@ -12,12 +16,6 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 final class ProviderConnectivitySupport {
-
-    /** 连接超时（毫秒） */
-    private static final int CONNECT_TIMEOUT_MS = 3000;
-
-    /** 读取超时（毫秒） */
-    private static final int READ_TIMEOUT_MS = 8000;
 
     private ProviderConnectivitySupport() {
     }
@@ -34,15 +32,29 @@ final class ProviderConnectivitySupport {
             log.error("退化探活失败: baseUrl 为空, provider={}", providerTag);
             return ProbeResult.fail("未配置网关地址", "baseUrl 为空");
         }
-        // GET 网关地址，仅探网络可达性，不关心业务状态码
         try (HttpResponse response = HttpRequest.get(baseUrl.trim())
-                .setConnectionTimeout(CONNECT_TIMEOUT_MS)
-                .setReadTimeout(READ_TIMEOUT_MS)
+                .setConnectionTimeout(ProbeHttpSupport.CONNECT_TIMEOUT_MS)
+                .setReadTimeout(ProbeHttpSupport.READ_TIMEOUT_MS)
                 .execute()) {
-            // 能拿到任意响应即说明网络可达
-            return ProbeResult.ok("网关可连通");
+            ProbeHttpResponse snapshot = new ProbeHttpResponse(
+                    response.getStatus(), response.body(), response.header("Content-Type"));
+            if (ProbeHttpSupport.isHttpSuccess(snapshot)) {
+                ProbeResult result = ProbeResult.ok("仅网关可达");
+                result.setDetail("未验证密钥或模型");
+                return result;
+            }
+            ProbeResult commonFailure = ProbeHttpSupport.classifyCommonFailure(snapshot);
+            if (Objects.nonNull(commonFailure)) {
+                log.error("退化探活响应异常, provider={}, status={}", providerTag, response.getStatus());
+                return commonFailure;
+            }
+            if (ProbeHttpSupport.isReadOnlyRouteUnavailable(snapshot)) {
+                log.info("网关根路径未开放探测接口, provider={}, status={}", providerTag, response.getStatus());
+                return ProbeHttpSupport.gatewayOnlyForUnavailableReadOnlyRoute();
+            }
+            log.error("退化探活响应异常, provider={}, status={}", providerTag, response.getStatus());
+            return ProbeHttpSupport.unexpected(snapshot);
         } catch (Exception e) {
-            // 连接被拒 / 超时 / DNS：网关不可达。异常前已 log，明细不含密钥
             log.error("退化探活网关不可达, provider={}, err={}", providerTag, e.getMessage());
             return ProbeResult.fail("网关连接失败", e.getClass().getSimpleName() + ": " + e.getMessage());
         }

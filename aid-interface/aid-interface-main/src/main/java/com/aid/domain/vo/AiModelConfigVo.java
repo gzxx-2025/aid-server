@@ -59,6 +59,9 @@ public class AiModelConfigVo implements Serializable {
     /** 计费规则版本号 */
     private Integer billingVersion;
 
+    /** 是否免费 */
+    private Boolean isFree;
+
     /** 特定路由后缀 (可选) */
     private String apiVersion;
 

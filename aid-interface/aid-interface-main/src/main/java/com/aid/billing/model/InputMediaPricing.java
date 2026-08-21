@@ -10,7 +10,7 @@ import java.math.BigDecimal;
  * - 规则级（BillingRule.inputPricing）为模型默认；
  * - SKU 级（BillingSku.inputPricing）按档位覆盖（如视频输入单价随分辨率变化）。
  * 单价为 null 或 0 时表示该类输入不计费（免费）。
- * 官方阶梯价（如"首张免费、第2张起0.02元"）统一拍平为固定单价配置。
+ * 官方阶梯价可通过图片计费项的 freeCount 表达前 N 张免费。
  */
 @Data
 public class InputMediaPricing {
@@ -28,6 +28,8 @@ public class InputMediaPricing {
     public static class ImagePricing {
         /** 官方原价（元/张）；null 或 0 = 不计费 */
         private BigDecimal unitPrice;
+        /** 免费张数；null 或小于 0 按 0 处理 */
+        private Integer freeCount;
         /** 计费张数上限（与 capability.maxReferenceImages 对齐）；null 或 <=0 = 不限 */
         private Integer maxCount;
     }

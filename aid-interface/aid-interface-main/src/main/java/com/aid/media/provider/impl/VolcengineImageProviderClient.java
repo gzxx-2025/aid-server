@@ -1,7 +1,10 @@
 package com.aid.media.provider.impl;
 
 
-import cn.hutool.json.JSONUtil;
+import cn.hutool.http.HttpRequest;
+import cn.hutool.http.HttpResponse;
+import com.aid.common.constant.HttpConstants;
+import com.aid.common.utils.ProviderEndpointUtils;
 import com.aid.domain.vo.AiModelConfigVo;
 import com.aid.media.constants.VolcengineConstants;
 import com.aid.media.dto.MediaImageGenerateRequest;
@@ -11,14 +14,13 @@ import com.aid.media.provider.ReferencePromptSanitizer;
 import com.aid.media.provider.SubmitTimeoutResolver;
 import com.aid.media.provider.ProviderSubmitResult;
 import com.aid.media.provider.ProviderTaskResult;
-import com.aid.media.provider.volcengine.VolcengineServiceManager;
 import com.volcengine.ark.runtime.model.images.generation.GenerateImagesRequest;
 import com.volcengine.ark.runtime.model.images.generation.ImagesResponse;
 import com.volcengine.ark.runtime.model.images.generation.ResponseFormat;
-import com.volcengine.ark.runtime.service.ArkService;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -29,21 +31,21 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * 火山引擎 Seedream（豆包）图片生成：基于方舟 Ark Java SDK，同步返回图片 URL。
+ * 火山引擎 Seedream 图片生成，复用官方 DTO 映射并按配置的 HTTP 路径提交。
  */
 @Slf4j
 @Component
 public class VolcengineImageProviderClient implements ImageProviderClient {
 
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
+            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+
     /** Seedream 5.0 Pro 官方默认参考图上限 10；Lite/4.x 为 14。运营可在 capability_json.maxReferenceImages 覆盖。 */
     private static final int DEFAULT_MAX_REFERENCE_IMAGES = 10;
 
-    /** Seedream 5.0 Pro 官方 1K/2K 推荐尺寸，用于把平台“档位 + 比例”转换为 SDK 的单一 size 字段。 */
+    /** Seedream 5.0 Pro 官方 1K/2K 推荐尺寸，用于把平台“档位 + 比例”转换为单一 size 字段。 */
     private static final Map<String, String> SEEDREAM_1K_SIZES = createSeedream1KSizes();
     private static final Map<String, String> SEEDREAM_2K_SIZES = createSeedream2KSizes();
-
-    @Autowired
-    private VolcengineServiceManager volcengineServiceManager;
 
     @Override
     public String protocol() {
@@ -61,11 +63,9 @@ public class VolcengineImageProviderClient implements ImageProviderClient {
     public ProviderSubmitResult submit(AiModelConfigVo modelConfig, MediaImageGenerateRequest request) {
         ReferencePromptSanitizer.sanitizeInPlace(request,
                 ReferenceImageLimiter.resolveMax(modelConfig, DEFAULT_MAX_REFERENCE_IMAGES));
-        // 单次调用超时按模型 capability_json.submitTimeoutSeconds 取值（秒），缺省回退 SDK 默认。
+        // 单次调用超时按模型 capability_json.submitTimeoutSeconds 取值（秒），缺省回退 HTTP 默认。
         int timeoutSeconds = SubmitTimeoutResolver.resolveMs(modelConfig,
-                VolcengineConstants.SDK_TIMEOUT_SECONDS * 1000) / 1000;
-        ArkService service = volcengineServiceManager.getService(
-                modelConfig.getApiKey(), modelConfig.getBaseUrl(), timeoutSeconds);
+                VolcengineConstants.HTTP_TIMEOUT_SECONDS * 1000) / 1000;
         String effectiveModel = resolveEffectiveModel(modelConfig, request);
         GenerateImagesRequest generateRequest = buildRequest(effectiveModel, request, modelConfig);
 
@@ -73,8 +73,17 @@ public class VolcengineImageProviderClient implements ImageProviderClient {
                 StringUtils.length(request.getPrompt()));
 
         ImagesResponse response;
+        String raw;
         try {
-            response = service.generateImages(generateRequest);
+            HttpResult httpResponse = doPost(buildSubmitUrl(modelConfig), modelConfig.getApiKey(),
+                    OBJECT_MAPPER.writeValueAsString(generateRequest), timeoutSeconds);
+            raw = httpResponse.body();
+            if (httpResponse.statusCode() < 200 || httpResponse.statusCode() >= 300) {
+                log.error("Volcengine 图片生成调用失败, model={}, httpStatus={}, responseLength={}",
+                        effectiveModel, httpResponse.statusCode(), StringUtils.length(raw));
+                return ProviderSubmitResult.builder().rawResponse(raw).build();
+            }
+            response = OBJECT_MAPPER.readValue(raw, ImagesResponse.class);
         } catch (Exception e) {
             log.error("Volcengine 图片生成调用失败, model={}", effectiveModel, e);
             return ProviderSubmitResult.builder()
@@ -100,7 +109,7 @@ public class VolcengineImageProviderClient implements ImageProviderClient {
                 .directUrl(directUrl)
                 .resultUrls(resultUrls)
                 .resultCount(resultUrls.isEmpty() ? null : resultUrls.size())
-                .rawResponse(JSONUtil.toJsonStr(response))
+                .rawResponse(raw)
                 .build();
     }
 
@@ -141,7 +150,7 @@ public class VolcengineImageProviderClient implements ImageProviderClient {
         // 业务含义：无参考图时不传 image，走纯文生图。
         if (!imageInputs.isEmpty()) {
             if (imageInputs.size() == 1) {
-                // 业务含义：单图时走 SDK 单字符串重载，与历史调用兼容。
+                // 业务含义：单图时使用单字符串字段，与历史请求体兼容。
                 builder.image(imageInputs.get(0));
             } else {
                 // 业务含义：多图时走 URL 数组，对应官方「多图输入、单图输出」融合能力。
@@ -312,6 +321,29 @@ public class VolcengineImageProviderClient implements ImageProviderClient {
         return Collections.unmodifiableMap(sizes);
     }
 
+    static String buildSubmitUrl(AiModelConfigVo modelConfig) {
+        if (modelConfig == null) {
+            throw new IllegalArgumentException("模型配置不能为空");
+        }
+        return ProviderEndpointUtils.buildSubmitUrl(
+                modelConfig.getBaseUrl(), modelConfig.getApiSuffix());
+    }
+
+    private HttpResult doPost(String url, String apiKey, String body, int timeoutSeconds) {
+        if (StringUtils.isBlank(apiKey)) {
+            throw new IllegalArgumentException("方舟密钥未配置");
+        }
+        int timeoutMs = Math.max(timeoutSeconds, 1) * 1000;
+        try (HttpResponse response = HttpRequest.post(url)
+                .header(HttpConstants.HEADER_AUTHORIZATION, HttpConstants.AUTH_BEARER_PREFIX + apiKey.trim())
+                .header(HttpConstants.HEADER_CONTENT_TYPE, HttpConstants.CONTENT_TYPE_JSON)
+                .body(body)
+                .timeout(timeoutMs)
+                .execute()) {
+            return new HttpResult(response.getStatus(), response.body());
+        }
+    }
+
     private String resolveEffectiveModel(AiModelConfigVo modelConfig, MediaImageGenerateRequest request) {
         // 解析真实上游模型名：展示码 model_code 与真实模型名 real_model_code 解耦
         String resolved = com.aid.media.provider.ModelCodeResolver.resolveUpstreamModel(modelConfig,
@@ -320,5 +352,8 @@ public class VolcengineImageProviderClient implements ImageProviderClient {
             return resolved;
         }
         return VolcengineConstants.DEFAULT_IMAGE_MODEL;
+    }
+
+    private record HttpResult(int statusCode, String body) {
     }
 }

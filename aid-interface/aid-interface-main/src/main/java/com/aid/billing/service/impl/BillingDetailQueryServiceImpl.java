@@ -58,6 +58,8 @@ public class BillingDetailQueryServiceImpl implements IBillingDetailQueryService
     private static final String UNIT_PER_MILLION_TOKEN = "Credits/百万Token";
     /** 秒单位 */
     private static final String UNIT_SECOND = "秒";
+    /** 公开单价精度，确保前端可按最终价复算到账本四位金额 */
+    private static final int DISPLAY_PRICE_SCALE = 6;
 
     /** 模型大类常量（与 AiModelBusinessServiceImpl 保持一致） */
     private static final String MODEL_TYPE_TEXT = "text";
@@ -117,10 +119,10 @@ public class BillingDetailQueryServiceImpl implements IBillingDetailQueryService
         modelWrapper.select(AidAiModel::getId, AidAiModel::getModelCode, AidAiModel::getModelName,
                 AidAiModel::getModelType, AidAiModel::getGenerateMode, AidAiModel::getProviderId,
                 AidAiModel::getCostCredits, AidAiModel::getBillingMultiplier,
-                AidAiModel::getBillingMode, AidAiModel::getBillingRuleJson,
+                AidAiModel::getBillingMode, AidAiModel::getBillingRuleJson, AidAiModel::getIsFree,
                 // 输入媒体计费说明所需：图片输入支持标记 + capability（视频输入支持判定）
                 AidAiModel::getSupportsImageInput, AidAiModel::getCapabilityJson,
-                AidAiModel::getPriority, AidAiModel::getRemark);
+                AidAiModel::getPriority);
         modelWrapper.eq(AidAiModel::getStatus, STATUS_NORMAL);
         modelWrapper.eq(AidAiModel::getDelFlag, DEL_FLAG_NORMAL);
         modelWrapper.in(AidAiModel::getProviderId, availableProviderIds);
@@ -227,13 +229,12 @@ public class BillingDetailQueryServiceImpl implements IBillingDetailQueryService
         vo.setModelTypeName(resolveModelTypeName(model.getModelType()));
         vo.setGenerateMode(model.getGenerateMode());
         vo.setBillingMode(model.getBillingMode());
+        vo.setIsFree(Boolean.TRUE.equals(model.getIsFree()));
         vo.setCreditUnit(CREDIT_UNIT);
-        vo.setRemark(model.getRemark());
 
         // 折算倍率 = 单模型倍率 × 模型基础倍率
         BigDecimal modelMultiplier = resolvePositive(model.getBillingMultiplier());
         BigDecimal priceMultiplier = modelMultiplier.multiply(globalFactor);
-        vo.setPriceMultiplier(scale(priceMultiplier));
 
         // SKU 模式且有规则 JSON：按 meterType 渲染多档位；否则按 FIXED 单价渲染
         boolean isSku = Objects.equals(BILLING_MODE_SKU, model.getBillingMode())
@@ -248,7 +249,7 @@ public class BillingDetailQueryServiceImpl implements IBillingDetailQueryService
                         : inferMeterType(model.getModelType());
                 vo.setMeterType(meterType);
                 vo.setMeterTypeName(resolveMeterTypeName(meterType));
-                vo.setBillingDesc(resolveBillingDesc(meterType));
+                vo.setBillingDesc(resolveBillingDesc(meterType, rule));
                 vo.setColumns(buildColumns(meterType, rule));
                 vo.setRules(buildSkuRules(rule, meterType, priceMultiplier));
                 // 输入媒体计费说明（图片/视频输入是否支持、单价、上限）
@@ -280,15 +281,16 @@ public class BillingDetailQueryServiceImpl implements IBillingDetailQueryService
         }
         InputPricingVO vo = new InputPricingVO();
         // 图片输入支持：模型列 supports_image_input
-        vo.setImageSupported(Boolean.TRUE.equals(model.getSupportsImageInput()));
+        vo.setImageSupported(Boolean.TRUE.equals(model.getSupportsImageInput()) || hasInputPricing(rule, true));
         // 视频输入支持：capability_json 标记，或计费规则显式配置了视频输入价
         vo.setVideoSupported(readVideoInputSupported(model.getCapabilityJson())
-                || (Objects.nonNull(pricing) && Objects.nonNull(pricing.getVideo())));
+                || hasInputPricing(rule, false));
         if (Objects.nonNull(pricing))
         {
             if (Objects.nonNull(pricing.getImage()))
             {
                 vo.setImageUnitPrice(display(pricing.getImage().getUnitPrice(), priceMultiplier));
+                vo.setImageFreeCount(pricing.getImage().getFreeCount());
                 vo.setImageMaxCount(pricing.getImage().getMaxCount());
             }
             if (Objects.nonNull(pricing.getVideo()))
@@ -298,7 +300,48 @@ public class BillingDetailQueryServiceImpl implements IBillingDetailQueryService
                 vo.setVideoMaxCount(pricing.getVideo().getMaxCount());
             }
         }
+        fillSkuInputPricingLimits(vo, rule);
         return vo;
+    }
+
+    /** 当模型级未配置上限时，汇总启用 SKU 的输入媒体限制用于公共说明。 */
+    private void fillSkuInputPricingLimits(InputPricingVO vo, BillingRule rule)
+    {
+        if (Objects.isNull(rule) || CollectionUtil.isEmpty(rule.getSkus()))
+        {
+            return;
+        }
+        for (BillingSku sku : rule.getSkus())
+        {
+            if (Objects.isNull(sku) || !sku.isEnabled() || Objects.isNull(sku.getInputPricing()))
+            {
+                continue;
+            }
+            InputMediaPricing skuPricing = sku.getInputPricing();
+            if (Objects.nonNull(skuPricing.getImage()))
+            {
+                vo.setImageFreeCount(maxNullable(vo.getImageFreeCount(), skuPricing.getImage().getFreeCount()));
+                vo.setImageMaxCount(maxNullable(vo.getImageMaxCount(), skuPricing.getImage().getMaxCount()));
+            }
+            if (Objects.nonNull(skuPricing.getVideo()))
+            {
+                vo.setVideoMaxSeconds(maxNullable(vo.getVideoMaxSeconds(), skuPricing.getVideo().getMaxSeconds()));
+                vo.setVideoMaxCount(maxNullable(vo.getVideoMaxCount(), skuPricing.getVideo().getMaxCount()));
+            }
+        }
+    }
+
+    private Integer maxNullable(Integer left, Integer right)
+    {
+        if (Objects.isNull(left))
+        {
+            return right;
+        }
+        if (Objects.isNull(right))
+        {
+            return left;
+        }
+        return Math.max(left, right);
     }
 
     /**
@@ -370,7 +413,6 @@ public class BillingDetailQueryServiceImpl implements IBillingDetailQueryService
             BillingRuleItemVO item = new BillingRuleItemVO();
             item.setSkuCode(sku.getSkuCode());
             item.setSkuName(sku.getSkuName());
-            item.setRemark(sku.getRemark());
             // 命中条件结构化拆分（按需出现）
             fillCondition(item, sku.getMatch());
             fillSkuPrice(item, sku, meterType, priceMultiplier);
@@ -404,6 +446,15 @@ public class BillingDetailQueryServiceImpl implements IBillingDetailQueryService
         item.setDurationMax(matchIntOrNull(match, "durationMax"));
         item.setInputTokensMin(matchIntOrNull(match, "inputTokensMin"));
         item.setInputTokensMax(matchIntOrNull(match, "inputTokensMax"));
+        item.setReferenceImageCountMin(matchIntOrNull(match, "referenceImageCountMin"));
+        item.setReferenceImageCountMax(matchIntOrNull(match, "referenceImageCountMax"));
+        item.setInputVideoCountMin(matchIntOrNull(match, "inputVideoCountMin"));
+        item.setInputVideoCountMax(matchIntOrNull(match, "inputVideoCountMax"));
+        Object audioMode = match.get("audioMode");
+        if (Objects.nonNull(audioMode))
+        {
+            item.setAudioMode(String.valueOf(audioMode));
+        }
     }
 
     /**
@@ -443,6 +494,7 @@ public class BillingDetailQueryServiceImpl implements IBillingDetailQueryService
         if (Objects.nonNull(pricing.getImage()))
         {
             item.setInputImagePrice(display(pricing.getImage().getUnitPrice(), priceMultiplier));
+            item.setInputImageFreeCount(pricing.getImage().getFreeCount());
         }
         if (Objects.nonNull(pricing.getVideo()))
         {
@@ -509,12 +561,12 @@ public class BillingDetailQueryServiceImpl implements IBillingDetailQueryService
         if (hasInputPricing(rule, true))
         {
             cols.add(new BillingColumnVO("inputImagePrice", "输入图片单价", CREDIT_UNIT + "/张", "number"));
+            cols.add(new BillingColumnVO("inputImageFreeCount", "输入图片免费张数", "张", "number"));
         }
         if (hasInputPricing(rule, false))
         {
             cols.add(new BillingColumnVO("inputVideoPricePerSecond", "输入视频单价", CREDIT_UNIT + "/秒", "number"));
         }
-        cols.add(new BillingColumnVO("remark", "备注", null, "text"));
         return cols;
     }
 
@@ -538,6 +590,7 @@ public class BillingDetailQueryServiceImpl implements IBillingDetailQueryService
         }
         return rule.getSkus().stream()
                 .filter(Objects::nonNull)
+                .filter(BillingSku::isEnabled)
                 .map(BillingSku::getInputPricing)
                 .filter(Objects::nonNull)
                 .anyMatch(p -> Objects.nonNull(image ? p.getImage() : p.getVideo()));
@@ -548,7 +601,6 @@ public class BillingDetailQueryServiceImpl implements IBillingDetailQueryService
     {
         List<BillingColumnVO> cols = new ArrayList<>();
         cols.add(new BillingColumnVO("unitPrice", perImage ? "每张单价" : "每次单价", CREDIT_UNIT, "number"));
-        cols.add(new BillingColumnVO("remark", "备注", null, "text"));
         return cols;
     }
 
@@ -589,8 +641,13 @@ public class BillingDetailQueryServiceImpl implements IBillingDetailQueryService
     }
 
     /** 计费整体说明 */
-    private String resolveBillingDesc(String meterType)
+    private String resolveBillingDesc(String meterType, BillingRule rule)
     {
+        if (Objects.equals(METER_PER_SECOND, meterType)
+                && (hasInputPricing(rule, true) || hasInputPricing(rule, false)))
+        {
+            return "总费用由输出费用与适用的输入媒体费用组成，具体按下方场景和档位计算";
+        }
         return switch (meterType)
         {
             case METER_TOKEN -> "按输入 / 输出 Token 用量计费，根据输入窗口命中对应档位单价结算";
@@ -654,14 +711,14 @@ public class BillingDetailQueryServiceImpl implements IBillingDetailQueryService
         return scale(raw.multiply(multiplier));
     }
 
-    /** 统一精度：保留 4 位、去尾零；0 返回 BigDecimal.ZERO 避免出现 0E-4 */
+    /** 统一单价精度：保留 6 位、去尾零；0 返回 BigDecimal.ZERO 避免科学计数法 */
     private BigDecimal scale(BigDecimal v)
     {
         if (Objects.isNull(v) || v.compareTo(BigDecimal.ZERO) == 0)
         {
             return BigDecimal.ZERO;
         }
-        return v.setScale(4, RoundingMode.HALF_UP).stripTrailingZeros();
+        return v.setScale(DISPLAY_PRICE_SCALE, RoundingMode.HALF_UP).stripTrailingZeros();
     }
 
     /** 从 match 取 Integer，无值或非数字返回 null */

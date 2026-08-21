@@ -18,6 +18,9 @@ public class ProviderTaskResult {
     // 错误信息（失败时返回）。
     private String errorMessage;
 
+    // 厂商终态失败原文，仅供统一终态收口记录错误样本，禁止直接展示或写入任务错误字段。
+    private String rawErrorMessage;
+
     // 厂商原始响应内容。
     private String rawResponse;
 
@@ -54,6 +57,18 @@ public class ProviderTaskResult {
      * 从厂商 usage.video_duration / usage.output_video_duration 解析。
      */
     private Integer videoDurationSeconds;
+
+    /** 查询成功时上游计费口径中的实际输入视频秒数。 */
+    private Integer inputVideoSeconds;
+
+    /** 查询成功时上游计费口径中的实际输入图片总数。 */
+    private Integer inputImageCount;
+
+    /** 上游返回的实际生成 token；视频 TOKEN 计费成功结算时作为 output_tokens。 */
+    private Integer completionTokens;
+
+    /** 上游返回的总 token，用于审计；当前 Seedance 与 completion_tokens 口径一致。 */
+    private Integer totalTokens;
 
     /**
      * MPS 实际输出时长（秒），仅 COMPOSE 任务填充。

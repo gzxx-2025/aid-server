@@ -54,6 +54,8 @@ public final class ModelInputRequirementResolver {
     private static final String MODE_TEXT_TO_IMAGE = "text_to_image";
     /** 生成模式：文生视频 */
     private static final String MODE_TEXT_TO_VIDEO = "text_to_video";
+    /** 生成模式：多模态参考生视频。 */
+    private static final String MODE_REFERENCE_TO_VIDEO = "reference_to_video";
 
     /** JSON 解析器（线程安全，可静态复用） */
     private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -154,6 +156,13 @@ public final class ModelInputRequirementResolver {
         if (StrUtil.equals(MODE_TEXT_TO_VIDEO, generateMode)) {
             return TEXT_ONLY;
         }
+        // 多模态参考场景可以只传音频或视频时，图片不能标成必传。
+        // Provider 仍在服务端保证图/视频/音频至少存在一种。
+        if (signal.scenes.isEmpty() && StrUtil.equals(MODE_REFERENCE_TO_VIDEO, generateMode)
+                && Integer.valueOf(0).equals(signal.minRef)
+                && (signal.supportsReferenceAudio || signal.supportsVideoInput)) {
+            return IMAGE_OPTIONAL;
+        }
         // image_to_video / start_end_to_video / reference_to_video / multi_frame 等均需要输入图
         return StrUtil.isBlank(generateMode) ? IMAGE_OPTIONAL : IMAGE_REQUIRED;
     }
@@ -178,6 +187,8 @@ public final class ModelInputRequirementResolver {
             if (maxRefNode.isInt()) {
                 signal.maxRef = maxRefNode.intValue();
             }
+            signal.supportsReferenceAudio = root.path("supportsReferenceAudio").asBoolean(false);
+            signal.supportsVideoInput = root.path("supportsVideoInput").asBoolean(false);
         } catch (Exception e) {
             // 能力 JSON 非法不阻断主链路，仅打日志并按空信号兜底
             log.warn("解析 capability_json 失败，按空能力兜底: {}", e.getMessage());
@@ -193,5 +204,9 @@ public final class ModelInputRequirementResolver {
         private Integer minRef;
         /** 最多参考图张数（缺省 null） */
         private Integer maxRef;
+        /** 是否有可替代图片的音频参考输入。 */
+        private boolean supportsReferenceAudio;
+        /** 是否有可替代图片的视频参考输入。 */
+        private boolean supportsVideoInput;
     }
 }

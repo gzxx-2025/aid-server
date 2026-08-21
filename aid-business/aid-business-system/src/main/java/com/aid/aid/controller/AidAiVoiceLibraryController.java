@@ -113,7 +113,7 @@ public class AidAiVoiceLibraryController extends BaseController
 
     /**
      * 按模型远程同步音色。
-     * 当前只对 MiniMax 生效（调 {@code POST /v1/get_voice}）；豆包不提供远程音色列表，
+     * 当前只对 MiniMax 生效（从模型提交路径派生只读音色查询路径）；豆包不提供远程音色列表，
      * 传入豆包模型会提示 `暂不支持`。同步流程：拉远程 → 本地 diff → upsert + 软删不存在的音色。
      */
     @PreAuthorize("@ss.hasPermi('aid:voice-library:edit')")

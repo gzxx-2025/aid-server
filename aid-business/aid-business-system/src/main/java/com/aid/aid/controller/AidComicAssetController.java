@@ -20,6 +20,8 @@ import com.aid.aid.domain.AidComicAsset;
 import com.aid.aid.service.IAidComicAssetService;
 import com.aid.common.utils.poi.ExcelUtil;
 import com.aid.common.core.page.TableDataInfo;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
 /**
  * 项目提取资产Controller
@@ -28,6 +30,7 @@ import com.aid.common.core.page.TableDataInfo;
  */
 @RestController
 @RequestMapping("/aid/aidcomicasset")
+@Tag(name = "后台官方素材管理")
 public class AidComicAssetController extends BaseController
 {
     @Autowired
@@ -38,6 +41,7 @@ public class AidComicAssetController extends BaseController
      */
     @PreAuthorize("@ss.hasPermi('aid:aidcomicasset:list')")
     @GetMapping("/list")
+    @Operation(summary = "查询官方素材列表", description = "风格素材支持分类筛选，推荐优先、排序号升序、ID升序")
     public TableDataInfo list(AidComicAsset aidComicAsset)
     {
         startPage();
@@ -66,6 +70,17 @@ public class AidComicAssetController extends BaseController
     public AjaxResult getInfo(@PathVariable("id") Long id)
     {
         return success(aidComicAssetService.selectAidComicAssetById(id));
+    }
+
+    /**
+     * 获取可维护的风格分类选项。
+     */
+    @PreAuthorize("@ss.hasPermi('aid:aidcomicasset:list')")
+    @GetMapping("/style/categories")
+    @Operation(summary = "查询风格分类选项")
+    public AjaxResult styleCategories()
+    {
+        return success(aidComicAssetService.listStyleCategoryOptions(false));
     }
 
     /**

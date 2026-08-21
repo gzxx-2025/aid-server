@@ -11,6 +11,11 @@ import java.util.Map;
  */
 public interface IExtractBillingService {
 
+    /** 当前父任务计费周期的文本调用归属；归属随快照持久化，运行期配置变化不影响已创建周期。 */
+    record TextCallBillingContext(boolean mediaTaskBilling, String billingTraceId,
+                                  String parentTaskType, String priorBillingTraceId,
+                                  Long projectId, Long episodeId) { }
+
     /**
      * 续跑失败时需要恢复的任务字段。该状态与计费回滚上下文一起持久化，
      * 保证进程重启后仍能完成补偿。
@@ -48,6 +53,22 @@ public interface IExtractBillingService {
      */
     void prepareBilling(Long taskId, Long userId, BigDecimal frozenAmount, String billingSnapshotJson);
 
+    /** 读取当前周期持久化的计费归属，供每次 Provider 文本调用决定是否由媒体子任务计费。 */
+    TextCallBillingContext resolveTextCallBillingContext(Long taskId);
+
+    /**
+     * 在创建逐调用媒体子任务的同一事务中锁定父任务并校验执行周期。
+     * 该门禁与续生回滚串行化，保证回滚确认“无 child”后不会再迟到插入本周期 child。
+     */
+    void assertRollingTextCallExecution(Long taskId, Long userId, String expectedTraceId);
+
+    /**
+     * 在文本调用的业务结果提交事务内锁定父任务并校验执行周期。
+     * MEDIA_TASK 周期还会严格校验 owner/FROZEN；旧 PARENT_TASK 周期保留兼容，
+     * 但同样不允许跨 trace 或失去执行权后写入业务结果。
+     */
+    void assertTextTaskBusinessCommit(Long taskId, Long userId, String expectedTraceId);
+
     /**
      * 聚合当前计费轮次的文本媒体任务用量。
      * 返回根级 token 合计、按模型拆分的调用统计，以及逐媒体子任务的紧凑 usage，
@@ -75,15 +96,6 @@ public interface IExtractBillingService {
     long findLatestBillingMediaTaskId(Long taskId);
 
     /**
-     * 结算（全额）：任务成功后将冻结金额全额转入消费
-     *
-     * @param taskId 提取任务ID
-     * @param userId 用户ID
-     * @return true=结算成功，false=CAS失败（已被其他线程处理）
-     */
-    boolean settleBilling(Long taskId, Long userId);
-
-    /**
      * 结算（差额）：任务成功后按 provider 实际 token usage 计算实际费用（多退少补）。
      *
      * @param taskId    提取任务ID
@@ -91,27 +103,24 @@ public interface IExtractBillingService {
      * @param usageData 当前轮次聚合协议：包含 aggregation_complete、model_usages、call_usages、调用数和 token
      * @return true=结算成功，false=CAS失败或当前轮次用量尚未收敛
      */
-    boolean settleBilling(Long taskId, Long userId, Map<String, Object> usageData);
-
     /** 按指定派发周期差额结算；trace 不匹配时不执行任何资金动作。 */
     boolean settleBilling(Long taskId, Long userId, Map<String, Object> usageData,
                           String expectedTraceId);
 
     /**
-     * 退回：任务失败后将冻结金额退回余额
+     * 执行失败后的计费收口：有可计费用量则结算，权威确认无调用时退款，
+     * 子任务尚未收敛时保留冻结等待补偿。
      *
-     * @param taskId 提取任务ID
-     * @param userId 用户ID
-     * @return true=退回成功，false=CAS失败
+     * @return true=本轮已收口，false=周期变化或用量尚未收敛
      */
-    boolean refundBilling(Long taskId, Long userId);
+    boolean settleOrRefundAfterExecutionFailure(Long taskId, Long userId, String expectedTraceId);
 
     /** 按指定派发周期退款；trace 不匹配时不执行任何资金动作。 */
     boolean refundBilling(Long taskId, Long userId, String expectedTraceId);
 
     /**
      * 续生重置计费周期：把已完整结算（SUCCESS）、已退款（FAILED），
-     * 或严格满足无 trace/无冻结金额的历史空计费周期重置为新一轮冻结。
+     * 或无冻结金额的派发周期重置为新一轮冻结。
      *
      * @param taskId              提取任务ID
      * @param userId              用户ID

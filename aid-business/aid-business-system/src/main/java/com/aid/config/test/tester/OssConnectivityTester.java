@@ -85,18 +85,21 @@ public class OssConnectivityTester implements ConfigConnectivityTester {
         String accessKeySecret = TesterPayloads.str(payload, "accessKeySecret");
         String bucketName = TesterPayloads.str(payload, "bucketName");
         String prefix = TesterPayloads.str(payload, "prefix");
-        String cdnDomain = TesterPayloads.str(payload, "cdnDomain");
+        String resourceDomain = resourceDomain(payload);
 
-        if (StrUtil.hasBlank(endpoint, accessKeyId, accessKeySecret, bucketName, cdnDomain)) {
+        if (StrUtil.hasBlank(endpoint, accessKeyId, accessKeySecret, bucketName, resourceDomain)) {
             return ConfigTestResult.fail("请填写完整OSS配置");
         }
-        if (!isHttpDomain(cdnDomain)) {
+        if (!isOfficialOssEndpoint(endpoint)) {
+            return ConfigTestResult.fail("OSS Endpoint格式错误");
+        }
+        if (!isHttpDomain(resourceDomain)) {
             return ConfigTestResult.fail("访问域名格式错误");
         }
 
         String objectKey = buildProbeKey(prefix);
-        String details = StrUtil.format("uploadMode=oss; endpoint={}; bucketName={}; cdnDomain={}",
-                endpoint, bucketName, cdnDomain);
+        String details = StrUtil.format("uploadMode=oss; endpoint={}; bucketName={}; resourceAccessDomain={}",
+                endpoint, bucketName, resourceDomain);
         OSS client = null;
         boolean uploaded = false;
         try {
@@ -132,18 +135,18 @@ public class OssConnectivityTester implements ConfigConnectivityTester {
         String secretKey = TesterPayloads.str(payload, "cosSecretKey");
         String bucketName = TesterPayloads.str(payload, "cosBucketName");
         String prefix = TesterPayloads.str(payload, "cosPrefix");
-        String cdnDomain = TesterPayloads.str(payload, "cdnDomain");
+        String resourceDomain = resourceDomain(payload);
 
-        if (StrUtil.hasBlank(region, secretId, secretKey, bucketName, cdnDomain)) {
+        if (StrUtil.hasBlank(region, secretId, secretKey, bucketName, resourceDomain)) {
             return ConfigTestResult.fail("请填写完整COS配置");
         }
-        if (!isHttpDomain(cdnDomain)) {
+        if (!isHttpDomain(resourceDomain)) {
             return ConfigTestResult.fail("访问域名格式错误");
         }
 
         String objectKey = buildProbeKey(prefix);
-        String details = StrUtil.format("uploadMode=cos; region={}; bucketName={}; cdnDomain={}",
-                region, bucketName, cdnDomain);
+        String details = StrUtil.format("uploadMode=cos; region={}; bucketName={}; resourceAccessDomain={}",
+                region, bucketName, resourceDomain);
         COSClient client = null;
         boolean uploaded = false;
         try {
@@ -182,17 +185,18 @@ public class OssConnectivityTester implements ConfigConnectivityTester {
         String secretKey = TesterPayloads.str(payload, "qiniuSecretKey");
         String bucketName = TesterPayloads.str(payload, "qiniuBucketName");
         String prefix = TesterPayloads.str(payload, "qiniuPrefix");
-        String cdnDomain = TesterPayloads.str(payload, "cdnDomain");
+        String resourceDomain = resourceDomain(payload);
 
-        if (StrUtil.hasBlank(accessKey, secretKey, bucketName, cdnDomain)) {
+        if (StrUtil.hasBlank(accessKey, secretKey, bucketName, resourceDomain)) {
             return ConfigTestResult.fail("请填写完整七牛配置");
         }
-        if (!isHttpDomain(cdnDomain)) {
+        if (!isHttpDomain(resourceDomain)) {
             return ConfigTestResult.fail("访问域名格式错误");
         }
 
         String objectKey = buildProbeKey(prefix);
-        String details = StrUtil.format("uploadMode=qiniu; bucketName={}; cdnDomain={}", bucketName, cdnDomain);
+        String details = StrUtil.format("uploadMode=qiniu; bucketName={}; resourceAccessDomain={}",
+                bucketName, resourceDomain);
         Configuration configuration = Configuration.create();
         Auth auth = Auth.create(accessKey, secretKey);
         UploadManager uploadManager = new UploadManager(configuration);
@@ -229,11 +233,14 @@ public class OssConnectivityTester implements ConfigConnectivityTester {
 
     /** 本地目录读写删除测试。 */
     private ConfigTestResult testLocal(Map<String, Object> payload) {
-        String localDomain = TesterPayloads.str(payload, "localDomain");
-        if (StrUtil.isNotBlank(localDomain) && !isHttpDomain(localDomain)) {
+        String resourceDomain = resourceDomain(payload);
+        if (StrUtil.isBlank(resourceDomain)) {
+            return ConfigTestResult.fail("请填写资源访问地址");
+        }
+        if (!isHttpDomain(resourceDomain)) {
             return ConfigTestResult.fail("访问域名格式错误");
         }
-        if (StrUtil.isNotBlank(localDomain) && domainPathEndsWith(localDomain, LOCAL_PROFILE_PATH)) {
+        if (StrUtil.isNotBlank(resourceDomain) && domainPathEndsWith(resourceDomain, LOCAL_PROFILE_PATH)) {
             return ConfigTestResult.fail("本地域名不要加/profile");
         }
 
@@ -241,11 +248,11 @@ public class OssConnectivityTester implements ConfigConnectivityTester {
             return ConfigTestResult.fail("本地目录未配置");
         }
         String uploadPath = AidAppConfig.getUploadPath();
-        String publicPrefix = StrUtil.isBlank(localDomain)
+        String publicPrefix = StrUtil.isBlank(resourceDomain)
                 ? LOCAL_PROFILE_PATH
-                : StrUtil.removeSuffix(localDomain.trim(), "/") + LOCAL_PROFILE_PATH;
+                : StrUtil.removeSuffix(resourceDomain.trim(), "/") + LOCAL_PROFILE_PATH;
         String details = "uploadMode=local; uploadPath=" + uploadPath
-                + "; localDomain=" + (StrUtil.isBlank(localDomain) ? "<relative>" : localDomain)
+                + "; resourceAccessDomain=" + (StrUtil.isBlank(resourceDomain) ? "<relative>" : resourceDomain)
                 + "; publicPrefix=" + publicPrefix;
         File probeFile = null;
         try {
@@ -279,6 +286,16 @@ public class OssConnectivityTester implements ConfigConnectivityTester {
         return StrUtil.isBlank(normalizedPrefix) ? key : normalizedPrefix + "/" + key;
     }
 
+    /** 新公共字段优先，兼容旧后台仍提交 cdnDomain/localDomain 的测试请求。 */
+    private String resourceDomain(Map<String, Object> payload) {
+        String value = TesterPayloads.str(payload, "resourceAccessDomain");
+        if (StrUtil.isNotBlank(value)) {
+            return value;
+        }
+        value = TesterPayloads.str(payload, "cdnDomain");
+        return StrUtil.isNotBlank(value) ? value : TesterPayloads.str(payload, "localDomain");
+    }
+
     /** 校验公共访问域名。 */
     private boolean isHttpDomain(String value) {
         try {
@@ -286,8 +303,23 @@ public class OssConnectivityTester implements ConfigConnectivityTester {
             return (Objects.equals("http", uri.getScheme()) || Objects.equals("https", uri.getScheme()))
                     && StrUtil.isNotBlank(uri.getHost())
                     && Objects.isNull(uri.getUserInfo())
+                    && (StrUtil.isBlank(uri.getPath()) || "/".equals(uri.getPath()))
                     && Objects.isNull(uri.getQuery())
                     && Objects.isNull(uri.getFragment());
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** 连接测试会携带访问密钥，只允许阿里云 OSS 官方 Endpoint，避免把密钥发送到任意主机。 */
+    private boolean isOfficialOssEndpoint(String value) {
+        try {
+            URI uri = URI.create(value.matches("(?i)^https?://.*") ? value.trim() : "https://" + value.trim());
+            String host = StrUtil.blankToDefault(uri.getHost(), "").toLowerCase();
+            return host.matches("^oss-[a-z0-9-]+(?:-internal|-intranet)?\\.aliyuncs\\.com$")
+                    && Objects.isNull(uri.getUserInfo()) && uri.getPort() == -1
+                    && (StrUtil.isBlank(uri.getPath()) || "/".equals(uri.getPath()))
+                    && Objects.isNull(uri.getQuery()) && Objects.isNull(uri.getFragment());
         } catch (Exception e) {
             return false;
         }
