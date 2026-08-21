@@ -1,7 +1,9 @@
 package task
 
 import (
+	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -83,6 +85,176 @@ func TestSourceBuildEnvironmentOverridesManagedValues(t *testing.T) {
 	dockerEnv := sourceBuildEnvironment([]string{"AID_DOCKER_MIRRORS=stale.example"}, "/data/aid", "docker", "auto", "cn", "mirror.example")
 	if got := findEnvironmentValue(dockerEnv, "AID_DOCKER_MIRRORS"); got != "mirror.example" {
 		t.Fatalf("docker mirror environment = %q, want mirror.example", got)
+	}
+}
+
+func TestEnsureSourceBuildInterpreterUsesExistingBash(t *testing.T) {
+	previousLookPath := sourceBuildLookPath
+	previousInstall := sourceBuildInstallDockerTools
+	t.Cleanup(func() {
+		sourceBuildLookPath = previousLookPath
+		sourceBuildInstallDockerTools = previousInstall
+	})
+	installCalls := 0
+	sourceBuildLookPath = func(command string) (string, error) {
+		return "/usr/bin/" + command, nil
+	}
+	sourceBuildInstallDockerTools = func(context.Context) error {
+		installCalls++
+		return nil
+	}
+
+	interpreter, err := ensureSourceBuildInterpreter(context.Background(), "docker")
+	if err != nil {
+		t.Fatalf("ensureSourceBuildInterpreter() error = %v", err)
+	}
+	if interpreter != "/usr/bin/bash" {
+		t.Fatalf("interpreter = %q, want /usr/bin/bash", interpreter)
+	}
+	if installCalls != 0 {
+		t.Fatalf("installer called %d times, want 0", installCalls)
+	}
+}
+
+func TestEnsureSourceBuildInterpreterRepairsDockerContainer(t *testing.T) {
+	previousLookPath := sourceBuildLookPath
+	previousInstall := sourceBuildInstallDockerTools
+	t.Cleanup(func() {
+		sourceBuildLookPath = previousLookPath
+		sourceBuildInstallDockerTools = previousInstall
+	})
+	installed := false
+	installCalls := 0
+	sourceBuildLookPath = func(command string) (string, error) {
+		if command == "apk" || installed {
+			return "/usr/bin/" + command, nil
+		}
+		return "", errors.New("not found")
+	}
+	sourceBuildInstallDockerTools = func(context.Context) error {
+		installCalls++
+		installed = true
+		return nil
+	}
+
+	interpreter, err := ensureSourceBuildInterpreter(context.Background(), "docker")
+	if err != nil {
+		t.Fatalf("ensureSourceBuildInterpreter() error = %v", err)
+	}
+	if interpreter != "/usr/bin/bash" {
+		t.Fatalf("interpreter = %q, want /usr/bin/bash", interpreter)
+	}
+	if installCalls != 1 {
+		t.Fatalf("installer called %d times, want 1", installCalls)
+	}
+}
+
+func TestEnsureSourceBuildInterpreterDoesNotMutateManualHost(t *testing.T) {
+	previousLookPath := sourceBuildLookPath
+	previousInstall := sourceBuildInstallDockerTools
+	t.Cleanup(func() {
+		sourceBuildLookPath = previousLookPath
+		sourceBuildInstallDockerTools = previousInstall
+	})
+	installCalls := 0
+	sourceBuildLookPath = func(string) (string, error) {
+		return "", errors.New("not found")
+	}
+	sourceBuildInstallDockerTools = func(context.Context) error {
+		installCalls++
+		return nil
+	}
+
+	if _, err := ensureSourceBuildInterpreter(context.Background(), "systemd"); err == nil {
+		t.Fatal("manual source build without Bash unexpectedly accepted")
+	}
+	if installCalls != 0 {
+		t.Fatalf("manual path invoked Docker installer %d times", installCalls)
+	}
+}
+
+func TestEnsureSourceBuildInterpreterReportsDockerRepairFailure(t *testing.T) {
+	previousLookPath := sourceBuildLookPath
+	previousInstall := sourceBuildInstallDockerTools
+	t.Cleanup(func() {
+		sourceBuildLookPath = previousLookPath
+		sourceBuildInstallDockerTools = previousInstall
+	})
+	sourceBuildLookPath = func(command string) (string, error) {
+		if command == "apk" {
+			return "/sbin/apk", nil
+		}
+		return "", errors.New("not found")
+	}
+	sourceBuildInstallDockerTools = func(context.Context) error {
+		return errors.New("mirror unavailable")
+	}
+
+	_, err := ensureSourceBuildInterpreter(context.Background(), "docker")
+	if err == nil || !strings.Contains(err.Error(), "准备 Docker 源码构建工具失败") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestInstallDockerSourceBuildToolsFallsBackToDomesticMirror(t *testing.T) {
+	previousLookPath := sourceBuildLookPath
+	previousRun := sourceBuildRun
+	previousAlpineVersion := sourceBuildAlpineVersion
+	t.Cleanup(func() {
+		sourceBuildLookPath = previousLookPath
+		sourceBuildRun = previousRun
+		sourceBuildAlpineVersion = previousAlpineVersion
+	})
+	sourceBuildLookPath = func(command string) (string, error) {
+		if command == "apk" {
+			return "/sbin/apk", nil
+		}
+		return "", errors.New("not found")
+	}
+	sourceBuildAlpineVersion = func() string { return "v3.21" }
+	var calls [][]string
+	sourceBuildRun = func(_ context.Context, name string, args ...string) error {
+		call := append([]string{name}, args...)
+		calls = append(calls, call)
+		if len(calls) == 1 {
+			return errors.New("current mirror unavailable")
+		}
+		return nil
+	}
+
+	if err := installDockerSourceBuildTools(context.Background()); err != nil {
+		t.Fatalf("installDockerSourceBuildTools() error = %v", err)
+	}
+	if len(calls) != 2 {
+		t.Fatalf("installer calls = %d, want 2", len(calls))
+	}
+	second := strings.Join(calls[1], " ")
+	for _, expected := range []string{
+		"/sbin/apk add --no-cache",
+		"https://mirrors.aliyun.com/alpine/v3.21/main",
+		"https://mirrors.aliyun.com/alpine/v3.21/community",
+	} {
+		if !strings.Contains(second, expected) {
+			t.Fatalf("fallback command %q does not contain %q", second, expected)
+		}
+	}
+	for _, packageName := range dockerSourceBuildPackages {
+		if !strings.Contains(" "+second+" ", " "+packageName+" ") {
+			t.Fatalf("fallback command %q does not contain package %q", second, packageName)
+		}
+	}
+}
+
+func TestDigitsOnly(t *testing.T) {
+	for _, value := range []string{"3", "21", "123"} {
+		if !digitsOnly(value) {
+			t.Fatalf("digitsOnly(%q) = false", value)
+		}
+	}
+	for _, value := range []string{"", "3a", "v3", "2-1"} {
+		if digitsOnly(value) {
+			t.Fatalf("digitsOnly(%q) = true", value)
+		}
 	}
 }
 

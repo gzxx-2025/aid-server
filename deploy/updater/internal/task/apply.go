@@ -538,6 +538,123 @@ const (
 	maxSourceBuildScriptSize      = 1024 * 1024
 )
 
+var (
+	sourceBuildLookPath = exec.LookPath
+	sourceBuildRun      = func(ctx context.Context, name string, args ...string) error {
+		cmd := exec.CommandContext(ctx, name, args...)
+		cmd.Stdout = log.Writer()
+		cmd.Stderr = log.Writer()
+		return cmd.Run()
+	}
+	sourceBuildInstallDockerTools = installDockerSourceBuildTools
+	sourceBuildAlpineVersion      = detectAlpineRepositoryVersion
+)
+
+var dockerSourceBuildCommands = []string{"bash", "curl", "tar", "xz", "sha256sum", "find"}
+
+var dockerSourceBuildPackages = []string{"bash", "curl", "tar", "xz", "coreutils", "findutils", "ca-certificates"}
+
+// ensureSourceBuildInterpreter keeps Docker and manual upgrades on separate paths.
+// Manual deployments already enter through aid.sh under Bash. The Docker updater
+// deliberately uses the small docker:cli image, so it prepares only its own ephemeral
+// container when the source builder needs Bash and required download utilities.
+func ensureSourceBuildInterpreter(ctx context.Context, serviceManager string) (string, error) {
+	if !strings.EqualFold(strings.TrimSpace(serviceManager), sysctl.ManagerDocker) {
+		if bash, err := sourceBuildLookPath("bash"); err == nil {
+			return bash, nil
+		}
+		return "", fmt.Errorf("源码构建环境缺少 Bash，请先通过最新 aid.sh 修复部署依赖")
+	}
+
+	missing := make([]string, 0, len(dockerSourceBuildCommands))
+	for _, command := range dockerSourceBuildCommands {
+		if _, err := sourceBuildLookPath(command); err != nil {
+			missing = append(missing, command)
+		}
+	}
+	if len(missing) == 0 {
+		return sourceBuildLookPath("bash")
+	}
+
+	log.Printf("Docker 升级器构建环境缺少 %s，正在为受管升级器容器补齐必要工具", strings.Join(missing, ", "))
+	installCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	if err := sourceBuildInstallDockerTools(installCtx); err != nil {
+		return "", fmt.Errorf("准备 Docker 源码构建工具失败: %w", err)
+	}
+	for _, command := range dockerSourceBuildCommands {
+		if _, err := sourceBuildLookPath(command); err != nil {
+			return "", fmt.Errorf("Docker 源码构建工具安装后仍缺少 %s", command)
+		}
+	}
+	return sourceBuildLookPath("bash")
+}
+
+func installDockerSourceBuildTools(ctx context.Context) error {
+	apk, err := sourceBuildLookPath("apk")
+	if err != nil {
+		return fmt.Errorf("当前升级器容器既没有 Bash，也没有 apk 包管理器")
+	}
+	attempts := [][]string{{"add", "--no-cache"}}
+	if alpineVersion := sourceBuildAlpineVersion(); alpineVersion != "" {
+		for _, mirror := range []string{
+			"https://mirrors.aliyun.com/alpine",
+			"https://mirrors.cloud.tencent.com/alpine",
+			"https://mirrors.tuna.tsinghua.edu.cn/alpine",
+			"https://dl-cdn.alpinelinux.org/alpine",
+		} {
+			attempts = append(attempts, []string{
+				"add", "--no-cache",
+				"--repository", mirror + "/" + alpineVersion + "/main",
+				"--repository", mirror + "/" + alpineVersion + "/community",
+			})
+		}
+	}
+
+	var lastErr error
+	for index, baseArgs := range attempts {
+		args := append(append([]string{}, baseArgs...), dockerSourceBuildPackages...)
+		if index == 0 {
+			log.Printf("使用升级器容器当前 Alpine 软件源准备源码构建工具")
+		} else {
+			log.Printf("切换 Alpine 备用软件源准备源码构建工具（第 %d/%d 路）", index, len(attempts)-1)
+		}
+		if err := sourceBuildRun(ctx, apk, args...); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+	}
+	return fmt.Errorf("所有 Alpine 软件源均不可用: %w", lastErr)
+}
+
+func detectAlpineRepositoryVersion() string {
+	raw, err := os.ReadFile("/etc/alpine-release")
+	if err != nil {
+		return ""
+	}
+	parts := strings.Split(strings.TrimSpace(string(raw)), ".")
+	if len(parts) < 2 || !digitsOnly(parts[0]) || !digitsOnly(parts[1]) {
+		return ""
+	}
+	return "v" + parts[0] + "." + parts[1]
+}
+
+func digitsOnly(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, char := range value {
+		if char < '0' || char > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 func sourceBuildEnvironment(base []string, dataRoot, sourceBuildMode, dependencyMode, dependencyRegion, dockerMirrors string) []string {
 	env := make([]string, 0, len(base)+5)
 	for _, item := range base {
@@ -653,7 +770,11 @@ func (r *Runner) buildSourcePackage(t *Task, archivePath, sourceWorkDir, script 
 	ctx, cancel := context.WithTimeout(context.Background(),
 		time.Duration(r.cfg.SourceBuildTimeoutSeconds)*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "/bin/sh", script,
+	interpreter, err := ensureSourceBuildInterpreter(ctx, r.cfg.Install.ServiceManager)
+	if err != nil {
+		return err
+	}
+	cmd := exec.CommandContext(ctx, interpreter, script,
 		"--version", t.TargetVersion,
 		"--output", archivePath,
 		"--work-dir", sourceWorkDir)
