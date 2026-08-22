@@ -96,6 +96,16 @@ public class SystemUpgradeController extends BaseController {
     }
 
     /**
+     * 安全取消尚未进入数据库迁移或版本切换阶段的系统版本任务。
+     */
+    @PreAuthorize("@ss.hasAnyPermi('aidconfig:upgrade:start,aidconfig:upgrade:rollback')")
+    @Log(title = "取消系统升级", businessType = BusinessType.UPDATE)
+    @PostMapping("/cancel")
+    public AjaxResult cancel() {
+        return AjaxResult.success(systemUpgradeService.cancelUpgrade());
+    }
+
+    /**
      * 提交升级器在线升级任务（升级器下载新版并自替换重启）
      */
     @PreAuthorize("@ss.hasPermi('aidconfig:upgrade:updater')")

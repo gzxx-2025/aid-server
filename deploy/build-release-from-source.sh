@@ -52,6 +52,9 @@ DOCKER_MIRROR_ORDER=""
 DOCKER_MIRRORS_RESOLVED=0
 IMAGE_PULL_TIMEOUT_SECONDS="${AID_IMAGE_PULL_TIMEOUT_SECONDS:-900}"
 IMAGE_MANIFEST_PROBE_TIMEOUT_SECONDS="${AID_IMAGE_MANIFEST_PROBE_TIMEOUT_SECONDS:-45}"
+DOWNLOAD_TIMEOUT_SECONDS="${AID_DOWNLOAD_TIMEOUT_SECONDS:-0}"
+DOWNLOAD_MIN_SPEED_BYTES="${AID_DOWNLOAD_MIN_SPEED_BYTES:-1024}"
+DOWNLOAD_LOW_SPEED_SECONDS="${AID_DOWNLOAD_LOW_SPEED_SECONDS:-30}"
 JDK_VERSION="17.0.20"
 JDK_BUILD="8"
 JDK_HOME=""
@@ -1253,6 +1256,7 @@ usage() {
   AID_DOCKER_MIRRORS          Docker Hub 国内镜像前缀，逗号分隔；自动测速排序
   AID_DOCKER_CN_MIRROR        兼容旧版单镜像设置（新配置优先使用 AID_DOCKER_MIRRORS）
   AID_JDK_DOWNLOAD_URL        覆盖 Temurin OpenJDK 17.0.20 下载地址
+  AID_DOWNLOAD_TIMEOUT_SECONDS 下载总时长上限；默认0不限，正整数（如1500）启用硬超时
   AID_*_IMAGE                 覆盖 Docker 构建镜像
   AID_BUILD_RESERVE_PERCENT   构建前及构建中系统资源保留比例，默认15
   AID_BUILD_RESUME_PERCENT    暂停后恢复阈值，默认20
@@ -1294,6 +1298,9 @@ case "$FORGE" in auto|github|gitee) ;; *) die "源码平台仅支持 auto、gith
 case "$SOURCE_BUILD_MODE" in auto|docker|host) ;; *) die 'AID_SOURCE_BUILD_MODE 仅支持 auto、docker 或 host' ;; esac
 case "$DEPENDENCY_INSTALL_MODE" in auto|manual) ;; *) die 'AID_DEPENDENCY_INSTALL_MODE 仅支持 auto 或 manual' ;; esac
 case "$DEPENDENCY_REGION" in auto|cn|global) ;; *) die 'AID_DEPENDENCY_REGION 仅支持 auto、cn 或 global' ;; esac
+case "$DOWNLOAD_TIMEOUT_SECONDS" in ''|*[!0-9]*) die 'AID_DOWNLOAD_TIMEOUT_SECONDS 必须为非负整数；0表示不限总下载时长' ;; esac
+case "$DOWNLOAD_MIN_SPEED_BYTES" in ''|*[!0-9]*|0) die 'AID_DOWNLOAD_MIN_SPEED_BYTES 必须为正整数' ;; esac
+case "$DOWNLOAD_LOW_SPEED_SECONDS" in ''|*[!0-9]*|0) die 'AID_DOWNLOAD_LOW_SPEED_SECONDS 必须为正整数' ;; esac
 [ -n "$OUTPUT" ] || die '--output 不能为空'
 case "$OUTPUT" in /*) ;; *) OUTPUT="$(pwd)/$OUTPUT" ;; esac
 
@@ -1732,6 +1739,16 @@ write_maven_settings() {
 EOF
 }
 
+source_download_with_curl() { # source_download_with_curl <URL> <目标文件> <yes|no断点续传>
+  source_url="$1"; source_output="$2"; source_resume="$3"
+  set -- --fail --location --retry 3 --retry-delay 2 --connect-timeout 15 \
+    --speed-limit "$DOWNLOAD_MIN_SPEED_BYTES" --speed-time "$DOWNLOAD_LOW_SPEED_SECONDS" \
+    --proto '=https' --tlsv1.2 --progress-bar
+  [ "$DOWNLOAD_TIMEOUT_SECONDS" -eq 0 ] || set -- "$@" --max-time "$DOWNLOAD_TIMEOUT_SECONDS"
+  [ "$source_resume" != yes ] || set -- "$@" --continue-at -
+  curl "$@" --output "$source_output" "$source_url"
+}
+
 download_file() {
   url="$1"; target="$2"; part="$2.part"; expected_checksum="${3:-}"
   case "$url" in https://*) ;; *) warn "拒绝非 HTTPS 下载地址: $url"; return 1 ;; esac
@@ -1750,24 +1767,18 @@ download_file() {
   if command -v curl >/dev/null 2>&1; then
     if [ -s "$part" ]; then
       download_rc=0
-      curl --fail --location --retry 3 --retry-delay 2 --connect-timeout 15 \
-        --max-time 1800 --speed-limit 32768 --speed-time 30 --proto '=https' --tlsv1.2 \
-        --progress-bar --continue-at - --output "$part" "$url" || download_rc=$?
+      source_download_with_curl "$url" "$part" yes || download_rc=$?
       if [ "$download_rc" -eq 33 ] || [ "$download_rc" -eq 36 ]; then
         warn '当前地址不支持断点续传，将从该地址重新下载'
         rm -f "$part"; download_rc=0
-        curl --fail --location --retry 3 --retry-delay 2 --connect-timeout 15 \
-          --max-time 1800 --speed-limit 32768 --speed-time 30 --proto '=https' --tlsv1.2 \
-          --progress-bar --output "$part" "$url" || download_rc=$?
+        source_download_with_curl "$url" "$part" no || download_rc=$?
       fi
       if [ "$download_rc" -ne 0 ]; then
         warn "下载中断，断点文件已保留: $part"
         return 1
       fi
     else
-      curl --fail --location --retry 3 --retry-delay 2 --connect-timeout 15 \
-        --max-time 1800 --speed-limit 32768 --speed-time 30 --proto '=https' --tlsv1.2 \
-        --progress-bar --output "$part" "$url" || {
+      source_download_with_curl "$url" "$part" no || {
           [ ! -s "$part" ] || warn "下载中断，断点文件已保留: $part"; return 1;
         }
     fi
@@ -1900,6 +1911,7 @@ $cn_url"
 
 prepare_jdk_runtime_image() {
   [ "$USE_DOCKER" = yes ] || return 0
+  instant_stage_gate 'OpenJDK/FFmpeg/中文字体运行镜像'
   runtime_manager="$SERVER_DIR/deploy/aid.sh"
   if [ ! -f "$runtime_manager" ] && [ -n "${AID_MANAGER_SCRIPT:-}" ]; then
     runtime_manager="$AID_MANAGER_SCRIPT"
@@ -1910,6 +1922,9 @@ prepare_jdk_runtime_image() {
   AID_SH_LIBRARY_MODE=1 \
     AID_DATA_ROOT="$DATA_ROOT" \
     AID_DEPENDENCY_INSTALL_MODE="${AID_DEPENDENCY_INSTALL_MODE:-auto}" \
+    AID_RUNTIME_BUILD_CPU_MILLI="$PACKAGE_CPU_MILLI" \
+    AID_RUNTIME_BUILD_MEMORY_MB="$PACKAGE_MEMORY_MAX_MB" \
+    AID_RUNTIME_BUILD_SWAP_MB="$PACKAGE_SWAP_MAX_MB" \
     AID_MANAGER_SCRIPT="$runtime_manager" \
     bash -c 'source "$1"; prepare_jdk_runtime_image' aid-runtime "$runtime_manager" \
     || die 'OpenJDK、AID FFmpeg与中文字体固定运行镜像准备失败'

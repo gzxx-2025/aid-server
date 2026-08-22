@@ -1,5 +1,6 @@
 package com.aid.pay.vo;
 
+import com.aid.common.aid.oss.annotation.MediaUrl;
 import lombok.Builder;
 import lombok.Data;
 
@@ -50,6 +51,7 @@ public class RechargePackageVO implements Serializable {
     /**
      * 图标
      */
+    @MediaUrl
     private String icon;
 
     /**

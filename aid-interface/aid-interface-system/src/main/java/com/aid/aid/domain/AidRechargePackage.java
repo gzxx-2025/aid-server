@@ -5,6 +5,7 @@ import java.io.Serializable;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.aid.common.aid.oss.annotation.MediaUrl;
 import com.aid.common.annotation.Excel;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -50,6 +51,7 @@ public class AidRechargePackage extends BaseEntity implements Serializable
 
     /** 图标 */
     @Excel(name = "图标")
+    @MediaUrl
     private String icon;
 
     /** 描述 */

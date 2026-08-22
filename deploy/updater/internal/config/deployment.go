@@ -36,7 +36,7 @@ var commonDeploymentKeys = map[string]bool{
 	"REDIS_HOST": true, "REDIS_PORT": true, "REDIS_USERNAME": true,
 	"REDIS_PASSWORD": true, "REDIS_DATABASE": true,
 	"TOKEN_SECRET": true, "JAVA_OPTS": true, "DEPENDENCY_INSTALL_MODE": true, "DEPENDENCY_REGION": true,
-	"DOCKER_MIRRORS":   true,
+	"DOCKER_MIRRORS": true, "DOWNLOAD_TIMEOUT_SECONDS": true,
 	"ROCKETMQ_ENABLED": true, "ROCKETMQ_NAMESERVER": true,
 	"ROCKETMQ_ACCESS_KEY": true, "ROCKETMQ_SECRET_KEY": true,
 	"ROCKETMQ_FLUSH_DISK_TYPE": true,
@@ -544,6 +544,12 @@ func validateDeploymentValues(mode string, values map[string]string) error {
 	}
 	if err := validateDockerMirrors(values["DOCKER_MIRRORS"]); err != nil {
 		return err
+	}
+	if value := strings.TrimSpace(values["DOWNLOAD_TIMEOUT_SECONDS"]); value != "" {
+		timeoutSeconds, err := strconv.Atoi(value)
+		if err != nil || timeoutSeconds < 0 {
+			return fmt.Errorf("DOWNLOAD_TIMEOUT_SECONDS 必须为非负整数；0表示不限总下载时长")
+		}
 	}
 	flushDiskType := valueOr(values, "ROCKETMQ_FLUSH_DISK_TYPE", "ASYNC_FLUSH")
 	if flushDiskType != "ASYNC_FLUSH" && flushDiskType != "SYNC_FLUSH" {

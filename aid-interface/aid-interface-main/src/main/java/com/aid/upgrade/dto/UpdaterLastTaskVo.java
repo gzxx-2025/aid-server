@@ -18,7 +18,7 @@ public class UpdaterLastTaskVo {
     /** 任务动作：UPGRADE/UPDATER_UPGRADE/ROLLBACK */
     private String action;
 
-    /** 任务状态：RUNNING/SUCCESS/FAILED */
+    /** 任务状态：RUNNING/SUCCESS/FAILED/CANCELLED */
     private String state;
 
     /** 结果说明 */
@@ -38,6 +38,12 @@ public class UpdaterLastTaskVo {
 
     /** 完成时间 */
     private String finishedAt;
+
+    /** 当前阶段是否允许安全取消 */
+    private boolean cancellable;
+
+    /** 是否已接收取消请求 */
+    private boolean cancelRequested;
 
     /** 部署配置分项诊断结果 */
     private Map<String, DeploymentCheckVo> checks;

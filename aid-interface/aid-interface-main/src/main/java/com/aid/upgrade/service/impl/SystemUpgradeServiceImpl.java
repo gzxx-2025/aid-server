@@ -406,6 +406,12 @@ public class SystemUpgradeServiceImpl implements ISystemUpgradeService {
     }
 
     @Override
+    public String cancelUpgrade() {
+        updaterClient.cancelVersionTask();
+        return "取消请求已提交";
+    }
+
+    @Override
     public String startUpdaterUpgrade() {
         UpdaterStatusVo updater = updaterClient.detect();
         boolean incompatible = Objects.equals(updater.getStatus(), UpdaterClient.STATUS_INCOMPATIBLE);

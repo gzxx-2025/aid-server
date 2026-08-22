@@ -158,5 +158,19 @@ grep -Fq 'build_with_docker' "${builder_file}" \
   || { echo 'FAIL: source builder did not guard all Git Docker fallbacks' >&2; exit 1; }
 grep -Fq 'ensure_docker_image "$GIT_IMAGE"' "${builder_file}" \
   || { echo 'FAIL: docker source builder does not unconditionally prepare its Git image' >&2; exit 1; }
+grep -Fq 'instant_stage_gate '\''OpenJDK/FFmpeg/中文字体运行镜像'\''' "${builder_file}" \
+  || { echo 'FAIL: runtime-image build is missing an independent resource gate' >&2; exit 1; }
+grep -Fq 'AID_RUNTIME_BUILD_CPU_MILLI="$PACKAGE_CPU_MILLI"' "${builder_file}" \
+  || { echo 'FAIL: runtime-image build does not inherit the governed CPU profile' >&2; exit 1; }
+grep -Fq 'AID_RUNTIME_BUILD_MEMORY_MB="$PACKAGE_MEMORY_MAX_MB"' "${builder_file}" \
+  || { echo 'FAIL: runtime-image build does not inherit the governed memory profile' >&2; exit 1; }
+grep -Fq 'AID_RUNTIME_BUILD_SWAP_MB="$PACKAGE_SWAP_MAX_MB"' "${builder_file}" \
+  || { echo 'FAIL: runtime-image build does not inherit the governed swap profile' >&2; exit 1; }
+
+runtimeImageBody="$(declare -f prepare_jdk_runtime_image)"
+for requiredFlag in '--cpu-quota' '--cpu-shares' '--memory' '--memory-swap'; do
+  grep -Fq -- "${requiredFlag}" <<< "${runtimeImageBody}" \
+    || { echo "FAIL: runtime-image Docker build is missing ${requiredFlag}" >&2; exit 1; }
+done
 
 echo 'source build mode routing tests passed'

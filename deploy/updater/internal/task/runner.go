@@ -1,11 +1,15 @@
 package task
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"aid-updater/internal/backup"
@@ -20,7 +24,17 @@ type Runner struct {
 	reporter *health.Reporter
 	version  string
 	// exitRequested 自升级成功后置位，主循环据此退出进程交由 systemd 拉起新版本
-	exitRequested bool
+	exitRequested    bool
+	cancelMu         sync.Mutex
+	activeTaskID     string
+	cancellationOpen bool
+	activeTaskCancel context.CancelFunc
+}
+
+var errTaskCancelled = errors.New("升级已由管理员取消")
+
+type cancelRequest struct {
+	TaskID string `json:"taskId"`
 }
 
 // NewRunner 创建任务执行器。
@@ -141,9 +155,9 @@ func (r *Runner) PollOnce() bool {
 	var runErr error
 	switch t.Action {
 	case ActionUpgrade:
-		runErr = r.runApply(t, false)
+		runErr = r.runCancellableApply(t, false)
 	case ActionRollback:
-		runErr = r.runApply(t, true)
+		runErr = r.runCancellableApply(t, true)
 	case ActionUpdaterUpgrade:
 		runErr = r.runSelfUpgrade(t)
 	case ActionConfigValidate:
@@ -159,6 +173,11 @@ func (r *Runner) PollOnce() bool {
 	}
 
 	if runErr != nil {
+		if errors.Is(runErr, errTaskCancelled) {
+			log.Printf("任务 %s 已取消", t.TaskID)
+			r.reporter.SetTask(t.TaskID, t.Action, health.TaskStateCancelled, errTaskCancelled.Error())
+			return true
+		}
 		log.Printf("任务 %s 执行失败: %v", t.TaskID, runErr)
 		r.reporter.SetTask(t.TaskID, t.Action, health.TaskStateFailed, trimMessage(runErr.Error()))
 		return true
@@ -213,6 +232,115 @@ func (r *Runner) claim() (string, error) {
 
 func (r *Runner) taskRunningMarker() string {
 	return r.cfg.TaskFile + ".running"
+}
+
+func (r *Runner) taskCancelFile() string {
+	return r.cfg.TaskFile + ".cancel"
+}
+
+func (r *Runner) runCancellableApply(t *Task, isRollback bool) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	r.cancelMu.Lock()
+	r.activeTaskID = t.TaskID
+	r.cancellationOpen = true
+	r.activeTaskCancel = cancel
+	r.cancelMu.Unlock()
+	r.reporter.SetTaskCancellation(t.TaskID, true, false)
+	_ = os.Remove(r.taskCancelFile())
+
+	done := make(chan struct{})
+	watcherDone := make(chan struct{})
+	go r.watchCancellation(t, done, watcherDone)
+	runErr := r.runApply(ctx, t, isRollback)
+	r.cancelMu.Lock()
+	r.cancellationOpen = false
+	r.cancelMu.Unlock()
+	close(done)
+	<-watcherDone
+	cancel()
+	r.cancelMu.Lock()
+	r.activeTaskID = ""
+	r.cancellationOpen = false
+	r.activeTaskCancel = nil
+	r.cancelMu.Unlock()
+	_ = os.Remove(r.taskCancelFile())
+	return runErr
+}
+
+func (r *Runner) watchCancellation(t *Task, done <-chan struct{}, watcherDone chan<- struct{}) {
+	defer close(watcherDone)
+	ticker := time.NewTicker(300 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-done:
+			return
+		case <-ticker.C:
+			r.consumeCancellationRequest(t)
+		}
+	}
+}
+
+func (r *Runner) consumeCancellationRequest(t *Task) bool {
+	path := r.taskCancelFile()
+	info, err := os.Lstat(path)
+	if err != nil {
+		return false
+	}
+	defer os.Remove(path)
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() <= 0 || info.Size() > 4096 {
+		log.Printf("忽略非法升级取消请求: %s", path)
+		return false
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		log.Printf("读取升级取消请求失败: %v", err)
+		return false
+	}
+	var request cancelRequest
+	if err := json.Unmarshal(raw, &request); err != nil || strings.TrimSpace(request.TaskID) != t.TaskID {
+		log.Printf("忽略不匹配的升级取消请求")
+		return false
+	}
+
+	r.cancelMu.Lock()
+	accepted := r.activeTaskID == t.TaskID && r.cancellationOpen && r.activeTaskCancel != nil
+	cancel := r.activeTaskCancel
+	if accepted {
+		r.cancellationOpen = false
+	}
+	r.cancelMu.Unlock()
+	if !accepted {
+		log.Printf("任务 %s 已进入不可取消阶段，忽略取消请求", t.TaskID)
+		return false
+	}
+	r.reporter.SetTaskCancellation(t.TaskID, false, true)
+	log.Printf("任务 %s 已收到取消请求，正在安全停止当前阶段", t.TaskID)
+	cancel()
+	return true
+}
+
+func (r *Runner) closeCancellationWindow(ctx context.Context, t *Task) error {
+	if r.consumeCancellationRequest(t) {
+		return errTaskCancelled
+	}
+	if err := contextCancellationError(ctx); err != nil {
+		return err
+	}
+	r.cancelMu.Lock()
+	if r.activeTaskID == t.TaskID {
+		r.cancellationOpen = false
+	}
+	r.cancelMu.Unlock()
+	r.reporter.SetTaskCancellation(t.TaskID, false, false)
+	return nil
+}
+
+func contextCancellationError(ctx context.Context) error {
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return errTaskCancelled
+	}
+	return ctx.Err()
 }
 
 // cleanupWork 清理本次任务的下载与解压产物。

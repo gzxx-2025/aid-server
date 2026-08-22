@@ -69,6 +69,13 @@ public interface ISystemUpgradeService {
     String startUpgrade();
 
     /**
+     * 请求安全取消当前系统版本任务。
+     *
+     * @return 提示信息
+     */
+    String cancelUpgrade();
+
+    /**
      * 提交升级器在线升级任务（升级器下载新版并自替换重启）
      *
      * @return 提示信息

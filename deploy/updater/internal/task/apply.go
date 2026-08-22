@@ -31,15 +31,21 @@ const (
 )
 
 // runApply 执行系统升级或版本回退：下载→校验→解压→备份→停服→替换→SQL→启动→健康检查，失败自动回滚。
-func (r *Runner) runApply(t *Task, isRollback bool) error {
+func (r *Runner) runApply(ctx context.Context, t *Task, isRollback bool) error {
+	if err := contextCancellationError(ctx); err != nil {
+		return err
+	}
 	r.reportProgress(t, 3, "校验任务", "正在校验签名清单、版本与升级参数")
 	var mirrors []string
 	var sourceBuilder *manifest.SourceBuilderArtifact
 	var err error
 	buildFromSource := t.BuildFromSource
 	if !buildFromSource && !isRollback {
-		buildFromSource, err = sourceBuildFromSignedManifest(t)
+		buildFromSource, err = sourceBuildFromSignedManifest(ctx, t)
 		if err != nil {
+			if cancelErr := contextCancellationError(ctx); cancelErr != nil {
+				return cancelErr
+			}
 			return err
 		}
 		if buildFromSource {
@@ -50,15 +56,21 @@ func (r *Runner) runApply(t *Task, isRollback bool) error {
 		if isRollback {
 			return fmt.Errorf("源码构建暂不支持版本回退")
 		}
-		if sourceBuilder, err = verifySourceBuildTask(t); err != nil {
+		if sourceBuilder, err = verifySourceBuildTask(ctx, t); err != nil {
+			if cancelErr := contextCancellationError(ctx); cancelErr != nil {
+				return cancelErr
+			}
 			return err
 		}
 	} else {
 		if strings.TrimSpace(t.PackageURL) == "" || strings.TrimSpace(t.SHA256) == "" {
 			return fmt.Errorf("任务缺少制品直链或校验值")
 		}
-		mirrors, err = verifyApplyTask(t, isRollback)
+		mirrors, err = verifyApplyTask(ctx, t, isRollback)
 		if err != nil {
+			if cancelErr := contextCancellationError(ctx); cancelErr != nil {
+				return cancelErr
+			}
 			return err
 		}
 	}
@@ -72,19 +84,28 @@ func (r *Runner) runApply(t *Task, isRollback bool) error {
 
 	if buildFromSource {
 		r.reportProgress(t, 8, "构建源码", "正在拉取三端版本标签并编译，期间 CPU 占用会明显升高")
-		if err := prepareTargetSourceBuilder(sourceBuilder, sourceBuilderPath); err != nil {
+		if err := prepareTargetSourceBuilderContext(ctx, sourceBuilder, sourceBuilderPath); err != nil {
+			if cancelErr := contextCancellationError(ctx); cancelErr != nil {
+				return cancelErr
+			}
 			return err
 		}
-		if err := r.buildSourcePackage(t, archivePath, sourceWorkDir, sourceBuilderPath); err != nil {
+		if err := r.buildSourcePackage(ctx, t, archivePath, sourceWorkDir, sourceBuilderPath); err != nil {
 			return err
 		}
 	} else {
 		r.reportProgress(t, 8, "下载制品", "正在下载并校验目标版本发布包")
 		sources := append([]string{t.PackageURL}, mirrors...)
-		if _, _, err := artifact.DownloadAndVerify(sources, archivePath, t.SHA256,
+		if _, _, err := artifact.DownloadAndVerifyContext(ctx, sources, archivePath, t.SHA256,
 			time.Duration(r.cfg.DownloadTimeoutSeconds)*time.Second); err != nil {
+			if cancelErr := contextCancellationError(ctx); cancelErr != nil {
+				return cancelErr
+			}
 			return fmt.Errorf("下载升级包失败: %w", err)
 		}
+	}
+	if err := contextCancellationError(ctx); err != nil {
+		return err
 	}
 	r.reportProgress(t, 50, "校验制品", "目标版本制品已准备完成")
 
@@ -104,10 +125,16 @@ func (r *Runner) runApply(t *Task, isRollback bool) error {
 	if err := validateFrontendArtifacts(packageRoot, r.cfg); err != nil {
 		return err
 	}
+	if err := contextCancellationError(ctx); err != nil {
+		return err
+	}
 	r.reportProgress(t, 58, "检查发布包", "三端发布包结构校验通过")
 	if !isRollback {
 		r.reportProgress(t, 59, "检查运行环境", "正在按目标版本校验并准备运行环境")
-		if err := r.preflightTargetRuntime(packageRoot); err != nil {
+		if err := r.preflightTargetRuntime(ctx, packageRoot); err != nil {
+			if cancelErr := contextCancellationError(ctx); cancelErr != nil {
+				return cancelErr
+			}
 			return fmt.Errorf("目标版本运行环境检查失败，尚未执行SQL或切换程序: %w", err)
 		}
 	}
@@ -134,6 +161,10 @@ func (r *Runner) runApply(t *Task, isRollback bool) error {
 		}
 	} else if hasSQLScripts(sqlDir) && !r.cfg.Database.Enabled {
 		return fmt.Errorf("升级包含数据库变更，请先在升级器配置中启用 database")
+	}
+
+	if err := r.closeCancellationWindow(ctx, t); err != nil {
+		return err
 	}
 
 	// 4. 备份（含可选数据库备份；数据库备份必须先于任何 SQL 变更）；
@@ -259,7 +290,7 @@ func (r *Runner) runApply(t *Task, isRollback bool) error {
 
 // preflightTargetRuntime 使用目标升级包内的管理脚本准备运行环境。它必须在创建
 // 升级备份、执行 SQL 和替换产物之前完成，不能依赖升级完成后的最终重启兜底。
-func (r *Runner) preflightTargetRuntime(packageRoot string) error {
+func (r *Runner) preflightTargetRuntime(ctx context.Context, packageRoot string) error {
 	managerScript := filepath.Join(packageRoot, "installer", "deploy", "aid.sh")
 	info, err := os.Lstat(managerScript)
 	if err != nil {
@@ -278,22 +309,32 @@ func (r *Runner) preflightTargetRuntime(packageRoot string) error {
 	if dependencyMode == "" {
 		dependencyMode = "auto"
 	}
+	downloadTimeout := strings.TrimSpace(state.Values["DOWNLOAD_TIMEOUT_SECONDS"])
+	if downloadTimeout == "" {
+		downloadTimeout = "0"
+	}
 
 	baseEnv := environmentWithOverride(os.Environ(), "AID_DATA_ROOT", dataRoot)
 	baseEnv = environmentWithOverride(baseEnv, "AID_DEPENDENCY_INSTALL_MODE", dependencyMode)
+	baseEnv = environmentWithOverride(baseEnv, "AID_DOWNLOAD_TIMEOUT_SECONDS", downloadTimeout)
 	baseEnv = environmentWithOverride(baseEnv, "AID_REMOTE_BOOTSTRAP", "0")
 
 	var cmd *exec.Cmd
+	helperContainerIDFile := ""
 	switch r.cfg.Install.ServiceManager {
 	case sysctl.ManagerSystemd:
-		cmd = exec.Command("bash", managerScript, "__upgrade-runtime-preflight", "manual")
+		cmd = exec.CommandContext(ctx, "bash", managerScript, "__upgrade-runtime-preflight", "manual")
 		cmd.Env = baseEnv
 	case sysctl.ManagerDocker:
 		runtimeImage, imageErr := targetDockerRuntimeImage(packageRoot)
 		if imageErr != nil {
 			return imageErr
 		}
-		if targetDockerRuntimeReady(runtimeImage, managerScript, packageRoot, dataRoot) {
+		runtimeReady, readyErr := targetDockerRuntimeReady(ctx, runtimeImage, managerScript, packageRoot, dataRoot, r.cfg.WorkDir)
+		if readyErr != nil {
+			return readyErr
+		}
+		if runtimeReady {
 			log.Printf("目标版本 Docker 运行镜像已通过 JDK、FFmpeg 与中文字体校验: %s", runtimeImage)
 			return nil
 		}
@@ -302,13 +343,16 @@ func (r *Runner) preflightTargetRuntime(packageRoot string) error {
 		// 仅补齐 Bash/下载工具后执行目标版本脚本；数据根和 Docker Socket 均
 		// 保持原路径，生成的固定运行镜像直接落到宿主机 Docker daemon。
 		helperScript := `apk add --no-cache bash xz curl tar coreutils findutils >/dev/null && exec bash "$1" __upgrade-runtime-preflight docker`
+		helperContainerIDFile = filepath.Join(r.cfg.WorkDir, "runtime-preflight.cid")
+		_ = os.Remove(helperContainerIDFile)
 		args := []string{
-			"run", "--rm", "--network", "host",
+			"run", "--rm", "--cidfile", helperContainerIDFile, "--network", "host",
 			"-v", "/var/run/docker.sock:/var/run/docker.sock",
 			"-v", dataRoot + ":" + dataRoot,
 			"-v", packageRoot + ":" + packageRoot + ":ro",
 			"-e", "AID_DATA_ROOT=" + dataRoot,
 			"-e", "AID_DEPENDENCY_INSTALL_MODE=" + dependencyMode,
+			"-e", "AID_DOWNLOAD_TIMEOUT_SECONDS=" + downloadTimeout,
 			"-e", "AID_REMOTE_BOOTSTRAP=0",
 		}
 		if dependencyRegion := strings.TrimSpace(state.Values["DEPENDENCY_REGION"]); dependencyRegion != "" {
@@ -319,7 +363,7 @@ func (r *Runner) preflightTargetRuntime(packageRoot string) error {
 		}
 		args = append(args, "docker:27-cli", "sh", "-eu", "-c", helperScript,
 			"aid-runtime-preflight", managerScript)
-		cmd = exec.Command("docker", args...)
+		cmd = exec.CommandContext(ctx, "docker", args...)
 		cmd.Env = baseEnv
 	default:
 		return fmt.Errorf("不支持的服务管理方式: %s", r.cfg.Install.ServiceManager)
@@ -327,19 +371,48 @@ func (r *Runner) preflightTargetRuntime(packageRoot string) error {
 
 	cmd.Stdout = log.Writer()
 	cmd.Stderr = log.Writer()
+	configureCancellableCommand(cmd)
+	if helperContainerIDFile != "" {
+		defer cleanupDockerHelperContainer(helperContainerIDFile)
+	}
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("目标版本运行环境准备失败: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	if r.cfg.Install.ServiceManager == sysctl.ManagerDocker {
 		runtimeImage, imageErr := targetDockerRuntimeImage(packageRoot)
 		if imageErr != nil {
 			return imageErr
 		}
-		if !targetDockerRuntimeReady(runtimeImage, managerScript, packageRoot, dataRoot) {
+		runtimeReady, readyErr := targetDockerRuntimeReady(ctx, runtimeImage, managerScript, packageRoot, dataRoot, r.cfg.WorkDir)
+		if readyErr != nil {
+			return readyErr
+		}
+		if !runtimeReady {
 			return fmt.Errorf("目标版本 Docker 运行镜像准备后复检失败")
 		}
 	}
 	return nil
+}
+
+func cleanupDockerHelperContainer(cidFile string) {
+	defer os.Remove(cidFile)
+	raw, err := os.ReadFile(cidFile)
+	if err != nil {
+		return
+	}
+	containerID := strings.TrimSpace(string(raw))
+	if len(containerID) < 12 || len(containerID) > 64 {
+		return
+	}
+	for _, char := range containerID {
+		if !((char >= '0' && char <= '9') || (char >= 'a' && char <= 'f')) {
+			return
+		}
+	}
+	_ = exec.Command("docker", "rm", "-f", containerID).Run()
 }
 
 // targetDockerRuntimeImage 从目标包的 aid-server 服务读取固定运行镜像。
@@ -372,12 +445,23 @@ func targetDockerRuntimeImage(packageRoot string) (string, error) {
 }
 
 // targetDockerRuntimeReady 使用目标版本校验器检查镜像内的完整运行能力。
-func targetDockerRuntimeReady(image, managerScript, packageRoot, dataRoot string) bool {
-	if err := exec.Command("docker", "image", "inspect", image).Run(); err != nil {
-		return false
+func targetDockerRuntimeReady(ctx context.Context, image, managerScript, packageRoot, dataRoot, workDir string) (bool, error) {
+	inspect := exec.CommandContext(ctx, "docker", "image", "inspect", image)
+	configureCancellableCommand(inspect)
+	if err := inspect.Run(); err != nil {
+		if ctx.Err() != nil {
+			return false, ctx.Err()
+		}
+		return false, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
 	}
 	checkScript := `source "$1"; java -version 2>&1 | head -n 1 | grep -F "$JDK_VERSION" >/dev/null; configure_ffmpeg_runtime_paths; ffmpeg_runtime_usable >/dev/null; "$AID_FONT_ROOT/check-font.sh" validate >/dev/null`
-	cmd := exec.Command("docker", "run", "--rm",
+	cidFile := filepath.Join(workDir, fmt.Sprintf("runtime-check-%d.cid", time.Now().UnixNano()))
+	_ = os.Remove(cidFile)
+	defer cleanupDockerHelperContainer(cidFile)
+	cmd := exec.CommandContext(ctx, "docker", "run", "--rm", "--cidfile", cidFile,
 		"-v", packageRoot+":"+packageRoot+":ro",
 		"-v", dataRoot+":"+dataRoot+":ro",
 		"-e", "AID_SH_LIBRARY_MODE=1",
@@ -385,7 +469,17 @@ func targetDockerRuntimeReady(image, managerScript, packageRoot, dataRoot string
 		image, "bash", "-eu", "-c", checkScript, "aid-runtime-check", managerScript)
 	cmd.Stdout = log.Writer()
 	cmd.Stderr = log.Writer()
-	return cmd.Run() == nil
+	configureCancellableCommand(cmd)
+	if err := cmd.Run(); err != nil {
+		if ctx.Err() != nil {
+			return false, ctx.Err()
+		}
+		return false, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // activateRefreshedDeploymentAssets 让刚刷新的部署模板立即生效。手动模式必须
@@ -730,6 +824,10 @@ func sourceBuildScriptSupportsExplicitMode(path string) (bool, error) {
 // target manifest. The installed builder may belong to the current/old release
 // and is intentionally never used as an online-upgrade fallback.
 func prepareTargetSourceBuilder(builder *manifest.SourceBuilderArtifact, script string) error {
+	return prepareTargetSourceBuilderContext(context.Background(), builder, script)
+}
+
+func prepareTargetSourceBuilderContext(ctx context.Context, builder *manifest.SourceBuilderArtifact, script string) error {
 	if builder == nil {
 		return fmt.Errorf("签名清单缺少目标版本源码构建器")
 	}
@@ -739,7 +837,7 @@ func prepareTargetSourceBuilder(builder *manifest.SourceBuilderArtifact, script 
 	temporary := script + ".part"
 	_ = os.Remove(temporary)
 	sources := append([]string{builder.URL}, builder.Mirrors...)
-	selected, _, err := artifact.DownloadAndVerifyWithLimit(sources, temporary, builder.SHA256, 2*time.Minute, maxSourceBuildScriptSize)
+	selected, _, err := artifact.DownloadAndVerifyWithLimitContext(ctx, sources, temporary, builder.SHA256, 2*time.Minute, maxSourceBuildScriptSize)
 	if err != nil {
 		return fmt.Errorf("下载目标版本源码构建器失败: %w", err)
 	}
@@ -763,7 +861,7 @@ func prepareTargetSourceBuilder(builder *manifest.SourceBuilderArtifact, script 
 
 // buildSourcePackage executes the already verified target-release builder in
 // an isolated work directory.
-func (r *Runner) buildSourcePackage(t *Task, archivePath, sourceWorkDir, script string) error {
+func (r *Runner) buildSourcePackage(parentContext context.Context, t *Task, archivePath, sourceWorkDir, script string) error {
 	info, err := os.Lstat(script)
 	if err != nil {
 		return fmt.Errorf("源码构建脚本不可用: %w", err)
@@ -785,7 +883,7 @@ func (r *Runner) buildSourcePackage(t *Task, archivePath, sourceWorkDir, script 
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(),
+	ctx, cancel := context.WithTimeout(parentContext,
 		time.Duration(r.cfg.SourceBuildTimeoutSeconds)*time.Second)
 	defer cancel()
 	interpreter, err := ensureSourceBuildInterpreter(ctx, r.cfg.Install.ServiceManager)
@@ -796,6 +894,7 @@ func (r *Runner) buildSourcePackage(t *Task, archivePath, sourceWorkDir, script 
 		"--version", t.TargetVersion,
 		"--output", archivePath,
 		"--work-dir", sourceWorkDir)
+	configureCancellableCommand(cmd)
 	deploymentState, err := r.cfg.ReadDeploymentState()
 	if err != nil {
 		return fmt.Errorf("读取依赖安装模式失败: %w", err)
@@ -809,13 +908,21 @@ func (r *Runner) buildSourcePackage(t *Task, archivePath, sourceWorkDir, script 
 		dependencyRegion = "auto"
 	}
 	dockerMirrors := strings.TrimSpace(deploymentState.Values["DOCKER_MIRRORS"])
+	downloadTimeout := strings.TrimSpace(deploymentState.Values["DOWNLOAD_TIMEOUT_SECONDS"])
+	if downloadTimeout == "" {
+		downloadTimeout = "0"
+	}
 	cmd.Env = sourceBuildEnvironment(os.Environ(),
 		filepath.Dir(filepath.Dir(r.cfg.Install.BackendJar)), sourceBuildMode,
 		dependencyMode, dependencyRegion, dockerMirrors)
+	cmd.Env = environmentWithOverride(cmd.Env, "AID_DOWNLOAD_TIMEOUT_SECONDS", downloadTimeout)
 	cmd.Stdout = log.Writer()
 	cmd.Stderr = log.Writer()
 	log.Printf("开始远程源码构建 AID %s（模式: %s）", t.TargetVersion, sourceBuildMode)
 	if err := cmd.Run(); err != nil {
+		if cancelErr := contextCancellationError(parentContext); cancelErr != nil {
+			return cancelErr
+		}
 		if ctx.Err() == context.DeadlineExceeded {
 			return fmt.Errorf("源码构建超时（%d秒）", r.cfg.SourceBuildTimeoutSeconds)
 		}
@@ -827,11 +934,11 @@ func (r *Runner) buildSourcePackage(t *Task, archivePath, sourceWorkDir, script 
 	return nil
 }
 
-func verifyApplyTask(t *Task, isRollback bool) ([]string, error) {
+func verifyApplyTask(ctx context.Context, t *Task, isRollback bool) ([]string, error) {
 	if strings.TrimSpace(t.ManifestURL) == "" {
 		return nil, fmt.Errorf("任务缺少签名清单地址")
 	}
-	m, err := manifest.Fetch(t.ManifestURL, 30*time.Second)
+	m, err := manifest.FetchContext(ctx, t.ManifestURL, 30*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("验证升级清单失败: %w", err)
 	}
@@ -847,11 +954,11 @@ func verifyApplyTask(t *Task, isRollback bool) ([]string, error) {
 	return nil, fmt.Errorf("回退任务不在签名清单中")
 }
 
-func verifySourceBuildTask(t *Task) (*manifest.SourceBuilderArtifact, error) {
+func verifySourceBuildTask(ctx context.Context, t *Task) (*manifest.SourceBuilderArtifact, error) {
 	if strings.TrimSpace(t.ManifestURL) == "" {
 		return nil, fmt.Errorf("任务缺少签名清单地址")
 	}
-	m, err := manifest.Fetch(t.ManifestURL, 30*time.Second)
+	m, err := manifest.FetchContext(ctx, t.ManifestURL, 30*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("验证升级清单失败: %w", err)
 	}
@@ -864,11 +971,11 @@ func verifySourceBuildTask(t *Task) (*manifest.SourceBuilderArtifact, error) {
 
 // sourceBuildFromSignedManifest 兼容旧版后台生成的任务。只有清单签名有效且目标
 // 版本明确声明 sourceBuild=true 时才切换，不能由任务里的 URL 或其他可变字段触发。
-func sourceBuildFromSignedManifest(t *Task) (bool, error) {
+func sourceBuildFromSignedManifest(ctx context.Context, t *Task) (bool, error) {
 	if strings.TrimSpace(t.ManifestURL) == "" {
 		return false, nil
 	}
-	m, err := manifest.Fetch(t.ManifestURL, 30*time.Second)
+	m, err := manifest.FetchContext(ctx, t.ManifestURL, 30*time.Second)
 	if err != nil {
 		return false, fmt.Errorf("验证升级清单失败: %w", err)
 	}

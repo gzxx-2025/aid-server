@@ -2,6 +2,7 @@
 package artifact
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -20,13 +21,19 @@ const maxDownloadBytes = 2 << 30
 
 // DownloadFile 下载 url 到 dst（覆盖写），返回实际写入字节数。
 func DownloadFile(url, dst string, timeout time.Duration) (int64, error) {
-	return DownloadFileWithLimit(url, dst, timeout, maxDownloadBytes)
+	return DownloadFileWithLimitContext(context.Background(), url, dst, timeout, maxDownloadBytes)
 }
 
 // DownloadFileWithLimit downloads a small signed artifact with a caller-owned
 // hard size limit. It is used for executable release metadata such as the
 // target source builder, which must never inherit the 2 GiB package allowance.
 func DownloadFileWithLimit(url, dst string, timeout time.Duration, maxBytes int64) (int64, error) {
+	return DownloadFileWithLimitContext(context.Background(), url, dst, timeout, maxBytes)
+}
+
+// DownloadFileWithLimitContext downloads an artifact and stops promptly when
+// the caller cancels the active upgrade task.
+func DownloadFileWithLimitContext(ctx context.Context, url, dst string, timeout time.Duration, maxBytes int64) (int64, error) {
 	if maxBytes <= 0 || maxBytes > maxDownloadBytes {
 		return 0, fmt.Errorf("非法下载大小上限")
 	}
@@ -34,7 +41,11 @@ func DownloadFileWithLimit(url, dst string, timeout time.Duration, maxBytes int6
 		return 0, fmt.Errorf("非法下载地址: %s", url)
 	}
 	client := &http.Client{Timeout: timeout, CheckRedirect: secureRedirect}
-	resp, err := client.Get(url)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return 0, fmt.Errorf("创建下载请求失败: %w", err)
+	}
+	resp, err := client.Do(request)
 	if err != nil {
 		return 0, fmt.Errorf("下载请求失败: %w", err)
 	}
@@ -71,6 +82,13 @@ func DownloadAndVerify(urls []string, dst, expectedSHA256 string, timeout time.D
 	return downloadAndVerify(urls, dst, expectedSHA256, timeout, DownloadFile)
 }
 
+// DownloadAndVerifyContext downloads a release artifact with cancellation.
+func DownloadAndVerifyContext(ctx context.Context, urls []string, dst, expectedSHA256 string, timeout time.Duration) (string, int64, error) {
+	return downloadAndVerifyContext(ctx, urls, dst, expectedSHA256, timeout, func(requestContext context.Context, source, target string, requestTimeout time.Duration) (int64, error) {
+		return DownloadFileWithLimitContext(requestContext, source, target, requestTimeout, maxDownloadBytes)
+	})
+}
+
 // DownloadAndVerifyWithLimit applies mirror fallback, SHA256 verification and
 // a strict byte limit to small signed artifacts.
 func DownloadAndVerifyWithLimit(urls []string, dst, expectedSHA256 string, timeout time.Duration, maxBytes int64) (string, int64, error) {
@@ -79,9 +97,24 @@ func DownloadAndVerifyWithLimit(urls []string, dst, expectedSHA256 string, timeo
 	})
 }
 
+// DownloadAndVerifyWithLimitContext downloads a small signed artifact with cancellation.
+func DownloadAndVerifyWithLimitContext(ctx context.Context, urls []string, dst, expectedSHA256 string, timeout time.Duration, maxBytes int64) (string, int64, error) {
+	return downloadAndVerifyContext(ctx, urls, dst, expectedSHA256, timeout, func(requestContext context.Context, source, target string, requestTimeout time.Duration) (int64, error) {
+		return DownloadFileWithLimitContext(requestContext, source, target, requestTimeout, maxBytes)
+	})
+}
+
 type downloadFunc func(string, string, time.Duration) (int64, error)
 
+type contextDownloadFunc func(context.Context, string, string, time.Duration) (int64, error)
+
 func downloadAndVerify(urls []string, dst, expectedSHA256 string, timeout time.Duration, download downloadFunc) (string, int64, error) {
+	return downloadAndVerifyContext(context.Background(), urls, dst, expectedSHA256, timeout, func(_ context.Context, source, target string, requestTimeout time.Duration) (int64, error) {
+		return download(source, target, requestTimeout)
+	})
+}
+
+func downloadAndVerifyContext(ctx context.Context, urls []string, dst, expectedSHA256 string, timeout time.Duration, download contextDownloadFunc) (string, int64, error) {
 	sources := uniqueSources(urls)
 	if len(sources) == 0 {
 		return "", 0, fmt.Errorf("下载地址为空")
@@ -89,13 +122,17 @@ func downloadAndVerify(urls []string, dst, expectedSHA256 string, timeout time.D
 
 	var failures []string
 	for index, source := range sources {
+		if err := ctx.Err(); err != nil {
+			_ = os.Remove(dst)
+			return "", 0, err
+		}
 		label := "主下载源"
 		if index > 0 {
 			label = fmt.Sprintf("镜像源%d", index)
 		}
 		log.Printf("尝试%s: %s", label, source)
 
-		written, err := download(source, dst, timeout)
+		written, err := download(ctx, source, dst, timeout)
 		if err == nil {
 			err = VerifySHA256(dst, expectedSHA256)
 		}

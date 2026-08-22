@@ -2,6 +2,7 @@
 package manifest
 
 import (
+	"context"
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/hex"
@@ -87,6 +88,11 @@ type Signature struct {
 
 // Fetch 拉取并解析清单。
 func Fetch(url string, timeout time.Duration) (*Manifest, error) {
+	return FetchContext(context.Background(), url, timeout)
+}
+
+// FetchContext pulls and verifies a manifest with caller-controlled cancellation.
+func FetchContext(ctx context.Context, url string, timeout time.Duration) (*Manifest, error) {
 	if !isSecureURL(url) {
 		return nil, fmt.Errorf("非法清单地址: %s", url)
 	}
@@ -99,7 +105,11 @@ func Fetch(url string, timeout time.Duration) (*Manifest, error) {
 		}
 		return nil
 	}}
-	resp, err := client.Get(url)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("创建清单请求失败: %w", err)
+	}
+	resp, err := client.Do(request)
 	if err != nil {
 		return nil, fmt.Errorf("拉取清单失败: %w", err)
 	}

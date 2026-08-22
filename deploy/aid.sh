@@ -305,8 +305,8 @@ if [[ "${AID_REMOTE_BOOTSTRAP:-0}" == "1" \
   REPO_DIR="${INSTALLER_ROOT}"
   COMPOSE_DIR="${INSTALLER_ROOT}/deploy/docker"
 fi
-DOWNLOAD_TIMEOUT_SECONDS="${AID_DOWNLOAD_TIMEOUT_SECONDS:-1800}"
-DOWNLOAD_MIN_SPEED_BYTES="${AID_DOWNLOAD_MIN_SPEED_BYTES:-32768}"
+DOWNLOAD_TIMEOUT_SECONDS="${AID_DOWNLOAD_TIMEOUT_SECONDS:-0}"
+DOWNLOAD_MIN_SPEED_BYTES="${AID_DOWNLOAD_MIN_SPEED_BYTES:-1024}"
 DOWNLOAD_LOW_SPEED_SECONDS="${AID_DOWNLOAD_LOW_SPEED_SECONDS:-30}"
 SOURCE_BUILDER_NAME="build-release-from-source.sh"
 SOURCE_GIT_IMAGE="${AID_GIT_IMAGE:-alpine/git:2.47.2}"
@@ -344,6 +344,7 @@ GO_VERSION="1.22.12"
 GO_HOME=""
 FFMPEG_RUNTIME_VERSION="7.0.2"
 FFMPEG_MIN_VERSION="5.1"
+FFMPEG_RUNTIME_MIRROR_TAG="v1.0.0-beta.6"
 FFMPEG_REQUIRED_ENCODERS="libx264 libx265 aac"
 FFMPEG_REQUIRED_FILTERS="tpad apad scale pad fps setpts concat overlay drawtext amix alimiter aresample atrim asetpts aformat"
 FFMPEG_RUNTIME_ROOT="/opt/aid-ffmpeg"
@@ -995,7 +996,7 @@ dependency_region_setting() {
   if [[ -n "${AID_DEPENDENCY_REGION:-}" ]]; then
     echo "${AID_DEPENDENCY_REGION}"
   else
-    case "${descriptorMode}" in
+    case "${descriptorMode:-}" in
       docker) env_get DEPENDENCY_REGION auto ;;
       manual|systemd) conf_get DEPENDENCY_REGION auto ;;
       *)
@@ -1008,6 +1009,29 @@ dependency_region_setting() {
         fi ;;
     esac
   fi
+}
+
+download_timeout_setting() {
+  local configured=""
+  if [[ -n "${AID_DOWNLOAD_TIMEOUT_SECONDS+x}" ]]; then
+    configured="${AID_DOWNLOAD_TIMEOUT_SECONDS}"
+  else
+    case "${descriptorMode:-}" in
+      docker) configured="$(env_get DOWNLOAD_TIMEOUT_SECONDS 0)" ;;
+      manual|systemd) configured="$(conf_get DOWNLOAD_TIMEOUT_SECONDS 0)" ;;
+      *)
+        if [[ -f "${ENV_FILE}" ]]; then
+          configured="$(env_get DOWNLOAD_TIMEOUT_SECONDS 0)"
+        elif [[ -f "${CONF}" ]]; then
+          configured="$(conf_get DOWNLOAD_TIMEOUT_SECONDS 0)"
+        else
+          configured=0
+        fi ;;
+    esac
+  fi
+  [[ "${configured}" =~ ^(0|[1-9][0-9]*)$ ]] \
+    || die "DOWNLOAD_TIMEOUT_SECONDS 必须为非负整数；0 表示不限制总下载时长"
+  printf '%s\n' "${configured}"
 }
 
 docker_mirror_setting() {
@@ -1515,23 +1539,28 @@ ffmpeg_runtime_usable() {
 }
 
 ffmpeg_runtime_download_urls() { # ffmpeg_runtime_download_urls <amd64|arm64>
-  local arch="$1" name=""
-  local primary="" tencent="" aliyun=""
+  local arch="$1" name="" url="" seen=$'\n'
+  local custom="" gitee="" tencent="" aliyun="" github=""
+  local -a candidates=()
   name="ffmpeg-${FFMPEG_RUNTIME_VERSION}-${arch}-static.tar.xz"
-  primary="https://github.com/publicala/ffmpeg-static/releases/download/v${FFMPEG_RUNTIME_VERSION}/${name}"
+  gitee="https://gitee.com/gzxx-2025/aid-server/releases/download/${FFMPEG_RUNTIME_MIRROR_TAG}/${name}"
+  github="https://github.com/publicala/ffmpeg-static/releases/download/v${FFMPEG_RUNTIME_VERSION}/${name}"
   case "${arch}" in
     amd64)
-      primary="${AID_FFMPEG_PRIMARY_URL_AMD64:-${primary}}"
+      custom="${AID_FFMPEG_PRIMARY_URL_AMD64:-}"
       tencent="${AID_FFMPEG_TENCENT_URL_AMD64:-}"
       aliyun="${AID_FFMPEG_ALIYUN_URL_AMD64:-}" ;;
     arm64)
-      primary="${AID_FFMPEG_PRIMARY_URL_ARM64:-${primary}}"
+      custom="${AID_FFMPEG_PRIMARY_URL_ARM64:-}"
       tencent="${AID_FFMPEG_TENCENT_URL_ARM64:-}"
       aliyun="${AID_FFMPEG_ALIYUN_URL_ARM64:-}" ;;
   esac
-  printf '%s\n' "${primary}"
-  [[ -z "${tencent}" ]] || printf '%s\n' "${tencent}"
-  [[ -z "${aliyun}" ]] || printf '%s\n' "${aliyun}"
+  candidates=("${custom}" "${gitee}" "${tencent}" "${aliyun}" "${github}")
+  for url in "${candidates[@]}"; do
+    [[ -n "${url}" && "${seen}" != *$'\n'"${url}"$'\n'* ]] || continue
+    printf '%s\n' "${url}"
+    seen+="${url}"$'\n'
+  done
 }
 
 install_ffmpeg_runtime_version() ( # isolated subshell guarantees temporary cleanup on every exit
@@ -1549,7 +1578,6 @@ install_ffmpeg_runtime_version() ( # isolated subshell guarantees temporary clea
   archive="${workDir}/ffmpeg-${FFMPEG_RUNTIME_VERSION}-${arch}-static.tar.xz"
 
   mapfile -t urls < <(ffmpeg_runtime_download_urls "${arch}")
-  mapfile -t urls < <(rank_download_urls "AID FFmpeg ${FFMPEG_RUNTIME_VERSION}" "${urls[@]}")
   for url in "${urls[@]}"; do
     [[ -n "${url}" ]] || continue
     rm -f -- "${archive}" "${archive}.part"
@@ -3634,13 +3662,15 @@ file_digest_matches() { # file_digest_matches <文件> <sha256|sha512|md5> <固�
 
 download_with_curl_ipv4_fallback() { # <URL> <目标文件> <是否断点续传> <名称>
   local url="$1" output="$2" resume="${3:-no}" label="$4" curlCode=0
-  local minSpeed="${DOWNLOAD_MIN_SPEED_BYTES}" lowSpeedSeconds="${DOWNLOAD_LOW_SPEED_SECONDS}"
+  local totalTimeout="" minSpeed="${DOWNLOAD_MIN_SPEED_BYTES}" lowSpeedSeconds="${DOWNLOAD_LOW_SPEED_SECONDS}"
   local -a curlArgs=()
-  [[ "${minSpeed}" =~ ^[0-9]+$ ]] || minSpeed=32768
-  [[ "${lowSpeedSeconds}" =~ ^[0-9]+$ ]] || lowSpeedSeconds=30
+  totalTimeout="$(download_timeout_setting)"
+  [[ "${minSpeed}" =~ ^[1-9][0-9]*$ ]] || minSpeed=1024
+  [[ "${lowSpeedSeconds}" =~ ^[1-9][0-9]*$ ]] || lowSpeedSeconds=30
   curlArgs=(--fail --location --retry 3 --retry-delay 2 --connect-timeout 15
-    --max-time "${DOWNLOAD_TIMEOUT_SECONDS}" --speed-limit "${minSpeed}"
-    --speed-time "${lowSpeedSeconds}" --proto '=https' --tlsv1.2 --progress-bar)
+    --speed-limit "${minSpeed}" --speed-time "${lowSpeedSeconds}"
+    --proto '=https' --tlsv1.2 --progress-bar)
+  (( totalTimeout == 0 )) || curlArgs+=(--max-time "${totalTimeout}")
   if [[ "${resume}" == "yes" ]]; then
     curl "${curlArgs[@]}" --continue-at - --output "${output}" "${url}" || curlCode=$?
   else
@@ -4339,6 +4369,8 @@ docker_jdk_runtime_matches() { # docker_jdk_runtime_matches <镜像>
 
 prepare_jdk_runtime_image() {
   local baseImage="debian:bookworm-slim" dockerfile context imageRuntime fontManager
+  local totalMemoryMb runtimeCpuMilli runtimeMemoryMb runtimeSwapMb runtimeMemorySwapMb runtimeCpuQuota
+  local -a runtimeBuildCommand=()
   prepare_exact_jdk
   prepare_ffmpeg_runtime "${AID_DEPENDENCY_INSTALL_MODE:-auto}"
   imageRuntime="${FFMPEG_RUNTIME_ROOT}/ffmpeg-${FFMPEG_RUNTIME_VERSION}-${FFMPEG_RUNTIME_ARCH}"
@@ -4402,8 +4434,39 @@ RUN set -eu; \
     rm -f /tmp/prepare-cjk-font.sh; \
     ${AID_FONT_ROOT}/check-font.sh validate
 EOF
+  totalMemoryMb="$(awk '/^MemTotal:/ { print int($2 / 1024); exit }' /proc/meminfo 2>/dev/null || true)"
+  [[ "${totalMemoryMb}" =~ ^[0-9]+$ && "${totalMemoryMb}" -gt 0 ]] || totalMemoryMb=4096
+  runtimeCpuMilli="${AID_RUNTIME_BUILD_CPU_MILLI:-1000}"
+  if [[ -n "${AID_RUNTIME_BUILD_MEMORY_MB:-}" ]]; then
+    runtimeMemoryMb="${AID_RUNTIME_BUILD_MEMORY_MB}"
+  elif (( totalMemoryMb <= 2048 )); then
+    runtimeMemoryMb=512
+  elif (( totalMemoryMb <= 5120 )); then
+    runtimeMemoryMb=768
+  else
+    runtimeMemoryMb=1024
+  fi
+  runtimeSwapMb="${AID_RUNTIME_BUILD_SWAP_MB:-1024}"
+  [[ "${runtimeCpuMilli}" =~ ^[1-9][0-9]*$ && "${runtimeCpuMilli}" -ge 100 && "${runtimeCpuMilli}" -le 8000 ]] \
+    || { rm -rf -- "${context}"; die "AID_RUNTIME_BUILD_CPU_MILLI 必须为100-8000的整数"; }
+  [[ "${runtimeMemoryMb}" =~ ^[1-9][0-9]*$ && "${runtimeMemoryMb}" -ge 384 && "${runtimeMemoryMb}" -le 8192 ]] \
+    || { rm -rf -- "${context}"; die "AID_RUNTIME_BUILD_MEMORY_MB 必须为384-8192的整数"; }
+  [[ "${runtimeSwapMb}" =~ ^(0|[1-9][0-9]*)$ && "${runtimeSwapMb}" -le 8192 ]] \
+    || { rm -rf -- "${context}"; die "AID_RUNTIME_BUILD_SWAP_MB 必须为0-8192的整数"; }
+  runtimeCpuQuota=$(( runtimeCpuMilli * 100 ))
+  runtimeMemorySwapMb=$(( runtimeMemoryMb + runtimeSwapMb ))
+  runtimeBuildCommand=(docker build
+    --cpu-period 100000 --cpu-quota "${runtimeCpuQuota}" --cpu-shares 128
+    --memory "${runtimeMemoryMb}m" --memory-swap "${runtimeMemorySwapMb}m")
+  if command -v nice >/dev/null 2>&1; then
+    runtimeBuildCommand=(nice -n 10 "${runtimeBuildCommand[@]}")
+  fi
+  if command -v ionice >/dev/null 2>&1; then
+    runtimeBuildCommand=(ionice -c 2 -n 7 "${runtimeBuildCommand[@]}")
+  fi
   log "构建 OpenJDK ${JDK_VERSION} + AID FFmpeg ${FFMPEG_RUNTIME_VERSION} + 中文字体固定运行镜像: ${JAVA_RUNTIME_IMAGE}"
-  if ! docker build \
+  log "运行镜像构建资源上限：CPU ${runtimeCpuMilli}m，物理内存 ${runtimeMemoryMb}MiB，额外 Swap ${runtimeSwapMb}MiB，低 I/O 优先级"
+  if ! "${runtimeBuildCommand[@]}" \
       --build-arg "AID_CJK_FONT_TENCENT_URL=${AID_CJK_FONT_TENCENT_URL:-}" \
       --build-arg "AID_CJK_FONT_ALIYUN_URL=${AID_CJK_FONT_ALIYUN_URL:-}" \
       --pull=false --tag "${JAVA_RUNTIME_IMAGE}" --file "${dockerfile}" "${context}"; then
@@ -4930,6 +4993,7 @@ ensure_source_package() {
   if [[ "${sourceBuildMode}" == "docker" ]]; then
     AID_DATA_ROOT="${DATA_ROOT}" AID_SOURCE_BUILD_MODE="${sourceBuildMode}" AID_MANIFEST_PUBLIC_KEY="${TRUSTED_MANIFEST_PUBLIC_KEY}" \
       AID_DEPENDENCY_REGION="$(dependency_region_setting)" \
+      AID_DOWNLOAD_TIMEOUT_SECONDS="$(download_timeout_setting)" \
       AID_DOCKER_MIRRORS="$(docker_mirror_setting)" \
       AID_MANAGER_SCRIPT="${SCRIPT_DIR}/$(basename "${BASH_SOURCE[0]}")" \
       sh "${builder}" --version "${RESOLVED_VERSION}" --output "${RESOLVED_PACKAGE_PATH}" \
@@ -4940,6 +5004,7 @@ ensure_source_package() {
       unset AID_DOCKER_MIRRORS AID_DOCKER_CN_MIRROR
       AID_DATA_ROOT="${DATA_ROOT}" AID_SOURCE_BUILD_MODE="${sourceBuildMode}" AID_MANIFEST_PUBLIC_KEY="${TRUSTED_MANIFEST_PUBLIC_KEY}" \
         AID_DEPENDENCY_REGION="$(dependency_region_setting)" \
+        AID_DOWNLOAD_TIMEOUT_SECONDS="$(download_timeout_setting)" \
         AID_MANAGER_SCRIPT="${SCRIPT_DIR}/$(basename "${BASH_SOURCE[0]}")" \
         sh "${builder}" --version "${RESOLVED_VERSION}" --output "${RESOLVED_PACKAGE_PATH}" \
           --work-dir "${DATA_ROOT}/source-build/v${RESOLVED_VERSION}"
@@ -5290,6 +5355,7 @@ DATA_ROOT=${DATA_ROOT}
 DEPENDENCY_INSTALL_MODE=auto
 DEPENDENCY_REGION=auto
 DOCKER_MIRRORS=${DEFAULT_DOCKER_MIRRORS}
+DOWNLOAD_TIMEOUT_SECONDS=0
 HTTP_PORT=80
 ADMIN_PORT=8089
 HTTPS_PORT=443
@@ -5331,6 +5397,7 @@ DATA_ROOT=${DATA_ROOT}
 DEPENDENCY_INSTALL_MODE=auto
 DEPENDENCY_REGION=auto
 DOCKER_MIRRORS=${DEFAULT_DOCKER_MIRRORS}
+DOWNLOAD_TIMEOUT_SECONDS=0
 HTTP_PORT=80
 ADMIN_PORT=8089
 BACKEND_PORT=8080
@@ -5494,6 +5561,8 @@ DEPENDENCY_INSTALL_MODE=auto
 DEPENDENCY_REGION=auto
 # Docker Hub 国内代理前缀，逗号分隔；自动测速排序、失败逐级回退并校验官方摘要。
 DOCKER_MIRRORS=${DEFAULT_DOCKER_MIRRORS}
+# 下载总时长上限（秒）；0=不限总时长，正整数（例如1500）=到时停止。
+DOWNLOAD_TIMEOUT_SECONDS=0
 
 # ---------------- HTTP 访问（无需域名） ----------------
 # 用户端：http://服务器IP；非 80 端口需在地址后追加端口。
@@ -5680,6 +5749,8 @@ DEPENDENCY_INSTALL_MODE=auto
 DEPENDENCY_REGION=auto
 # Docker Hub 国内代理前缀，逗号分隔；自动测速排序、失败逐级回退并校验官方摘要。
 DOCKER_MIRRORS=${DEFAULT_DOCKER_MIRRORS}
+# 下载总时长上限（秒）；0=不限总时长，正整数（例如1500）=到时停止。
+DOWNLOAD_TIMEOUT_SECONDS=0
 
 # ---------------- HTTP 访问（无需域名） ----------------
 # 用户端：http://服务器IP；非 80 端口需在地址后追加端口。

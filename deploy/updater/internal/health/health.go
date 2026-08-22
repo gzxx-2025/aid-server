@@ -28,23 +28,26 @@ const (
 
 // 任务状态常量。
 const (
-	TaskStateRunning = "RUNNING"
-	TaskStateSuccess = "SUCCESS"
-	TaskStateFailed  = "FAILED"
+	TaskStateRunning   = "RUNNING"
+	TaskStateSuccess   = "SUCCESS"
+	TaskStateFailed    = "FAILED"
+	TaskStateCancelled = "CANCELLED"
 )
 
 // LastTask 记录最近一次任务的执行结果，随健康文件透出给后端。
 type LastTask struct {
-	TaskID     string                 `json:"taskId"`
-	Action     string                 `json:"action"`
-	State      string                 `json:"state"`
-	Message    string                 `json:"message"`
-	Progress   int                    `json:"progress"`
-	Phase      string                 `json:"phase,omitempty"`
-	StartedAt  string                 `json:"startedAt,omitempty"`
-	UpdatedAt  string                 `json:"updatedAt,omitempty"`
-	FinishedAt string                 `json:"finishedAt,omitempty"`
-	Checks     map[string]CheckResult `json:"checks,omitempty"`
+	TaskID          string                 `json:"taskId"`
+	Action          string                 `json:"action"`
+	State           string                 `json:"state"`
+	Message         string                 `json:"message"`
+	Progress        int                    `json:"progress"`
+	Phase           string                 `json:"phase,omitempty"`
+	StartedAt       string                 `json:"startedAt,omitempty"`
+	UpdatedAt       string                 `json:"updatedAt,omitempty"`
+	FinishedAt      string                 `json:"finishedAt,omitempty"`
+	Checks          map[string]CheckResult `json:"checks,omitempty"`
+	Cancellable     bool                   `json:"cancellable"`
+	CancelRequested bool                   `json:"cancelRequested"`
 }
 
 // CheckResult 是部署配置分项诊断的脱敏结果。
@@ -152,8 +155,12 @@ func (r *Reporter) SetTask(taskID, action, state, message string) {
 		phase = r.lastTask.Phase
 	}
 	var checks map[string]CheckResult
+	cancellable := false
+	cancelRequested := false
 	if r.lastTask != nil && r.lastTask.TaskID == taskID {
 		checks = cloneChecks(r.lastTask.Checks)
+		cancellable = r.lastTask.Cancellable
+		cancelRequested = r.lastTask.CancelRequested
 	}
 	if state == TaskStateSuccess {
 		progress = 100
@@ -162,9 +169,16 @@ func (r *Reporter) SetTask(taskID, action, state, message string) {
 	if state == TaskStateFailed && phase == "" {
 		phase = "执行失败"
 	}
+	if state == TaskStateCancelled {
+		phase = "已安全取消"
+	}
+	if state != TaskStateRunning {
+		cancellable = false
+	}
 	task := &LastTask{
 		TaskID: taskID, Action: action, State: state, Message: message,
 		Progress: progress, Phase: phase, StartedAt: startedAt, UpdatedAt: now, Checks: checks,
+		Cancellable: cancellable, CancelRequested: cancelRequested,
 	}
 	if state != TaskStateRunning {
 		task.FinishedAt = now
@@ -195,15 +209,34 @@ func (r *Reporter) SetTaskProgress(taskID, action string, progress int, phase, m
 	now := time.Now().Format(timeLayout)
 	r.mu.Lock()
 	startedAt := now
+	var checks map[string]CheckResult
+	cancellable := false
+	cancelRequested := false
 	if r.lastTask != nil && r.lastTask.TaskID == taskID {
 		startedAt = r.lastTask.StartedAt
+		checks = cloneChecks(r.lastTask.Checks)
+		cancellable = r.lastTask.Cancellable
+		cancelRequested = r.lastTask.CancelRequested
 		if progress < r.lastTask.Progress {
 			progress = r.lastTask.Progress
 		}
 	}
 	r.lastTask = &LastTask{
 		TaskID: taskID, Action: action, State: TaskStateRunning, Message: message,
-		Progress: progress, Phase: phase, StartedAt: startedAt, UpdatedAt: now,
+		Progress: progress, Phase: phase, StartedAt: startedAt, UpdatedAt: now, Checks: checks,
+		Cancellable: cancellable, CancelRequested: cancelRequested,
+	}
+	r.mu.Unlock()
+	r.write(StatusRunning)
+}
+
+// SetTaskCancellation updates whether the active version task can still be cancelled.
+func (r *Reporter) SetTaskCancellation(taskID string, cancellable, requested bool) {
+	r.mu.Lock()
+	if r.lastTask != nil && r.lastTask.TaskID == taskID && r.lastTask.State == TaskStateRunning {
+		r.lastTask.Cancellable = cancellable
+		r.lastTask.CancelRequested = requested
+		r.lastTask.UpdatedAt = time.Now().Format(timeLayout)
 	}
 	r.mu.Unlock()
 	r.write(StatusRunning)

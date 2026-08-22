@@ -236,6 +236,57 @@ public class UpdaterClient {
     }
 
     /**
+     * 请求安全取消当前系统版本任务。
+     */
+    public synchronized void cancelVersionTask() {
+        Path temporary = null;
+        try {
+            UpdaterStatusVo currentStatus = detect();
+            UpdaterLastTaskVo runningTask = currentStatus.getLastTask();
+            boolean versionTask = Objects.nonNull(runningTask)
+                    && (Objects.equals("UPGRADE", runningTask.getAction())
+                            || Objects.equals("ROLLBACK", runningTask.getAction()));
+            if (!versionTask || !Objects.equals("RUNNING", runningTask.getState())) {
+                log.error("取消升级被拒绝, 当前没有运行中的系统版本任务");
+                throw new ServiceException("无可取消任务");
+            }
+            if (!runningTask.isCancellable()) {
+                log.error("取消升级被拒绝, 任务已进入不可取消阶段, taskId={}, phase={}",
+                        runningTask.getTaskId(), runningTask.getPhase());
+                throw new ServiceException("当前阶段不可取消");
+            }
+            Path taskFile = Path.of(resolveTaskFilePath()).toAbsolutePath().normalize();
+            Path parent = taskFile.getParent();
+            if (Objects.isNull(parent) || StrUtil.isBlank(runningTask.getTaskId())) {
+                log.error("取消升级失败, 任务路径或任务ID无效, path={}", taskFile);
+                throw new ServiceException("取消请求失败");
+            }
+            Files.createDirectories(parent);
+            Path target = taskFile.resolveSibling(taskFile.getFileName() + ".cancel");
+            JSONObject request = new JSONObject();
+            request.put("taskId", runningTask.getTaskId());
+            request.put("requestedAt", Instant.now().toString());
+            temporary = Files.createTempFile(parent, "upgrade-cancel-", ".tmp");
+            setOwnerOnlyPermissions(temporary, false);
+            Files.writeString(temporary, request.toJSONString(), StandardCharsets.UTF_8);
+            try {
+                Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException e) {
+                Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
+            }
+            temporary = null;
+            log.info("升级取消请求已提交, taskId={}, phase={}", runningTask.getTaskId(), runningTask.getPhase());
+        } catch (ServiceException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("提交升级取消请求失败", e);
+            throw new ServiceException("取消请求失败");
+        } finally {
+            deleteQuietly(temporary);
+        }
+    }
+
+    /**
      * 将证书对安全暂存到升级器收件目录并原子投递安装任务。
      */
     public synchronized void submitCertificateTask(JSONObject task, MultipartFile certificate, MultipartFile privateKey) {
@@ -469,6 +520,8 @@ public class UpdaterClient {
         vo.setStartedAt(lastTask.getString("startedAt"));
         vo.setUpdatedAt(lastTask.getString("updatedAt"));
         vo.setFinishedAt(lastTask.getString("finishedAt"));
+        vo.setCancellable(Boolean.TRUE.equals(lastTask.getBoolean("cancellable")));
+        vo.setCancelRequested(Boolean.TRUE.equals(lastTask.getBoolean("cancelRequested")));
         JSONObject checks = lastTask.getJSONObject("checks");
         if (Objects.nonNull(checks)) {
             Map<String, DeploymentCheckVo> parsed = new HashMap<>();

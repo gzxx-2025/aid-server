@@ -31,6 +31,8 @@ DEPENDENCY_REGION=auto
 # 服务器存在 Docker 时，源码构建容器使用这些 Docker Hub 国内代理；按测速结果依次尝试。
 # 支持云厂商专属加速域名，多个地址用英文逗号分隔，不要填写账号或密码。
 DOCKER_MIRRORS=docker.m.daocloud.io,dockerproxy.net
+# 下载总时长上限（秒）；0=不限总时长，正整数（例如1500）=到时停止。
+DOWNLOAD_TIMEOUT_SECONDS=0
 # 用户端（C端）对外端口，由 Nginx 监听
 HTTP_PORT=80
 # 后台管理端对外端口；访问码由首次部署脚本随机生成并在完成后打印。
