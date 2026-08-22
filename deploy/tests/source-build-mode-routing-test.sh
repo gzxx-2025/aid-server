@@ -160,12 +160,18 @@ grep -Fq 'ensure_docker_image "$GIT_IMAGE"' "${builder_file}" \
   || { echo 'FAIL: docker source builder does not unconditionally prepare its Git image' >&2; exit 1; }
 grep -Fq 'instant_stage_gate '\''OpenJDK/FFmpeg/中文字体运行镜像'\''' "${builder_file}" \
   || { echo 'FAIL: runtime-image build is missing an independent resource gate' >&2; exit 1; }
-grep -Fq 'AID_RUNTIME_BUILD_CPU_MILLI="$PACKAGE_CPU_MILLI"' "${builder_file}" \
-  || { echo 'FAIL: runtime-image build does not inherit the governed CPU profile' >&2; exit 1; }
-grep -Fq 'AID_RUNTIME_BUILD_MEMORY_MB="$PACKAGE_MEMORY_MAX_MB"' "${builder_file}" \
-  || { echo 'FAIL: runtime-image build does not inherit the governed memory profile' >&2; exit 1; }
-grep -Fq 'AID_RUNTIME_BUILD_SWAP_MB="$PACKAGE_SWAP_MAX_MB"' "${builder_file}" \
-  || { echo 'FAIL: runtime-image build does not inherit the governed swap profile' >&2; exit 1; }
+grep -Fq 'apply_realtime_stage_budget package' "${builder_file}" \
+  || { echo 'FAIL: runtime-image build does not calculate a real-time safe budget' >&2; exit 1; }
+grep -Fq 'AID_RUNTIME_BUILD_CPU_MILLI="$STAGE_CPU_MILLI"' "${builder_file}" \
+  || { echo 'FAIL: runtime-image build does not inherit the real-time CPU budget' >&2; exit 1; }
+grep -Fq 'AID_RUNTIME_BUILD_MEMORY_MB="$STAGE_MEMORY_MAX_MB"' "${builder_file}" \
+  || { echo 'FAIL: runtime-image build does not inherit the real-time memory budget' >&2; exit 1; }
+grep -Fq 'AID_RUNTIME_BUILD_SWAP_MB="$STAGE_SWAP_MAX_MB"' "${builder_file}" \
+  || { echo 'FAIL: runtime-image build does not inherit the available swap budget' >&2; exit 1; }
+grep -Fq 'run_managed_swap_helper activate' "${builder_file}" \
+  || { echo 'FAIL: online Docker upgrades cannot activate the AID managed swap' >&2; exit 1; }
+grep -Fq '物理内存触及 ${RESOURCE_RESERVE_PERCENT}% 保留线' "${builder_file}" \
+  || { echo 'FAIL: memory pressure does not immediately pause the active build stage' >&2; exit 1; }
 
 runtimeImageBody="$(declare -f prepare_jdk_runtime_image)"
 for requiredFlag in '--cpu-quota' '--cpu-shares' '--memory' '--memory-swap'; do

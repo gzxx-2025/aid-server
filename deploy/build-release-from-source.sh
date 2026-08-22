@@ -18,14 +18,14 @@ RESOURCE_RESUME_PERCENT="${AID_BUILD_RESUME_PERCENT:-20}"
 PREFLIGHT_SAMPLES="${AID_BUILD_PREFLIGHT_SAMPLES:-6}"
 PREFLIGHT_INTERVAL_SECONDS="${AID_BUILD_PREFLIGHT_INTERVAL_SECONDS:-5}"
 GATE_CPU_SAMPLE_SECONDS="${AID_BUILD_GATE_CPU_SAMPLE_SECONDS:-1}"
-MONITOR_INTERVAL_SECONDS="${AID_BUILD_MONITOR_INTERVAL_SECONDS:-5}"
+MONITOR_INTERVAL_SECONDS="${AID_BUILD_MONITOR_INTERVAL_SECONDS:-2}"
 PRESSURE_SUSTAINED_SAMPLES="${AID_BUILD_PRESSURE_SAMPLES:-2}"
 PRESSURE_RECOVERY_SAMPLES="${AID_BUILD_RECOVERY_SAMPLES:-2}"
 PRESSURE_MAX_WAIT_SECONDS="${AID_BUILD_PRESSURE_MAX_WAIT_SECONDS:-900}"
 MIN_AVAILABLE_MEMORY_MB="${AID_BUILD_MIN_AVAILABLE_MEMORY_MB:-512}"
 MIN_FREE_DISK_MB="${AID_BUILD_MIN_FREE_DISK_MB:-10240}"
-DANGER_MEMORY_PERCENT="${AID_BUILD_DANGER_MEMORY_PERCENT:-5}"
-DANGER_AVAILABLE_MEMORY_MB="${AID_BUILD_DANGER_AVAILABLE_MEMORY_MB:-256}"
+DANGER_MEMORY_PERCENT="${AID_BUILD_DANGER_MEMORY_PERCENT:-10}"
+DANGER_AVAILABLE_MEMORY_MB="${AID_BUILD_DANGER_AVAILABLE_MEMORY_MB:-384}"
 DANGER_DISK_PERCENT="${AID_BUILD_DANGER_DISK_PERCENT:-5}"
 DANGER_FREE_DISK_MB="${AID_BUILD_DANGER_FREE_DISK_MB:-1024}"
 MANAGED_SWAP_MODE="${AID_BUILD_MANAGED_SWAP:-auto}"
@@ -73,6 +73,7 @@ ACTIVE_HOST_UNIT=""
 ACTIVE_HOST_CGROUP_MODE=""
 ACTIVE_HOST_CGROUP_PATHS=""
 ACTIVE_STAGE_PAUSED=no
+ACTIVE_SWAP_HELPER_CONTAINER=""
 STAGE_SEQUENCE=0
 DOCKER_ROOT_DIR=""
 GOVERNOR_CPU_TOTAL=""
@@ -332,6 +333,63 @@ cleanup_swap_temps() {
   rm -f -- "$MANAGED_SWAP_FILE.tmp.$$" "$MANAGED_SWAP_MARKER.tmp.$$"
 }
 
+running_inside_container() {
+  [ -f /.dockerenv ] || grep -Eqa '(docker|containerd|kubepods)' /proc/1/cgroup 2>/dev/null
+}
+
+run_managed_swap_helper() {
+  helper_action="$1"; helper_file="$2"
+  helper_name="aid-source-swap-$$"
+  helper_basename="$(basename "$helper_file")"
+  [ "$(dirname "$helper_file")" = "$managed_swap_real_dir" ] \
+    || die "Swap辅助容器只允许访问AID受管目录: $helper_file"
+  ACTIVE_SWAP_HELPER_CONTAINER="$helper_name"
+  docker rm -f "$helper_name" >/dev/null 2>&1 || true
+  if [ "$helper_action" = format ]; then
+    if docker run --rm --name "$helper_name" --network none --read-only \
+        --cap-drop ALL --cpus 0.100 --memory 64m --memory-swap 64m --pids-limit 16 \
+        -v "$managed_swap_real_dir:$managed_swap_real_dir:rw" --entrypoint /bin/sh "$GIT_IMAGE" -ec \
+        'busybox --list | grep -qx mkswap; test -f "$1"; exec busybox mkswap "$1" >/dev/null' \
+        aid-swap "$managed_swap_real_dir/$helper_basename"; then
+      ACTIVE_SWAP_HELPER_CONTAINER=""
+      return 0
+    fi
+  elif [ "$helper_action" = activate ]; then
+    if docker run --rm --name "$helper_name" --network none --read-only \
+        --cap-drop ALL --cap-add SYS_ADMIN --security-opt seccomp=unconfined \
+        --cpus 0.100 --memory 64m --memory-swap 64m --pids-limit 16 \
+        -v "$managed_swap_real_dir:$managed_swap_real_dir:rw" --entrypoint /bin/sh "$GIT_IMAGE" -ec \
+        'busybox --list | grep -qx swapon; test -f "$1"; exec busybox swapon "$1"' \
+        aid-swap "$managed_swap_real_dir/$helper_basename"; then
+      ACTIVE_SWAP_HELPER_CONTAINER=""
+      return 0
+    fi
+  else
+    die "未知Swap辅助动作: $helper_action"
+  fi
+  docker rm -f "$helper_name" >/dev/null 2>&1 || true
+  ACTIVE_SWAP_HELPER_CONTAINER=""
+  return 1
+}
+
+format_managed_swap_file() {
+  target_file="$1"
+  if [ "${MANAGED_SWAP_CONTROL_BACKEND:-host}" = docker-helper ]; then
+    run_managed_swap_helper format "$target_file"
+  else
+    mkswap "$target_file" >/dev/null 2>&1
+  fi
+}
+
+activate_managed_swap_file() {
+  target_file="$1"
+  if [ "${MANAGED_SWAP_CONTROL_BACKEND:-host}" = docker-helper ]; then
+    run_managed_swap_helper activate "$target_file"
+  else
+    swapon "$target_file" >/dev/null 2>&1
+  fi
+}
+
 write_swap_file() {
   target_file="$1"; size_mb="$2"; allocation_mode="$3"
   rm -f -- "$target_file"
@@ -344,7 +402,7 @@ write_swap_file() {
     dd if=/dev/zero of="$target_file" bs=1M count="$size_mb" 2>/dev/null || return 1
   fi
   chmod 600 "$target_file" || return 1
-  mkswap "$target_file" >/dev/null 2>&1 || return 1
+  format_managed_swap_file "$target_file" || return 1
 }
 
 activate_new_managed_swap() {
@@ -360,7 +418,7 @@ activate_new_managed_swap() {
   chmod 600 "$marker_tmp" || { cleanup_swap_temps; return 1; }
   mv -f "$swap_tmp" "$MANAGED_SWAP_FILE" || { cleanup_swap_temps; return 1; }
   mv -f "$marker_tmp" "$MANAGED_SWAP_MARKER" || { cleanup_swap_temps; rm -f -- "$MANAGED_SWAP_FILE"; return 1; }
-  if swapon "$MANAGED_SWAP_FILE" >/dev/null 2>&1; then
+  if activate_managed_swap_file "$MANAGED_SWAP_FILE"; then
     return 0
   fi
   return 1
@@ -377,17 +435,11 @@ read_swap_disk_metrics() {
 
 ensure_managed_swap() {
   read_memory_metrics
-  # 在线Docker升级会在aid-updater容器内运行本构建器。该容器刻意不授予
-  # SYS_ADMIN，不能也不应修改宿主机Swap；构建阶段仍由容器硬限制、进程数
-  # 限制和15%动态压力治理共同保护宿主机。直接在宿主机运行时仍准备受管Swap。
-  if [ "$USE_DOCKER" = yes ] && { [ -f /.dockerenv ] || grep -Eqa '(docker|containerd|kubepods)' /proc/1/cgroup 2>/dev/null; }; then
-    [ "$SYSTEM_SWAP_TOTAL_MB" -ge "$MANAGED_SWAP_TARGET_MB" ] \
-      || warn "在线Docker升级不接管宿主机Swap；当前Swap ${SYSTEM_SWAP_TOTAL_MB}MiB，将使用容器硬限制与动态降速保护整机"
-    return 0
-  fi
   if [ "$MANAGED_SWAP_MODE" = no ]; then
-    [ "$SYSTEM_SWAP_TOTAL_MB" -ge "$MANAGED_SWAP_TARGET_MB" ] \
-      || warn "受管Swap已禁用；当前Swap ${SYSTEM_SWAP_TOTAL_MB}MiB，低于建议值 ${MANAGED_SWAP_TARGET_MB}MiB"
+    if [ "$SYSTEM_MEMORY_TOTAL_MB" -le "$MANAGED_SWAP_MAX_RAM_MB" ] \
+        && [ "$SYSTEM_SWAP_TOTAL_MB" -lt "$MANAGED_SWAP_TARGET_MB" ]; then
+      die "低内存服务器已禁用AID受管Swap，拒绝进入可能耗尽宿主机的源码构建"
+    fi
     return 0
   fi
   if [ "$MANAGED_SWAP_MODE" = auto ] && [ "$SYSTEM_MEMORY_TOTAL_MB" -gt "$MANAGED_SWAP_MAX_RAM_MB" ]; then
@@ -398,9 +450,24 @@ ensure_managed_swap() {
     log "系统Swap ${SYSTEM_SWAP_TOTAL_MB}MiB 已满足构建缓冲要求，不做修改"
     return 0
   fi
-  [ "$(id -u)" -eq 0 ] || die '低内存源码构建需要root准备AID受管Swap'
-  command -v mkswap >/dev/null 2>&1 || die '缺少mkswap，无法准备AID受管Swap'
-  command -v swapon >/dev/null 2>&1 || die '缺少swapon，无法启用AID受管Swap'
+  MANAGED_SWAP_CONTROL_BACKEND=host
+  if [ "$USE_DOCKER" = yes ] && running_inside_container; then
+    command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 \
+      || die '在线Docker升级无法访问Docker Engine，不能安全准备宿主机Swap'
+    docker image inspect "$GIT_IMAGE" >/dev/null 2>&1 \
+      || die "缺少Swap隔离辅助镜像: $GIT_IMAGE"
+    docker run --rm --network none --read-only --cap-drop ALL \
+      --cpus 0.100 --memory 64m --memory-swap 64m --pids-limit 16 \
+      --entrypoint /bin/sh "$GIT_IMAGE" -ec \
+      'busybox --list | grep -qx mkswap; busybox --list | grep -qx swapon' \
+      || die "Swap隔离辅助镜像缺少固定的mkswap/swapon能力: $GIT_IMAGE"
+    MANAGED_SWAP_CONTROL_BACKEND=docker-helper
+    log '在线Docker升级将通过一次性最小权限辅助容器准备AID受管Swap'
+  else
+    [ "$(id -u)" -eq 0 ] || die '低内存源码构建需要root准备AID受管Swap'
+    command -v mkswap >/dev/null 2>&1 || die '缺少mkswap，无法准备AID受管Swap'
+    command -v swapon >/dev/null 2>&1 || die '缺少swapon，无法启用AID受管Swap'
+  fi
   verify_managed_swap_path
   cleanup_swap_temps
   if [ -e "$MANAGED_SWAP_FILE" ] || [ -e "$MANAGED_SWAP_MARKER" ]; then
@@ -416,6 +483,15 @@ ensure_managed_swap() {
       warn "AID受管Swap已在使用但系统总Swap仍低于目标；为避免swapoff影响业务，本次安全复用现有文件"
       return 0
     fi
+    swap_total_before_mb="$SYSTEM_SWAP_TOTAL_MB"
+    if activate_managed_swap_file "$MANAGED_SWAP_FILE"; then
+      read_memory_metrics
+      if [ "$SYSTEM_SWAP_TOTAL_MB" -gt "$swap_total_before_mb" ] || swap_file_is_active "$MANAGED_SWAP_FILE"; then
+        log "AID受管Swap已重新启用并安全复用: $MANAGED_SWAP_FILE（系统Swap ${SYSTEM_SWAP_TOTAL_MB}MiB）"
+        return 0
+      fi
+    fi
+    warn '已有AID受管Swap无法重新启用，将保留业务Swap并重建该受管文件'
     rm -f -- "$MANAGED_SWAP_FILE" "$MANAGED_SWAP_MARKER"
   fi
 
@@ -427,6 +503,7 @@ ensure_managed_swap() {
   [ "$remaining_disk_mb" -ge "$disk_reserve_mb" ] \
     || die "创建 ${swap_needed_mb}MiB Swap后磁盘将低于安全线 ${disk_reserve_mb}MiB"
   log "准备AID受管Swap ${swap_needed_mb}MiB（仅位于DATA_ROOT，不写fstab，不修改用户Swap）"
+  swap_total_before_mb="$SYSTEM_SWAP_TOTAL_MB"
   if ! activate_new_managed_swap "$swap_needed_mb" fallocate; then
     warn '稀疏/CoW Swap启用失败，改用完整写入方式重建'
     rm -f -- "$MANAGED_SWAP_FILE" "$MANAGED_SWAP_MARKER"
@@ -435,6 +512,8 @@ ensure_managed_swap() {
   fi
   cleanup_swap_temps
   read_memory_metrics
+  [ "$SYSTEM_SWAP_TOTAL_MB" -gt "$swap_total_before_mb" ] || swap_file_is_active "$MANAGED_SWAP_FILE" \
+    || die "AID受管Swap激活后未出现在系统Swap中: $MANAGED_SWAP_FILE"
   log "AID受管Swap已启用并将安全复用: $MANAGED_SWAP_FILE（系统Swap ${SYSTEM_SWAP_TOTAL_MB}MiB）"
 }
 
@@ -593,6 +672,72 @@ load_stage_profile() {
   esac
 }
 
+apply_realtime_stage_budget() {
+  stage_name="$1"; stage_label="$2"
+  memory_safe_mb=$((SYSTEM_MEMORY_TOTAL_MB * RESOURCE_RESERVE_PERCENT / 100))
+  memory_safe_mb="$(max_value "$memory_safe_mb" "$MIN_AVAILABLE_MEMORY_MB")"
+  live_memory_budget_mb=$((SYSTEM_MEMORY_AVAILABLE_MB - memory_safe_mb))
+  [ "$live_memory_budget_mb" -ge 256 ] \
+    || die "$stage_label 当前物理内存余量不足以在保留 ${RESOURCE_RESERVE_PERCENT}% 后安全启动"
+
+  configured_memory_max_mb="$STAGE_MEMORY_MAX_MB"
+  if [ "$STAGE_MEMORY_MAX_MB" -gt "$live_memory_budget_mb" ]; then
+    STAGE_MEMORY_MAX_MB="$live_memory_budget_mb"
+  fi
+  high_cap_mb=$((STAGE_MEMORY_MAX_MB * 80 / 100))
+  [ "$high_cap_mb" -ge 128 ] || high_cap_mb=128
+  [ "$STAGE_MEMORY_HIGH_MB" -le "$high_cap_mb" ] || STAGE_MEMORY_HIGH_MB="$high_cap_mb"
+  [ "$STAGE_MEMORY_HIGH_MB" -le "$STAGE_MEMORY_MAX_MB" ] || STAGE_MEMORY_HIGH_MB="$STAGE_MEMORY_MAX_MB"
+
+  swap_budget_mb=$((SYSTEM_SWAP_FREE_MB * (100 - RESOURCE_RESERVE_PERCENT) / 100))
+  [ "$STAGE_SWAP_MAX_MB" -le "$swap_budget_mb" ] || STAGE_SWAP_MAX_MB="$swap_budget_mb"
+
+  idle_capacity_milli=$((CPU_TOTAL_MILLI * CPU_IDLE_TENTHS / 1000))
+  cpu_reserve_milli=$((CPU_TOTAL_MILLI * RESOURCE_RESERVE_PERCENT / 100))
+  live_cpu_budget_milli=$((idle_capacity_milli - cpu_reserve_milli))
+  [ "$live_cpu_budget_milli" -ge 100 ] \
+    || die "$stage_label 当前CPU余量不足以在保留 ${RESOURCE_RESERVE_PERCENT}% 后安全启动"
+  [ "$STAGE_CPU_MILLI" -le "$live_cpu_budget_milli" ] || STAGE_CPU_MILLI="$live_cpu_budget_milli"
+
+  combined_budget_mb=$((STAGE_MEMORY_MAX_MB + STAGE_SWAP_MAX_MB))
+  case "$stage_name" in
+    maven)
+      runtime_overhead_mb=$((MAVEN_METASPACE_MB + 128))
+      runtime_heap_cap_mb=$((combined_budget_mb - runtime_overhead_mb))
+      [ "$runtime_heap_cap_mb" -ge 256 ] \
+        || die "$stage_label 可用内存与Swap不足以安全启动Maven"
+      STAGE_MAVEN_HEAP_MB="$MAVEN_HEAP_MB"
+      [ "$STAGE_MAVEN_HEAP_MB" -le "$runtime_heap_cap_mb" ] || STAGE_MAVEN_HEAP_MB="$runtime_heap_cap_mb"
+      STAGE_MAVEN_OPTS_VALUE="-Xms128m -Xmx${STAGE_MAVEN_HEAP_MB}m -XX:MaxMetaspaceSize=${MAVEN_METASPACE_MB}m -XX:+UseSerialGC"
+      ;;
+    node)
+      runtime_heap_cap_mb=$((combined_budget_mb - 256))
+      [ "$runtime_heap_cap_mb" -ge 384 ] \
+        || die "$stage_label 可用内存与Swap不足以安全启动Node.js"
+      STAGE_NODE_HEAP_MB="$NODE_HEAP_MB"
+      [ "$STAGE_NODE_HEAP_MB" -le "$runtime_heap_cap_mb" ] || STAGE_NODE_HEAP_MB="$runtime_heap_cap_mb"
+      STAGE_NODE_OPTIONS_VALUE="--max-old-space-size=${STAGE_NODE_HEAP_MB}"
+      ;;
+    go)
+      runtime_limit_cap_mb=$((combined_budget_mb - 128))
+      [ "$runtime_limit_cap_mb" -ge 128 ] \
+        || die "$stage_label 可用内存与Swap不足以安全启动Go"
+      STAGE_GO_MEMORY_LIMIT_MB="$GO_MEMORY_LIMIT_MB"
+      [ "$STAGE_GO_MEMORY_LIMIT_MB" -le "$runtime_limit_cap_mb" ] || STAGE_GO_MEMORY_LIMIT_MB="$runtime_limit_cap_mb"
+      STAGE_GO_MEMORY_LIMIT="${STAGE_GO_MEMORY_LIMIT_MB}MiB"
+      STAGE_GO_MAX_PROCS="$GO_MAX_PROCS"
+      stage_cpu_procs=$(( (STAGE_CPU_MILLI + 999) / 1000 ))
+      [ "$STAGE_GO_MAX_PROCS" -le "$stage_cpu_procs" ] || STAGE_GO_MAX_PROCS="$stage_cpu_procs"
+      ;;
+    package) ;;
+  esac
+
+  if [ "$STAGE_MEMORY_MAX_MB" -lt "$configured_memory_max_mb" ]; then
+    log "[资源][$stage_label] 按实时余量收紧物理内存：${configured_memory_max_mb}MiB -> ${STAGE_MEMORY_MAX_MB}MiB，宿主机继续保留 ${memory_safe_mb}MiB；不足部分仅允许使用受限Swap"
+  fi
+  log "[资源][$stage_label] 实时配额：CPU ${STAGE_CPU_MILLI}m，物理内存 ${STAGE_MEMORY_HIGH_MB}/${STAGE_MEMORY_MAX_MB}MiB，Swap ${STAGE_SWAP_MAX_MB}MiB（系统空闲 ${SYSTEM_SWAP_FREE_MB}MiB）"
+}
+
 cpu_milli_to_decimal() {
   printf '%s.%03d\n' "$(( $1 / 1000 ))" "$(( $1 % 1000 ))"
 }
@@ -646,6 +791,10 @@ terminate_direct_host_cgroup() {
 }
 
 cleanup_active_stage() {
+  if [ -n "$ACTIVE_SWAP_HELPER_CONTAINER" ] && command -v docker >/dev/null 2>&1; then
+    docker rm -f "$ACTIVE_SWAP_HELPER_CONTAINER" >/dev/null 2>&1 || true
+  fi
+  ACTIVE_SWAP_HELPER_CONTAINER=""
   if [ -n "$ACTIVE_DOCKER_CONTAINER" ] && command -v docker >/dev/null 2>&1; then
     docker unpause "$ACTIVE_DOCKER_CONTAINER" >/dev/null 2>&1 || true
     docker rm -f "$ACTIVE_DOCKER_CONTAINER" >/dev/null 2>&1 || true
@@ -712,6 +861,12 @@ start_docker_stage() {
   stage_name="$1"; stage_label="$2"; shift 2
   instant_stage_gate "$stage_label"
   load_stage_profile "$stage_name"
+  apply_realtime_stage_budget "$stage_name" "$stage_label"
+  case "$stage_name" in
+    maven) set -- -e "MAVEN_OPTS=$STAGE_MAVEN_OPTS_VALUE" "$@" ;;
+    node) set -- -e "NODE_OPTIONS=$STAGE_NODE_OPTIONS_VALUE" "$@" ;;
+    go) set -- -e "GOMEMLIMIT=$STAGE_GO_MEMORY_LIMIT" -e "GOMAXPROCS=$STAGE_GO_MAX_PROCS" "$@" ;;
+  esac
   STAGE_SEQUENCE=$((STAGE_SEQUENCE + 1))
   ACTIVE_DOCKER_CONTAINER="aid-source-build-$$-$STAGE_SEQUENCE"
   stage_cpus="$(cpu_milli_to_decimal "$STAGE_CPU_MILLI")"
@@ -964,6 +1119,12 @@ start_host_stage() {
   stage_name="$1"; stage_label="$2"; work_dir="$3"; shift 3
   instant_stage_gate "$stage_label"
   load_stage_profile "$stage_name"
+  apply_realtime_stage_budget "$stage_name" "$stage_label"
+  case "$stage_name" in
+    maven) set -- env "MAVEN_OPTS=$STAGE_MAVEN_OPTS_VALUE" "$@" ;;
+    node) set -- env "NODE_OPTIONS=$STAGE_NODE_OPTIONS_VALUE" "$@" ;;
+    go) set -- env "GOMEMLIMIT=$STAGE_GO_MEMORY_LIMIT" "GOMAXPROCS=$STAGE_GO_MAX_PROCS" "$@" ;;
+  esac
   STAGE_SEQUENCE=$((STAGE_SEQUENCE + 1))
   host_group="aid-source-build-$$-$STAGE_SEQUENCE"
   ACTIVE_HOST_PID_FILE="$WORK_DIR/.${host_group}.pid"
@@ -1119,18 +1280,29 @@ monitor_stage() {
     memory_safe_mb="$(max_value "$memory_safe_mb" "$MIN_AVAILABLE_MEMORY_MB")"
     memory_resume_mb=$((SYSTEM_MEMORY_TOTAL_MB * RESOURCE_RESUME_PERCENT / 100))
     memory_resume_mb="$(max_value "$memory_resume_mb" "$MIN_AVAILABLE_MEMORY_MB")"
-    pressure=no
+    pressure=no; memory_pressure=no
     pressure_detail=""
     if [ "$CPU_IDLE_TENTHS" -lt "$((RESOURCE_RESERVE_PERCENT * 10))" ]; then pressure=yes; pressure_detail="CPU空闲$(format_tenths "$CPU_IDLE_TENTHS")%"; fi
     if [ "$SYSTEM_MEMORY_AVAILABLE_MB" -lt "$memory_safe_mb" ] \
-        || [ "$MEMORY_AVAILABLE_TENTHS" -lt "$((RESOURCE_RESERVE_PERCENT * 10))" ]; then pressure=yes; pressure_detail="${pressure_detail:+$pressure_detail，}内存可用${SYSTEM_MEMORY_AVAILABLE_MB}MiB"; fi
+        || [ "$MEMORY_AVAILABLE_TENTHS" -lt "$((RESOURCE_RESERVE_PERCENT * 10))" ]; then
+      pressure=yes; memory_pressure=yes
+      pressure_detail="${pressure_detail:+$pressure_detail，}内存可用${SYSTEM_MEMORY_AVAILABLE_MB}MiB"
+    fi
     if [ "$DISK_RESERVE_LOW" = yes ]; then pressure=yes; pressure_detail="${pressure_detail:+$pressure_detail，}磁盘${DISK_WORST_PATH}@${DISK_WORST_MOUNT}可用${DISK_AVAILABLE_MB}MiB/$(format_tenths "$DISK_AVAILABLE_TENTHS")%"; fi
 
     now_epoch="$(date +%s)"
     if [ "$pressure" = yes ]; then
       pressure_streak=$((pressure_streak + 1)); safe_recovery_streak=0; full_recovery_streak=0
       [ "$pressure_started" -ne 0 ] || pressure_started="$now_epoch"
-      if [ "$pressure_level" -eq 0 ] && [ "$pressure_streak" -ge "$PRESSURE_SUSTAINED_SAMPLES" ]; then
+      if [ "$memory_pressure" = yes ] && [ "$pressure_level" -lt 2 ]; then
+        governed_stage_is_running "$backend" "$runner_pid" || break
+        if ! pause_stage "$backend"; then
+          governed_stage_is_running "$backend" "$runner_pid" || break
+          MONITOR_ABORT_REASON='低内存时暂停构建失败，拒绝继续分配内存'; return 2
+        fi
+        pressure_level=2; last_pause_log="$now_epoch"
+        log "[资源][$stage_label] 物理内存触及 ${RESOURCE_RESERVE_PERCENT}% 保留线（${SYSTEM_MEMORY_AVAILABLE_MB}MiB），立即暂停构建并等待Swap回收，禁止继续抢占宿主机内存"
+      elif [ "$pressure_level" -eq 0 ] && [ "$pressure_streak" -ge "$PRESSURE_SUSTAINED_SAMPLES" ]; then
         governed_stage_is_running "$backend" "$runner_pid" || break
         if ! set_stage_cpu_milli "$backend" "$throttled_cpu"; then
           governed_stage_is_running "$backend" "$runner_pid" || break
@@ -1191,7 +1363,6 @@ monitor_stage() {
 
 finish_governed_stage() {
   backend="$1"; stage_label="$2"
-  load_stage_profile "$3"
   monitor_status=0
   monitor_stage "$backend" "$stage_label" "$STAGE_CPU_MILLI" "$ACTIVE_RUNNER_PID" || monitor_status=$?
   if [ "$monitor_status" -eq 2 ]; then
@@ -1261,13 +1432,14 @@ usage() {
   AID_BUILD_RESERVE_PERCENT   构建前及构建中系统资源保留比例，默认15
   AID_BUILD_RESUME_PERCENT    暂停后恢复阈值，默认20
   AID_BUILD_MIN_AVAILABLE_MEMORY_MB  构建前物理内存绝对安全线，默认512MiB
-  AID_BUILD_DANGER_AVAILABLE_MEMORY_MB  构建中物理内存绝对危险线，默认256MiB
+  AID_BUILD_DANGER_AVAILABLE_MEMORY_MB  构建中物理内存绝对危险线，默认384MiB
   AID_BUILD_MIN_FREE_DISK_MB  构建前磁盘绝对安全线，默认10240MiB
   AID_BUILD_PREFLIGHT_SAMPLES 构建前采样次数，默认6；采样间隔默认5秒
   AID_BUILD_GATE_CPU_SAMPLE_SECONDS 每阶段启动前CPU独立短采样时长，默认1秒；范围1-10秒
+  AID_BUILD_MONITOR_INTERVAL_SECONDS 构建中资源监测间隔，默认2秒
   AID_BUILD_PRESSURE_SAMPLES  连续低压确认次数，默认2；不能大于准入采样次数
   AID_BUILD_PRESSURE_MAX_WAIT_SECONDS  持续低于15%的最长等待，默认900秒
-  AID_BUILD_MANAGED_SWAP      AID受管Swap策略：auto、yes或no，默认auto；目标总量4096MiB
+  AID_BUILD_MANAGED_SWAP      AID受管Swap策略：auto、yes或no，默认auto；低内存Docker升级也会通过隔离辅助容器准备，目标总量4096MiB
   AID_BUILD_MANAGED_SWAP_FILE 受管Swap文件，默认位于 DATA_ROOT/build-cache/.aid-swap
   AID_BUILD_*_CPU_MILLI       Maven/Node/Go/打包阶段CPU毫核上限
   AID_BUILD_*_MEMORY_HIGH_MB  各阶段内存软限制（Maven/Node/Go/Package）
@@ -1574,13 +1746,15 @@ if [ "$USE_DOCKER" = yes ]; then
 fi
 validate_resource_settings
 resource_preflight
-ensure_managed_swap
 configure_resource_profiles
 
 if [ "$USE_DOCKER" = yes ]; then
   detect_dependency_region
   ensure_docker_image "$GIT_IMAGE" 'Git源码拉取'
+  ensure_managed_swap
   probe_docker_resource_features
+else
+  ensure_managed_swap
 fi
 
 # 删除范围必须严格位于 source-build 或升级器 work 目录下，避免配置错误导致误删。
@@ -1912,6 +2086,8 @@ $cn_url"
 prepare_jdk_runtime_image() {
   [ "$USE_DOCKER" = yes ] || return 0
   instant_stage_gate 'OpenJDK/FFmpeg/中文字体运行镜像'
+  load_stage_profile package
+  apply_realtime_stage_budget package 'OpenJDK/FFmpeg/中文字体运行镜像'
   runtime_manager="$SERVER_DIR/deploy/aid.sh"
   if [ ! -f "$runtime_manager" ] && [ -n "${AID_MANAGER_SCRIPT:-}" ]; then
     runtime_manager="$AID_MANAGER_SCRIPT"
@@ -1922,9 +2098,9 @@ prepare_jdk_runtime_image() {
   AID_SH_LIBRARY_MODE=1 \
     AID_DATA_ROOT="$DATA_ROOT" \
     AID_DEPENDENCY_INSTALL_MODE="${AID_DEPENDENCY_INSTALL_MODE:-auto}" \
-    AID_RUNTIME_BUILD_CPU_MILLI="$PACKAGE_CPU_MILLI" \
-    AID_RUNTIME_BUILD_MEMORY_MB="$PACKAGE_MEMORY_MAX_MB" \
-    AID_RUNTIME_BUILD_SWAP_MB="$PACKAGE_SWAP_MAX_MB" \
+    AID_RUNTIME_BUILD_CPU_MILLI="$STAGE_CPU_MILLI" \
+    AID_RUNTIME_BUILD_MEMORY_MB="$STAGE_MEMORY_MAX_MB" \
+    AID_RUNTIME_BUILD_SWAP_MB="$STAGE_SWAP_MAX_MB" \
     AID_MANAGER_SCRIPT="$runtime_manager" \
     bash -c 'source "$1"; prepare_jdk_runtime_image' aid-runtime "$runtime_manager" \
     || die 'OpenJDK、AID FFmpeg与中文字体固定运行镜像准备失败'
@@ -1949,7 +2125,6 @@ prepare_build_images() {
 docker_maven_build() {
   settings_file="$1"
   run_docker_stage maven '服务端Maven' --user "$uid_gid" \
-    -e "MAVEN_OPTS=$MAVEN_OPTS_VALUE" \
     -v "$SERVER_DIR:/workspace" -v "$CACHE_DIR/m2:/cache/m2" \
     -v "$settings_file:/tmp/settings.xml:ro" \
     -v "$JDK_HOME:/opt/aid-jdk:ro" -w /workspace "$MAVEN_IMAGE" sh -lc \
@@ -1975,7 +2150,6 @@ docker_npm_build() {
   source_dir="$1"; cache_dir="$2"; label="$3"; npm_version="$4"; npm_script="${5:-build}"; selected_registry="$NPM_REGISTRY"
   log "[构建][$label][依赖] npm@$npm_version ci，首选源: $NPM_REGISTRY"
   if ! run_docker_stage node "$label npm ci" --user "$uid_gid" -e NUXT_TELEMETRY_DISABLED=1 \
-      -e "NODE_OPTIONS=$NODE_OPTIONS_VALUE" \
       -e "AID_NPM_VERSION=$npm_version" \
       -e "npm_config_registry=$NPM_REGISTRY" -e npm_config_cache=/cache/npm \
       -v "$source_dir:/workspace" -v "$cache_dir:/cache/npm" \
@@ -1985,7 +2159,6 @@ docker_npm_build() {
     warn "$label npm 依赖从首选源安装失败，切换备用源: $NPM_REGISTRY_FALLBACK"
     selected_registry="$NPM_REGISTRY_FALLBACK"
     run_docker_stage node "$label npm ci备用源" --user "$uid_gid" -e NUXT_TELEMETRY_DISABLED=1 \
-      -e "NODE_OPTIONS=$NODE_OPTIONS_VALUE" \
       -e "AID_NPM_VERSION=$npm_version" \
       -e "npm_config_registry=$selected_registry" -e npm_config_cache=/cache/npm \
       -v "$source_dir:/workspace" -v "$cache_dir:/cache/npm" \
@@ -1996,7 +2169,6 @@ docker_npm_build() {
   fi
   log "[构建][$label][编译] npm@$npm_version run $npm_script，使用源: $selected_registry"
   run_docker_stage node "$label npm $npm_script" --user "$uid_gid" -e NUXT_TELEMETRY_DISABLED=1 \
-    -e "NODE_OPTIONS=$NODE_OPTIONS_VALUE" \
     -e "AID_NPM_VERSION=$npm_version" -e "AID_NPM_SCRIPT=$npm_script" \
     -e "npm_config_registry=$selected_registry" -e npm_config_cache=/cache/npm \
     -v "$source_dir:/workspace" -v "$cache_dir:/cache/npm" \
@@ -2009,18 +2181,18 @@ host_npm_build() {
   source_dir="$1"; cache_dir="$2"; label="$3"; npm_version="$4"; npm_script="${5:-build}"; selected_registry="$NPM_REGISTRY"
   log "[构建][$label][依赖] npm@$npm_version ci，首选源: $NPM_REGISTRY"
   if ! run_host_stage node "$label npm ci" "$source_dir" env NUXT_TELEMETRY_DISABLED=1 \
-      "NODE_OPTIONS=$NODE_OPTIONS_VALUE" "npm_config_registry=$NPM_REGISTRY" "npm_config_cache=$cache_dir" \
+      "npm_config_registry=$NPM_REGISTRY" "npm_config_cache=$cache_dir" \
       npm exec --yes "--package=npm@$npm_version" -- npm ci; then
     warn "$label npm 依赖从首选源安装失败，切换备用源: $NPM_REGISTRY_FALLBACK"
     selected_registry="$NPM_REGISTRY_FALLBACK"
     run_host_stage node "$label npm ci备用源" "$source_dir" env NUXT_TELEMETRY_DISABLED=1 \
-      "NODE_OPTIONS=$NODE_OPTIONS_VALUE" "npm_config_registry=$selected_registry" "npm_config_cache=$cache_dir" \
+      "npm_config_registry=$selected_registry" "npm_config_cache=$cache_dir" \
       npm exec --yes "--package=npm@$npm_version" -- npm ci \
       || die "$label npm@$npm_version ci 失败；如日志出现 EUSAGE/Missing，请同步提交 package.json 与 package-lock.json"
   fi
   log "[构建][$label][编译] npm@$npm_version run $npm_script，使用源: $selected_registry"
   run_host_stage node "$label npm $npm_script" "$source_dir" env NUXT_TELEMETRY_DISABLED=1 \
-    "NODE_OPTIONS=$NODE_OPTIONS_VALUE" "npm_config_registry=$selected_registry" "npm_config_cache=$cache_dir" \
+    "npm_config_registry=$selected_registry" "npm_config_cache=$cache_dir" \
     npm exec --yes "--package=npm@$npm_version" -- npm run "$npm_script"
   log "[构建][$label][完成] 生产构建成功"
 }
@@ -2065,7 +2237,6 @@ build_with_docker() {
   arch="$CURRENT_UPDATER_ARCH"
   log "编译当前服务器架构升级器 linux/$arch"
   run_docker_stage go "升级器Go linux/$arch" --user "$uid_gid" -e GOOS=linux -e "GOARCH=$arch" -e CGO_ENABLED=0 \
-    -e "GOMEMLIMIT=$GO_MEMORY_LIMIT" -e "GOMAXPROCS=$GO_MAX_PROCS" \
     -e "GOPROXY=$GO_PROXY" -e GOCACHE=/cache/build -e GOMODCACHE=/cache/mod \
     -v "$SERVER_DIR:/workspace" -v "$CACHE_DIR/go-build:/cache/build" \
     -v "$CACHE_DIR/go-mod:/cache/mod" -v "$STAGING_DIR/updater:/out" \
@@ -2078,11 +2249,11 @@ build_with_host() {
   require_local_build_tools
   log "[构建][服务端][开始] 隔离 Temurin OpenJDK $JDK_VERSION + Maven，国内主源: $MAVEN_MIRROR_URL"
   if ! run_host_stage maven '服务端Maven' "$SERVER_DIR" env "JAVA_HOME=$JDK_HOME" "PATH=$JDK_HOME/bin:$PATH" \
-      "MAVEN_OPTS=$MAVEN_OPTS_VALUE" mvn --batch-mode --no-transfer-progress -s "$WORK_DIR/maven-settings.xml" \
+      mvn --batch-mode --no-transfer-progress -s "$WORK_DIR/maven-settings.xml" \
       -Dmaven.repo.local="$CACHE_DIR/m2" clean package -DskipTests; then
     warn "Maven 从首选仓库构建失败，切换备用仓库: $MAVEN_MIRROR_FALLBACK_URL"
     run_host_stage maven '服务端Maven备用源' "$SERVER_DIR" env "JAVA_HOME=$JDK_HOME" "PATH=$JDK_HOME/bin:$PATH" \
-      "MAVEN_OPTS=$MAVEN_OPTS_VALUE" mvn --batch-mode --no-transfer-progress -s "$WORK_DIR/maven-settings-fallback.xml" \
+      mvn --batch-mode --no-transfer-progress -s "$WORK_DIR/maven-settings-fallback.xml" \
       -Dmaven.repo.local="$CACHE_DIR/m2" clean package -DskipTests
   fi
   log '[构建][服务端][完成] aid-admin.jar 构建成功'
@@ -2093,7 +2264,7 @@ build_with_host() {
   arch="$CURRENT_UPDATER_ARCH"
   log "编译当前服务器架构升级器 linux/$arch"
   run_host_stage go "升级器Go linux/$arch" "$SERVER_DIR/deploy/updater" env GOOS=linux "GOARCH=$arch" CGO_ENABLED=0 \
-    "GOMEMLIMIT=$GO_MEMORY_LIMIT" "GOMAXPROCS=$GO_MAX_PROCS" "GOPROXY=$GO_PROXY" \
+    "GOPROXY=$GO_PROXY" \
     "GOCACHE=$CACHE_DIR/go-build" "GOMODCACHE=$CACHE_DIR/go-mod" \
     go build -ldflags "-X main.version=$VERSION -X aid-updater/internal/manifest.trustedPublicKey=$MANIFEST_PUBLIC_KEY" \
     -o "$STAGING_DIR/updater/aid-updater_linux_$arch" ./cmd/aid-updater
