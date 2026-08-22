@@ -342,7 +342,7 @@ MAVEN_VERSION="3.9.9"
 MAVEN_HOME=""
 GO_VERSION="1.22.12"
 GO_HOME=""
-FFMPEG_RUNTIME_VERSION="7.0.2"
+FFMPEG_RUNTIME_VERSION="8.1.2"
 FFMPEG_MIN_VERSION="5.1"
 FFMPEG_RUNTIME_MIRROR_TAG="v1.0.0-beta.6"
 FFMPEG_REQUIRED_ENCODERS="libx264 libx265 aac"
@@ -1377,8 +1377,8 @@ ffmpeg_runtime_arch() {
 
 ffmpeg_runtime_checksum() { # ffmpeg_runtime_checksum <amd64|arm64>
   case "$1" in
-    amd64) printf '%s\n' 'abda8d77ce8309141f83ab8edf0596834087c52467f6badf376a6a2a4c87cf67' ;;
-    arm64) printf '%s\n' 'f4149bb2b0784e30e99bdda85471c9b5930d3402014e934a5098b41d0f7201b1' ;;
+    amd64) printf '%s\n' '7ea38eeee6b391a10ff01d72b75a303db125b0e5ed26cb0d8a2704445f59f0da' ;;
+    arm64) printf '%s\n' 'd75b8a5dbafda1e819775af556df312e84902a47e84addbbcd91891a5c606951' ;;
     *) return 1 ;;
   esac
 }
@@ -1544,7 +1544,7 @@ ffmpeg_runtime_download_urls() { # ffmpeg_runtime_download_urls <amd64|arm64>
   local -a candidates=()
   name="ffmpeg-${FFMPEG_RUNTIME_VERSION}-${arch}-static.tar.xz"
   gitee="https://gitee.com/gzxx-2025/aid-server/releases/download/${FFMPEG_RUNTIME_MIRROR_TAG}/${name}"
-  github="https://github.com/publicala/ffmpeg-static/releases/download/v${FFMPEG_RUNTIME_VERSION}/${name}"
+  github="https://github.com/gzxx-2025/aid-server/releases/download/${FFMPEG_RUNTIME_MIRROR_TAG}/${name}"
   case "${arch}" in
     amd64)
       custom="${AID_FFMPEG_PRIMARY_URL_AMD64:-}"

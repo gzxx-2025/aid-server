@@ -100,7 +100,7 @@ services:
 
   aid-server:
     # 由 aid.sh 使用已校验的 Temurin OpenJDK 17.0.20 压缩包在本机生成，禁止浮动版本。
-    image: aid/openjdk:17.0.20-ffmpeg7.0.2-font2.004
+    image: aid/openjdk:17.0.20-ffmpeg8.1.2-font2.004
     pull_policy: never
     container_name: aid-server
     labels:

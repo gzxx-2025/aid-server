@@ -244,20 +244,20 @@ if command -v curl >/dev/null 2>&1; then curl -fL --retry 3 -o aid-install.sh ht
 
 脚本会先从版本标签源码构建本地包，再从本地包提取部署套件，并由 `.env.example` 自动生成正式配置；内置 MySQL 的 root/业务密码留空时生成 12 位字母数字随机值，JWT 密钥仍生成 48 位随机值。单文件首次部署的配置真源是 `/data/aid/config/docker.env`，完成后脚本也会明确打印实际路径。默认采用内置 MySQL + Redis、关闭 RocketMQ 与 HTTPS 的保守组合。需要改端口、HTTPS、外部 MySQL/Redis 或 RocketMQ 时，编辑实际配置文件后执行 `sudo aid restart` 生效。
 
-Docker 模式不会要求宿主机另装 Git、JDK、Node、Go、FFmpeg、Nginx 或 Redis：Node.js 22.22.0 与 Maven/Go 使用一次性隔离构建容器；OpenJDK 17.0.20、AID 自管 FFmpeg 7.0.2 与经过中文字形验证的字体共同生成标签为 `aid/openjdk:17.0.20-ffmpeg7.0.2-font2.004` 的本地固定运行镜像。复用镜像前会重新检查 Java、FFmpeg、FFprobe、编码器、滤镜、最小合成、中文字符集与 `drawtext`，任一能力不符都会重建。HTTP Nginx 为运行容器；MySQL、Redis、RocketMQ 与 HTTPS 由 `COMPOSE_PROFILES` 决定是否启动对应容器。宿主机只需要 Docker Engine 24+ 与 Compose v2；缺失时经管理员确认可由脚本安装。
+Docker 模式不会要求宿主机另装 Git、JDK、Node、Go、FFmpeg、Nginx 或 Redis：Node.js 22.22.0 与 Maven/Go 使用一次性隔离构建容器；OpenJDK 17.0.20、AID 自管 FFmpeg 8.1.2 与经过中文字形验证的字体共同生成标签为 `aid/openjdk:17.0.20-ffmpeg8.1.2-font2.004` 的本地固定运行镜像。复用镜像前会重新检查 Java、FFmpeg、FFprobe、编码器、滤镜、最小合成、中文字符集与 `drawtext`，任一能力不符都会重建。HTTP Nginx 为运行容器；MySQL、Redis、RocketMQ 与 HTTPS 由 `COMPOSE_PROFILES` 决定是否启动对应容器。宿主机只需要 Docker Engine 24+ 与 Compose v2；缺失时经管理员确认可由脚本安装。
 
 依赖处理由正式配置中的 `DEPENDENCY_INSTALL_MODE` 控制：
 
 | 值 | Docker 部署行为 | 手动 systemd 部署行为 |
 |----|-----------------|------------------------|
-| `auto`（默认） | 缺失镜像按 `DEPENDENCY_REGION` 自动下载并校验；Docker 缺失/过旧仍需单独确认 | Oracle JDK 17.0.8、Nginx 1.30.4、Node 22.22.0、Maven 3.9.9、Go 1.22.12、MySQL 5.7.44、Redis 8.0.5 与 AID FFmpeg 7.0.2 按需下载到隔离目录并校验；Git 与编译依赖按需安装 |
+| `auto`（默认） | 缺失镜像按 `DEPENDENCY_REGION` 自动下载并校验；Docker 缺失/过旧仍需单独确认 | Oracle JDK 17.0.8、Nginx 1.30.4、Node 22.22.0、Maven 3.9.9、Go 1.22.12、MySQL 5.7.44、Redis 8.0.5 与 AID FFmpeg 8.1.2 按需下载到隔离目录并校验；Git 与编译依赖按需安装 |
 | `manual` | 缺镜像立即停止并打印准确的 `docker pull` 命令 | 只检查并列出缺失或版本不合格项，不修改系统 |
 
-AID 不读取、替换或删除系统原有 FFmpeg，也不再通过 apt、yum、dnf、EPEL、RPM Fusion 或 Nux 安装 FFmpeg 本体。Docker 与手动部署均使用固定的 FFmpeg 7.0.2 静态运行包，支持 linux-amd64 与 linux-arm64，分别核对内置 SHA256 后安装到：
+AID 不读取、替换或删除系统原有 FFmpeg，也不再通过 apt、yum、dnf、EPEL、RPM Fusion 或 Nux 安装 FFmpeg 本体。Docker 与手动部署均使用固定的 FFmpeg 8.1.2 静态运行包，支持 linux-amd64 与 linux-arm64，分别核对内置 SHA256 后安装到：
 
 ```text
-/opt/aid-ffmpeg/ffmpeg-7.0.2-${ARCH}/ffmpeg
-/opt/aid-ffmpeg/ffmpeg-7.0.2-${ARCH}/ffprobe
+/opt/aid-ffmpeg/ffmpeg-8.1.2-${ARCH}/ffmpeg
+/opt/aid-ffmpeg/ffmpeg-8.1.2-${ARCH}/ffprobe
 /opt/aid-ffmpeg/current/ffmpeg
 /opt/aid-ffmpeg/current/ffprobe
 ```
