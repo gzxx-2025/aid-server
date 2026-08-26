@@ -243,6 +243,11 @@ INSERT INTO `aid_ai_model` VALUES (96,20,'deepseek-v4-pro','deepseek-v4-pro','De
 INSERT INTO `aid_ai_model` VALUES (97,17,'agnes-2.5-flash','agnes-2.5-flash','Agnes 2.5 Flash','text','text',NULL,0.000000,1.0000,'/v1/chat/completions','openai-compatible-text',100,'0','0','2026-07-19 15:14:22','system','2026-07-21 23:40:51','admin','Agnes 2.5 Flash（替换已下线的 agnes-1.5-flash；官方文档快照暂未收录 2.5 参数，上下文/价格沿用 2.0-flash 口径待文档更新核对）；低价策略输入/输出各0.1元每百万Token；钳制非思考+非流','SKU','{\"mode\":\"SKU\",\"meterType\":\"TOKEN\",\"chargeType\":\"TEXT\",\"preHold\":true,\"matchStrategy\":\"FIRST_HIT\",\"params\":[],\"skus\":[{\"skuCode\":\"AGNES_25_FLASH_0_512K\",\"skuName\":\"输入Token 0-512K\",\"enabled\":true,\"priority\":1,\"match\":{\"inputTokensMin\":0,\"inputTokensMax\":512000},\"remark\":\"官方标准价：输入$0.03/1M=0.21元、输出$0.15/1M=1.05元(1USD=7CNY)；灰度现价$0不采用，按标准原价维护\",\"inputPricePerMillion\":0.21,\"outputPricePerMillion\":1.05}],\"settleRule\":{\"settleMode\":\"REFUND_ONLY\",\"usageSource\":\"PROVIDER_USAGE\",\"charToTokenRatio\":2,\"allowRefund\":true,\"allowExtraCharge\":false}}',1,NULL,NULL,1,1,1,0,1,1,0,0,0,0,0,NULL,NULL,NULL,'{\"sceneRules\":{\"textOnly\":{\"supportsAspectRatio\":false,\"supportsSizePreset\":false,\"supportsDuration\":false}}}',NULL,1,'{\"stream\": false, \"chat_template_kwargs\": {\"enable_thinking\": false}}','https://wiki.agnes-ai.com',0);
 INSERT INTO `aid_ai_model` VALUES (98,2,'doubao-seedance-2.0-fast','doubao-seedance-2-0-fast-260128','豆包Seedance 2.0 Fast','video','image_to_video','',0.000000,1.0000,'/api/v3/contents/generations/tasks','seedance-video',100,'0','0','2026-07-22 18:41:06','admin','2026-07-29 00:22:48','system','豆包Seedance 2.0 Fast；官方原价token精确换算积分/秒；含/不含输入视频双档；仅480P/720P；参考图最多9、输入视频最多3段总时长≤15秒；音画同生；保持停用','SKU','{\"mode\":\"SKU\",\"meterType\":\"PER_SECOND\",\"chargeType\":\"VIDEO\",\"preHold\":true,\"matchStrategy\":\"FIRST_HIT\",\"params\":[],\"skus\":[{\"skuCode\":\"SEEDANCE20_FAST_480P_INVIDEO\",\"skuName\":\"Seedance2.0 Fast 480P含输入视频\",\"enabled\":true,\"priority\":1,\"match\":{\"resolution\":\"480P\",\"inputVideoCountMin\":1},\"remark\":\"官方原价含输入视频22元/百万token精确换算0.220968元/秒,输入输出同价双计\",\"price\":1.1,\"pricePerSecond\":0.220968,\"inputPricing\":{\"video\":{\"unitPrice\":0.220968,\"maxSeconds\":15,\"maxCount\":3}}},{\"skuCode\":\"SEEDANCE20_FAST_720P_INVIDEO\",\"skuName\":\"Seedance2.0 Fast 720P含输入视频\",\"enabled\":true,\"priority\":2,\"match\":{\"resolution\":\"720P\",\"inputVideoCountMin\":1},\"remark\":\"官方原价含输入视频22元/百万token精确换算0.4752元/秒,输入输出同价双计\",\"price\":2.38,\"pricePerSecond\":0.4752,\"inputPricing\":{\"video\":{\"unitPrice\":0.4752,\"maxSeconds\":15,\"maxCount\":3}}},{\"skuCode\":\"SEEDANCE20_FAST_480P\",\"skuName\":\"Seedance2.0 Fast 480P\",\"enabled\":true,\"priority\":11,\"match\":{\"resolution\":\"480P\"},\"remark\":\"官方原价37元/百万token精确换算0.371628元/秒=37.1628积分/秒\",\"price\":1.86,\"pricePerSecond\":0.371628},{\"skuCode\":\"SEEDANCE20_FAST_720P\",\"skuName\":\"Seedance2.0 Fast 720P\",\"enabled\":true,\"priority\":12,\"match\":{\"resolution\":\"720P\"},\"remark\":\"官方原价37元/百万token精确换算0.7992元/秒=79.92积分/秒\",\"price\":4,\"pricePerSecond\":0.7992}],\"settleRule\":{\"settleMode\":\"REFUND_ONLY\",\"usageSource\":\"PROVIDER_USAGE\",\"charToTokenRatio\":2,\"allowRefund\":true,\"allowExtraCharge\":false}}',5,'{\"maxConcurrency\": 1}',NULL,1,1,1,1,1,1,1,1,1,0,0,'720P','16:9',5,'{\"sceneRules\": {\"textToVideo\": {\"supportsDuration\": true, \"supportsSizePreset\": true, \"supportsAspectRatio\": true}, \"imageToVideo\": {\"supportsDuration\": true, \"supportsSizePreset\": true, \"supportsAspectRatio\": true, \"aspectRatioFollowInput\": false}}, \"defaultSize\": \"720P\", \"sizeOptions\": [\"480P\", \"720P\"], \"supportsAudio\": true, \"durationOptions\": [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], \"aspectRatioOptions\": [\"16:9\", \"9:16\", \"1:1\", \"4:3\", \"3:4\", \"21:9\"], \"defaultAspectRatio\": \"16:9\", \"maxReferenceAudios\": 3, \"maxReferenceImages\": 9, \"minReferenceImages\": 0, \"referenceAudioFormats\": [\"wav\", \"mp3\"], \"defaultDurationSeconds\": 5, \"supportsReferenceAudio\": true, \"referenceAudioMaxDurationSeconds\": 15, \"referenceAudioMinDurationSeconds\": 2, \"referenceAudioMaxTotalDurationSeconds\": 15}',NULL,1,NULL,NULL,0);
 INSERT INTO `aid_ai_model` VALUES (99,17,'agnes-2.5-pro-alpha','agnes-2.5-pro-alpha','Agnes 2.5 Pro Alpha','text','text',NULL,0.000000,1.0000,'/v1/chat/completions','openai-compatible-text',110,'0','0','2026-07-29 18:30:19','system','2026-07-29 18:30:19','system','1M上下文，最大输出65536 Token；系统当前按纯文本、非流式能力接入','SKU','{\"mode\":\"SKU\",\"meterType\":\"TOKEN\",\"chargeType\":\"TEXT\",\"preHold\":true,\"matchStrategy\":\"FIRST_HIT\",\"params\":[],\"skus\":[{\"skuCode\":\"AGNES_25_PRO_ALPHA_0_1M\",\"skuName\":\"输入Token 0-1M\",\"enabled\":true,\"priority\":1,\"match\":{\"inputTokensMin\":0,\"inputTokensMax\":1000000},\"inputPricePerMillion\":3.15,\"outputPricePerMillion\":6.30}],\"settleRule\":{\"settleMode\":\"REFUND_ONLY\",\"usageSource\":\"PROVIDER_USAGE\",\"charToTokenRatio\":2,\"allowRefund\":true,\"allowExtraCharge\":false}}',1,NULL,NULL,1,1,0,0,1,1,0,0,0,0,0,NULL,NULL,NULL,'{\"sceneRules\":{\"textOnly\":{\"supportsAspectRatio\":false,\"supportsSizePreset\":false,\"supportsDuration\":false}}}',NULL,1,'{\"stream\": false}','https://wiki.agnes-ai.cn',0);
+-- 以上无列名位置 INSERT 完成后再扩展模型表，避免新字段改变历史位置值数量。
+ALTER TABLE `aid_ai_model`
+  ADD COLUMN `logo_url` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL
+  COMMENT '模型专属LOGO（为空回退服务商LOGO）' AFTER `model_name`;
+
 SET @minimax_h3_billing_rule := '{"mode":"SKU","meterType":"PER_SECOND","chargeType":"VIDEO","preHold":true,"matchStrategy":"FIRST_HIT","params":[{"code":"resolution","name":"分辨率","type":"ENUM","options":["768P","2K"],"required":true},{"code":"duration","name":"时长","type":"NUMBER","unit":"秒","required":true}],"skus":[{"skuCode":"MINIMAX_H3_768P","skuName":"MiniMax H3 768P","priority":10,"enabled":true,"match":{"resolution":"768P"},"price":2.5,"pricePerSecond":0.5,"inputPricing":{"image":{"unitPrice":0.2,"freeCount":5,"maxCount":9},"video":{"unitPrice":0.5,"maxSeconds":15,"maxCount":3}},"remark":"输出0.50元/秒；同分辨率参考视频0.50元/秒；输入图前5张免费，第6~9张0.20元/张"},{"skuCode":"MINIMAX_H3_2K","skuName":"MiniMax H3 2K","priority":20,"enabled":true,"match":{"resolution":"2K"},"price":4.0,"pricePerSecond":0.8,"inputPricing":{"image":{"unitPrice":0.2,"freeCount":5,"maxCount":9},"video":{"unitPrice":0.8,"maxSeconds":15,"maxCount":3}},"remark":"输出0.80元/秒；同分辨率参考视频0.80元/秒；输入图前5张免费，第6~9张0.20元/张"}],"settleRule":{"settleMode":"REFUND_ONLY","usageSource":"PROVIDER_USAGE","allowRefund":true,"allowExtraCharge":false}}';
 SET @minimax_h3_schedule := '{"dispatchMode":"CALLBACK_FIRST","supportsCallback":true,"callbackBaseUrl":"","firstPollDelaySeconds":10,"baseIntervalSeconds":10,"maxIntervalSeconds":60,"backoffFactor":1.5,"maxRetryCount":180,"maxLifeSeconds":7200,"progressTimeoutSeconds":900,"maxConcurrency":15}';
 SET @kling_turbo_billing_rule := '{"mode":"SKU","meterType":"PER_SECOND","chargeType":"VIDEO","preHold":true,"matchStrategy":"FIRST_HIT","params":[{"code":"resolution","name":"分辨率","type":"ENUM","options":["720P","1080P"],"required":true},{"code":"duration","name":"时长","type":"NUMBER","unit":"秒","required":true}],"skus":[{"skuCode":"KLING30_TURBO_720P","skuName":"可灵3.0 Turbo 720P","priority":10,"enabled":true,"match":{"resolution":"720P"},"price":4.0,"pricePerSecond":0.8},{"skuCode":"KLING30_TURBO_1080P","skuName":"可灵3.0 Turbo 1080P","priority":20,"enabled":true,"match":{"resolution":"1080P"},"price":5.0,"pricePerSecond":1.0}],"settleRule":{"settleMode":"REFUND_ONLY","usageSource":"PROVIDER_USAGE","allowRefund":true,"allowExtraCharge":false}}';
@@ -4843,3 +4848,179 @@ SET `capability_json`=JSON_SET(COALESCE(NULLIF(`capability_json`,''),'{}'),
    '支持非思考/思考切换；默认非思考，思考请求使用流式'),
    '并移除max_tokens','并保留输出上限')
 WHERE `model_code` IN ('qwen3.7-max','qwen3.7-plus');
+
+-- 万相 Wan3.0 全模态视频模型复用现有阿里百炼供应商，默认停用。
+SET @wan30_provider_id := (
+  SELECT `id` FROM `aid_ai_provider` WHERE `provider_code`='dashscope' AND `del_flag`='0' LIMIT 1
+);
+SET @wan30_prime_capability := '{"requiresConfiguredBilling":true,"strictSceneRules":true,"maxPromptCharacters":20000,"sizeOptions":["480P","720P","1080P"],"defaultSize":"720P","aspectRatioOptions":["adaptive","16:9","4:3","1:1","3:4","9:16"],"defaultAspectRatio":"adaptive","durationOptions":[-1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30],"defaultDurationSeconds":5,"supportsAudio":true,"defaultAudio":true,"minReferenceImages":0,"maxReferenceImages":10,"referenceImageFormats":["jpeg","jpg","png","bmp","webp"],"referenceImageMaxFileSizeMb":20,"referenceImageMinDimensionPixels":240,"referenceImageMaxDimensionPixels":8000,"referenceImageMinAspectRatio":0.125,"referenceImageMaxAspectRatio":8.0,"supportsBase64Image":true,"supportsVideoInput":true,"minReferenceVideos":0,"maxReferenceVideos":5,"referenceVideoFormats":["mp4","mov"],"referenceVideoMinDurationSeconds":1,"referenceVideoMaxDurationSeconds":15,"referenceVideoMaxTotalDurationSeconds":15,"maxInputOutputVideoDurationSeconds":30,"referenceVideoMaxFileSizeMb":100,"referenceVideoMinDimensionPixels":240,"referenceVideoMaxDimensionPixels":4096,"referenceVideoMinAspectRatio":0.125,"referenceVideoMaxAspectRatio":8.0,"supportsReferenceAudio":true,"minReferenceAudios":0,"maxReferenceAudios":5,"referenceAudioFormats":["wav","mp3"],"referenceAudioMinDurationSeconds":1,"referenceAudioMaxDurationSeconds":15,"referenceAudioMaxTotalDurationSeconds":15,"referenceAudioMaxFileSizeMb":15,"maxReferenceMaterials":20,"sceneRules":{"textToVideo":{"allowedInputs":["text"],"supportsDuration":true,"supportsSizePreset":true,"supportsAspectRatio":true},"imageToVideo":{"requiredInputs":["firstFrame"],"allowedInputs":["text","firstFrame"],"supportsDuration":true,"supportsSizePreset":true,"supportsAspectRatio":true},"startEndToVideo":{"requiredInputs":["firstFrame","lastFrame"],"allowedInputs":["text","firstFrame","lastFrame"],"supportsDuration":true,"supportsSizePreset":true,"supportsAspectRatio":true},"referenceToVideo":{"requiredAnyOf":["image","video","audio"],"allowedInputs":["text","image","video","audio"],"supportsDuration":true,"supportsSizePreset":true,"supportsAspectRatio":true}}}';
+SET @wan30_standard_capability := '{"requiresConfiguredBilling":true,"strictSceneRules":true,"maxPromptCharacters":20000,"sizeOptions":["480P","720P","1080P"],"defaultSize":"720P","aspectRatioOptions":["adaptive","16:9","4:3","1:1","3:4","9:16"],"defaultAspectRatio":"adaptive","durationOptions":[-1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30],"defaultDurationSeconds":5,"supportsAudio":true,"defaultAudio":true,"minReferenceImages":0,"maxReferenceImages":10,"referenceImageFormats":["jpeg","jpg","png","bmp","webp"],"referenceImageMaxFileSizeMb":20,"referenceImageMinDimensionPixels":240,"referenceImageMaxDimensionPixels":8000,"referenceImageMinAspectRatio":0.125,"referenceImageMaxAspectRatio":8.0,"supportsBase64Image":true,"supportsVideoInput":true,"minReferenceVideos":0,"maxReferenceVideos":5,"referenceVideoFormats":["mp4","mov"],"referenceVideoMinDurationSeconds":1,"referenceVideoMaxDurationSeconds":15,"referenceVideoMaxTotalDurationSeconds":15,"maxInputOutputVideoDurationSeconds":30,"referenceVideoMaxFileSizeMb":100,"referenceVideoMinDimensionPixels":240,"referenceVideoMaxDimensionPixels":4096,"referenceVideoMinAspectRatio":0.125,"referenceVideoMaxAspectRatio":8.0,"supportsReferenceAudio":true,"minReferenceAudios":0,"maxReferenceAudios":5,"referenceAudioFormats":["wav","mp3"],"referenceAudioMinDurationSeconds":1,"referenceAudioMaxDurationSeconds":15,"referenceAudioMaxTotalDurationSeconds":15,"referenceAudioMaxFileSizeMb":15,"maxReferenceMaterials":20,"sceneRules":{"textToVideo":{"allowedInputs":["text"],"supportsDuration":true,"supportsSizePreset":true,"supportsAspectRatio":true},"imageToVideo":{"requiredInputs":["firstFrame"],"allowedInputs":["text","firstFrame"],"supportsDuration":true,"supportsSizePreset":true,"supportsAspectRatio":true},"startEndToVideo":{"requiredInputs":["firstFrame","lastFrame"],"allowedInputs":["text","firstFrame","lastFrame"],"supportsDuration":true,"supportsSizePreset":true,"supportsAspectRatio":true},"referenceToVideo":{"requiredAnyOf":["image","video","audio"],"allowedInputs":["text","image","video","audio"],"supportsDuration":true,"supportsSizePreset":true,"supportsAspectRatio":true}}}';
+SET @wan30_prime_billing_rule := '{"mode":"SKU","meterType":"PER_SECOND","chargeType":"VIDEO","preHold":true,"matchStrategy":"FIRST_HIT","params":[{"code":"resolution","name":"分辨率","type":"ENUM","options":["480P","720P","1080P"],"required":true},{"code":"duration","name":"输出时长","type":"NUMBER","unit":"秒","required":true},{"code":"inputVideoCount","name":"输入视频数","type":"INT","required":false},{"code":"inputVideoSeconds","name":"输入视频总时长","type":"NUMBER","unit":"秒","required":false}],"skus":[{"skuCode":"WAN30_PRIME_480P","skuName":"Wan3.0 Prime 480P","priority":10,"enabled":true,"match":{"resolution":"480P"},"price":2.25,"pricePerSecond":0.45,"inputPricing":{"video":{"unitPrice":0.45,"maxSeconds":15,"maxCount":5}}},{"skuCode":"WAN30_PRIME_720P","skuName":"Wan3.0 Prime 720P","priority":20,"enabled":true,"match":{"resolution":"720P"},"price":4.5,"pricePerSecond":0.9,"inputPricing":{"video":{"unitPrice":0.9,"maxSeconds":15,"maxCount":5}}},{"skuCode":"WAN30_PRIME_1080P","skuName":"Wan3.0 Prime 1080P","priority":30,"enabled":true,"match":{"resolution":"1080P"},"price":9.0,"pricePerSecond":1.8,"inputPricing":{"video":{"unitPrice":1.8,"maxSeconds":15,"maxCount":5}}},{"skuCode":"WAN30_PRIME_FALLBACK","skuName":"Wan3.0 Prime 兜底","priority":999,"enabled":true,"match":{},"price":9.0,"pricePerSecond":1.8,"inputPricing":{"video":{"unitPrice":1.8,"maxSeconds":15,"maxCount":5}}}],"settleRule":{"settleMode":"REFUND_ONLY","usageSource":"PROVIDER_USAGE","allowRefund":true,"allowExtraCharge":false}}';
+SET @wan30_standard_billing_rule := '{"mode":"SKU","meterType":"PER_SECOND","chargeType":"VIDEO","preHold":true,"matchStrategy":"FIRST_HIT","params":[{"code":"resolution","name":"分辨率","type":"ENUM","options":["480P","720P","1080P"],"required":true},{"code":"duration","name":"输出时长","type":"NUMBER","unit":"秒","required":true},{"code":"inputVideoCount","name":"输入视频数","type":"INT","required":false},{"code":"inputVideoSeconds","name":"输入视频总时长","type":"NUMBER","unit":"秒","required":false}],"skus":[{"skuCode":"WAN30_STANDARD_480P","skuName":"Wan3.0 480P","priority":10,"enabled":true,"match":{"resolution":"480P"},"price":1.5,"pricePerSecond":0.3,"inputPricing":{"video":{"unitPrice":0.3,"maxSeconds":15,"maxCount":5}}},{"skuCode":"WAN30_STANDARD_720P","skuName":"Wan3.0 720P","priority":20,"enabled":true,"match":{"resolution":"720P"},"price":3.0,"pricePerSecond":0.6,"inputPricing":{"video":{"unitPrice":0.6,"maxSeconds":15,"maxCount":5}}},{"skuCode":"WAN30_STANDARD_1080P","skuName":"Wan3.0 1080P","priority":30,"enabled":true,"match":{"resolution":"1080P"},"price":6.0,"pricePerSecond":1.2,"inputPricing":{"video":{"unitPrice":1.2,"maxSeconds":15,"maxCount":5}}},{"skuCode":"WAN30_STANDARD_FALLBACK","skuName":"Wan3.0 兜底","priority":999,"enabled":true,"match":{},"price":6.0,"pricePerSecond":1.2,"inputPricing":{"video":{"unitPrice":1.2,"maxSeconds":15,"maxCount":5}}}],"settleRule":{"settleMode":"REFUND_ONLY","usageSource":"PROVIDER_USAGE","allowRefund":true,"allowExtraCharge":false}}';
+
+INSERT INTO `aid_ai_model` (
+  `provider_id`,`model_code`,`real_model_code`,`model_name`,`model_type`,`generate_mode`,`cost_credits`,`billing_multiplier`,
+  `api_suffix`,`protocol`,`priority`,`status`,`del_flag`,`create_time`,`create_by`,`update_time`,`update_by`,`remark`,
+  `billing_mode`,`billing_rule_json`,`billing_version`,`schedule_strategy_json`,`supports_text_input`,`supports_system_prompt`,
+  `supports_image_input`,`supports_multi_image_input`,`max_output_count`,`default_output_count`,`supports_aspect_ratio`,
+  `supports_size_preset`,`supports_duration`,`supports_first_frame`,`supports_last_frame`,`default_size_code`,
+  `default_aspect_ratio`,`default_duration_seconds`,`capability_json`,`capability_inited`,`official_price_url`,`is_free`
+) VALUES
+(@wan30_provider_id,'wan3.0-video-prime','wan3.0-video-prime','万相 Wan3.0 Video Prime','video','image_to_video',0,1,
+ '/api/v1/services/aigc/video-generation/video-synthesis','dashscope-video',140,'1','0',NOW(),'system',NOW(),'system',
+ '万相3.0优速版；文本、首帧、首尾帧与图/视频/音频参考统一模型；官方北京原价；默认停用',
+ 'SKU',@wan30_prime_billing_rule,7,'{"maxConcurrency":1}',1,0,1,1,1,1,1,1,1,1,1,'720P','adaptive',5,
+ @wan30_prime_capability,1,'https://help.aliyun.com/zh/model-studio/model-pricing',0),
+(@wan30_provider_id,'wan3.0-video','wan3.0-video','万相 Wan3.0 Video','video','image_to_video',0,1,
+ '/api/v1/services/aigc/video-generation/video-synthesis','dashscope-video',139,'1','0',NOW(),'system',NOW(),'system',
+ '万相3.0全能版；文本、首帧、首尾帧与图/视频/音频参考统一模型；官方北京原价；默认停用',
+ 'SKU',@wan30_standard_billing_rule,7,'{"maxConcurrency":1}',1,0,1,1,1,1,1,1,1,1,1,'720P','adaptive',5,
+ @wan30_standard_capability,1,'https://help.aliyun.com/zh/model-studio/model-pricing',0)
+ON DUPLICATE KEY UPDATE
+  `provider_id`=VALUES(`provider_id`),`real_model_code`=VALUES(`real_model_code`),`model_name`=VALUES(`model_name`),
+  `model_type`=VALUES(`model_type`),`generate_mode`=VALUES(`generate_mode`),
+  `api_suffix`=CASE WHEN NULLIF(TRIM(`api_suffix`),'') IS NULL THEN VALUES(`api_suffix`) ELSE `api_suffix` END,
+  `protocol`=VALUES(`protocol`),`capability_json`=VALUES(`capability_json`),`capability_inited`=1,
+  `supports_text_input`=VALUES(`supports_text_input`),`supports_system_prompt`=VALUES(`supports_system_prompt`),
+  `supports_image_input`=VALUES(`supports_image_input`),`supports_multi_image_input`=VALUES(`supports_multi_image_input`),
+  `supports_aspect_ratio`=VALUES(`supports_aspect_ratio`),`supports_size_preset`=VALUES(`supports_size_preset`),
+  `supports_duration`=VALUES(`supports_duration`),`supports_first_frame`=VALUES(`supports_first_frame`),
+  `supports_last_frame`=VALUES(`supports_last_frame`),`default_size_code`=VALUES(`default_size_code`),
+  `default_aspect_ratio`=VALUES(`default_aspect_ratio`),`default_duration_seconds`=VALUES(`default_duration_seconds`),
+  `official_price_url`=VALUES(`official_price_url`),`del_flag`='0',`update_time`=NOW(),`update_by`='system';
+
+UPDATE `aid_ai_model`
+SET `billing_mode`='SKU',
+    `billing_rule_json`=CASE
+      WHEN `model_code`='wan3.0-video-prime' THEN @wan30_prime_billing_rule
+      ELSE @wan30_standard_billing_rule
+    END,
+    `billing_version`=7,`update_time`=NOW(),`update_by`='system'
+WHERE `model_code` IN ('wan3.0-video-prime','wan3.0-video')
+  AND (`billing_rule_json` IS NULL OR JSON_VALID(`billing_rule_json`)=0
+       OR COALESCE(JSON_LENGTH(JSON_EXTRACT(`billing_rule_json`,'$.skus')),0)=0);
+
+SET @wan30_model_id := (SELECT `id` FROM `aid_ai_model` WHERE `model_code`='wan3.0-video-prime' LIMIT 1);
+UPDATE `aid_ai_model_func_config`
+SET `model_ids`=JSON_ARRAY_APPEND(COALESCE(`model_ids`,JSON_ARRAY()),'$',@wan30_model_id)
+WHERE `func_code` IN ('main_storyboard_video_image','main_storyboard_video','main_storyboard_video_multi_pro',
+                      'main_storyboard_video_edge','main_storyboard_video_grid')
+  AND @wan30_model_id IS NOT NULL
+  AND NOT JSON_CONTAINS(COALESCE(`model_ids`,JSON_ARRAY()),CAST(CONCAT(@wan30_model_id) AS JSON));
+
+-- Agnes Video 2.5 与 Flash：复用 Agnes 服务商、统一异步视频任务与模型能力计费。
+START TRANSACTION;
+
+INSERT INTO `aid_ai_provider` (
+  `provider_name`,`provider_code`,`logo_url`,`base_url`,`api_key`,`api_secret`,`auth_header`,`auth_prefix`,
+  `api_key_apply_url`,`official_doc_url`,`official_price_url`,`task_query_suffix`,`status`,`del_flag`,
+  `create_time`,`create_by`,`update_time`,`update_by`,`remark`,`supports_callback`,`schedule_strategy_json`
+) VALUES (
+  'Agnes AI','agnes',NULL,'https://apihub.agnes-ai.com','','','Authorization','Bearer ',
+  'https://apihub.agnes-ai.com','https://wiki.agnes-ai.cn','https://wiki.agnes-ai.cn',
+  '/agnesapi?video_id=%s','1','0',NOW(),'system',NOW(),'system',
+  'Agnes 文本、图片与异步视频服务；Video 2.5 查询由服务端追加 model_name',0,
+  '{"dispatchMode":"POLL_ONLY","supportsCallback":false,"firstPollDelaySeconds":2,"baseIntervalSeconds":2,"maxIntervalSeconds":30,"backoffFactor":1.5,"maxRetryCount":300,"maxLifeSeconds":7200,"progressTimeoutSeconds":1200,"maxConcurrency":1}'
+) ON DUPLICATE KEY UPDATE
+  `provider_name`=VALUES(`provider_name`),
+  `base_url`=CASE
+    WHEN NULLIF(TRIM(`base_url`),'') IS NULL OR TRIM(`base_url`)='https://api.agnes-ai.cn' THEN VALUES(`base_url`)
+    ELSE `base_url`
+  END,
+  `auth_header`=VALUES(`auth_header`),`auth_prefix`=VALUES(`auth_prefix`),
+  `task_query_suffix`=CASE
+    WHEN NULLIF(TRIM(`task_query_suffix`),'') IS NULL OR `task_query_suffix`='/v1/videos/%s'
+      THEN VALUES(`task_query_suffix`)
+    ELSE `task_query_suffix`
+  END,
+  `schedule_strategy_json`=CASE
+    WHEN NULLIF(TRIM(`schedule_strategy_json`),'') IS NULL OR JSON_VALID(`schedule_strategy_json`)=0
+      THEN VALUES(`schedule_strategy_json`)
+    ELSE `schedule_strategy_json`
+  END,
+  `remark`=CASE
+    WHEN NULLIF(TRIM(`remark`),'') IS NULL OR `remark` LIKE 'Agnes AI（Sapiens AI）%'
+      THEN VALUES(`remark`)
+    ELSE `remark`
+  END,
+  `del_flag`='0',`update_time`=NOW(),`update_by`='system';
+
+SET @agnes25_provider_id := (
+  SELECT `id` FROM `aid_ai_provider` WHERE `provider_code`='agnes' AND `del_flag`='0' LIMIT 1
+);
+
+-- 标准版未公开参考素材数量与音频格式上限：-1 表示数量不限，* 表示不虚构格式白名单；Flash 的 5 图/0 视频为明确硬限制。
+SET @agnes25_capability := '{"requiresConfiguredBilling":true,"strictSceneRules":true,"sizeOptions":["720P","960P","2K"],"defaultSize":"720P","durationOptions":[4,5,6,7,8,9,10,11,12],"defaultDurationSeconds":5,"aspectRatioOptions":["21:9","16:9","4:3","1:1","3:4","9:16"],"defaultAspectRatio":"16:9","supportsAudio":true,"defaultAudio":true,"minReferenceImages":0,"maxReferenceImages":-1,"supportsVideoInput":true,"minReferenceVideos":0,"maxReferenceVideos":-1,"supportsReferenceAudio":true,"minReferenceAudios":0,"maxReferenceAudios":-1,"referenceAudioFormats":["*"],"referenceAudioMinDurationSeconds":0,"referenceAudioMaxDurationSeconds":0,"referenceAudioMaxTotalDurationSeconds":0,"sceneRules":{"textToVideo":{"allowedInputs":["text"],"supportsDuration":true,"supportsSizePreset":true,"supportsAspectRatio":true},"imageToVideo":{"requiredAnyOf":["firstFrame","lastFrame"],"allowedInputs":["text","firstFrame","lastFrame"],"supportsDuration":true,"supportsSizePreset":true,"supportsAspectRatio":true},"startEndToVideo":{"requiredAnyOf":["firstFrame","lastFrame"],"allowedInputs":["text","firstFrame","lastFrame"],"supportsDuration":true,"supportsSizePreset":true,"supportsAspectRatio":true},"referenceToVideo":{"requiredAnyOf":["image","video","audio"],"allowedInputs":["text","image","video","audio"],"supportsDuration":true,"supportsSizePreset":true,"supportsAspectRatio":true}}}';
+SET @agnes25_flash_capability := '{"requiresConfiguredBilling":true,"strictSceneRules":true,"sizeOptions":["720P"],"defaultSize":"720P","durationOptions":[4,5,6,7,8,9,10,11,12],"defaultDurationSeconds":5,"aspectRatioOptions":["21:9","16:9","4:3","1:1","3:4","9:16"],"defaultAspectRatio":"16:9","supportsAudio":true,"defaultAudio":true,"minReferenceImages":0,"maxReferenceImages":5,"supportsVideoInput":false,"minReferenceVideos":0,"maxReferenceVideos":0,"supportsReferenceAudio":true,"minReferenceAudios":0,"maxReferenceAudios":-1,"referenceAudioFormats":["*"],"referenceAudioMinDurationSeconds":0,"referenceAudioMaxDurationSeconds":0,"referenceAudioMaxTotalDurationSeconds":0,"sceneRules":{"textToVideo":{"allowedInputs":["text"],"supportsDuration":true,"supportsSizePreset":true,"supportsAspectRatio":true},"imageToVideo":{"requiredAnyOf":["firstFrame","lastFrame"],"allowedInputs":["text","firstFrame","lastFrame"],"supportsDuration":true,"supportsSizePreset":true,"supportsAspectRatio":true},"startEndToVideo":{"requiredAnyOf":["firstFrame","lastFrame"],"allowedInputs":["text","firstFrame","lastFrame"],"supportsDuration":true,"supportsSizePreset":true,"supportsAspectRatio":true},"referenceToVideo":{"requiredAnyOf":["image","audio"],"allowedInputs":["text","image","audio"],"supportsDuration":true,"supportsSizePreset":true,"supportsAspectRatio":true}}}';
+
+-- 文档美元价按仓库统一的 7 元/美元静态口径折算；前 5 张输入图片免费，第 6 张起 0.035 元/张。
+SET @agnes25_billing_rule := '{"mode":"SKU","meterType":"PER_SECOND","chargeType":"VIDEO","preHold":true,"matchStrategy":"FIRST_HIT","params":[{"code":"resolution","name":"分辨率","type":"ENUM","options":["720P","960P","2K"],"required":true},{"code":"duration","name":"输出时长","type":"NUMBER","unit":"秒","required":true},{"code":"referenceImageCount","name":"输入图片数","type":"INT","required":false}],"skus":[{"skuCode":"AGNES_VIDEO25_720P","skuName":"Agnes Video 2.5 720P","priority":10,"enabled":true,"match":{"resolution":"720P"},"price":0.875,"pricePerSecond":0.175,"inputPricing":{"image":{"unitPrice":0.035,"freeCount":5}}},{"skuCode":"AGNES_VIDEO25_960P","skuName":"Agnes Video 2.5 960P","priority":20,"enabled":true,"match":{"resolution":"960P"},"price":1.4,"pricePerSecond":0.28,"inputPricing":{"image":{"unitPrice":0.035,"freeCount":5}}},{"skuCode":"AGNES_VIDEO25_2K","skuName":"Agnes Video 2.5 2K","priority":30,"enabled":true,"match":{"resolution":"2K"},"price":1.925,"pricePerSecond":0.385,"inputPricing":{"image":{"unitPrice":0.035,"freeCount":5}}},{"skuCode":"AGNES_VIDEO25_FALLBACK","skuName":"Agnes Video 2.5 兜底","priority":999,"enabled":true,"match":{},"price":1.925,"pricePerSecond":0.385,"inputPricing":{"image":{"unitPrice":0.035,"freeCount":5}}}],"settleRule":{"settleMode":"REFUND_ONLY","usageSource":"PROVIDER_USAGE","allowRefund":true,"allowExtraCharge":false}}';
+SET @agnes25_flash_billing_rule := '{"mode":"SKU","meterType":"PER_SECOND","chargeType":"VIDEO","preHold":true,"matchStrategy":"FIRST_HIT","params":[{"code":"resolution","name":"分辨率","type":"ENUM","options":["720P"],"required":true},{"code":"duration","name":"输出时长","type":"NUMBER","unit":"秒","required":true}],"skus":[{"skuCode":"AGNES_VIDEO25_FLASH_720P","skuName":"Agnes Video 2.5 Flash 720P","priority":10,"enabled":true,"match":{"resolution":"720P"},"price":0.875,"pricePerSecond":0.175},{"skuCode":"AGNES_VIDEO25_FLASH_FALLBACK","skuName":"Agnes Video 2.5 Flash 兜底","priority":999,"enabled":true,"match":{},"price":0.875,"pricePerSecond":0.175}],"settleRule":{"settleMode":"REFUND_ONLY","usageSource":"PROVIDER_USAGE","allowRefund":true,"allowExtraCharge":false}}';
+
+INSERT INTO `aid_ai_model` (
+  `provider_id`,`model_code`,`real_model_code`,`model_name`,`model_type`,`generate_mode`,`cost_credits`,`billing_multiplier`,
+  `api_suffix`,`protocol`,`priority`,`status`,`del_flag`,`create_time`,`create_by`,`update_time`,`update_by`,`remark`,
+  `billing_mode`,`billing_rule_json`,`billing_version`,`schedule_strategy_json`,`supports_text_input`,`supports_system_prompt`,
+  `supports_image_input`,`supports_multi_image_input`,`max_output_count`,`default_output_count`,`supports_aspect_ratio`,
+  `supports_size_preset`,`supports_duration`,`supports_first_frame`,`supports_last_frame`,`default_size_code`,
+  `default_aspect_ratio`,`default_duration_seconds`,`capability_json`,`capability_inited`,`official_price_url`,`is_free`
+) VALUES
+(@agnes25_provider_id,'agnes-video-2.5','agnes-video-2.5','Agnes Video 2.5','video','image_to_video',0,1,
+ '/v1/videos','agnes-video',131,'1','0',NOW(),'system',NOW(),'system',
+ 'Agnes Video 2.5；文本、首尾帧及图片/音频/视频参考；4-12秒；美元价按7元/美元折算；默认停用',
+ 'SKU',@agnes25_billing_rule,7,'{"maxConcurrency":1}',1,0,1,1,1,1,1,1,1,1,1,'720P','16:9',5,
+ @agnes25_capability,1,'https://wiki.agnes-ai.cn',0),
+(@agnes25_provider_id,'agnes-video-2.5-flash','agnes-video-2.5-flash','Agnes Video 2.5 Flash','video','image_to_video',0,1,
+ '/v1/videos','agnes-video',130,'1','0',NOW(),'system',NOW(),'system',
+ 'Agnes Video 2.5 Flash；720P、4-12秒、参考图最多5张、禁止参考视频；当前限时免费；默认停用',
+ 'SKU',@agnes25_flash_billing_rule,7,'{"maxConcurrency":1}',1,0,1,1,1,1,1,1,1,1,1,'720P','16:9',5,
+ @agnes25_flash_capability,1,'https://wiki.agnes-ai.cn',1)
+ON DUPLICATE KEY UPDATE
+  `provider_id`=VALUES(`provider_id`),`real_model_code`=VALUES(`real_model_code`),`model_name`=VALUES(`model_name`),
+  `model_type`=VALUES(`model_type`),`generate_mode`=VALUES(`generate_mode`),
+  `api_suffix`=CASE WHEN NULLIF(TRIM(`api_suffix`),'') IS NULL THEN VALUES(`api_suffix`) ELSE `api_suffix` END,
+  `protocol`=VALUES(`protocol`),`capability_json`=VALUES(`capability_json`),`capability_inited`=1,
+  `supports_text_input`=VALUES(`supports_text_input`),`supports_system_prompt`=VALUES(`supports_system_prompt`),
+  `supports_image_input`=VALUES(`supports_image_input`),`supports_multi_image_input`=VALUES(`supports_multi_image_input`),
+  `max_output_count`=VALUES(`max_output_count`),`default_output_count`=VALUES(`default_output_count`),
+  `supports_aspect_ratio`=VALUES(`supports_aspect_ratio`),`supports_size_preset`=VALUES(`supports_size_preset`),
+  `supports_duration`=VALUES(`supports_duration`),`supports_first_frame`=VALUES(`supports_first_frame`),
+  `supports_last_frame`=VALUES(`supports_last_frame`),`default_size_code`=VALUES(`default_size_code`),
+  `default_aspect_ratio`=VALUES(`default_aspect_ratio`),`default_duration_seconds`=VALUES(`default_duration_seconds`),
+  `official_price_url`=VALUES(`official_price_url`),`del_flag`='0',`update_time`=NOW(),`update_by`='system';
+
+UPDATE `aid_ai_model`
+SET `billing_mode`='SKU',
+    `billing_rule_json`=CASE
+      WHEN `model_code`='agnes-video-2.5' THEN @agnes25_billing_rule
+      ELSE @agnes25_flash_billing_rule
+    END,
+    `billing_version`=7,`update_time`=NOW(),`update_by`='system'
+WHERE `model_code` IN ('agnes-video-2.5','agnes-video-2.5-flash')
+  AND (`billing_rule_json` IS NULL OR JSON_VALID(`billing_rule_json`)=0
+       OR COALESCE(JSON_LENGTH(JSON_EXTRACT(`billing_rule_json`,'$.skus')),0)=0);
+
+SET @agnes25_model_id := (SELECT `id` FROM `aid_ai_model` WHERE `model_code`='agnes-video-2.5' LIMIT 1);
+UPDATE `aid_ai_model_func_config`
+SET `model_ids`=JSON_ARRAY_APPEND(COALESCE(`model_ids`,JSON_ARRAY()),'$',@agnes25_model_id)
+WHERE `func_code` IN ('main_storyboard_video_image','main_storyboard_video','main_storyboard_video_multi_pro',
+                      'main_storyboard_video_edge','main_storyboard_video_grid')
+  AND @agnes25_model_id IS NOT NULL
+  AND NOT JSON_CONTAINS(COALESCE(`model_ids`,JSON_ARRAY()),CAST(CONCAT(@agnes25_model_id) AS JSON));
+
+SET @agnes25_model_id := (SELECT `id` FROM `aid_ai_model` WHERE `model_code`='agnes-video-2.5-flash' LIMIT 1);
+UPDATE `aid_ai_model_func_config`
+SET `model_ids`=JSON_ARRAY_APPEND(COALESCE(`model_ids`,JSON_ARRAY()),'$',@agnes25_model_id)
+WHERE `func_code` IN ('main_storyboard_video_image','main_storyboard_video','main_storyboard_video_multi_pro',
+                      'main_storyboard_video_edge','main_storyboard_video_grid')
+  AND @agnes25_model_id IS NOT NULL
+  AND NOT JSON_CONTAINS(COALESCE(`model_ids`,JSON_ARRAY()),CAST(CONCAT(@agnes25_model_id) AS JSON));
+
+COMMIT;
+SET @wan30_model_id := (SELECT `id` FROM `aid_ai_model` WHERE `model_code`='wan3.0-video' LIMIT 1);
+UPDATE `aid_ai_model_func_config`
+SET `model_ids`=JSON_ARRAY_APPEND(COALESCE(`model_ids`,JSON_ARRAY()),'$',@wan30_model_id)
+WHERE `func_code` IN ('main_storyboard_video_image','main_storyboard_video','main_storyboard_video_multi_pro',
+                      'main_storyboard_video_edge','main_storyboard_video_grid')
+  AND @wan30_model_id IS NOT NULL
+  AND NOT JSON_CONTAINS(COALESCE(`model_ids`,JSON_ARRAY()),CAST(CONCAT(@wan30_model_id) AS JSON));

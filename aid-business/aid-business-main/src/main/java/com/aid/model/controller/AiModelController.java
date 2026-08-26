@@ -11,6 +11,7 @@ import com.aid.common.utils.SecurityUtils;
 import com.aid.model.dto.AiModelByFuncRequest;
 import com.aid.model.dto.AiModelListRequest;
 import com.aid.model.service.IAiModelBusinessService;
+import com.aid.model.util.AiModelClientDisplaySorter;
 
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
@@ -33,7 +34,8 @@ public class AiModelController extends BaseController
     @PostMapping("/list")
     public AjaxResult list(@RequestBody AiModelListRequest request)
     {
-        return success(aiModelBusinessService.listAvailableModels(request));
+        return success(AiModelClientDisplaySorter.sortedModels(
+                aiModelBusinessService.listAvailableModels(request)));
     }
 
     /**
@@ -43,10 +45,11 @@ public class AiModelController extends BaseController
     @PostMapping("/listByFunc")
     public AjaxResult listByFunc(@Valid @RequestBody AiModelByFuncRequest request)
     {
-        return success(aiModelBusinessService.listAvailableModelsGroupedByFuncCodes(
-                request.resolveFuncCodes(),
-                request.getProjectId(),
-                request.getEpisodeId(),
-                SecurityUtils.getUserId()));
+        return success(AiModelClientDisplaySorter.sortedGroups(
+                aiModelBusinessService.listAvailableModelsGroupedByFuncCodes(
+                        request.resolveFuncCodes(),
+                        request.getProjectId(),
+                        request.getEpisodeId(),
+                        SecurityUtils.getUserId())));
     }
 }

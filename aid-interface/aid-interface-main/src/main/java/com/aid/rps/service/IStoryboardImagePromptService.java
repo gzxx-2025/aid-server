@@ -4,6 +4,9 @@ import java.util.List;
 import java.util.Map;
 
 import com.aid.rps.dto.AssetExtractTaskVO;
+import com.aid.rps.dto.StoryboardImagePromptBatchRequest;
+import com.aid.rps.dto.StoryboardImageWithPromptRequest;
+import com.aid.billing.vo.BillingQuoteVO;
 
 /**
  * 批量生成分镜图脚本（图生图 prompt）服务。
@@ -33,6 +36,12 @@ public interface IStoryboardImagePromptService
                                                 String agentCode, String modelCode,
                                                 Boolean overwrite, Map<String, Object> chainNext);
 
+    /** 无副作用地复用正式提交计划生成逐镜报价。 */
+    BillingQuoteVO quoteImagePrompt(StoryboardImagePromptBatchRequest request, Long userId);
+
+    /** 复用同一提示词计划，聚合提示词与后续出图两段权威报价。 */
+    BillingQuoteVO quoteImageWithPrompt(StoryboardImageWithPromptRequest request, Long userId);
+
     /**
      * Consumer 调用：实际执行分镜图脚本批量生成。
      * 必须独立写库，不依赖外层事务。返回结果 JSON（供 {@code aid_extract_task.result_data} 落盘）。
@@ -45,4 +54,7 @@ public interface IStoryboardImagePromptService
      * 续生：仅对 {@code PARTIAL_FAILED} 终态任务可调，重跑未生成 image_prompt 的镜头。
      */
     AssetExtractTaskVO resumeImagePrompt(Long taskId, Long userId);
+
+    /** 分镜图片提示词剩余镜头续生报价。 */
+    BillingQuoteVO quoteResumeImagePrompt(Long taskId, Long userId);
 }

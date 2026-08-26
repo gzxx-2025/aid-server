@@ -47,18 +47,29 @@ public class DashscopeVideoProviderClient implements VideoProviderClient {
     }
 
     @Override
+    public Integer fallbackMaxReferenceImages(AiModelConfigVo modelConfig) {
+        String modelCode = com.aid.media.provider.ModelCodeResolver.resolveUpstreamModel(modelConfig, null);
+        return StringUtils.defaultString(modelCode).toLowerCase()
+                .startsWith(DashscopeConstants.MODEL_HAPPYHORSE_PREFIX)
+                ? DashscopeConstants.HAPPYHORSE_MAX_REFERENCE_IMAGES : null;
+    }
+
+    @Override
     public boolean supportsProviderCode(String providerCode) {
         // 阿里百炼视频（万相/可灵/爱诗）：按 provider_code 精确归属
         return providerCode != null
-                && DashscopeConstants.PROVIDER_CODE.equalsIgnoreCase(providerCode.trim());
+                && (DashscopeConstants.PROVIDER_CODE.equalsIgnoreCase(providerCode.trim())
+                || DashscopeConstants.PROVIDER_CODE_WAN3.equalsIgnoreCase(providerCode.trim()));
     }
 
     @Override
     public ProviderSubmitResult submit(AiModelConfigVo modelConfig, MediaVideoGenerateRequest request) {
-        // 通义视频不下发参考音频，正文里的 @音频N 必然悬空，按 0 条统一文字降级
-        ReferencePromptSanitizer.sanitizeInPlace(request,
-                ReferenceImageLimiter.resolveMax(modelConfig, 0), 0);
         String effectiveModel = resolveEffectiveModel(modelConfig, request);
+        // Wan3.0 在专用方言内按实际 media 数量改写图/视频/音频索引；旧模型保持原清洗语义。
+        if (!Wan3VideoRequestBuilder.supportsModelName(effectiveModel)) {
+            ReferencePromptSanitizer.sanitizeInPlace(request,
+                    ReferenceImageLimiter.resolveMax(modelConfig, 0), 0);
+        }
         VideoDialect dialect = resolveDialect(effectiveModel);
         String submitUrl = buildApiUrl(modelConfig.getBaseUrl(), modelConfig.getApiSuffix());
         Map<String, Object> body = dialect.buildSubmitBody(effectiveModel, request, modelConfig);
@@ -118,6 +129,9 @@ public class DashscopeVideoProviderClient implements VideoProviderClient {
             "usage.output_video_duration",
             "usage.video_duration",
             "usage.duration");
+        Integer inputVideoDuration = ProviderResponseHelper.readInt(root,
+            "usage.input_video_duration",
+            "usage.input_duration");
         if (DashscopeConstants.TASK_STATUS_SUCCEEDED.equals(normalizedStatus)
             && StringUtils.isBlank(videoUrl)) {
             return queryAnomaly(raw, "上游成功但结果链接未就绪", taskStatus);
@@ -128,6 +142,7 @@ public class DashscopeVideoProviderClient implements VideoProviderClient {
             .errorMessage(error)
             .rawResponse(raw)
             .videoDurationSeconds(videoDuration)
+            .inputVideoSeconds(inputVideoDuration)
             .querySuccessful(Boolean.TRUE)
             .providerStatus(taskStatus)
             .terminalConfirmed(isTerminalStatus(taskStatus))
@@ -600,6 +615,9 @@ public class DashscopeVideoProviderClient implements VideoProviderClient {
         @Override
         public Map<String, Object> buildSubmitBody(String modelName, MediaVideoGenerateRequest request,
                                                     AiModelConfigVo modelConfig) {
+            if (Wan3VideoRequestBuilder.supportsModelName(modelName)) {
+                return Wan3VideoRequestBuilder.buildSubmissionBody(modelName, modelConfig, request);
+            }
             Map<String, Object> body = buildBaseBody(modelName, request);
             Map<String, Object> input = getOrCreateInput(body);
             if (!input.containsKey(DashscopeConstants.JSON_IMG_URL) && StringUtils.isNotBlank(request.getImageUrl())) {

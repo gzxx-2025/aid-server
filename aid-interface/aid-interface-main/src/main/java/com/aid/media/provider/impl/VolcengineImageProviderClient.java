@@ -53,6 +53,11 @@ public class VolcengineImageProviderClient implements ImageProviderClient {
     }
 
     @Override
+    public Integer fallbackMaxReferenceImages(AiModelConfigVo modelConfig) {
+        return DEFAULT_MAX_REFERENCE_IMAGES;
+    }
+
+    @Override
     public boolean supportsProviderCode(String providerCode) {
         // 火山方舟 Seedream 图片：按 provider_code 精确归属
         return providerCode != null

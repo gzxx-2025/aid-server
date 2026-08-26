@@ -18,6 +18,7 @@ import com.aid.common.error.TaskErrorCode;
 import com.aid.common.error.TaskErrorResult;
 import com.aid.common.utils.DateUtils;
 import com.aid.notify.wechat.service.IWechatNotifyService;
+import com.aid.rps.service.IExtractBillingService;
 import com.aid.rps.sse.AssetExtractSseManager;
 
 import cn.hutool.core.collection.CollectionUtil;
@@ -65,6 +66,12 @@ public class BatchTaskLocalOrchestrator
     /** 取消标记（低层 Redis 管理器，单向依赖） */
     @Resource
     private TaskCancelFlagManager taskCancelFlagManager;
+
+    @Resource
+    private BatchTaskSlotService batchTaskSlotService;
+
+    @Resource
+    private IExtractBillingService extractBillingService;
 
     @Resource
     private AssetExtractSseManager sseManager;
@@ -138,6 +145,7 @@ public class BatchTaskLocalOrchestrator
         if (StrUtil.isBlank(dispatchToken) || !claimExecution(taskId, dispatchToken))
         {
             log.info("本地批量任务周期已变化，跳过执行: taskId={}, type={}", taskId, spec.taskType);
+            releaseLogicalSlotIfTerminal(taskId);
             return;
         }
         // 本地批量任务可能长时间阻塞在 LLM / 上游调用中，必须持续续租避免被运行期自愈误判为中断。
@@ -233,6 +241,36 @@ public class BatchTaskLocalOrchestrator
             sendCompleteSafely(taskId, resultJson, event.getChainChildTaskIds(), event.getChainChildTaskType());
             log.info("本地批量任务完成: taskId={}, type={}", taskId, spec.taskType);
         }
+        catch (BatchTaskExecutionRejectedException rejected)
+        {
+            if (updateResult(taskId, dispatchToken, TASK_STATUS_CANCELLED, null, "用户取消"))
+            {
+                try
+                {
+                    boolean billingClosed = extractBillingService.settleOrRefundAfterExecutionFailure(
+                            taskId, userId, dispatchToken);
+                    if (!billingClosed)
+                    {
+                        log.warn("本地停止任务计费尚未收敛，保留补偿: taskId={}, type={}",
+                                taskId, spec.taskType);
+                    }
+                }
+                catch (Exception billingEx)
+                {
+                    log.error("本地停止任务计费收口异常: taskId={}, type={}",
+                            taskId, spec.taskType, billingEx);
+                }
+                AidExtractTask cancelled = extractTaskService.selectAidExtractTaskById(taskId);
+                batchTaskSlotService.releaseForTask(cancelled);
+                if (onFailureReleaseLocks != null)
+                {
+                    try { onFailureReleaseLocks.run(); }
+                    catch (Exception ignore) { /* 锁释放失败不阻断取消终态 */ }
+                }
+                sseManager.sendCancelled(taskId, "用户取消");
+            }
+            log.info("本地批量任务在提交周期内取消: taskId={}, type={}", taskId, spec.taskType);
+        }
         catch (Exception e)
         {
             log.error("本地批量任务失败: taskId={}, type={}, userId={}", taskId, spec.taskType, userId, e);
@@ -254,6 +292,20 @@ public class BatchTaskLocalOrchestrator
         {
             try { taskQueueService.releaseSlots(taskId, dispatchToken); }
             catch (Exception ex) { log.warn("本地批量任务释放名额异常(不影响业务): taskId={}", taskId, ex); }
+            releaseLogicalSlotIfTerminal(taskId);
+        }
+    }
+
+    private void releaseLogicalSlotIfTerminal(Long taskId)
+    {
+        try
+        {
+            AidExtractTask current = extractTaskService.selectAidExtractTaskById(taskId);
+            batchTaskSlotService.releaseForTask(current);
+        }
+        catch (Exception ex)
+        {
+            log.warn("本地批量任务释放逻辑槽异常: taskId={}, err={}", taskId, ex.getMessage());
         }
     }
 

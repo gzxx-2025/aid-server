@@ -15,6 +15,7 @@ import com.aid.compose.service.VideoComposeService;
 
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
+import io.swagger.v3.oas.annotations.Operation;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -58,5 +59,13 @@ public class ComposeController extends BaseController {
     public AjaxResult status(@Valid @RequestBody ComposeStatusRequest request) {
         ComposeStatusResult result = videoComposeService.queryComposeStatus(request);
         return success(result);
+    }
+
+    /** 停止一键配音业务链。 */
+    @Operation(summary = "停止一键配音")
+    @PostMapping("/cancel")
+    public AjaxResult cancel(@Valid @RequestBody ComposeStatusRequest request) {
+        videoComposeService.cancelVoiceover(request);
+        return success();
     }
 }

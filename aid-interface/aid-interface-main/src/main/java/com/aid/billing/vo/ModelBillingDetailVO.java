@@ -49,7 +49,7 @@ public class ModelBillingDetailVO implements Serializable
     /** 是否免费 */
     private Boolean isFree;
 
-    /** 计费口径：TOKEN / PER_IMAGE / PER_SECOND / SKU_PACKAGE / FIXED */
+    /** 计费口径：TOKEN / PER_IMAGE / PER_SECOND / SKU_PACKAGE / FIXED / MIXED */
     private String meterType;
 
     /** 计费口径中文名：按Token阶梯计费 / 按张计费 / 按秒计费 / 按套餐计费 / 固定单价 */

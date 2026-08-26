@@ -3,20 +3,16 @@ package com.aid.aid.service.support;
 import cn.hutool.core.util.StrUtil;
 import com.aid.aid.domain.AidAiModel;
 import com.aid.common.exception.ServiceException;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 
 import java.math.BigDecimal;
-import java.util.Set;
 
 /** 模型从停用切换为启用前的通用计费完整性闸门。 */
 @Slf4j
 public final class ModelBillingActivationValidator {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private static final Set<String> MAIN_PRICE_FIELDS = Set.of(
-        "price", "pricePerSecond", "pricePerChar", "inputPricePerMillion", "outputPricePerMillion");
 
     private ModelBillingActivationValidator() {
     }
@@ -65,26 +61,7 @@ public final class ModelBillingActivationValidator {
         if (!"SKU".equals(mode)) {
             throw failure("invalid billing mode=" + mode, "计费模式无效");
         }
-        if (StrUtil.isBlank(model.getBillingRuleJson())) {
-            throw failure("SKU rule missing, modelCode=" + model.getModelCode(), "SKU价格未配置");
-        }
-        try {
-            JsonNode root = MAPPER.readTree(model.getBillingRuleJson());
-            JsonNode skus = root.path("skus");
-            if (!skus.isArray()) {
-                throw failure("SKU array missing, modelCode=" + model.getModelCode(), "SKU价格未配置");
-            }
-            for (JsonNode sku : skus) {
-                if (sku.path("enabled").asBoolean(false) && containsPositiveMainPrice(sku)) {
-                    return;
-                }
-            }
-        } catch (ServiceException ex) {
-            throw ex;
-        } catch (Exception ex) {
-            throw failure("SKU rule invalid, modelCode=" + model.getModelCode(), "SKU价格未配置");
-        }
-        throw failure("no enabled positive SKU, modelCode=" + model.getModelCode(), "SKU价格未配置");
+        ModelBillingRuleValidator.validate(model);
     }
 
     private static ServiceException failure(String reason, String clientMessage) {
@@ -92,23 +69,4 @@ public final class ModelBillingActivationValidator {
         return new ServiceException(clientMessage);
     }
 
-    private static boolean containsPositiveMainPrice(JsonNode sku) {
-        if (sku == null || !sku.isObject()) {
-            return false;
-        }
-        for (String field : MAIN_PRICE_FIELDS) {
-            if (positive(sku.get(field))) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static boolean positive(JsonNode node) {
-        try {
-            return node != null && node.isNumber() && node.decimalValue().compareTo(BigDecimal.ZERO) > 0;
-        } catch (Exception ex) {
-            return false;
-        }
-    }
 }

@@ -43,6 +43,8 @@ import com.aid.domain.vo.AiModelConfigVo;
 import com.aid.media.dto.MediaImageGenerateRequest;
 import com.aid.media.dto.MediaTaskResponse;
 import com.aid.media.service.IMediaGenerationService;
+import com.aid.media.service.MediaBillingQuoteService;
+import com.aid.billing.vo.BillingQuoteVO;
 import com.aid.media.util.ModelCapabilityResolver;
 import com.aid.model.vo.CapabilityVO;
 import com.aid.rps.service.IAssetExtractService;
@@ -137,6 +139,9 @@ public class StoryboardEditImageServiceImpl implements IStoryboardEditImageServi
     @Autowired
     private IMediaGenerationService mediaGenerationService;
 
+    @Autowired
+    private MediaBillingQuoteService mediaBillingQuoteService;
+
     /** 媒体URL统一解析器：本站校验 + 相对路径拼完整URL */
     @Autowired
     private MediaUrlResolver mediaUrlResolver;
@@ -161,7 +166,7 @@ public class StoryboardEditImageServiceImpl implements IStoryboardEditImageServi
     public StoryboardEditImageGenerateVO generateEditImage(StoryboardEditImageGenerateRequest request, Long userId)
     {
         validateUserId(userId);
-        validateBasicRequest(request, userId);
+        validateBasicRequest(request, userId, true);
 
         AidStoryboard storyboard = loadAndCheckStoryboard(request.getStoryboardId(), userId);
 
@@ -239,6 +244,28 @@ public class StoryboardEditImageServiceImpl implements IStoryboardEditImageServi
             safeReleaseLock(lockKey, lockToken);
             throw e;
         }
+    }
+
+    @Override
+    public BillingQuoteVO quoteEditImage(StoryboardEditImageGenerateRequest request, Long userId)
+    {
+        validateUserId(userId);
+        validateBasicRequest(request, userId, false);
+        AidStoryboard storyboard = loadAndCheckStoryboard(request.getStoryboardId(), userId);
+        AidAiModel model = validateModelInPool(request.getModelCode());
+        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(model.getModelCode());
+        if (modelConfig == null)
+        {
+            throw new RuntimeException("模型无效");
+        }
+        validateModelCapability(modelConfig, request, userId);
+        List<String> references = mediaUrlResolver.toFullUrls(request.referenceImagesAsList());
+        String finalPrompt = buildFinalPrompt(request.getPrompt(), request.getAspectRatio(), references);
+        MediaImageGenerateRequest mediaRequest = buildMediaRequest(userId, storyboard,
+                model.getModelCode(), finalPrompt, references,
+                request.getAspectRatio(), request.getSize(), null);
+        return mediaBillingQuoteService.quoteImage(
+                "STORYBOARD_EDIT_IMAGE", mediaRequest, request.getImageCount());
     }
     private String buildLockToken()
     {
@@ -346,7 +373,8 @@ public class StoryboardEditImageServiceImpl implements IStoryboardEditImageServi
         }
     }
 
-    private void validateBasicRequest(StoryboardEditImageGenerateRequest request, Long userId)
+    private void validateBasicRequest(StoryboardEditImageGenerateRequest request,
+            Long userId, boolean validateRemoteImage)
     {
         if (Objects.isNull(request))
         {
@@ -374,7 +402,7 @@ public class StoryboardEditImageServiceImpl implements IStoryboardEditImageServi
         }
         // 相对路径拼完整URL后再做远程可达性 + Content-Type 校验
         String fullUrl = mediaUrlResolver.toFullUrl(url);
-        if (!ImageUrlValidator.isValidRemoteImageUrl(fullUrl))
+        if (validateRemoteImage && !ImageUrlValidator.isValidRemoteImageUrl(fullUrl))
         {
             log.info("分镜编辑图参考图校验失败: storyboardId={}, url={}", request.getStoryboardId(), fullUrl);
             throw new RuntimeException("图片无效");
@@ -939,6 +967,17 @@ public class StoryboardEditImageServiceImpl implements IStoryboardEditImageServi
                                         List<String> referenceImages, String aspectRatio,
                                         String size, int indexFrom1)
     {
+        MediaImageGenerateRequest imageRequest = buildMediaRequest(userId, storyboard, modelCode,
+                finalPrompt, referenceImages, aspectRatio, size,
+                taskId * 100L + indexFrom1);
+        MediaTaskResponse imageResponse = mediaGenerationService.generateImage(imageRequest);
+        return resolveSingleImageUrl(taskId, imageResponse);
+    }
+
+    private MediaImageGenerateRequest buildMediaRequest(Long userId, AidStoryboard storyboard,
+            String modelCode, String finalPrompt, List<String> referenceImages,
+            String aspectRatio, String size, Long bizTaskId)
+    {
         MediaImageGenerateRequest imageRequest = new MediaImageGenerateRequest();
         imageRequest.setModelName(modelCode);
         imageRequest.setUserId(userId);
@@ -957,7 +996,7 @@ public class StoryboardEditImageServiceImpl implements IStoryboardEditImageServi
         imageRequest.setSize(size);
         imageRequest.setExpectedImageCount(1);
         // bizTaskId 差异化：父 taskId * 100 + index，避免媒体层 requestHash 把 N 次请求幂等合并成 1 次
-        imageRequest.setBizTaskId(taskId * 100L + indexFrom1);
+        imageRequest.setBizTaskId(bizTaskId);
         imageRequest.setBizTaskType(TASK_TYPE_STORYBOARD_EDIT_IMAGE);
 
         AiModelConfigVo defaultModelConfig = aiModelConfigService.selectByModelCode(modelCode);
@@ -969,8 +1008,7 @@ public class StoryboardEditImageServiceImpl implements IStoryboardEditImageServi
         AgentModelDefault agentModel = new AgentModelDefault(modelCode);
         agentDefaultParamsApplier.applyToImage(agentModel, imageRequest, defaultModelConfig);
 
-        MediaTaskResponse imageResponse = mediaGenerationService.generateImage(imageRequest);
-        return resolveSingleImageUrl(taskId, imageResponse);
+        return imageRequest;
     }
 
     private static final class TaskCancelledException extends RuntimeException

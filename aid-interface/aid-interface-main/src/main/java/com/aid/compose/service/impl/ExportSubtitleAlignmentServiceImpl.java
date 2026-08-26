@@ -26,6 +26,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.BiConsumer;
+import java.util.function.Function;
+import java.util.function.Supplier;
 
 /** 腾讯云自动字幕导出编排。厂商提交与轮询封装在同步客户端中，本服务负责分镜级检查点与断点续跑。 */
 @Slf4j
@@ -64,7 +66,8 @@ public class ExportSubtitleAlignmentServiceImpl implements ExportSubtitleAlignme
     public void align(List<ComposeGroupDto> groups, List<TimelineSegment> matchedSegments,
                       Map<Long, AidGenRecord> selectedVideos,
                       BiConsumer<Integer, Integer> progressCallback,
-                      Runnable checkpointCallback, Runnable heartbeatCallback) {
+                      Runnable checkpointCallback, Runnable heartbeatCallback,
+                      Function<Supplier<SpeechRecognitionResult>, SpeechRecognitionResult> submissionGuard) {
         SpeechRecognitionClient client = resolveEnabledClient();
         if (Objects.isNull(client)) {
             log.error("自动字幕执行时识别服务已关闭");
@@ -100,7 +103,7 @@ public class ExportSubtitleAlignmentServiceImpl implements ExportSubtitleAlignme
             try {
                 markProcessing(group, segment, client.providerCode(), mediaFingerprint);
                 runCheckpoint(checkpointCallback);
-                alignGroup(group, segment, selectedVideos, client, heartbeatCallback);
+                alignGroup(group, segment, selectedVideos, client, heartbeatCallback, submissionGuard);
                 runCheckpoint(checkpointCallback);
             } catch (RuntimeException ex) {
                 String failureReason = shortError(ex);
@@ -204,13 +207,18 @@ public class ExportSubtitleAlignmentServiceImpl implements ExportSubtitleAlignme
 
     private void alignGroup(ComposeGroupDto group, TimelineSegment segment,
                             Map<Long, AidGenRecord> selectedVideos, SpeechRecognitionClient client,
-                            Runnable heartbeatCallback) {
+                            Runnable heartbeatCallback,
+                            Function<Supplier<SpeechRecognitionResult>, SpeechRecognitionResult> submissionGuard) {
         List<String> mediaUrls = SubtitleRecognitionMediaResolver.resolveUrls(group);
         List<Double> mediaDurations = SubtitleRecognitionMediaResolver.resolveDurations(group);
         List<TimedSubtitleCue> rawCues = new ArrayList<>();
         double mediaOffset = 0D;
         for (int index = 0; index < mediaUrls.size(); index++) {
-            SpeechRecognitionResult result = client.recognize(mediaUrls.get(index), heartbeatCallback);
+            String mediaUrl = mediaUrls.get(index);
+            Supplier<SpeechRecognitionResult> providerCall =
+                    () -> client.recognize(mediaUrl, heartbeatCallback);
+            SpeechRecognitionResult result = Objects.isNull(submissionGuard)
+                    ? providerCall.get() : submissionGuard.apply(providerCall);
             if (Objects.isNull(result)) {
                 log.error("导出分镜字幕识别响应为空, storyboardId={}, mediaIndex={}",
                         group.getStoryboardId(), index);

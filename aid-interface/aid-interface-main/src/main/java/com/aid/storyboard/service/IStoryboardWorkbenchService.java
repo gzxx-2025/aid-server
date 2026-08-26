@@ -20,6 +20,7 @@ import com.aid.storyboard.vo.AudioTaskVO;
 import com.aid.storyboard.vo.GenRecordVO;
 import com.aid.storyboard.vo.StoryboardVO;
 import com.aid.common.vo.BatchOperationResultVO;
+import com.aid.billing.vo.BillingQuoteVO;
 
 /**
  * 分镜工作台核心业务Service接口
@@ -107,6 +108,13 @@ public interface IStoryboardWorkbenchService {
      * @return 配音任务VO
      */
     AudioTaskVO generateAudioForParent(GenerateAudioRequest request, Long userId, Long parentTaskId);
+
+    /** 内部编排入口：额外固化父任务执行周期，供迟到媒体事件校验。 */
+    AudioTaskVO generateAudioForParent(GenerateAudioRequest request, Long userId, Long parentTaskId,
+                                       String parentExecutionTraceId);
+
+    /** 复用正式配音前置计划的只读报价，不创建业务/媒体任务。 */
+    BillingQuoteVO quoteAudio(GenerateAudioRequest request, Long userId);
 
     /**
      * 查询音频业务记录（供前端轮询，仅读 aid_audio_record）。

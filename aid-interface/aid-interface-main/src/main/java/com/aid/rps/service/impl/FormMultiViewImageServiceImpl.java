@@ -43,6 +43,8 @@ import com.aid.domain.vo.AiModelConfigVo;
 import com.aid.media.dto.MediaImageGenerateRequest;
 import com.aid.media.dto.MediaTaskResponse;
 import com.aid.media.service.IMediaGenerationService;
+import com.aid.media.service.MediaBillingQuoteService;
+import com.aid.billing.vo.BillingQuoteVO;
 import com.aid.media.util.ModelCapabilityResolver;
 import com.aid.rps.dto.AssetExtractTaskVO;
 import com.aid.rps.dto.FormMultiViewImageGenerateRequest;
@@ -150,6 +152,9 @@ public class FormMultiViewImageServiceImpl implements IFormMultiViewImageService
     @Autowired
     private IMediaGenerationService mediaGenerationService;
 
+    @Autowired
+    private MediaBillingQuoteService mediaBillingQuoteService;
+
     /** 媒体URL统一解析器：本站校验 + 相对路径拼完整URL */
     @Autowired
     private com.aid.common.aid.oss.util.MediaUrlResolver mediaUrlResolver;
@@ -201,7 +206,7 @@ public class FormMultiViewImageServiceImpl implements IFormMultiViewImageService
     @Override
     public AssetExtractTaskVO generateMultiViewImage(FormMultiViewImageGenerateRequest request, Long userId)
     {
-        validateBasicRequest(request, userId);
+        validateBasicRequest(request, userId, true);
 
         MultiViewContext ctx = loadAndValidateOwnership(request.getFormId(), userId);
 
@@ -241,6 +246,28 @@ public class FormMultiViewImageServiceImpl implements IFormMultiViewImageService
         }
     }
 
+    @Override
+    public BillingQuoteVO quoteMultiViewImage(FormMultiViewImageGenerateRequest request, Long userId)
+    {
+        validateBasicRequest(request, userId, false);
+        MultiViewContext ctx = loadAndValidateOwnership(request.getFormId(), userId);
+        AidAiModel model = validateMultiViewModel(request.getModelCode());
+        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(model.getModelCode());
+        if (modelConfig == null)
+        {
+            throw new RuntimeException("模型无效");
+        }
+        String aspectRatio = ModelCapabilityResolver.resolveAspectRatio(
+                modelConfig, request.getAspectRatio());
+        String finalPrompt = buildMultiViewPrompt(request.getAnglePrompt(), aspectRatio);
+        MediaImageGenerateRequest mediaRequest = buildMediaRequest(userId, ctx.form,
+                model.getModelCode(), finalPrompt,
+                mediaUrlResolver.toFullUrl(request.getImageUrl()), aspectRatio,
+                request.getAnglePrompt(), null);
+        return mediaBillingQuoteService.quoteImage(
+                "FORM_MULTI_VIEW_IMAGE", mediaRequest, 1);
+    }
+
     /**
      * 多机位任务上下文快照：校验通过后的数据在此打包传给异步线程，避免重复读库。
      */
@@ -253,7 +280,8 @@ public class FormMultiViewImageServiceImpl implements IFormMultiViewImageService
     /**
      * 基础入参校验：非空 + URL 合法性。
      */
-    private void validateBasicRequest(FormMultiViewImageGenerateRequest request, Long userId)
+    private void validateBasicRequest(FormMultiViewImageGenerateRequest request,
+            Long userId, boolean validateRemoteImage)
     {
         if (Objects.isNull(request))
         {
@@ -281,7 +309,7 @@ public class FormMultiViewImageServiceImpl implements IFormMultiViewImageService
         String fullUrl = mediaUrlResolver.toFullUrl(url);
         // 远程图片 URL 实际可达性 + Content-Type 校验：
         // 非法 / 打不开 / 非图片 → 直接拦在任务创建前，不进任务系统 / 不进计费 / 不调媒体主链路
-        if (!ImageUrlValidator.isValidRemoteImageUrl(fullUrl))
+        if (validateRemoteImage && !ImageUrlValidator.isValidRemoteImageUrl(fullUrl))
         {
             log.info("多机位参考图校验失败: scene=form_multi_view, formId={}, userId={}, imageUrl={}",
                     request.getFormId(), userId, fullUrl);
@@ -702,6 +730,17 @@ public class FormMultiViewImageServiceImpl implements IFormMultiViewImageService
                                         String referenceImageUrl, String aspectRatio,
                                         String anglePrompt)
     {
+        MediaImageGenerateRequest imageRequest = buildMediaRequest(userId, form, modelCode,
+                finalPrompt, referenceImageUrl, aspectRatio, anglePrompt, taskId);
+        MediaTaskResponse imageResponse = mediaGenerationService.generateImage(imageRequest);
+        return resolveImageUrl(taskId, imageResponse);
+    }
+
+    private MediaImageGenerateRequest buildMediaRequest(Long userId,
+            AidRolePropSceneForm form, String modelCode, String finalPrompt,
+            String referenceImageUrl, String aspectRatio, String anglePrompt,
+            Long bizTaskId)
+    {
         MediaImageGenerateRequest imageRequest = new MediaImageGenerateRequest();
         imageRequest.setModelName(modelCode);
         // 异步线程里 SecurityContext 已丢失，必须显式带出 userId 触发预冻结 / 结算
@@ -724,7 +763,7 @@ public class FormMultiViewImageServiceImpl implements IFormMultiViewImageService
         imageRequest.setOptions(options);
         imageRequest.setExpectedImageCount(1);
         // 业务任务ID透传，破除媒体层幂等复用
-        imageRequest.setBizTaskId(taskId);
+        imageRequest.setBizTaskId(bizTaskId);
         imageRequest.setBizTaskType(TASK_TYPE_FORM_MULTI_VIEW);
 
         // 模型默认参数兜底（仅在用户未在 request options 里显式写过时生效）
@@ -743,8 +782,7 @@ public class FormMultiViewImageServiceImpl implements IFormMultiViewImageService
         AgentModelDefault agentModel = new AgentModelDefault(modelCode);
         agentDefaultParamsApplier.applyToImage(agentModel, imageRequest, defaultModelConfig);
 
-        MediaTaskResponse imageResponse = mediaGenerationService.generateImage(imageRequest);
-        return resolveImageUrl(taskId, imageResponse);
+        return imageRequest;
     }
 
     /**

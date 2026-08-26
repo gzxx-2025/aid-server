@@ -26,6 +26,9 @@ public class UserScriptVO {
     /** 用户上传的原版剧本 */
     private String originalText;
 
+    /** 剧本原文内容哈希 */
+    private String contentHash;
+
     /** 是否已执行资产提取(0否 1是) */
     private Integer isExtracted;
 

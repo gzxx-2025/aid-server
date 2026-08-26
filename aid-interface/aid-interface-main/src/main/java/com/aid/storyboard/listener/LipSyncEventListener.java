@@ -21,6 +21,8 @@ import com.aid.media.enums.MediaTaskStatus;
 import com.aid.media.enums.MediaType;
 import com.aid.media.event.MediaTaskCompletedEvent;
 import com.aid.media.event.MediaTaskOssPersistedEvent;
+import com.aid.rps.queue.BatchParentSubmissionGuard;
+import com.aid.rps.queue.BatchTaskExecutionRejectedException;
 
 import cn.hutool.core.util.StrUtil;
 import jakarta.annotation.Resource;
@@ -62,6 +64,9 @@ public class LipSyncEventListener {
 
     @Resource
     private AidGenRecordMapper aidGenRecordMapper;
+
+    @Resource
+    private BatchParentSubmissionGuard batchParentSubmissionGuard;
 
     /**
      * 媒体任务终态事件：成功且 OSS 就绪时回填对口型视频 URL；OSS 未就绪则等待 OSS 持久化事件。
@@ -122,6 +127,23 @@ public class LipSyncEventListener {
      * 回填生效后同步落一条配音类型生成记录（genType=compose），使对口型视频出现在配音视频列表中。
      */
     private void fillSyncVideoUrl(AidMediaTask mediaTask) {
+        if (Objects.isNull(mediaTask.getParentTaskId())) {
+            fillSyncVideoUrlGuarded(mediaTask);
+            return;
+        }
+        try {
+            batchParentSubmissionGuard.executeManagedBusinessCommit(
+                    mediaTask.getParentTaskId(), extractParentExecutionTrace(mediaTask), () -> {
+                        fillSyncVideoUrlGuarded(mediaTask);
+                        return null;
+                    });
+        } catch (BatchTaskExecutionRejectedException rejected) {
+            log.info("对口型事件执行周期已变化，跳过业务回写: mediaTaskId={}, parentTaskId={}",
+                    mediaTask.getId(), mediaTask.getParentTaskId());
+        }
+    }
+
+    private void fillSyncVideoUrlGuarded(AidMediaTask mediaTask) {
         boolean updated;
         try {
             LambdaUpdateWrapper<AidAudioRecord> update = new LambdaUpdateWrapper<>();
@@ -145,6 +167,21 @@ public class LipSyncEventListener {
         if (updated) {
             // 旧任务迟到事件被防串写守卫拦下时不落记录：配音视频列表只保留与业务记录一致的最新对口型产物
             writeLipSyncGenRecord(mediaTask);
+        }
+    }
+
+    private String extractParentExecutionTrace(AidMediaTask mediaTask) {
+        if (Objects.isNull(mediaTask) || StrUtil.isBlank(mediaTask.getRequestJson())) {
+            return null;
+        }
+        try {
+            com.alibaba.fastjson2.JSONObject request =
+                    com.alibaba.fastjson2.JSON.parseObject(mediaTask.getRequestJson());
+            com.alibaba.fastjson2.JSONObject options = request.getJSONObject("options");
+            return Objects.isNull(options) ? null : options.getString("parentExecutionTraceId");
+        } catch (Exception ex) {
+            log.warn("对口型事件解析父执行周期失败: mediaTaskId={}", mediaTask.getId());
+            return null;
         }
     }
 

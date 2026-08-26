@@ -11,8 +11,10 @@ import com.aid.media.dto.MediaAudioGenerateRequest;
 import com.aid.media.util.ImageBillingCapabilityHelper;
 
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 计费参数提取工具：从不同请求类型中提取统一的计费参数。
@@ -150,16 +152,14 @@ public final class BillingInputExtractor {
         if (request == null) {
             return 0;
         }
-        int count = 0;
-        if (CharSequenceUtil.isNotBlank(request.getReferenceImageUrl())) {
-            count++;
-        }
+        Set<String> images = new LinkedHashSet<>();
+        addMediaUrl(images, request.getReferenceImageUrl());
         Map<String, Object> options = request.getOptions();
         if (options != null) {
-            count += sizeOfList(options.get("images"));
-            count += sizeOfList(options.get("referenceImages"));
+            addMediaUrls(images, options.get("images"));
+            addMediaUrls(images, options.get("referenceImages"));
         }
-        return count;
+        return images.size();
     }
 
     /** 取 List 大小，非 List 返回 0。 */
@@ -262,8 +262,10 @@ public final class BillingInputExtractor {
         // 时长（秒）：加硬上限避免前端塞超大 duration 打爆结算
         boolean autoDuration = request.getDurationSeconds() == null
                 || request.getDurationSeconds() == -1;
-        int rawDuration = request.getDurationSeconds() != null ? request.getDurationSeconds()
-                : positiveIntOption(request.getOptions(), "duration", 5);
+        int rawDuration = autoDuration
+                ? positiveIntOption(request.getOptions(), "billingDurationSeconds",
+                    positiveIntOption(request.getOptions(), "duration", 5))
+                : request.getDurationSeconds();
         if (rawDuration < 1) {
             rawDuration = 5;
         }
@@ -367,20 +369,34 @@ public final class BillingInputExtractor {
         if (request == null) {
             return 0;
         }
-        int count = 0;
+        int semanticSlots = 0;
+        Set<String> semanticUrls = new LinkedHashSet<>();
         if (CharSequenceUtil.isNotBlank(request.getImageUrl())) {
-            count++;
+            semanticSlots++;
+            addMediaUrl(semanticUrls, request.getImageUrl());
         }
+        Set<String> images = new LinkedHashSet<>();
         Map<String, Object> options = request.getOptions();
         if (options != null) {
-            Object lastFrame = options.get("lastFrameImageUrl");
-            if (lastFrame != null && CharSequenceUtil.isNotBlank(String.valueOf(lastFrame))) {
-                count++;
+            for (String key : new String[]{"lastFrameImageUrl", "endImageUrl", "end_image_url"}) {
+                Object value = options.get(key);
+                if (value != null && CharSequenceUtil.isNotBlank(String.valueOf(value))) {
+                    semanticSlots++;
+                    addMediaUrl(semanticUrls, value);
+                    break;
+                }
             }
-            count += sizeOfList(options.get("referenceImages"));
-            count += sizeOfList(options.get("images"));
+            addMediaUrls(images, options.get("referenceImages"));
+            addMediaUrls(images, options.get("images"));
+            for (String key : new String[]{"keyImages", "key_images", "image_settings", "imageSettings"}) {
+                if (options.get(key) instanceof List<?> list && !list.isEmpty()) {
+                    list.forEach(item -> addMediaUrl(images, item));
+                    break;
+                }
+            }
         }
-        return count;
+        images.removeAll(semanticUrls);
+        return semanticSlots + images.size();
     }
 
     /**
@@ -390,18 +406,40 @@ public final class BillingInputExtractor {
         if (options == null || options.isEmpty()) {
             return 0;
         }
-        int count = 0;
+        Set<String> videos = new LinkedHashSet<>();
         for (String key : new String[]{"featureVideoUrl", "referenceVideoUrl", "baseVideoUrl",
                 "inputVideoUrl", "videoUrl", "video_url"}) {
             Object v = options.get(key);
             if (v != null && CharSequenceUtil.isNotBlank(String.valueOf(v))) {
-                count++;
-                break;
+                addMediaUrl(videos, v);
             }
         }
-        count += sizeOfList(options.get("referenceVideos"));
-        count += sizeOfList(options.get("videos"));
-        return count;
+        addMediaUrls(videos, options.get("referenceVideos"));
+        addMediaUrls(videos, options.get("videos"));
+        return videos.size();
+    }
+
+    private static void addMediaUrls(Set<String> target, Object value) {
+        if (value instanceof List<?> list) {
+            list.forEach(item -> addMediaUrl(target, item));
+        } else {
+            addMediaUrl(target, value);
+        }
+    }
+
+    private static void addMediaUrl(Set<String> target, Object value) {
+        if (value instanceof Map<?, ?> map) {
+            for (String key : new String[]{"key_image", "keyImage", "image_url", "imageUrl", "url"}) {
+                if (map.containsKey(key)) {
+                    addMediaUrl(target, map.get(key));
+                    return;
+                }
+            }
+            return;
+        }
+        if (value != null && CharSequenceUtil.isNotBlank(String.valueOf(value))) {
+            target.add(String.valueOf(value).trim());
+        }
     }
 
     private static int positiveIntOption(Map<String, Object> options, String key, int fallback) {

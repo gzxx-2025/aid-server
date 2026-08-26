@@ -3,7 +3,7 @@ package com.aid.storyboard.video;
 import com.aid.domain.vo.AiModelConfigVo;
 
 /**
- * 分镜视频生成参考素材装配策略：按厂商 / 模型差异化处理多模态参考图，每个厂商一个实现类，由 Spring 自动发现。
+ * 分镜视频生成参考素材装配策略：按厂商或协议差异化处理多模态参考图，由 Spring 自动发现。
  *
  * @author 视觉AID
  */
@@ -18,6 +18,17 @@ public interface VideoReferenceStrategy
     default boolean supportsProviderCode(String providerCode)
     {
         return false;
+    }
+
+    /**
+     * 是否匹配完整模型配置。默认保持既有 provider_code 路由语义；通用协议策略可按 protocol 匹配。
+     *
+     * @param modelConfig 模型聚合配置
+     * @return 是否归属
+     */
+    default boolean supportsModelConfig(AiModelConfigVo modelConfig)
+    {
+        return modelConfig != null && supportsProviderCode(modelConfig.getProviderCode());
     }
 
     /**

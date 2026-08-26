@@ -13,7 +13,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import com.aid.aid.domain.AidAiModel;
 import com.aid.aid.domain.AidAiProvider;
+import com.aid.aid.service.support.ModelBillingRuleValidator;
 import com.aid.common.exception.ServiceException;
+import com.aid.media.constants.ConfigurableAsyncMediaConstants;
+import com.aid.media.constants.AgnesConstants;
+import com.aid.media.constants.DashscopeConstants;
+import com.aid.media.constants.MinimaxH3Constants;
 import com.aid.media.constants.ViduConstants;
 import com.aid.media.constants.VolcengineConstants;
 import com.aid.media.provider.ReferenceAudioLimiter;
@@ -51,7 +56,9 @@ public final class AiConfigJsonValidator
      * 避免只按服务商判定而漏掉按协议路由的配置方式。
      */
     private static final Set<String> REFERENCE_AUDIO_PROTOCOLS =
-            Set.of(VolcengineConstants.PROTOCOL_SEEDANCE_VIDEO);
+            Set.of(VolcengineConstants.PROTOCOL_SEEDANCE_VIDEO,
+                    MinimaxH3Constants.PROTOCOL_VIDEO,
+                    ConfigurableAsyncMediaConstants.PROTOCOL_VIDEO);
 
     /** 文案统一 ≤6 字（编码规范），具体损坏内容由 log.error 打印给开发排查。 */
     private static final String ERR_INVALID_JSON = "JSON格式错";
@@ -128,6 +135,7 @@ public final class AiConfigJsonValidator
         validateJsonObjectIfPresent("capability_json", model.getCapabilityJson());
         validateJsonObjectIfPresent("param_mapping_json", model.getParamMappingJson());
         validateJsonObjectIfPresent("extra_body", model.getExtraBody());
+        ModelBillingRuleValidator.validate(model);
         validateViduModelCallback(model);
         validateReferenceAudioCapability(model, providerCode);
     }
@@ -206,7 +214,9 @@ public final class AiConfigJsonValidator
         }
         // Provider 侧一律按 equalsIgnoreCase 匹配，此处统一转小写后比对，避免大小写差异误判为未实现
         boolean deliverable = REFERENCE_AUDIO_PROVIDER_CODES.contains(normalizeCode(providerCode))
-                || REFERENCE_AUDIO_PROTOCOLS.contains(normalizeCode(model.getProtocol()));
+                || REFERENCE_AUDIO_PROTOCOLS.contains(normalizeCode(model.getProtocol()))
+                || isAgnes25Model(model, providerCode)
+                || isWan3DashscopeModel(model);
         if (!deliverable)
         {
             return "服务商未实现参考音频下发: providerCode=" + providerCode + ", protocol=" + model.getProtocol();
@@ -215,14 +225,17 @@ public final class AiConfigJsonValidator
         {
             return "参考音频依赖音画同出,需先开启 supportsAudio";
         }
-        if (capability.path("maxReferenceAudios").asInt(0) <= 0)
+        int maxReferenceAudios = capability.path("maxReferenceAudios").asInt(0);
+        if (maxReferenceAudios == 0 || maxReferenceAudios < -1)
         {
-            return "maxReferenceAudios 必须为正整数";
+            return "maxReferenceAudios 必须为-1或正整数";
         }
         int minSeconds = capability.path("referenceAudioMinDurationSeconds").asInt(0);
         int maxSeconds = capability.path("referenceAudioMaxDurationSeconds").asInt(0);
         int maxTotalSeconds = capability.path("referenceAudioMaxTotalDurationSeconds").asInt(0);
-        if (minSeconds <= 0 || maxSeconds < minSeconds || maxTotalSeconds < minSeconds)
+        if (minSeconds < 0 || maxSeconds < 0 || maxTotalSeconds < 0
+                || (minSeconds > 0 && maxSeconds > 0 && maxSeconds < minSeconds)
+                || (minSeconds > 0 && maxTotalSeconds > 0 && maxTotalSeconds < minSeconds))
         {
             return "时长区间非法: min=" + minSeconds + ", max=" + maxSeconds + ", total=" + maxTotalSeconds;
         }
@@ -241,8 +254,13 @@ public final class AiConfigJsonValidator
         {
             return "referenceAudioFormats 不能为空";
         }
-        // 服务端解析不出时长的格式会让校验必然失败，等同于配置了一个不可用的能力
+        if (formats.contains("*") && formats.size() > 1)
+        {
+            return "通配格式必须单独配置";
+        }
+        // "*" 表示厂商未公开格式白名单；其余格式仍须能由服务端解析时长。
         List<String> unsupported = formats.stream()
+                .filter(format -> !"*".equals(format))
                 .filter(format -> !ReferenceAudioLimiter.isProbeableFormat(format))
                 .toList();
         if (!unsupported.isEmpty())
@@ -250,6 +268,32 @@ public final class AiConfigJsonValidator
             return "格式无法解析时长: " + unsupported + ", 可选=" + ReferenceAudioLimiter.probeableFormats();
         }
         return null;
+    }
+
+    /** Agnes 仅 Video 2.5 两款请求构造器实现结构化参考音频，不能按整个供应商放行。 */
+    private static boolean isAgnes25Model(AidAiModel model, String providerCode)
+    {
+        boolean routedToAgnes = AgnesConstants.PROVIDER_CODE.equalsIgnoreCase(StrUtil.trim(providerCode))
+                || AgnesConstants.PROTOCOL_VIDEO.equalsIgnoreCase(StrUtil.trim(model.getProtocol()));
+        if (!routedToAgnes)
+        {
+            return false;
+        }
+        String upstream = StrUtil.blankToDefault(model.getRealModelCode(), model.getModelCode());
+        String normalized = normalizeCode(upstream);
+        return "agnes-video-2.5".equals(normalized) || "agnes-video-2.5-flash".equals(normalized);
+    }
+
+    private static boolean isWan3DashscopeModel(AidAiModel model)
+    {
+        if (model == null || !DashscopeConstants.PROTOCOL_VIDEO.equalsIgnoreCase(StrUtil.trim(model.getProtocol())))
+        {
+            return false;
+        }
+        String upstream = StrUtil.blankToDefault(model.getRealModelCode(), model.getModelCode());
+        String normalized = normalizeCode(upstream);
+        return DashscopeConstants.MODEL_WAN3.equals(normalized)
+                || DashscopeConstants.MODEL_WAN3_PRIME.equals(normalized);
     }
 
     /**

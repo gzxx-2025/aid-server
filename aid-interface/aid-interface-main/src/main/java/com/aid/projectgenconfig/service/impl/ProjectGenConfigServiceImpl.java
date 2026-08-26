@@ -32,6 +32,7 @@ import com.aid.domain.vo.AiModelConfigVo;
 import com.aid.media.util.ModelCapabilityResolver;
 import com.aid.model.service.IAiModelBusinessService;
 import com.aid.model.vo.AiModelVO;
+import com.aid.model.util.AiModelClientDisplaySorter;
 import com.aid.model.vo.CapabilityVO;
 import com.aid.projectgenconfig.dto.ProjectGenConfigItem;
 import com.aid.projectgenconfig.dto.SaveProjectGenConfigRequest;
@@ -196,7 +197,8 @@ public class ProjectGenConfigServiceImpl implements IProjectGenConfigService
             repairUnavailableModel(vo, matrix, mode, availableModels);
             applyCharacterCardDefaultAspectRatio(vo, scene);
             normalizeImageSceneConfig(vo, scene);
-            vo.setAvailableModels(availableModels);
+            // 内部修复/兜底仍严格使用功能池配置顺序；仅最终 C 端展示副本按名称排序。
+            vo.setAvailableModels(AiModelClientDisplaySorter.sortedModels(availableModels));
             result.add(vo);
         }
 

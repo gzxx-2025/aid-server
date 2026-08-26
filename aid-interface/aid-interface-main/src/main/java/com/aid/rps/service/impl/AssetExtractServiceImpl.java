@@ -32,6 +32,8 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONObject;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.aid.aid.domain.AidComicProject;
@@ -58,6 +60,7 @@ import com.aid.common.core.redis.RedisCache;
 import com.aid.media.dto.MediaImageGenerateRequest;
 import com.aid.media.dto.MediaTaskResponse;
 import com.aid.media.service.IMediaGenerationService;
+import com.aid.media.service.MediaBillingQuoteService;
 import com.aid.media.util.ModelCapabilityResolver;
 import com.aid.rps.dto.AssetExtractRequest;
 import com.aid.rps.dto.AssetExtractTaskVO;
@@ -65,11 +68,20 @@ import com.aid.rps.dto.BatchFormGenerateResult;
 import com.aid.rps.dto.BatchFormImageResult;
 import com.aid.rps.dto.CancelBatchResult;
 import com.aid.rps.dto.ExtractTaskMessage;
+import com.aid.rps.dto.FormImageGenerateRequest;
+import com.aid.rps.dto.FormCardImageGenerateRequest;
+import com.aid.rps.dto.FormGenerateRequest;
 import com.aid.rps.helper.AssetExtractHelper;
 import com.aid.rps.helper.SceneExtractionNormalizer;
 import com.aid.rps.helper.SceneExtractionNormalizer.NormalizedScene;
 import com.aid.rps.model.ExistingAssetLib;
 import com.aid.rps.exception.PartialExtractionException;
+import com.aid.rps.queue.BatchParentResourceCleaner;
+import com.aid.rps.queue.BatchParentSubmissionGuard;
+import com.aid.rps.queue.BatchTaskExecutionRejectedException;
+import com.aid.rps.queue.BatchTaskLogicalType;
+import com.aid.rps.queue.BatchTaskSlotReservation;
+import com.aid.rps.queue.BatchTaskSlotService;
 import com.aid.projectgenconfig.enums.ProjectGenConfigScene;
 import com.aid.project.service.ProjectStyleSnapshotService;
 import com.aid.agent.AgentDefaultParamsApplier;
@@ -89,6 +101,7 @@ import com.aid.domain.vo.AiModelConfigVo;
 import com.aid.model.service.IAiModelBusinessService;
 import com.aid.model.vo.AiModelVO;
 import com.aid.billing.service.BillingAmountCalculator;
+import com.aid.billing.service.BillingQuoteAssembler;
 import com.aid.billing.service.BillingPriceMultiplierService;
 import com.aid.billing.dto.BillingCalcResult;
 import com.aid.billing.dto.BillingInput;
@@ -97,6 +110,7 @@ import com.aid.billing.error.BillingBalanceErrors;
 import com.aid.billing.enums.BillingMode;
 import com.aid.billing.enums.MeterType;
 import com.aid.billing.model.BillingSnapshot;
+import com.aid.billing.vo.BillingQuoteVO;
 
 import cn.hutool.core.collection.CollectionUtil;
 import cn.hutool.json.JSONUtil;
@@ -182,6 +196,10 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
     private static final String TASK_TYPE_STORYBOARD_IMAGE_GENERATE = "storyboard_image_generate";
     /** 分镜图生视频父任务（count 子任务循环单视频，结果每条落 aid_gen_record(gen_type=i2v)，由 StoryboardVideoGenerationServiceImpl 发起） */
     private static final String TASK_TYPE_STORYBOARD_VIDEO_GENERATE = "storyboard_video_generate";
+    /** 分镜批量配音父任务。 */
+    private static final String TASK_TYPE_STORYBOARD_AUDIO_GENERATE = "storyboard_audio_generate";
+    /** 分镜批量对口型父任务。 */
+    private static final String TASK_TYPE_STORYBOARD_LIP_SYNC_GENERATE = "storyboard_lip_sync_generate";
     /** 分镜脚本提取智能体编码 */
     private static final String PROMPT_NAME_STORYBOARD_SCRIPT = "aid_storyboard_script_extractor";
     /** 分镜脚本业务分类编码 */
@@ -384,22 +402,6 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
     private static final String EXTRACT_LOCK_PREFIX = "asset:extract:lock:";
 
     /**
-     * 提交防重锁 TTL（秒）：15 分钟。
-     * 任务终态时会显式 deleteObject 主动释放，正常不会等到自然过期；
-     * TTL 提到 15 分钟是为了覆盖 LLM 长链路场景，避免锁被自然过期后并发请求绕过。
-     */
-    private static final long EXTRACT_LOCK_TTL_SECONDS = 15L * 60L;
-
-    /**
-     * "刚 SETNX 还没 INSERT" 的宽限期（毫秒）。
-     * 抢锁失败时，若现存锁年龄小于该值，无论 DB 是否查到活跃任务，都视为锁仍合法
-     * （持有者大概率正在 SETNX→INSERT 窗口里），不能裸删。一旦超过该值还查不到活跃任务，
-     * 才能认定是消费者崩溃 / 进程被 kill 留下的僵尸锁，走 CAS 清理后重抢。
-     * 典型 INSERT 路径耗时 < 2s，60s 留足容错冗余，与 form_edit_chat 等图片任务保持一致。
-     */
-    private static final long EXTRACT_LOCK_STALE_GRACE_MS = 60L * 1000L;
-
-    /**
      * Lua 脚本：仅当 GET key == ARGV[1] 才 DEL，防止自动过期后被他人复用又被本请求误删。
      * 用于"僵尸锁"清理时 compare-and-delete。
      */
@@ -412,6 +414,15 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
 
     @Autowired
     private IAidExtractTaskService extractTaskService;
+
+    @Autowired
+    private BatchTaskSlotService batchTaskSlotService;
+
+    @Autowired
+    private BatchParentSubmissionGuard batchParentSubmissionGuard;
+
+    @Autowired
+    private BatchParentResourceCleaner batchParentResourceCleaner;
 
     @Autowired
     private IAidComicProjectService projectService;
@@ -510,6 +521,9 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
     private IMediaGenerationService mediaGenerationService;
 
     @Autowired
+    private MediaBillingQuoteService mediaBillingQuoteService;
+
+    @Autowired
     private IExtractBillingService extractBillingService;
 
     @Autowired
@@ -525,6 +539,8 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
     /** SKU 统一计费引擎 */
     @Autowired
     private BillingAmountCalculator billingAmountCalculator;
+    @Autowired
+    private BillingQuoteAssembler billingQuoteAssembler;
 
     @Autowired
     private BillingPriceMultiplierService billingPriceMultiplierService;
@@ -572,129 +588,97 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         }
     }
 
+    /** 构建资产提取只读提交计划，正式任务与quote共用。 */
+    private ExtractSubmissionPlan prepareExtractSubmissionPlan(AssetExtractRequest request, Long userId)
+    {
+        if (request == null || userId == null)
+        {
+            throw new ServiceException("参数错误");
+        }
+        AidComicProject project = validateProject(request.getProjectId(), userId);
+        requireProjectStyle(project);
+        List<String> requestedTypes = request.getExtractTypes();
+        if (CollectionUtil.isEmpty(requestedTypes))
+        {
+            throw new ServiceException("提取类型不能为空");
+        }
+        if (requestedTypes.size() > 3)
+        {
+            throw new ServiceException("提取类型过多");
+        }
+        validateAgentCodesAgainstExtractTypes(requestedTypes, request.getAgentCodes());
+        Map<String, String> modelCodesByType = resolveExtractModelCodesByType(
+                request.getProjectId(), userId, requestedTypes,
+                request.getAgentCodes(), request.getModelCodes());
+        String primaryModelCode = pickPrimaryModelCode(modelCodesByType);
+        List<String> extractTypes = resolveExtractTypesFromRequest(requestedTypes);
+        String extractScope = resolveExtractScope(
+                request.getExtractScope(), project.getProjectType(), extractTypes);
+        Long episodeId = resolveEpisodeId(
+                request.getEpisodeId(), project, extractTypes, extractScope);
+        if (Objects.equals(EXTRACT_SCOPE_PROJECT_FULL, extractScope))
+        {
+            if (StrUtil.isBlank(helper.loadAllScriptsContent(request.getProjectId(), userId)))
+            {
+                throw new ServiceException("剧本内容不能为空");
+            }
+        }
+        else if (StrUtil.isBlank(helper.loadScriptContent(request.getProjectId(), episodeId, userId)))
+        {
+            throw new ServiceException("剧本内容不能为空");
+        }
+        ExtractPlanningContext context = new ExtractPlanningContext(
+                request.getProjectId(), episodeId, userId, extractScope,
+                Map.copyOf(request.getAgentCodes()));
+        ExtractBillingPlan billingPlan = buildExtractBillingPlan(
+                context, List.copyOf(extractTypes), Map.copyOf(modelCodesByType));
+        return new ExtractSubmissionPlan(project, List.copyOf(extractTypes),
+                Map.copyOf(modelCodesByType), primaryModelCode, extractScope,
+                episodeId, context, billingPlan);
+    }
+
+    private record ExtractSubmissionPlan(AidComicProject project, List<String> extractTypes,
+            Map<String, String> modelCodesByType, String primaryModelCode,
+            String extractScope, Long episodeId, ExtractPlanningContext planningContext,
+            ExtractBillingPlan billingPlan)
+    {
+    }
+
+    @Override
+    public BillingQuoteVO quoteExtractAssets(AssetExtractRequest request, Long userId)
+    {
+        ExtractSubmissionPlan submission = prepareExtractSubmissionPlan(request, userId);
+        List<BillingQuoteVO> items = new ArrayList<>();
+        for (ExtractModelBillingPlan model : submission.billingPlan().models())
+        {
+            for (ExtractCallBillingEstimate call : model.calls())
+            {
+                items.add(billingQuoteAssembler.single(
+                        "ASSET_EXTRACT", model.modelConfig(), call.result(), 1));
+            }
+        }
+        return billingQuoteAssembler.aggregate("ASSET_EXTRACT", items);
+    }
+
     @Override
     public AssetExtractTaskVO extractAssets(AssetExtractRequest request, Long userId)
     {
-        // 校验项目是否存在且属于当前用户（先过权限校验）
-        AidComicProject project = validateProject(request.getProjectId(), userId);
+        ExtractSubmissionPlan submission = prepareExtractSubmissionPlan(request, userId);
+        List<String> extractTypes = submission.extractTypes();
+        Map<String, String> modelCodesByType = submission.modelCodesByType();
+        String primaryModelCode = submission.primaryModelCode();
+        String extractScope = submission.extractScope();
+        Long episodeId = submission.episodeId();
+        ExtractBillingPlan billingPlan = submission.billingPlan();
 
-        // 风格前置校验：大模型调用 / 任务创建前必须确保项目已选风格
-        requireProjectStyle(project);
-
-        List<String> extractTypes = request.getExtractTypes();
-        if (CollectionUtil.isEmpty(extractTypes))
-        {
-            log.error("公用并行提取参数校验失败: extractTypes 为空, projectId={}", request.getProjectId());
-            throw new ServiceException("提取类型不能为空");
-        }
-        validateAgentCodesAgainstExtractTypes(extractTypes, request.getAgentCodes());
-
-        //    每个 type 的链路：① 用户传 modelCodes[type] → ② 项目级覆盖(aid_project_gen_config)
-        //      → ③ aid_gen_agent_pool 矩阵默认（资产场景为通配行，按项目 default_gen_mode 取策略）
-        //    解析后得到 Map<extractType, modelCode>，每类可独立选择模型。
-        Map<String, String> modelCodesByType = resolveExtractModelCodesByType(
-                request.getProjectId(), userId, extractTypes, request.getAgentCodes(), request.getModelCodes());
-        // 父任务 task.modelCode 取主模型（character 优先，否则 scene 优先，最后 prop），仅用于路由展示和旧任务兜底。
-        // 真实 LLM 调用按 type 取 modelCodesByType 中对应值，参见 consumer 端。
-        String primaryModelCode = pickPrimaryModelCode(modelCodesByType);
-
-        // 类型合法性过滤（character / scene / prop 之一），非法类型剔除但禁止静默退化
-        extractTypes = resolveExtractTypesFromRequest(extractTypes);
-
-        // 提取范围解析（剧集三类允许同提；增量=当前集，PROJECT_FULL 仅支持角色全量初始化）
-        String extractScope = resolveExtractScope(request.getExtractScope(), project.getProjectType(), extractTypes);
-        Long episodeId = resolveEpisodeId(request.getEpisodeId(), project, extractTypes, extractScope);
-
-        // Redis 分布式锁包住 check+create，解决 TOCTOU 竞态
-        // 角色-only 用全局锁，场景/道具用剧集级锁
-        // 锁 TTL 15 分钟，避免 LLM 长耗时导致其他并发请求绕过锁；
-        //           任务终态时会显式调 releaseExtractLock 释放，正常不会等到自然过期。
-        // 抢锁失败时不直接抛错——可能是消费者崩溃 / 进程被 kill 导致锁泄漏。
-        //           回退判定：先看现存锁年龄是否超过 SETNX→INSERT 宽限期（60s）。
-        //           - 锁太新 → 持有者可能仍在 INSERT 窗口里，按真并发拒绝，绝不裸删；
-        //           - 锁年龄超限且 DB 无活跃任务 → 认定僵尸锁，用 CAS 删除"刚才读到的同一时间戳" 再重抢，
-        //             避免 GET → DEL 之间锁自然过期被他人重抢导致误删。
-        String lockKey = EXTRACT_LOCK_PREFIX + request.getProjectId() + ":" + episodeId;
-        String lockToken = System.currentTimeMillis() + ":" + IdUtil.fastSimpleUUID();
-        Boolean locked = redisCache.redisTemplate.opsForValue()
-                .setIfAbsent(lockKey, lockToken, EXTRACT_LOCK_TTL_SECONDS, TimeUnit.SECONDS);
-        if (locked == null || !locked)
-        {
-            // 锁已被占用：先看 DB 是否真的有活跃任务
-            if (hasActiveExtractTaskInDb(request.getProjectId(), project.getProjectType(), episodeId))
-            {
-                log.info("提取任务并发拦截: projectId={}, episodeId={}, lockKey={}",
-                        request.getProjectId(), episodeId, lockKey);
-                throw new ServiceException("任务处理中");
-            }
-            // DB 无活跃任务：进一步看锁年龄
-            Object existing = redisCache.getCacheObject(lockKey);
-            if (Objects.isNull(existing))
-            {
-                // 锁刚刚自然过期 → 直接重抢一次
-                Boolean reLockedAfterExpire = redisCache.redisTemplate.opsForValue()
-                        .setIfAbsent(lockKey, lockToken, EXTRACT_LOCK_TTL_SECONDS, TimeUnit.SECONDS);
-                if (reLockedAfterExpire == null || !reLockedAfterExpire)
-                {
-                    log.info("[CX6] 提取锁过期后重抢被同瞬抢占, lockKey={}", lockKey);
-                    throw new ServiceException("任务处理中");
-                }
-            }
-            else
-            {
-                String existingToken = String.valueOf(existing);
-                if (!isExtractLockStaleByAge(existingToken))
-                {
-                    // 现存锁还在宽限期里——持有者大概率刚 SETNX 还没 INSERT，不能误删
-                    log.info("[CX6] 提取抢锁失败但锁年龄未过宽限期, 视为真并发: projectId={}, episodeId={}, lockKey={}",
-                            request.getProjectId(), episodeId, lockKey);
-                    throw new ServiceException("任务处理中");
-                }
-                log.warn("[CX6] 检测到 Redis 锁泄漏（年龄超限且 DB 无活跃任务），CAS 清理: lockKey={}", lockKey);
-                if (!casDeleteExtractLockIfMatch(lockKey, existingToken))
-                {
-                    log.info("[CX6] 提取僵尸锁 CAS 清理失败（锁已变化）, 视为真并发: lockKey={}", lockKey);
-                    throw new ServiceException("任务处理中");
-                }
-                Boolean reLocked = redisCache.redisTemplate.opsForValue()
-                        .setIfAbsent(lockKey, lockToken, EXTRACT_LOCK_TTL_SECONDS, TimeUnit.SECONDS);
-                if (reLocked == null || !reLocked)
-                {
-                    log.info("[CX6] 提取僵尸锁清理后再次被抢占, lockKey={}", lockKey);
-                    throw new ServiceException("任务处理中");
-                }
-            }
-        }
+        BatchTaskSlotReservation slotReservation = batchTaskSlotService.acquireTaskSlots(
+                request.getProjectId(), episodeId, logicalExtractTypes(extractTypes));
 
         // task 和 billingPrepared 需在 try 外声明，供 catch 引用
         AidExtractTask task = null;
         boolean billingPrepared = false;
         try
         {
-            // 校验同一项目+剧集下是否有进行中的任务，防止重复提交
-            checkNoActiveTask(request.getProjectId(), project.getProjectType(), episodeId);
-            // 含角色时项目级并发防重：任意两个含 character 的任务并发会同时读写项目级角色目录
-            checkNoActiveCharacterExtract(request.getProjectId(), project.getProjectType(), extractTypes);
-
-            // 仅验证剧本存在，不做截断
-            // 全量扫描验证全项目有剧本即可；增量/电影验证该集（电影为0）有剧本
-            if (Objects.equals(EXTRACT_SCOPE_PROJECT_FULL, extractScope))
-            {
-                String allScripts = helper.loadAllScriptsContent(request.getProjectId(), userId);
-                if (StrUtil.isBlank(allScripts))
-                {
-                    throw new ServiceException("剧本内容不能为空");
-                }
-            }
-            else
-            {
-                String scriptContent = helper.loadScriptContent(request.getProjectId(), episodeId, userId);
-                if (StrUtil.isBlank(scriptContent))
-                {
-                    throw new ServiceException("剧本内容不能为空");
-                }
-            }
-
             // 先仅持久化任务，保证账户独立冻结后始终能按 task + trace 补偿。
             List<String> committedExtractTypes = extractTypes;
             task = transactionTemplate.execute(status -> {
@@ -703,7 +687,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
                 requireProjectStyle(lockedProject);
                 return createTaskRecord(request.getProjectId(), episodeId, userId, committedExtractTypes,
                         request.getAgentCodes(), modelCodesByType, primaryModelCode, extractScope,
-                        lockToken, Boolean.TRUE.equals(request.getOverwrite()));
+                        slotReservation, Boolean.TRUE.equals(request.getOverwrite()));
             });
             if (task == null)
             {
@@ -712,8 +696,8 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
 
             // 任务级预冻结计费：按实际参与的模型分别估价再汇总，避免混合模型按主模型误计费。
             long usageStartMediaTaskId = extractBillingService.findLatestExtractMediaTaskId(task.getId());
-            ExtractBillingEstimate billingEstimate = estimateExtractBilling(
-                    task.getId(), modelCodesByType, usageStartMediaTaskId);
+            ExtractBillingEstimate billingEstimate = serializeExtractBillingPlan(
+                    billingPlan, usageStartMediaTaskId);
             extractBillingService.prepareBilling(task.getId(), userId,
                     billingEstimate.amount(), billingEstimate.snapshotJson());
             billingPrepared = true;
@@ -738,8 +722,6 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         }
         catch (RuntimeException e)
         {
-            releaseExtractLockIfMatch(request.getProjectId(), episodeId, lockToken);
-
             if (task != null)
             {
                 // task 已先于账户资金动作持久化；同步异常必须收口，不留下无消费者的 PENDING。
@@ -754,6 +736,8 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
                 {
                     updateTaskFailed(task.getId(), null, e.getMessage());
                 }
+                batchTaskSlotService.releaseForTask(
+                        extractTaskService.selectAidExtractTaskById(task.getId()));
                 if (billingPrepared)
                 {
                     try
@@ -770,8 +754,33 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
                             .build();
                 }
             }
+            else
+            {
+                batchTaskSlotService.release(slotReservation);
+            }
             throw e;
         }
+    }
+
+    private List<String> logicalExtractTypes(List<String> extractTypes)
+    {
+        List<String> logicalTypes = new ArrayList<>();
+        for (String extractType : extractTypes)
+        {
+            if (Objects.equals(EXTRACT_TYPE_CHARACTER, extractType))
+            {
+                logicalTypes.add(BatchTaskLogicalType.ASSET_EXTRACT_CHARACTER);
+            }
+            else if (Objects.equals(EXTRACT_TYPE_SCENE, extractType))
+            {
+                logicalTypes.add(BatchTaskLogicalType.ASSET_EXTRACT_SCENE);
+            }
+            else if (Objects.equals(EXTRACT_TYPE_PROP, extractType))
+            {
+                logicalTypes.add(BatchTaskLogicalType.ASSET_EXTRACT_PROP);
+            }
+        }
+        return logicalTypes;
     }
 
     /**
@@ -1328,22 +1337,40 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         }
 
         ExtractInputEstimate inputEstimate = estimateExtractInput(taskId, extractTypes, modelCode);
+        return estimateExtractCostFromInput("taskId=" + taskId, modelConfig, inputEstimate);
+    }
+
+    private ExtractModelBillingEstimate estimateExtractCost(ExtractPlanningContext context,
+            String modelCode, List<String> extractTypes)
+    {
+        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(modelCode);
+        if (Objects.isNull(modelConfig))
+        {
+            throw new ServiceException("模型不存在");
+        }
+        ExtractInputEstimate inputEstimate = estimateExtractInput(context, extractTypes, modelCode);
+        return estimateExtractCostFromInput("quote", modelConfig, inputEstimate);
+    }
+
+    private ExtractModelBillingEstimate estimateExtractCostFromInput(String trace,
+            AiModelConfigVo modelConfig, ExtractInputEstimate inputEstimate)
+    {
         List<ExtractCallBillingEstimate> callEstimates = new ArrayList<>();
         BigDecimal totalAmount = BigDecimal.ZERO;
         for (ExtractCallInputEstimate callInput : inputEstimate.calls())
         {
-            BillingCalcResult result = estimateExtractCallCost(taskId, modelConfig, callInput.inputChars());
+            BillingCalcResult result = estimateExtractCallCost(trace, modelConfig, callInput.inputChars());
             callEstimates.add(new ExtractCallBillingEstimate(
                     callInput.extractType(), callInput.callSlot(), result));
             totalAmount = totalAmount.add(defaultAmount(result.getAmount()));
         }
-        log.info("逐调用预估提取费用完成: taskId={}, modelCode={}, calls={}, amount={}",
-                taskId, modelCode, callEstimates.size(), totalAmount);
+        log.info("逐调用预估提取费用完成: trace={}, modelCode={}, calls={}, amount={}",
+                trace, modelConfig.getModelCode(), callEstimates.size(), totalAmount);
         return new ExtractModelBillingEstimate(totalAmount, callEstimates);
     }
 
     /** 单次调用使用统一计费引擎估价，未命中时只对本次调用按固定价兜底。 */
-    private BillingCalcResult estimateExtractCallCost(Long taskId, AiModelConfigVo modelConfig, int inputChars)
+    private BillingCalcResult estimateExtractCallCost(String trace, AiModelConfigVo modelConfig, int inputChars)
     {
         int estimatedOutputChars = BillingConstants.DEFAULT_ESTIMATED_OUTPUT_CHARS;
         Map<String, Object> params = new HashMap<>();
@@ -1363,8 +1390,8 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
             if (!fixedBilling && Objects.nonNull(meterType)
                     && meterType != MeterType.TOKEN && meterType != MeterType.SKU_PACKAGE)
             {
-                log.error("资产提取计费口径错误: taskId={}, modelCode={}, meterType={}",
-                        taskId, modelConfig.getModelCode(), meterType);
+                log.error("资产提取计费口径错误: trace={}, modelCode={}, meterType={}",
+                        trace, modelConfig.getModelCode(), meterType);
                 throw new ServiceException("计费配置错误");
             }
             return result;
@@ -1378,8 +1405,8 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         {
             return buildFreeFixedFallback(modelConfig, params, rawUnitPrice, unitPrice, MeterType.TOKEN);
         }
-        log.warn("提取单次调用SKU未命中，按固定价兜底: taskId={}, modelCode={}, inputChars={}, amount={}",
-                taskId, modelConfig.getModelCode(), inputChars, unitPrice);
+        log.warn("提取单次调用SKU未命中，按固定价兜底: trace={}, modelCode={}, inputChars={}, amount={}",
+                trace, modelConfig.getModelCode(), inputChars, unitPrice);
         return BillingCalcResult.fixed(unitPrice, null);
     }
 
@@ -1393,100 +1420,242 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
     {
     }
 
-    /**
-     * 按模型分组生成父任务预冻结计划。同一模型承载的多个 type 合并估价，
-     * 不同模型分别保留计费快照，结算时可按真实模型 usage 独立重算。
-     */
-    private ExtractBillingEstimate estimateExtractBilling(Long taskId,
-                                                           Map<String, String> modelCodesByType,
-                                                           long usageStartMediaTaskId)
+    /** 构建资产提取的只读逐模型、逐调用计费计划。 */
+    private ExtractBillingPlan buildExtractBillingPlan(ExtractPlanningContext context,
+            List<String> extractTypes, Map<String, String> modelCodesByType)
     {
-        List<String> extractTypes = resolveExtractTypes(taskId);
         Map<String, List<String>> extractTypesByModel = new LinkedHashMap<>();
         for (String extractType : extractTypes)
         {
             String modelCode = modelCodesByType.get(extractType);
             if (StrUtil.isBlank(modelCode))
             {
-                log.error("提取计费模型为空: taskId={}, extractType={}, modelCodes={}",
-                        taskId, extractType, modelCodesByType);
                 throw new ServiceException("模型不能为空");
             }
             extractTypesByModel.computeIfAbsent(modelCode, key -> new ArrayList<>()).add(extractType);
         }
-
         BigDecimal totalAmount = BigDecimal.ZERO;
-        List<Map<String, Object>> items = new ArrayList<>();
+        int totalCalls = 0;
+        List<ExtractModelBillingPlan> models = new ArrayList<>(extractTypesByModel.size());
         for (Map.Entry<String, List<String>> entry : extractTypesByModel.entrySet())
         {
-            ExtractModelBillingEstimate modelEstimate = estimateExtractCost(
-                    taskId, entry.getKey(), entry.getValue());
-            int expectedCallCount = Math.max(1, modelEstimate.callEstimates().size());
-            BigDecimal itemAmount = defaultAmount(modelEstimate.amount());
-            totalAmount = totalAmount.add(itemAmount);
+            AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(entry.getKey());
+            if (modelConfig == null)
+            {
+                throw new ServiceException("模型不存在");
+            }
+            ExtractModelBillingEstimate estimate = estimateExtractCost(
+                    context, entry.getKey(), entry.getValue());
+            totalCalls += estimate.callEstimates().size();
+            if (totalCalls > 100)
+            {
+                throw new ServiceException("批量过多");
+            }
+            BigDecimal amount = defaultAmount(estimate.amount());
+            totalAmount = totalAmount.add(amount);
+            models.add(new ExtractModelBillingPlan(entry.getKey(), List.copyOf(entry.getValue()),
+                    modelConfig, List.copyOf(estimate.callEstimates()), amount));
+        }
+        return new ExtractBillingPlan(List.copyOf(models), totalAmount);
+    }
 
+    /** 给已创建的正式任务补充usage水位并序列化同一只读计划。 */
+    private ExtractBillingEstimate serializeExtractBillingPlan(ExtractBillingPlan plan,
+            long usageStartMediaTaskId)
+    {
+        List<Map<String, Object>> items = new ArrayList<>(plan.models().size());
+        for (ExtractModelBillingPlan model : plan.models())
+        {
+            int expectedCallCount = Math.max(1, model.calls().size());
             Map<String, Object> item = new LinkedHashMap<>();
-            item.put("modelCode", entry.getKey());
-            item.put("extractTypes", entry.getValue());
+            item.put("modelCode", model.modelCode());
+            item.put("extractTypes", model.extractTypes());
             item.put("billingGranularity", "PER_CALL");
-            item.put("preHoldAmount", itemAmount);
+            item.put("preHoldAmount", model.preHoldAmount());
             item.put("expectedCallCount", expectedCallCount);
-            item.put("unitPreHoldAmount", itemAmount.divide(
+            item.put("unitPreHoldAmount", model.preHoldAmount().divide(
                     BigDecimal.valueOf(expectedCallCount), 12, java.math.RoundingMode.HALF_UP));
-
-            List<Map<String, Object>> callEstimates = new ArrayList<>();
+            List<Map<String, Object>> calls = new ArrayList<>(model.calls().size());
             BillingSnapshot pricingSnapshot = null;
             int callIndex = 0;
-            for (ExtractCallBillingEstimate callEstimate : modelEstimate.callEstimates())
+            for (ExtractCallBillingEstimate call : model.calls())
             {
-                BillingCalcResult callResult = callEstimate.result();
+                BillingCalcResult result = call.result();
                 Map<String, Object> callItem = new LinkedHashMap<>();
                 callItem.put("callIndex", callIndex++);
-                callItem.put("extractType", callEstimate.extractType());
-                if (StrUtil.isNotBlank(callEstimate.callSlot()))
+                callItem.put("extractType", call.extractType());
+                if (StrUtil.isNotBlank(call.callSlot()))
                 {
-                    callItem.put("callSlot", callEstimate.callSlot());
+                    callItem.put("callSlot", call.callSlot());
                 }
-                callItem.put("preHoldAmount", defaultAmount(callResult.getAmount()));
-                if (StrUtil.isNotBlank(callResult.getSkuCode()))
+                callItem.put("preHoldAmount", defaultAmount(result.getAmount()));
+                if (StrUtil.isNotBlank(result.getSkuCode()))
                 {
-                    callItem.put("skuCode", callResult.getSkuCode());
-                    callItem.put("skuName", callResult.getSkuName());
+                    callItem.put("skuCode", result.getSkuCode());
+                    callItem.put("skuName", result.getSkuName());
                 }
-                BillingSnapshot callSnapshot = callResult.getSnapshot();
-                if (Objects.nonNull(callSnapshot))
+                BillingSnapshot snapshot = result.getSnapshot();
+                if (snapshot != null)
                 {
-                    callItem.put("isFree", Boolean.TRUE.equals(callSnapshot.getIsFree()));
-                    callItem.put("meterType", callSnapshot.getMeterType());
-                    callItem.put("estimatedInputTokens", callSnapshot.getEstimatedInputTokens());
-                    callItem.put("estimatedOutputTokens", callSnapshot.getEstimatedOutputTokens());
-                    if (Objects.isNull(pricingSnapshot))
+                    callItem.put("isFree", Boolean.TRUE.equals(snapshot.getIsFree()));
+                    callItem.put("meterType", snapshot.getMeterType());
+                    callItem.put("estimatedInputTokens", snapshot.getEstimatedInputTokens());
+                    callItem.put("estimatedOutputTokens", snapshot.getEstimatedOutputTokens());
+                    if (pricingSnapshot == null)
                     {
-                        // 完整规则与倍率只保存一次；逐调用项仅保留紧凑估价结果，避免重复大 JSON。
-                        pricingSnapshot = callSnapshot;
+                        pricingSnapshot = snapshot;
                     }
                 }
-                callEstimates.add(callItem);
+                calls.add(callItem);
             }
-            item.put("callEstimates", callEstimates);
-            if (Objects.nonNull(pricingSnapshot))
+            item.put("callEstimates", calls);
+            if (pricingSnapshot != null)
             {
                 item.put("isFree", Boolean.TRUE.equals(pricingSnapshot.getIsFree()));
                 item.put("snapshot", pricingSnapshot);
             }
             items.add(item);
         }
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("batchType", BILLING_BATCH_TYPE_MULTI_MODEL_EXTRACT);
+        snapshot.put("billingGranularity", "PER_CALL");
+        snapshot.put("itemCount", items.size());
+        snapshot.put("preHoldAmount", plan.preHoldAmount());
+        snapshot.put("usageStartMediaTaskId", Math.max(0L, usageStartMediaTaskId));
+        snapshot.put("items", items);
+        return new ExtractBillingEstimate(plan.preHoldAmount(), JSONUtil.toJsonStr(snapshot));
+    }
 
-        Map<String, Object> batchSnapshot = new LinkedHashMap<>();
-        batchSnapshot.put("batchType", BILLING_BATCH_TYPE_MULTI_MODEL_EXTRACT);
-        batchSnapshot.put("billingGranularity", "PER_CALL");
-        batchSnapshot.put("itemCount", items.size());
-        batchSnapshot.put("preHoldAmount", totalAmount);
-        batchSnapshot.put("usageStartMediaTaskId", Math.max(0L, usageStartMediaTaskId));
-        batchSnapshot.put("items", items);
-        log.info("提取费用分组预估完成: taskId={}, modelGroups={}, watermark={}, totalAmount={}",
-                taskId, extractTypesByModel, usageStartMediaTaskId, totalAmount);
-        return new ExtractBillingEstimate(totalAmount, JSONUtil.toJsonStr(batchSnapshot));
+    private record ExtractModelBillingPlan(String modelCode, List<String> extractTypes,
+            AiModelConfigVo modelConfig, List<ExtractCallBillingEstimate> calls,
+            BigDecimal preHoldAmount)
+    {
+    }
+
+    private record ExtractBillingPlan(List<ExtractModelBillingPlan> models,
+            BigDecimal preHoldAmount)
+    {
+    }
+
+    /** 资产提取续跑的不可变只读计费计划。 */
+    private record ExtractResumePlan(AidExtractTask task, ExtractBillingPlan billingPlan,
+            ExtractBillingEstimate billingEstimate)
+    {
+    }
+
+    private ExtractResumePlan prepareExtractResumePlan(Long taskId, Long userId)
+    {
+        AidExtractTask task = requireExtractResumeTask(taskId, userId);
+        List<String> extractTypes = resolveExtractTypes(taskId);
+        Map<String, String> modelCodesByType = resolveExtractModelCodesByTypeFromSnapshot(
+                taskId, task.getModelCode());
+        ExtractPlanningContext context = new ExtractPlanningContext(task.getProjectId(),
+                task.getEpisodeId(), task.getUserId(), resolveExtractScopeFromTask(taskId),
+                Map.copyOf(resolveAgentCodes(taskId)));
+        ExtractBillingPlan fullPlan = buildExtractBillingPlan(
+                context, List.copyOf(extractTypes), Map.copyOf(modelCodesByType));
+        Set<String> completedSlots = readCompletedExtractCallSlots(task);
+        List<ExtractModelBillingPlan> remainingModels = new ArrayList<>();
+        BigDecimal total = BigDecimal.ZERO;
+        for (ExtractModelBillingPlan model : fullPlan.models())
+        {
+            List<ExtractCallBillingEstimate> remainingCalls = model.calls().stream()
+                    .filter(call -> StrUtil.isBlank(call.callSlot())
+                            || !completedSlots.contains(call.callSlot()))
+                    .toList();
+            if (remainingCalls.isEmpty())
+            {
+                continue;
+            }
+            BigDecimal amount = remainingCalls.stream()
+                    .map(ExtractCallBillingEstimate::result)
+                    .map(BillingCalcResult::getAmount)
+                    .filter(Objects::nonNull)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            remainingModels.add(new ExtractModelBillingPlan(model.modelCode(),
+                    model.extractTypes(), model.modelConfig(), List.copyOf(remainingCalls), amount));
+            total = total.add(amount);
+        }
+        ExtractBillingPlan remainingPlan = new ExtractBillingPlan(
+                List.copyOf(remainingModels), total);
+        long watermark = extractBillingService.findLatestExtractMediaTaskId(taskId);
+        return new ExtractResumePlan(task, remainingPlan,
+                serializeExtractBillingPlan(remainingPlan, watermark));
+    }
+
+    private AidExtractTask requireExtractResumeTask(Long taskId, Long userId)
+    {
+        if (taskId == null)
+        {
+            throw new ServiceException("任务不能为空");
+        }
+        AidExtractTask task = extractTaskService.selectAidExtractTaskById(taskId);
+        if (task == null || !DEL_FLAG_NORMAL.equals(task.getDelFlag())
+                || !Objects.equals(userId, task.getUserId()))
+        {
+            throw new ServiceException("任务不存在");
+        }
+        if (!TASK_TYPE_ASSET_EXTRACT.equals(task.getTaskType()))
+        {
+            throw new ServiceException("任务类型不支持续生");
+        }
+        if (!TASK_STATUS_PARTIAL_FAILED.equals(task.getStatus())
+                && !TASK_STATUS_CANCELLED.equals(task.getStatus()))
+        {
+            throw new ServiceException("任务状态不支持续生");
+        }
+        if (task.getCreateTime() != null
+                && System.currentTimeMillis() - task.getCreateTime().getTime() > 24L * 3600_000L)
+        {
+            throw new ServiceException("任务已过期，请重新发起");
+        }
+        return task;
+    }
+
+    private Set<String> readCompletedExtractCallSlots(AidExtractTask task)
+    {
+        if (StrUtil.isBlank(task.getInputSnapshot())
+                || !task.getInputSnapshot().trim().startsWith("{"))
+        {
+            return Set.of();
+        }
+        try
+        {
+            JsonNode completed = OBJECT_MAPPER.readTree(task.getInputSnapshot())
+                    .get(ROLLING_TEXT_CALL_RESULTS_KEY);
+            if (completed == null || !completed.isObject())
+            {
+                return Set.of();
+            }
+            LinkedHashSet<String> slots = new LinkedHashSet<>();
+            completed.fieldNames().forEachRemaining(slots::add);
+            return Set.copyOf(slots);
+        }
+        catch (Exception e)
+        {
+            log.error("资产提取续跑水位解析失败: taskId={}", task.getId(), e);
+            throw new ServiceException("任务数据异常");
+        }
+    }
+
+    @Override
+    public BillingQuoteVO quoteResumeExtract(Long taskId, Long userId)
+    {
+        ExtractResumePlan plan = prepareExtractResumePlan(taskId, userId);
+        if (plan.billingPlan().models().isEmpty())
+        {
+            return billingQuoteAssembler.zero("TASK_RESUME", "本轮无模型费用");
+        }
+        List<BillingQuoteVO> items = new ArrayList<>();
+        for (ExtractModelBillingPlan model : plan.billingPlan().models())
+        {
+            for (ExtractCallBillingEstimate call : model.calls())
+            {
+                items.add(billingQuoteAssembler.single(
+                        "TASK_RESUME", model.modelConfig(), call.result(), 1));
+            }
+        }
+        return billingQuoteAssembler.aggregate("TASK_RESUME", items);
     }
 
     private BigDecimal defaultAmount(BigDecimal amount)
@@ -1613,14 +1782,14 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
             }
             Map<String, String> inputs = buildVisualStylistInputs(asset);
             return helper.estimateLlmInputCharsWithInputs(
-                    helper.loadPromptByName(PROMPT_NAME_VISUAL_STYLIST), inputs, modelCode);
+                    helper.loadPromptByNameReadOnly(PROMPT_NAME_VISUAL_STYLIST), inputs, modelCode);
         }
         if (Objects.equals(ASSET_TYPE_SCENE, asset.getAssetType()))
         {
             if (StrUtil.isNotBlank(asset.getIntroduction()))
             {
                 return helper.estimateLlmInputCharsWithInputs(
-                        helper.loadPromptByName("aid_scene_stylist"), collectSceneStylistInputs(asset), modelCode);
+                        helper.loadPromptByNameReadOnly("aid_scene_stylist"), collectSceneStylistInputs(asset), modelCode);
             }
         }
         if (Objects.equals(ASSET_TYPE_PROP, asset.getAssetType()))
@@ -1628,7 +1797,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
             if (StrUtil.isNotBlank(asset.getIntroduction()))
             {
                 return helper.estimateLlmInputCharsWithInputs(
-                        helper.loadPromptByName("aid_prop_stylist"), collectPropStylistVariables(asset), modelCode);
+                        helper.loadPromptByNameReadOnly("aid_prop_stylist"), collectPropStylistVariables(asset), modelCode);
             }
         }
         if (StrUtil.isBlank(asset.getSummary()))
@@ -1691,21 +1860,35 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         {
             return new ExtractInputEstimate(List.of(new ExtractCallInputEstimate("unknown", null, 0)));
         }
+        ExtractPlanningContext context = new ExtractPlanningContext(task.getProjectId(),
+                task.getEpisodeId(), task.getUserId(), resolveExtractScopeFromTask(taskId),
+                Map.copyOf(resolveAgentCodes(taskId)));
+        return estimateExtractInput(context, extractTypes, modelCode);
+    }
 
-        Map<String, String> agentCodes = resolveAgentCodes(taskId);
+    private ExtractInputEstimate estimateExtractInput(ExtractPlanningContext context,
+            List<String> extractTypes, String modelCode)
+    {
+        AidComicProject project = projectService.selectAidComicProjectById(context.projectId());
+        if (Objects.isNull(project))
+        {
+            return new ExtractInputEstimate(List.of(new ExtractCallInputEstimate("unknown", null, 0)));
+        }
+        Map<String, String> agentCodes = context.agentCodes();
         // 去重库与执行阶段同口径：项目级加载（跨集去重/复用）
-        ExistingAssetLib lib = helper.loadExistingAssets(task.getProjectId(), null);
+        ExistingAssetLib lib = helper.loadExistingAssets(context.projectId(), null);
         List<ExtractCallInputEstimate> calls = new ArrayList<>();
 
         if (extractTypes.contains(EXTRACT_TYPE_CHARACTER))
         {
             String agentCode = resolveAgentCodeForType(agentCodes, EXTRACT_TYPE_CHARACTER);
-            String promptTemplate = helper.loadPromptByName(StrUtil.blankToDefault(agentCode, PROMPT_NAME_CASTING));
-            String charactersLibInfo = helper.loadCharactersLibInfo(task.getProjectId());
+            String promptTemplate = helper.loadPromptByNameReadOnly(
+                    StrUtil.blankToDefault(agentCode, PROMPT_NAME_CASTING));
+            String charactersLibInfo = helper.loadCharactersLibInfo(context.projectId());
             String charactersLibName = lib.getCharacterNamesJoined();
             // 与执行阶段同口径：剧集全量=全项目分组剧本；剧集增量=当前集剧本；电影=整部剧本
             boolean seriesFullScan = Objects.equals(PROJECT_TYPE_SERIES, project.getProjectType())
-                    && Objects.equals(EXTRACT_SCOPE_PROJECT_FULL, resolveExtractScopeFromTask(taskId));
+                    && Objects.equals(EXTRACT_SCOPE_PROJECT_FULL, context.extractScope());
             String characterStage = seriesFullScan ? "character_series"
                     : Objects.equals(PROJECT_TYPE_SERIES, project.getProjectType())
                     ? "character_incremental" : "character";
@@ -1713,16 +1896,16 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
             if (seriesFullScan)
             {
                 characterScripts = helper.loadGroupedScriptsContent(
-                        task.getProjectId(), SERIES_EPISODE_GROUP_SIZE, task.getUserId());
+                        context.projectId(), SERIES_EPISODE_GROUP_SIZE, context.userId());
             }
             else if (Objects.equals(PROJECT_TYPE_SERIES, project.getProjectType()))
             {
                 characterScripts = List.of(StrUtil.nullToEmpty(
-                        helper.loadScriptContent(task.getProjectId(), task.getEpisodeId(), task.getUserId())));
+                        helper.loadScriptContent(context.projectId(), context.episodeId(), context.userId())));
             }
             else
             {
-                characterScripts = List.of(StrUtil.nullToEmpty(resolveCharacterScript(project, task.getUserId())));
+                characterScripts = List.of(StrUtil.nullToEmpty(resolveCharacterScript(project, context.userId())));
             }
             Map<String, Integer> sourceOccurrences = new HashMap<>();
             for (String script : characterScripts)
@@ -1742,13 +1925,13 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
 
         if (extractTypes.contains(EXTRACT_TYPE_SCENE) || extractTypes.contains(EXTRACT_TYPE_PROP))
         {
-            String script = helper.loadScriptContent(task.getProjectId(), task.getEpisodeId(), task.getUserId());
+            String script = helper.loadScriptContent(context.projectId(), context.episodeId(), context.userId());
             List<String> chunks = helper.chunkContent(StrUtil.nullToEmpty(script), CHUNK_SIZE_SCENE_PROP);
             String sceneTemplate = extractTypes.contains(EXTRACT_TYPE_SCENE)
-                    ? helper.loadPromptByName(StrUtil.blankToDefault(
+                    ? helper.loadPromptByNameReadOnly(StrUtil.blankToDefault(
                             resolveAgentCodeForType(agentCodes, EXTRACT_TYPE_SCENE), PROMPT_NAME_SCENE)) : null;
             String propTemplate = extractTypes.contains(EXTRACT_TYPE_PROP)
-                    ? helper.loadPromptByName(StrUtil.blankToDefault(
+                    ? helper.loadPromptByNameReadOnly(StrUtil.blankToDefault(
                             resolveAgentCodeForType(agentCodes, EXTRACT_TYPE_PROP), PROMPT_NAME_PROP)) : null;
             Map<String, Integer> sourceOccurrences = new HashMap<>();
             for (String chunk : chunks)
@@ -1786,73 +1969,9 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
 
     private record ExtractInputEstimate(List<ExtractCallInputEstimate> calls) { }
 
-    /**
-     * 校验同一项目+剧集下是否有进行中的任务，防止重复提交
-     */
-    private void checkNoActiveTask(Long projectId, String projectType, Long episodeId)
+    private record ExtractPlanningContext(Long projectId, Long episodeId, Long userId,
+            String extractScope, Map<String, String> agentCodes)
     {
-        if (hasActiveExtractTaskInDb(projectId, projectType, episodeId))
-        {
-            log.info("存在进行中的提取任务: projectId={}, episodeId={}", projectId, episodeId);
-            throw new ServiceException("任务处理中");
-        }
-    }
-
-    /**
-     * 项目级角色提取并发防重：剧集角色主资产项目内唯一，任意两个含 character 的提取任务
-     * 并发（如第24集与第25集同时增量提取）会同时读写项目级角色目录，可能产生重复角色。
-     * 本次任务含 character 时，项目下任一活跃的含 character 提取任务均拦截。
-     * 查询字段精简：防重判定仅需主键与快照（新增使用字段时此处必须同步补充）。
-     *
-     * @param projectId    项目ID
-     * @param projectType  项目类型
-     * @param extractTypes 本次提取类型
-     */
-    private void checkNoActiveCharacterExtract(Long projectId, String projectType, List<String> extractTypes)
-    {
-        if (!Objects.equals(PROJECT_TYPE_SERIES, projectType)
-                || !extractTypes.contains(EXTRACT_TYPE_CHARACTER))
-        {
-            return;
-        }
-        List<AidExtractTask> activeTasks = extractTaskService.list(Wrappers.<AidExtractTask>lambdaQuery()
-                .select(AidExtractTask::getId, AidExtractTask::getInputSnapshot)
-                .eq(AidExtractTask::getProjectId, projectId)
-                .eq(AidExtractTask::getTaskType, TASK_TYPE_ASSET_EXTRACT)
-                .in(AidExtractTask::getStatus, TASK_STATUS_PENDING, TASK_STATUS_QUEUED, TASK_STATUS_PROCESSING)
-                .eq(AidExtractTask::getDelFlag, DEL_FLAG_NORMAL));
-        for (AidExtractTask active : activeTasks)
-        {
-            String snapshot = StrUtil.nullToEmpty(active.getInputSnapshot());
-            if (snapshot.contains(EXTRACT_TYPE_CHARACTER))
-            {
-                log.info("项目级角色提取并发拦截: projectId={}, activeTaskId={}", projectId, active.getId());
-                throw new ServiceException("任务处理中");
-            }
-        }
-    }
-
-    /**
-     * 判断 DB 中是否存在该 project+episode 维度的、属于 asset_extract 类型的活跃任务。
-     */
-    private boolean hasActiveExtractTaskInDb(Long projectId, String projectType, Long episodeId)
-    {
-        LambdaQueryWrapper<AidExtractTask> wrapper = Wrappers.lambdaQuery();
-        wrapper.select(AidExtractTask::getId);
-        wrapper.eq(AidExtractTask::getProjectId, projectId);
-        // 电影模式不区分episodeId，剧集模式按episodeId隔离
-        if (Objects.equals(PROJECT_TYPE_SERIES, projectType) && Objects.nonNull(episodeId))
-        {
-            wrapper.eq(AidExtractTask::getEpisodeId, episodeId);
-        }
-        // 仅校验同类（asset_extract）任务，避免被设定卡 / 高清 / 多机位 / 编辑弹窗等图片类任务
-        // 误拦截 —— /extract/parallel 与图片任务彼此独立，不应互相阻塞。
-        wrapper.eq(AidExtractTask::getTaskType, TASK_TYPE_ASSET_EXTRACT);
-        // 排队改造后 QUEUED 也属"活跃"，纳入重复提交拦截，防止同项目/剧集重复入队。
-        wrapper.in(AidExtractTask::getStatus, TASK_STATUS_PENDING, TASK_STATUS_QUEUED, TASK_STATUS_PROCESSING);
-        wrapper.eq(AidExtractTask::getDelFlag, DEL_FLAG_NORMAL);
-        wrapper.last("LIMIT 1");
-        return Objects.nonNull(extractTaskService.getOne(wrapper, false));
     }
 
     private AidComicProject validateProject(Long projectId, Long userId)
@@ -2371,9 +2490,11 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         }
         int outputTokenCap = helper.resolveStructuredOutputTokens(
                 StrUtil.length(userInputs.get("input")), 1);
-        return helper.callLlmWithInputs(promptTemplate, userInputs, modelCode,
-                taskId, userId, taskPromptDigest, callIdentity, replayValidator,
-                progress.billingTraceId, outputTokenCap);
+        return batchParentSubmissionGuard.executeManagedTask(taskId, progress.billingTraceId,
+                () -> helper.callLlmWithInputs(promptTemplate, userInputs, modelCode,
+                        taskId, userId, taskPromptDigest, callIdentity, replayValidator,
+                        progress.billingTraceId, outputTokenCap),
+                TextTaskExecutionRejectedException::new);
     }
 
     private boolean isValidCharacterExtractResult(JsonNode result)
@@ -3280,49 +3401,10 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
     @Override
     public AssetExtractTaskVO resumeExtract(Long taskId, Long userId)
     {
-        if (Objects.isNull(taskId))
-        {
-            throw new ServiceException("任务不能为空");
-        }
-        AidExtractTask task = extractTaskService.selectAidExtractTaskById(taskId);
-        if (Objects.isNull(task) || !"0".equals(task.getDelFlag()))
-        {
-            throw new ServiceException("任务不存在");
-        }
-        if (!Objects.equals(userId, task.getUserId()))
-        {
-            throw new ServiceException("任务不存在");
-        }
-        if (!TASK_STATUS_PARTIAL_FAILED.equals(task.getStatus())
-                && !TASK_STATUS_CANCELLED.equals(task.getStatus()))
-        {
-            throw new ServiceException("任务状态不支持续跑");
-        }
+        ExtractResumePlan resumePlan = prepareExtractResumePlan(taskId, userId);
+        AidExtractTask task = resumePlan.task();
         String originalStatus = task.getStatus();
-        // 24 小时窗口
-        if (Objects.nonNull(task.getCreateTime()))
-        {
-            long ageHours = (System.currentTimeMillis() - task.getCreateTime().getTime()) / 3600_000L;
-            if (ageHours > 24L)
-            {
-                throw new ServiceException("任务已过期，请重新发起");
-            }
-        }
-
-        ExtractBillingEstimate billingEstimate;
-        try
-        {
-            Map<String, String> modelCodesByType = resolveExtractModelCodesByTypeFromSnapshot(
-                    taskId, task.getModelCode());
-            long usageStartMediaTaskId = extractBillingService.findLatestExtractMediaTaskId(taskId);
-            billingEstimate = estimateExtractBilling(
-                    taskId, modelCodesByType, usageStartMediaTaskId);
-        }
-        catch (Exception e)
-        {
-            log.error("资产提取续跑计费预估失败: taskId={}", taskId, e);
-            throw TaskErrorPresentation.fromThrowable(e, "预冻结失败");
-        }
+        ExtractBillingEstimate billingEstimate = resumePlan.billingEstimate();
 
         boolean mqEnabled = isMqEnabled();
         String dispatchMode = mqEnabled ? "MQ" : "LOCAL";
@@ -4825,6 +4907,11 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
             sseManager.sendComplete(taskId, results);
             log.info("本地线程池提取完成: taskId={}, count={}", taskId, results.size());
         }
+        catch (BatchTaskExecutionRejectedException rejected)
+        {
+            log.info("本地提取在提交周期内取消: taskId={}", taskId);
+            cancelManagedBatchTask(taskId, userId);
+        }
         catch (PartialExtractionException partialEx)
         {
             List<RpsAssetVO> partialAssets = partialEx.getPartialAssets() == null
@@ -5046,31 +5133,6 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
     }
 
     /**
-     * 判断给定 extract 锁值是否已超过 SETNX→INSERT 宽限期。
-     * 解析失败一律视为过期（脏数据，按可清理处理）。
-     */
-    private boolean isExtractLockStaleByAge(String tokenWithTs)
-    {
-        if (StrUtil.isBlank(tokenWithTs))
-        {
-            return true;
-        }
-        try
-        {
-            int separator = tokenWithTs.indexOf(':');
-            String timestampPart = separator < 0 ? tokenWithTs : tokenWithTs.substring(0, separator);
-            long acquiredAt = Long.parseLong(timestampPart);
-            return System.currentTimeMillis() - acquiredAt > EXTRACT_LOCK_STALE_GRACE_MS;
-        }
-        catch (NumberFormatException ignored)
-        {
-            // 非时间戳 token（如固定值 "1"）视为脏数据，按可清理处理；
-            // 正常锁值均为时间戳，配合 EXTRACT_LOCK_STALE_GRACE_MS 宽限期不会误删。
-            return true;
-        }
-    }
-
-    /**
      * 僵尸 extract 锁清理用 CAS：仅当锁值仍等于"刚才读到的 existingToken"时才 DEL，
      * 防止在 GET → DEL 之间锁自然过期被他人重抢导致裸删误杀。
      *
@@ -5115,10 +5177,10 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
                         taskId, expectedTraceId, task.getBillingTraceId());
                 return;
             }
+            batchTaskSlotService.releaseForTask(task);
             String lockToken = resolveExtractLockToken(task.getInputSnapshot());
             if (StrUtil.isBlank(lockToken))
             {
-                log.warn("提取任务缺少锁令牌，等待锁自然过期: taskId={}", taskId);
                 return;
             }
             releaseExtractLockIfMatch(task.getProjectId(), task.getEpisodeId(), lockToken);
@@ -5188,7 +5250,9 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
                 || TASK_TYPE_STORYBOARD_VIDEO_GENERATE.equals(taskType)
                 || TASK_TYPE_STORYBOARD_SCRIPT_BATCH.equals(taskType)
                 || TASK_TYPE_STORYBOARD_IMAGE_PROMPT_BATCH.equals(taskType)
-                || TASK_TYPE_STORYBOARD_VIDEO_PROMPT_BATCH.equals(taskType);
+                || TASK_TYPE_STORYBOARD_VIDEO_PROMPT_BATCH.equals(taskType)
+                || TASK_TYPE_STORYBOARD_AUDIO_GENERATE.equals(taskType)
+                || TASK_TYPE_STORYBOARD_LIP_SYNC_GENERATE.equals(taskType);
         if (!cancelSupported)
         {
             log.info("取消失败，该接口不支持此任务类型: taskId={}, taskType={}", taskId, taskType);
@@ -5196,13 +5260,42 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         }
 
         String currentStatus = task.getStatus();
-
-        if (!TASK_STATUS_QUEUED.equals(currentStatus)
-                && !TASK_STATUS_PENDING.equals(currentStatus)
-                && !TASK_STATUS_PROCESSING.equals(currentStatus))
+        boolean activeStatus = TASK_STATUS_QUEUED.equals(currentStatus)
+                || TASK_STATUS_PENDING.equals(currentStatus)
+                || TASK_STATUS_PROCESSING.equals(currentStatus)
+                || TASK_STATUS_FINALIZING.equals(currentStatus)
+                || TASK_STATUS_RECOVERING.equals(currentStatus);
+        boolean managedBatchTask = batchTaskSlotService.isManagedBatchTask(task);
+        boolean chainRootTask = isCombinedChainRoot(task);
+        // 先落取消标记，再等待 submission guard；等待期间新提交者拿锁后会复核标记并停止。
+        if ((activeStatus && managedBatchTask) || chainRootTask)
         {
+            setCancelFlag(taskId);
+        }
+
+        int stoppedChainChildren = cancelActiveOwnedChainChildren(task, userId);
+
+        if (!activeStatus)
+        {
+            if (chainRootTask || stoppedChainChildren > 0)
+            {
+                return;
+            }
             log.info("取消失败，任务状态不可取消: taskId={}, status={}", taskId, currentStatus);
             throw new ServiceException("任务已停止");
+        }
+
+        if (managedBatchTask)
+        {
+            cancelManagedBatchTask(taskId, userId);
+            if (chainRootTask)
+            {
+                batchParentSubmissionGuard.execute(taskId, () -> {
+                    persistChainCancelled(taskId);
+                    return null;
+                });
+            }
+            return;
         }
 
         //    与 drain/admit/requeue 共享同一把派发锁，杜绝"取消成功并退款后调度器仍 dispatch 执行"的竞态；
@@ -5239,6 +5332,321 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         log.info("PROCESSING任务已写入cancel flag: taskId={}", taskId);
     }
 
+    /** 在 submission guard 内把逻辑批量父任务可靠收口为取消终态。 */
+    private void cancelManagedBatchTask(Long taskId, Long userId)
+    {
+        boolean changed = batchParentSubmissionGuard.execute(taskId, () ->
+        {
+            AidExtractTask current = extractTaskService.selectAidExtractTaskById(taskId);
+            if (Objects.isNull(current) || !Objects.equals(userId, current.getUserId()))
+            {
+                throw new ServiceException("任务不可用");
+            }
+            if (TASK_STATUS_CANCELLED.equals(current.getStatus()))
+            {
+                return false;
+            }
+            if (!isCancelableActiveStatus(current.getStatus()))
+            {
+                throw new ServiceException("任务已停止");
+            }
+            String expectedTraceId = current.getBillingTraceId();
+            if ((TASK_STATUS_PENDING.equals(current.getStatus())
+                    || TASK_STATUS_QUEUED.equals(current.getStatus()))
+                    && taskQueueService.tryCancelQueuedOrPending(taskId))
+            {
+                refundCancelledPendingTask(taskId, userId, expectedTraceId);
+                AidExtractTask cancelled = extractTaskService.selectAidExtractTaskById(taskId);
+                releasePendingTaskSpecificLock(cancelled, expectedTraceId);
+                batchParentResourceCleaner.releaseCancelledResources(cancelled);
+                return true;
+            }
+
+            current = extractTaskService.selectAidExtractTaskById(taskId);
+            if (Objects.isNull(current) || !Objects.equals(userId, current.getUserId()))
+            {
+                throw new ServiceException("任务不可用");
+            }
+            if (TASK_STATUS_CANCELLED.equals(current.getStatus()))
+            {
+                return false;
+            }
+            if (!isCancelableActiveStatus(current.getStatus()))
+            {
+                throw new ServiceException("任务已停止");
+            }
+            String statusBeforeCancel = current.getStatus();
+            expectedTraceId = current.getBillingTraceId();
+            boolean updated = extractTaskService.update(Wrappers.<AidExtractTask>lambdaUpdate()
+                    .eq(AidExtractTask::getId, taskId)
+                    .eq(AidExtractTask::getUserId, userId)
+                    .eq(AidExtractTask::getBillingTraceId, expectedTraceId)
+                    .in(AidExtractTask::getStatus, TASK_STATUS_PENDING, TASK_STATUS_QUEUED,
+                            TASK_STATUS_PROCESSING, TASK_STATUS_FINALIZING, TASK_STATUS_RECOVERING)
+                    .set(AidExtractTask::getStatus, TASK_STATUS_CANCELLED)
+                    .set(AidExtractTask::getErrorMessage, "用户取消")
+                    .set(AidExtractTask::getUpdateTime, DateUtils.getNowDate()));
+            if (!updated)
+            {
+                AidExtractTask latest = extractTaskService.selectAidExtractTaskById(taskId);
+                if (Objects.isNull(latest) || !TASK_STATUS_CANCELLED.equals(latest.getStatus()))
+                {
+                    throw new ServiceException("任务已停止");
+                }
+                return false;
+            }
+            if (TASK_STATUS_PENDING.equals(statusBeforeCancel)
+                    || TASK_STATUS_QUEUED.equals(statusBeforeCancel))
+            {
+                refundCancelledPendingTask(taskId, userId, expectedTraceId);
+            }
+            else
+            {
+                try
+                {
+                    boolean billingClosed = extractBillingService.settleOrRefundAfterExecutionFailure(
+                            taskId, userId, expectedTraceId);
+                    if (!billingClosed)
+                    {
+                        log.warn("取消任务计费尚未收敛，保留补偿: taskId={}, taskType={}",
+                                taskId, current.getTaskType());
+                    }
+                }
+                catch (Exception billingEx)
+                {
+                    log.error("取消任务计费收口异常: taskId={}, taskType={}",
+                            taskId, current.getTaskType(), billingEx);
+                }
+            }
+            AidExtractTask cancelled = extractTaskService.selectAidExtractTaskById(taskId);
+            releasePendingTaskSpecificLock(cancelled, expectedTraceId);
+            batchParentResourceCleaner.releaseCancelledResources(cancelled);
+            releaseTaskSlots(taskId, expectedTraceId);
+            return true;
+        });
+        AidExtractTask cancelledTask = extractTaskService.selectAidExtractTaskById(taskId);
+        if (Objects.isNull(cancelledTask) || !TASK_STATUS_CANCELLED.equals(cancelledTask.getStatus()))
+        {
+            throw new ServiceException("任务已停止");
+        }
+        if (changed)
+        {
+            sseManager.sendCancelled(taskId, "用户取消");
+        }
+    }
+
+    private boolean isCancelableActiveStatus(String status)
+    {
+        return TASK_STATUS_PENDING.equals(status) || TASK_STATUS_QUEUED.equals(status)
+                || TASK_STATUS_PROCESSING.equals(status) || TASK_STATUS_FINALIZING.equals(status)
+                || TASK_STATUS_RECOVERING.equals(status);
+    }
+
+    private void refundCancelledPendingTask(Long taskId, Long userId, String expectedTraceId)
+    {
+        try
+        {
+            extractBillingService.refundBilling(taskId, userId, expectedTraceId);
+        }
+        catch (Exception refundEx)
+        {
+            log.error("取消退款失败, 需人工介入: taskId={}", taskId, refundEx);
+        }
+    }
+
+    /** 组合链根任务已终态时，仍停止其同 owner 的活跃出图/出片子任务。 */
+    private int cancelActiveOwnedChainChildren(AidExtractTask task, Long userId)
+    {
+        if (!isCombinedChainRoot(task))
+        {
+            return 0;
+        }
+        BatchTaskSlotReservation parentReservation = batchTaskSlotService.reservationFromTask(task);
+        if (parentReservation == null)
+        {
+            return 0;
+        }
+        return batchParentSubmissionGuard.execute(task.getId(), () ->
+                cancelActiveOwnedChainChildrenLocked(task, userId, parentReservation));
+    }
+
+    private int cancelActiveOwnedChainChildrenLocked(AidExtractTask task, Long userId,
+                                                      BatchTaskSlotReservation parentReservation)
+    {
+        persistChainCancelled(task.getId());
+        Set<Long> candidateIds = new LinkedHashSet<>();
+        try
+        {
+            if (StrUtil.isNotBlank(task.getResultData()))
+            {
+                JsonNode childIds = OBJECT_MAPPER.readTree(task.getResultData()).path("chainChildTaskIds");
+                if (childIds.isArray())
+                {
+                    for (JsonNode childIdNode : childIds)
+                    {
+                        if (childIdNode.canConvertToLong())
+                        {
+                            candidateIds.add(childIdNode.asLong());
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            log.warn("停止组合链读取结果子任务失败: taskId={}, err={}", task.getId(), ex.getMessage());
+        }
+        try
+        {
+            List<AidExtractTask> scopedChildren = extractTaskService.list(
+                    Wrappers.<AidExtractTask>lambdaQuery()
+                            .select(AidExtractTask::getId)
+                            .eq(AidExtractTask::getUserId, userId)
+                            .eq(AidExtractTask::getProjectId, parentReservation.projectId())
+                            .eq(AidExtractTask::getEpisodeId, parentReservation.episodeId())
+                            .in(AidExtractTask::getTaskType,
+                                    TASK_TYPE_STORYBOARD_IMAGE_GENERATE,
+                                    TASK_TYPE_STORYBOARD_VIDEO_GENERATE)
+                            .in(AidExtractTask::getStatus,
+                                    TASK_STATUS_PENDING, TASK_STATUS_QUEUED, TASK_STATUS_PROCESSING,
+                                    TASK_STATUS_FINALIZING, TASK_STATUS_RECOVERING)
+                            .eq(AidExtractTask::getDelFlag, DEL_FLAG_NORMAL));
+            for (AidExtractTask child : scopedChildren)
+            {
+                candidateIds.add(child.getId());
+            }
+        }
+        catch (Exception ex)
+        {
+            log.error("停止组合链扫描同owner子任务失败: taskId={}", task.getId(), ex);
+            throw new ServiceException("任务繁忙，请稍后");
+        }
+
+        int stopped = 0;
+        int failed = 0;
+        for (Long childId : candidateIds)
+        {
+            try
+            {
+                if (Objects.equals(task.getId(), childId))
+                {
+                    continue;
+                }
+                AidExtractTask child = extractTaskService.selectAidExtractTaskById(childId);
+                BatchTaskSlotReservation childReservation = batchTaskSlotService.reservationFromTask(child);
+                if (child == null || childReservation == null
+                        || !Objects.equals(userId, child.getUserId())
+                        || !Objects.equals(parentReservation.ownerToken(), childReservation.ownerToken())
+                        || !Objects.equals(parentReservation.projectId(), childReservation.projectId())
+                        || !Objects.equals(parentReservation.episodeId(), childReservation.episodeId())
+                        || !Set.copyOf(parentReservation.logicalTypes())
+                                .equals(Set.copyOf(childReservation.logicalTypes()))
+                        || !isCancelableActiveStatus(child.getStatus()))
+                {
+                    continue;
+                }
+                cancelTask(childId, userId);
+                stopped++;
+            }
+            catch (Exception childEx)
+            {
+                if (isChainChildClosedOrDetached(childId, parentReservation))
+                {
+                    stopped++;
+                    log.info("停止组合链子任务已收口: rootTaskId={}, childTaskId={}, err={}",
+                            task.getId(), childId, childEx.getMessage());
+                }
+                else
+                {
+                    failed++;
+                    log.warn("停止组合链子任务失败: rootTaskId={}, childTaskId={}, err={}",
+                            task.getId(), childId, childEx.getMessage());
+                }
+            }
+        }
+        if (failed > 0)
+        {
+            throw new ServiceException("任务繁忙，请稍后");
+        }
+        return stopped;
+    }
+
+    private boolean isChainChildClosedOrDetached(Long childId, BatchTaskSlotReservation parentReservation)
+    {
+        try
+        {
+            AidExtractTask child = extractTaskService.selectAidExtractTaskById(childId);
+            if (child == null || !isCancelableActiveStatus(child.getStatus()))
+            {
+                return true;
+            }
+            BatchTaskSlotReservation childReservation = batchTaskSlotService.reservationFromTask(child);
+            return childReservation != null
+                    && !Objects.equals(parentReservation.ownerToken(), childReservation.ownerToken());
+        }
+        catch (Exception recheckEx)
+        {
+            log.warn("复核组合链子任务状态失败: childTaskId={}, err={}", childId, recheckEx.getMessage());
+            return false;
+        }
+    }
+
+    private void persistChainCancelled(Long taskId)
+    {
+        AidExtractTask current = extractTaskService.selectAidExtractTaskById(taskId);
+        if (current == null)
+        {
+            throw new ServiceException("任务不可用");
+        }
+        try
+        {
+            JSONObject result = StrUtil.isBlank(current.getResultData())
+                    ? new JSONObject() : JSON.parseObject(current.getResultData());
+            if (Boolean.TRUE.equals(result.getBoolean("chainCancelled")))
+            {
+                return;
+            }
+            result.put("chainCancelled", true);
+            boolean updated = extractTaskService.update(Wrappers.<AidExtractTask>lambdaUpdate()
+                    .eq(AidExtractTask::getId, taskId)
+                    .eq(AidExtractTask::getUserId, current.getUserId())
+                    .set(AidExtractTask::getResultData, result.toJSONString())
+                    .set(AidExtractTask::getUpdateTime, DateUtils.getNowDate()));
+            if (!updated)
+            {
+                throw new ServiceException("任务状态异常");
+            }
+        }
+        catch (ServiceException ex)
+        {
+            throw ex;
+        }
+        catch (Exception ex)
+        {
+            log.error("持久化组合链停止标记失败: taskId={}", taskId, ex);
+            throw new ServiceException("任务状态异常");
+        }
+    }
+
+    private boolean isCombinedChainRoot(AidExtractTask task)
+    {
+        if (task == null || StrUtil.isBlank(task.getInputSnapshot())
+                || batchTaskSlotService.reservationFromTask(task) == null)
+        {
+            return false;
+        }
+        try
+        {
+            JsonNode chainNext = OBJECT_MAPPER.readTree(task.getInputSnapshot()).path("chainNext");
+            return chainNext.isObject() && chainNext.size() > 0;
+        }
+        catch (Exception ex)
+        {
+            log.warn("识别组合链根任务失败: taskId={}, err={}", task.getId(), ex.getMessage());
+            return false;
+        }
+    }
+
     @Override
     public CancelBatchResult cancelBatchTasks(List<Long> taskIds, Long userId)
     {
@@ -5253,7 +5661,8 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
                 Wrappers.<AidExtractTask>lambdaQuery()
                         .in(AidExtractTask::getId, taskIds)
                         .eq(AidExtractTask::getUserId, userId)
-                        .in(AidExtractTask::getStatus, TASK_STATUS_PENDING, TASK_STATUS_QUEUED, TASK_STATUS_PROCESSING)
+                        .in(AidExtractTask::getStatus, TASK_STATUS_PENDING, TASK_STATUS_QUEUED,
+                                TASK_STATUS_PROCESSING, TASK_STATUS_FINALIZING, TASK_STATUS_RECOVERING)
                         .select(AidExtractTask::getId, AidExtractTask::getProjectId,
                                 AidExtractTask::getEpisodeId, AidExtractTask::getTaskType,
                                 AidExtractTask::getInputSnapshot, AidExtractTask::getStatus,
@@ -5278,6 +5687,12 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
                 if (Objects.isNull(taskRecord))
                 {
                     // 非本用户 / SELECT 时已非 PENDING|QUEUED → 跳过
+                    continue;
+                }
+                if (batchTaskSlotService.isManagedBatchTask(taskRecord))
+                {
+                    cancelTask(taskId, userId);
+                    cancelCount++;
                     continue;
                 }
                 if (TASK_STATUS_PROCESSING.equals(taskRecord.getStatus()))
@@ -5670,6 +6085,8 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
                 log.info("PENDING视频提示词批量任务取消后释放项目级锁: taskId={}, projectId={}, episodeId={}",
                         task.getId(), task.getProjectId(), task.getEpisodeId());
             }
+            // 新逻辑槽对无元数据旧任务为 no-op；owner CAS 释放，可与各分支专用释放安全重复调用。
+            batchTaskSlotService.releaseForTask(task);
         }
         catch (Exception e)
         {
@@ -5682,14 +6099,15 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
      */
     private void releasePendingTaskSpecificLock(AidExtractTask task, String expectedTraceId)
     {
+        Long taskId = task == null ? null : task.getId();
         try
         {
-            AidExtractTask current = task == null
-                    ? null : extractTaskService.selectAidExtractTaskById(task.getId());
+            AidExtractTask current = taskId == null
+                    ? null : extractTaskService.selectAidExtractTaskById(taskId);
             if (current == null || !Objects.equals(expectedTraceId, current.getBillingTraceId()))
             {
                 log.warn("任务业务锁释放跳过，周期已变化: taskId={}, expectedTraceId={}, currentTraceId={}",
-                        task == null ? null : task.getId(), expectedTraceId,
+                        taskId, expectedTraceId,
                         current == null ? null : current.getBillingTraceId());
                 return;
             }
@@ -5857,7 +6275,29 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         }
         catch (Exception e)
         {
-            log.warn("释放PENDING任务锁(按taskType)异常: taskId={}", task.getId(), e);
+            log.warn("释放PENDING任务锁(按taskType)异常: taskId={}", taskId, e);
+        }
+        finally
+        {
+            try
+            {
+                AidExtractTask current = taskId == null
+                        ? null : extractTaskService.selectAidExtractTaskById(taskId);
+                if (current != null && Objects.equals(expectedTraceId, current.getBillingTraceId()))
+                {
+                    batchTaskSlotService.releaseForTask(current);
+                }
+                else if (taskId != null)
+                {
+                    log.warn("任务逻辑槽释放跳过，周期已变化: taskId={}, expectedTraceId={}, currentTraceId={}",
+                            taskId, expectedTraceId,
+                            current == null ? null : current.getBillingTraceId());
+                }
+            }
+            catch (Exception releaseEx)
+            {
+                log.warn("任务逻辑槽释放异常: taskId={}", taskId, releaseEx);
+            }
         }
     }
 
@@ -6086,7 +6526,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
                                             Map<String, String> modelCodesByType,
                                             String primaryModelCode,
                                             String extractScope,
-                                            String extractLockToken,
+                                            BatchTaskSlotReservation slotReservation,
                                             boolean overwrite)
     {
         AidExtractTask task = new AidExtractTask();
@@ -6096,7 +6536,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         task.setTaskType(TASK_TYPE_ASSET_EXTRACT);
         // 将 extractTypes + agentCodes + modelCodes + extractScope 一起写入 inputSnapshot（JSON），便于审计 / Consumer 取用
         task.setInputSnapshot(buildExtractInputSnapshot(
-                extractTypes, agentCodes, modelCodesByType, extractScope, extractLockToken,
+                extractTypes, agentCodes, modelCodesByType, extractScope, slotReservation,
                 overwrite));
         task.setModelCode(primaryModelCode);
         task.setStatus(TASK_STATUS_PENDING);
@@ -6120,7 +6560,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
                                              Map<String, String> agentCodes,
                                              Map<String, String> modelCodes,
                                              String extractScope,
-                                             String extractLockToken,
+                                             BatchTaskSlotReservation slotReservation,
                                              boolean overwrite)
     {
         if (CollectionUtil.isEmpty(extractTypes))
@@ -6133,10 +6573,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         {
             snapshot.put("extractScope", extractScope);
         }
-        if (StrUtil.isNotBlank(extractLockToken))
-        {
-            snapshot.put("extractLockToken", extractLockToken);
-        }
+        batchTaskSlotService.attachSnapshotMetadata(snapshot, slotReservation);
         snapshot.put("overwrite", overwrite);
         snapshot.put("overwriteApplied", false);
         if (agentCodes != null && !agentCodes.isEmpty())
@@ -6153,10 +6590,9 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         }
         catch (Exception e)
         {
-            // 兜底：JSON 序列化失败时写 CSV 字符串，保持 CSV 解析路径可用
-            log.error("inputSnapshot序列化失败，降级CSV: extractTypes={}, error={}",
+            log.error("inputSnapshot序列化失败: extractTypes={}, error={}",
                     extractTypes, e.getMessage(), e);
-            return String.join(",", extractTypes);
+            throw new ServiceException("任务创建失败");
         }
     }
 
@@ -6836,36 +7272,25 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
     public AssetExtractTaskVO batchGenerateForm(List<Long> assetIds, Long userId,
                                                 String agentCode, String requestedModelCode)
     {
-        if (CollectionUtil.isEmpty(assetIds))
+        FormGenerateBillingPlan plan = prepareFormGenerateBillingPlan(
+                assetIds, userId, agentCode, requestedModelCode);
+        List<Long> uniqueAssetIds = plan.assetIds();
+        List<FormGenerateValidated> validatedList = plan.validatedList();
+        String modelCode = plan.modelCode();
+
+        FormGenerateValidated first = validatedList.get(0);
+        for (FormGenerateValidated validated : validatedList)
         {
-            log.info("批量形态生成失败，assetIds为空");
-            throw new ServiceException("参数错误");
+            if (!Objects.equals(first.asset.getProjectId(), validated.asset.getProjectId())
+                    || !Objects.equals(first.asset.getEpisodeId(), validated.asset.getEpisodeId()))
+            {
+                log.info("批量形态生成禁止跨项目剧集: userId={}, assetIds={}", userId, uniqueAssetIds);
+                throw new ServiceException("素材归属不一致");
+            }
         }
-
-        List<Long> uniqueAssetIds = assetIds.stream().distinct().collect(Collectors.toList());
-
-        List<FormGenerateValidated> validatedList = new ArrayList<>();
-        for (Long assetId : uniqueAssetIds)
-        {
-            validatedList.add(validateSingleFormGenerate(assetId, userId));
-        }
-
-        // 批内资产必须同类型，且智能体业务分类必须匹配。
-        AidAgent agent = assertAgentForFormBatch(agentCode, validatedList);
-
-        // 解析形态文本生成模型。
-        FormGenerateValidated firstAsset = validatedList.get(0);
-        Long projectId = firstAsset.asset.getProjectId();
-        ProjectGenConfigScene formScene = mapAssetTypeToFormScene(firstAsset.asset.getAssetType());
-        com.aid.projectgenconfig.service.ResolvedSceneConfig resolved =
-                projectGenConfigResolver.resolve(projectId, userId, formScene,
-                        agentCode, requestedModelCode, null, null);
-        String modelCode = resolved.getModelCode();
-        // 把解析后的 modelCode 回填到每个 validated 项（consumer 端按项取用）
-        for (FormGenerateValidated v : validatedList)
-        {
-            v.modelCode = modelCode;
-        }
+        BatchTaskSlotReservation slotReservation = batchTaskSlotService.acquireTaskSlots(
+                first.asset.getProjectId(), first.asset.getEpisodeId(),
+                List.of(mapAssetTypeToFormGenerateLogicalType(first.asset.getAssetType())));
 
         List<String> acquiredLockKeys = new ArrayList<>();
         String itemLockToken = IdUtil.fastSimpleUUID();
@@ -6891,14 +7316,14 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
             {
                 casDeleteExtractLockIfMatch(key, itemLockToken);
             }
+            batchTaskSlotService.release(slotReservation);
             throw e;
         }
 
-        // 取第一个校验结果的 projectId/episodeId 作为父任务归属
-        FormGenerateValidated first = validatedList.get(0);
+        AidExtractTask task = null;
         try
         {
-            AidExtractTask task = new AidExtractTask();
+            task = new AidExtractTask();
             task.setProjectId(first.asset.getProjectId());
             task.setEpisodeId(first.asset.getEpisodeId());
             task.setUserId(userId);
@@ -6909,7 +7334,9 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
             inputMap.put("assetIds", uniqueAssetIds);
             inputMap.put("modelCode", modelCode);
             inputMap.put("itemLockToken", itemLockToken);
-            // character 时 agentCode 已校验为 main_character_form；scene/prop 可空
+            inputMap.put("assetType", first.asset.getAssetType());
+            batchTaskSlotService.attachSnapshotMetadata(inputMap, slotReservation);
+            // agentCode 已按 character / scene / prop 对应业务分类完成校验。
             if (StrUtil.isNotBlank(agentCode))
             {
                 inputMap.put("agentCode", agentCode);
@@ -6953,15 +7380,17 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
                     task.getId(), userId, uniqueAssetIds.size(), totalFrozen);
 
             // 双模式派发统一收口（排队 + 多维并发调度）：MQ 开发 MQ；MQ 关走本地线程
-            boolean enqueued = dualModeTaskDispatcher.dispatch(task.getId(),
+            final Long taskId = task.getId();
+            boolean enqueued = dualModeTaskDispatcher.dispatch(taskId,
                     first.asset.getProjectId(), first.asset.getEpisodeId(),
                     userId, modelCode, TASK_TYPE_FORM_GENERATE_BATCH,
-                    buildFormBatchLocalJob(task.getId(), userId, LOCAL_SPEC_FORM_GENERATE,
-                            () -> doFormGenerateBatch(task.getId(), userId,
-                                    taskQueueService.currentLocalDispatchToken(task.getId()))));
+                    buildFormBatchLocalJob(taskId, userId, LOCAL_SPEC_FORM_GENERATE,
+                            () -> doFormGenerateBatch(taskId, userId,
+                                    taskQueueService.currentLocalDispatchToken(taskId))));
             if (!enqueued)
             {
                 log.warn("批量形态生成入队失败(可能已取消): taskId={}", task.getId());
+                throw new ServiceException("任务提交失败");
             }
 
             log.info("批量形态生成父任务创建成功: taskId={}, userId={}, assetIds={}", task.getId(), userId, uniqueAssetIds);
@@ -6973,12 +7402,82 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         catch (Exception e)
         {
             log.error("批量形态生成父任务创建失败，回滚所有锁: userId={}", userId, e);
-            for (String key : acquiredLockKeys)
+            boolean canRelease = Objects.isNull(task) || Objects.isNull(task.getId())
+                    || closeFormBatchSubmissionFailure(task, userId, true);
+            if (canRelease)
             {
-                casDeleteExtractLockIfMatch(key, itemLockToken);
+                for (String key : acquiredLockKeys)
+                {
+                    casDeleteExtractLockIfMatch(key, itemLockToken);
+                }
+            }
+            if (Objects.isNull(task) || Objects.isNull(task.getId()))
+            {
+                batchTaskSlotService.release(slotReservation);
             }
             throw new ServiceException("提交失败，请重试");
         }
+    }
+
+    @Override
+    public BillingQuoteVO quoteFormGenerate(FormGenerateRequest request, Long userId)
+    {
+        FormGenerateBillingPlan plan = prepareFormGenerateBillingPlan(
+                request.getAssetIds(), userId, request.getAgentCode(), request.getModelCode());
+        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(plan.modelCode());
+        if (modelConfig == null)
+        {
+            throw new ServiceException("模型不存在");
+        }
+        List<BillingQuoteVO> items = new ArrayList<>();
+        for (FormGenerateValidated validated : plan.validatedList())
+        {
+            BillingCalcResult result = estimateFormGenerateCost(
+                    null, validated.asset, plan.modelCode());
+            if (result == null || !result.isMatched())
+            {
+                throw new ServiceException("计费规则缺失");
+            }
+            items.add(billingQuoteAssembler.single(
+                    "FORM_GENERATE", modelConfig, result, 1));
+        }
+        return billingQuoteAssembler.aggregate("FORM_GENERATE", items);
+    }
+
+    private FormGenerateBillingPlan prepareFormGenerateBillingPlan(List<Long> assetIds,
+            Long userId, String agentCode, String requestedModelCode)
+    {
+        if (CollectionUtil.isEmpty(assetIds))
+        {
+            throw new ServiceException("参数错误");
+        }
+        if (assetIds.size() > 100)
+        {
+            throw new ServiceException("批量过多");
+        }
+        List<Long> uniqueAssetIds = assetIds.stream().distinct().collect(Collectors.toList());
+        List<FormGenerateValidated> validatedList = new ArrayList<>();
+        for (Long assetId : uniqueAssetIds)
+        {
+            validatedList.add(validateSingleFormGenerate(assetId, userId));
+        }
+        assertAgentForFormBatch(agentCode, validatedList);
+        FormGenerateValidated first = validatedList.get(0);
+        ProjectGenConfigScene scene = mapAssetTypeToFormScene(first.asset.getAssetType());
+        com.aid.projectgenconfig.service.ResolvedSceneConfig resolved =
+                projectGenConfigResolver.resolve(first.asset.getProjectId(), userId, scene,
+                        agentCode, requestedModelCode, null, null);
+        for (FormGenerateValidated item : validatedList)
+        {
+            item.modelCode = resolved.getModelCode();
+        }
+        return new FormGenerateBillingPlan(List.copyOf(uniqueAssetIds),
+                List.copyOf(validatedList), resolved.getModelCode());
+    }
+
+    private record FormGenerateBillingPlan(List<Long> assetIds,
+            List<FormGenerateValidated> validatedList, String modelCode)
+    {
     }
     /**
      * 批量形态生成核心逻辑（由 Consumer 调用）。
@@ -7142,7 +7641,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
     @SuppressWarnings("unchecked")
     public String doFormImageBatch(Long taskId, Long userId, String dispatchToken)
     {
-        requireCurrentBillingTrace(taskId, dispatchToken);
+        String billingTraceId = requireCurrentBillingTrace(taskId, dispatchToken);
         Map<String, Object> input = parseBatchInput(taskId);
         List<Long> formIds = parseIdList(input, "formIds");
         String itemLockToken = resolveItemLockToken(input);
@@ -7192,11 +7691,20 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
             {
                 // 执行单项形态图生成（复用已有逻辑）
                 Map<String, Object> resultItem = executeSingleFormImageInternal(
-                        taskId, formId, modelCode, resolution, aspectRatio, userId, failedInitialAssetIds);
+                        taskId, formId, modelCode, resolution, aspectRatio, userId,
+                        failedInitialAssetIds, billingTraceId);
 
                 successItems.add(resultItem);
                 successCount++;
                 log.info("批量形态图单项完成: taskId={}, formId={}, imageUrl={}", taskId, formId, resultItem.get("imageUrl"));
+            }
+            catch (BatchTaskExecutionRejectedException rejected)
+            {
+                for (int j = i + 1; j < runTotal; j++)
+                {
+                    releaseBatchItemLock(taskId, buildFormImageLockKey(formIds.get(j)), itemLockToken);
+                }
+                throw rejected;
             }
             catch (Exception e)
             {
@@ -7228,7 +7736,8 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
                                                                String resolvedResolution,
                                                                String resolvedAspectRatio,
                                                                Long userId,
-                                                               Set<Long> failedInitialAssetIds)
+                                                               Set<Long> failedInitialAssetIds,
+                                                               String expectedTraceId)
     {
         AidRolePropSceneForm form = rpsFormService.getById(formId);
         if (Objects.isNull(form) || !Objects.equals(DEL_FLAG_NORMAL, form.getDelFlag())
@@ -7255,7 +7764,8 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         try
         {
             return doExecuteSingleFormImage(parentTaskId, formId, form, asset,
-                    resolvedModelCode, resolvedResolution, resolvedAspectRatio, userId);
+                    resolvedModelCode, resolvedResolution, resolvedAspectRatio, userId,
+                    expectedTraceId);
         }
         catch (Exception e)
         {
@@ -7277,86 +7787,108 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
                                                          String resolvedModelCode,
                                                          String resolvedResolution,
                                                          String resolvedAspectRatio,
-                                                         Long userId)
+                                                         Long userId,
+                                                         String expectedTraceId)
     {
         AidComicProject project = projectService.selectAidComicProjectById(asset.getProjectId());
         if (Objects.isNull(project))
         {
             throw new ServiceException("项目不存在");
         }
-        // 父任务已存好解析后的 modelCode，consumer 直接用
+        FormImageMediaBillingPlan mediaPlan = buildFormImageMediaBillingPlan(
+                parentTaskId, form, asset, project, resolvedModelCode,
+                resolvedResolution, resolvedAspectRatio, userId, false);
+        MediaImageGenerateRequest imageRequest = mediaPlan.request();
+        String finalPrompt = mediaPlan.finalPrompt();
+        String inheritedRefImageUrl = mediaPlan.referenceImageUrl();
         String modelCode = resolvedModelCode;
-        AgentModelDefault agentModel = new AgentModelDefault(modelCode);
 
-        // 角色变体形态自动继承「初始形象」基准图（图生图锁人设）。
-        //   - 初始形象本身：inheritedRefImageUrl=null → 继续纯文生图（它是锚点）
-        //   - 变体形态：解析同角色「初始形象」的基准图作为参考图；解析不到则严格拦截
-        // 解析在拼 prompt 之前，因为「是否带参考图」决定 prompt 是否追加一致性约束。
-        String inheritedRefImageUrl = resolveInheritedBaseImageUrl(asset, form, userId);
+        MediaTaskResponse imageResponse = batchParentSubmissionGuard.executeManagedTask(
+                parentTaskId, expectedTraceId,
+                () -> mediaGenerationService.generateImage(imageRequest));
+        return batchParentSubmissionGuard.executeManagedBusinessCommit(parentTaskId, expectedTraceId, () -> {
+            String imageUrl = resolveImageUrl(imageResponse, modelCode);
+            if (StrUtil.isBlank(imageUrl))
+            {
+                throw new ServiceException("图片生成失败");
+            }
+            // 回溯链路：带参考图时落库 reference_images，纯文生图时落空列表（与原行为一致）
+            List<String> effectiveRefImages = StrUtil.isNotBlank(inheritedRefImageUrl)
+                    ? List.of(inheritedRefImageUrl)
+                    : java.util.Collections.emptyList();
+            Long imageId = persistAutoGeneratedFormImage(
+                    form, asset, imageUrl, finalPrompt, effectiveRefImages, parentTaskId, userId);
+            Map<String, Object> resultMap = new LinkedHashMap<>();
+            resultMap.put("formId", formId);
+            resultMap.put("imageId", imageId);
+            resultMap.put("imageUrl", toClientMediaUrl(imageUrl));
+            return resultMap;
+        });
+    }
+
+    private FormImageMediaBillingPlan buildFormImageMediaBillingPlan(Long bizTaskId,
+            AidRolePropSceneForm form, AidRolePropScene asset, AidComicProject project,
+            String modelCode, String resolution, String aspectRatio, Long userId,
+            boolean allowDeferredReference)
+    {
+        String inheritedRefImageUrl;
+        boolean estimated = false;
+        try
+        {
+            inheritedRefImageUrl = resolveInheritedBaseImageUrl(asset, form, userId);
+        }
+        catch (ServiceException e)
+        {
+            if (!allowDeferredReference || !isCharacterVariantForm(asset, form))
+            {
+                throw e;
+            }
+            inheritedRefImageUrl = null;
+            estimated = true;
+        }
 
         String finalPrompt = buildFormImagePrompt(project, asset, form);
         if (StrUtil.isBlank(finalPrompt))
         {
             throw new ServiceException("模板异常");
         }
-        // 变体形态带参考图时，追加「参考图锁人设、提示词写差异」一致性约束
         if (StrUtil.isNotBlank(inheritedRefImageUrl))
         {
             finalPrompt = finalPrompt + CHARACTER_CONSISTENCY_CONSTRAINT;
         }
-        // aid_media_task.prompt 列只存动态入参摘要，不存图片 builder 模板正文
-        String taskDigest = buildFormImagePromptDigest(asset, form);
 
-        // 构建图片请求（变体形态带继承基准图走图生图，初始形象仍纯文生图）
         MediaImageGenerateRequest imageRequest = new MediaImageGenerateRequest();
         imageRequest.setModelName(modelCode);
         imageRequest.setUserId(userId);
         imageRequest.setPrompt(finalPrompt);
-        imageRequest.setTaskPromptDigest(taskDigest);
-        // 继承基准图：挂到 referenceImageUrl，下游各 ProviderClient 检测到参考图即自动切图生图
+        imageRequest.setTaskPromptDigest(buildFormImagePromptDigest(asset, form));
         if (StrUtil.isNotBlank(inheritedRefImageUrl))
         {
             imageRequest.setReferenceImageUrl(inheritedRefImageUrl);
         }
         Map<String, Object> options = new HashMap<>();
         options.put("force_single", true);
-        // aspect_ratio / size 一律从父任务解析后的入参取（项目级配置 + capability 校验已在请求层完成），
-        // 入参为空时按模型 capability_json 的默认档兜底，禁止在此写死档位/比例。
-        //   场景图四宫格语义由 stylist prompt 中的画布比例描述驱动，此处保持一致即可；
-        //   如需让 scene 图按项目原比例拼图，应在项目级配置中将 main_scene_image 的 aspectRatio 设为项目 aspect_ratio。
-        AiModelConfigVo defaultModelConfig = aiModelConfigService.selectByModelCode(modelCode);
-        ModelCapabilityResolver.ImageSizeSpec formSizeSpec = ModelCapabilityResolver.resolveImageSpec(
-                defaultModelConfig, resolvedResolution, resolvedAspectRatio);
-        if (StrUtil.isNotBlank(formSizeSpec.aspectRatio()))
+        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(modelCode);
+        ModelCapabilityResolver.ImageSizeSpec sizeSpec = ModelCapabilityResolver.resolveImageSpec(
+                modelConfig, resolution, aspectRatio);
+        if (StrUtil.isNotBlank(sizeSpec.aspectRatio()))
         {
-            options.putIfAbsent("aspect_ratio", formSizeSpec.aspectRatio());
+            options.put("aspect_ratio", sizeSpec.aspectRatio());
         }
-        imageRequest.setSize(formSizeSpec.size());
+        imageRequest.setSize(sizeSpec.size());
         imageRequest.setOptions(options);
         imageRequest.setExpectedImageCount(1);
-        imageRequest.setBizTaskId(parentTaskId);
+        imageRequest.setBizTaskId(bizTaskId);
         imageRequest.setBizTaskType(TASK_TYPE_FORM_IMAGE_BATCH);
+        agentDefaultParamsApplier.applyToImage(
+                new AgentModelDefault(modelCode), imageRequest, modelConfig);
+        return new FormImageMediaBillingPlan(
+                imageRequest, finalPrompt, inheritedRefImageUrl, estimated);
+    }
 
-        agentDefaultParamsApplier.applyToImage(agentModel, imageRequest, defaultModelConfig);
-
-        MediaTaskResponse imageResponse = mediaGenerationService.generateImage(imageRequest);
-        String imageUrl = resolveImageUrl(imageResponse, modelCode);
-        if (StrUtil.isBlank(imageUrl))
-        {
-            throw new ServiceException("图片生成失败");
-        }
-
-        // 回溯链路：带参考图时落库 reference_images，纯文生图时落空列表（与原行为一致）
-        List<String> effectiveRefImages = StrUtil.isNotBlank(inheritedRefImageUrl)
-                ? List.of(inheritedRefImageUrl)
-                : java.util.Collections.emptyList();
-        Long imageId = persistAutoGeneratedFormImage(form, asset, imageUrl, finalPrompt, effectiveRefImages, parentTaskId, userId);
-
-        Map<String, Object> resultMap = new LinkedHashMap<>();
-        resultMap.put("formId", formId);
-        resultMap.put("imageId", imageId);
-        resultMap.put("imageUrl", toClientMediaUrl(imageUrl));
-        return resultMap;
+    private record FormImageMediaBillingPlan(MediaImageGenerateRequest request,
+            String finalPrompt, String referenceImageUrl, boolean estimated)
+    {
     }
 
     /**
@@ -7825,8 +8357,9 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
             }
             AidExtractTask task = extractTaskService.getOne(
                     Wrappers.<AidExtractTask>lambdaQuery()
-                            .select(AidExtractTask::getId, AidExtractTask::getBillingTraceId,
-                                    AidExtractTask::getInputSnapshot)
+                            .select(AidExtractTask::getId, AidExtractTask::getProjectId,
+                                    AidExtractTask::getEpisodeId, AidExtractTask::getBillingTraceId,
+                                    AidExtractTask::getStatus, AidExtractTask::getInputSnapshot)
                             .eq(AidExtractTask::getId, taskId)
                             .last("LIMIT 1"), false);
             if (task == null)
@@ -7841,6 +8374,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
             Map<String, Object> input = StrUtil.isBlank(task.getInputSnapshot())
                     ? new LinkedHashMap<>()
                     : OBJECT_MAPPER.readValue(task.getInputSnapshot(), Map.class);
+            batchTaskSlotService.releaseForTask(task);
             if (TASK_TYPE_FORM_GENERATE.equals(taskType))
             {
                 Long assetId = input.get("assetId") == null
@@ -7940,22 +8474,159 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         log.info("项目批量锁已按令牌释放: taskId={}, lockKey={}", taskId, lockKey);
     }
 
-    @Override
-    public AssetExtractTaskVO resumeFormBatchTask(Long taskId, Long userId)
+    private record FormBatchResumePlan(AidExtractTask task, Map<String, Object> input,
+            String idKey, String itemIdKey, int originalTotalCount,
+            List<Map<String, Object>> seedSuccessItems, List<Long> remainingIds,
+            ExtractBillingEstimate parentBilling,
+            List<FormGenerateResumeBillingItem> formGenerateBillingItems)
     {
-        if (Objects.isNull(taskId) || taskId <= 0)
+    }
+
+    private record FormGenerateResumeBillingItem(AiModelConfigVo modelConfig,
+            BillingCalcResult result)
+    {
+    }
+
+    @Override
+    public BillingQuoteVO quoteResumeFormBatchTask(Long taskId, Long userId)
+    {
+        FormBatchResumePlan plan = prepareFormBatchResumePlan(taskId, userId);
+        String taskType = plan.task().getTaskType();
+        Map<String, Object> input = plan.input();
+        String agentCode = Objects.toString(input.get("agentCode"), null);
+        String modelCode = StrUtil.blankToDefault(
+                Objects.toString(input.get("modelCode"), null), plan.task().getModelCode());
+        String resolution = Objects.toString(input.get("resolution"), null);
+        String aspectRatio = Objects.toString(input.get("aspectRatio"), null);
+        List<BillingQuoteVO> items = new ArrayList<>();
+        if (TASK_TYPE_FORM_GENERATE_BATCH.equals(taskType))
+        {
+            for (FormGenerateResumeBillingItem item : plan.formGenerateBillingItems())
+            {
+                items.add(billingQuoteAssembler.single(
+                        "TASK_RESUME", item.modelConfig(), item.result(), 1));
+            }
+        }
+        else if (TASK_TYPE_FORM_IMAGE_BATCH.equals(taskType))
+        {
+            FormImageBatchBillingPlan billingPlan = prepareFormImageBatchBillingPlan(
+                    plan.remainingIds(), userId, agentCode, modelCode, resolution, aspectRatio);
+            Map<Long, FormImageValidated> byId = billingPlan.validatedList().stream()
+                    .collect(Collectors.toMap(item -> item.formId, item -> item));
+            for (Long formId : billingPlan.formIds())
+            {
+                FormImageValidated validated = byId.get(formId);
+                boolean deferred = billingPlan.initialAssetIds().contains(validated.asset.getId());
+                FormImageMediaBillingPlan mediaPlan = buildFormImageMediaBillingPlan(null,
+                        validated.form, validated.asset, validated.project, billingPlan.modelCode(),
+                        billingPlan.resolution(), billingPlan.aspectRatio(), userId, deferred);
+                items.add(mediaPlan.estimated()
+                        ? mediaBillingQuoteService.quotePlannedImage(
+                                "TASK_RESUME", mediaPlan.request(), 1)
+                        : mediaBillingQuoteService.quoteImage(
+                                "TASK_RESUME", mediaPlan.request(), 1));
+            }
+        }
+        else
+        {
+            for (Long imageId : plan.remainingIds())
+            {
+                CardImageValidated validated = validateSingleCardImage(imageId, userId);
+                CardImageMediaBillingPlan mediaPlan = buildCardImageMediaBillingPlan(null,
+                        validated, modelCode, resolution, aspectRatio, userId);
+                items.add(mediaBillingQuoteService.quoteImage(
+                        "TASK_RESUME", mediaPlan.request(), 1));
+            }
+        }
+        return billingQuoteAssembler.aggregate("TASK_RESUME", items);
+    }
+
+    private FormBatchResumePlan prepareFormBatchResumePlan(Long taskId, Long userId)
+    {
+        if (taskId == null || taskId <= 0)
         {
             throw new ServiceException("参数错误");
         }
         AidExtractTask task = extractTaskService.selectAidExtractTaskById(taskId);
-        if (Objects.isNull(task) || !DEL_FLAG_NORMAL.equals(task.getDelFlag()))
+        if (task == null || !DEL_FLAG_NORMAL.equals(task.getDelFlag())
+                || !Objects.equals(userId, task.getUserId()))
         {
             throw new ServiceException("任务不存在");
         }
-        if (!Objects.equals(userId, task.getUserId()))
+        String taskType = task.getTaskType();
+        if (!isFormBatchTaskType(taskType))
         {
-            throw new ServiceException("任务不存在");
+            throw new ServiceException("类型不支持");
         }
+        if (!isFormBatchResumeStatus(task.getStatus()))
+        {
+            throw new ServiceException("状态不支持");
+        }
+        Map<String, Object> input = parseBatchInput(taskId);
+        String idKey = resolveFormBatchIdKey(taskType);
+        String itemIdKey = resolveFormBatchItemIdKey(taskType);
+        List<Long> originalIds = parseIdList(input, idKey);
+        int originalTotalCount = resolveResumeOriginalTotal(input, originalIds.size());
+        List<Map<String, Object>> seedSuccessItems = parseHistorySuccessItems(task.getResultData());
+        seedSuccessItems = mergeDurableFormBatchSuccessItems(taskType, taskId, userId,
+                originalIds, seedSuccessItems, itemIdKey);
+        Set<Long> successIds = collectSuccessIds(seedSuccessItems, itemIdKey);
+        List<Long> remainingIds = originalIds.stream()
+                .filter(id -> !successIds.contains(id)).toList();
+        if (remainingIds.isEmpty())
+        {
+            throw new ServiceException("无可续生项");
+        }
+        List<FormGenerateResumeBillingItem> formGenerateBillingItems = List.of();
+        ExtractBillingEstimate parentBilling = new ExtractBillingEstimate(BigDecimal.ZERO, null);
+        if (TASK_TYPE_FORM_GENERATE_BATCH.equals(taskType))
+        {
+            FormGenerateResumeBillingPlan billingPlan = prepareFormGenerateResumeBilling(
+                    task, userId, remainingIds,
+                    extractBillingService.findLatestExtractMediaTaskId(taskId));
+            formGenerateBillingItems = billingPlan.items();
+            parentBilling = billingPlan.estimate();
+        }
+        String agentCode = Objects.toString(input.get("agentCode"), null);
+        String modelCode = StrUtil.blankToDefault(
+                Objects.toString(input.get("modelCode"), null), task.getModelCode());
+        String resolution = Objects.toString(input.get("resolution"), null);
+        String aspectRatio = Objects.toString(input.get("aspectRatio"), null);
+        if (TASK_TYPE_FORM_IMAGE_BATCH.equals(taskType))
+        {
+            FormImageBatchBillingPlan plan = prepareFormImageBatchBillingPlan(
+                    remainingIds, userId, agentCode, modelCode, resolution, aspectRatio);
+            Map<Long, FormImageValidated> byId = plan.validatedList().stream()
+                    .collect(Collectors.toMap(item -> item.formId, item -> item));
+            for (Long formId : plan.formIds())
+            {
+                FormImageValidated validated = byId.get(formId);
+                buildFormImageMediaBillingPlan(null, validated.form, validated.asset,
+                        validated.project, plan.modelCode(), plan.resolution(), plan.aspectRatio(),
+                        userId, plan.initialAssetIds().contains(validated.asset.getId()));
+            }
+        }
+        else if (TASK_TYPE_FORM_CARD_IMAGE_BATCH.equals(taskType))
+        {
+            for (Long imageId : remainingIds)
+            {
+                CardImageValidated validated = validateSingleCardImage(imageId, userId);
+                buildCardImageMediaBillingPlan(
+                        null, validated, modelCode, resolution, aspectRatio, userId);
+            }
+        }
+        return new FormBatchResumePlan(task,
+                java.util.Collections.unmodifiableMap(new LinkedHashMap<>(input)), idKey, itemIdKey,
+                originalTotalCount, List.copyOf(seedSuccessItems),
+                List.copyOf(remainingIds), parentBilling,
+                List.copyOf(formGenerateBillingItems));
+    }
+
+    @Override
+    public AssetExtractTaskVO resumeFormBatchTask(Long taskId, Long userId)
+    {
+        FormBatchResumePlan preparedResume = prepareFormBatchResumePlan(taskId, userId);
+        AidExtractTask task = preparedResume.task();
         String taskType = task.getTaskType();
         if (!isFormBatchTaskType(taskType))
         {
@@ -7971,22 +8642,11 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         String originalStatus = task.getStatus();
         try
         {
-            Map<String, Object> input = parseBatchInput(taskId);
-            String idKey = resolveFormBatchIdKey(taskType);
-            String itemIdKey = resolveFormBatchItemIdKey(taskType);
-            List<Long> originalIds = parseIdList(input, idKey);
-            int resumeOriginalTotalCount = resolveResumeOriginalTotal(input, originalIds.size());
-            List<Map<String, Object>> seedSuccessItems = parseHistorySuccessItems(task.getResultData());
-            seedSuccessItems = mergeDurableFormBatchSuccessItems(taskType, taskId, userId,
-                    originalIds, seedSuccessItems, itemIdKey);
-            Set<Long> successIds = collectSuccessIds(seedSuccessItems, itemIdKey);
-            List<Long> remainingIds = originalIds.stream()
-                    .filter(id -> !successIds.contains(id))
-                    .collect(Collectors.toList());
-            if (CollectionUtil.isEmpty(remainingIds))
-            {
-                throw new ServiceException("无可续生项");
-            }
+            Map<String, Object> input = preparedResume.input();
+            String idKey = preparedResume.idKey();
+            int resumeOriginalTotalCount = preparedResume.originalTotalCount();
+            List<Map<String, Object>> seedSuccessItems = preparedResume.seedSuccessItems();
+            List<Long> remainingIds = preparedResume.remainingIds();
 
             for (Long id : remainingIds)
             {
@@ -8026,11 +8686,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
                     ResumeBillingContext billingContext = null;
                     try
                     {
-                        ExtractBillingEstimate billingEstimate =
-                                TASK_TYPE_FORM_GENERATE_BATCH.equals(taskType)
-                                        ? estimateFormGenerateResumeBilling(task, userId, remainingIds,
-                                        extractBillingService.findLatestExtractMediaTaskId(taskId))
-                                        : new ExtractBillingEstimate(BigDecimal.ZERO, null);
+                        ExtractBillingEstimate billingEstimate = preparedResume.parentBilling();
                         billingContext = extractBillingService.rearmBillingForResume(
                                 taskId, userId, billingEstimate.amount(), billingEstimate.snapshotJson(),
                                 originalStatus, new ResumeTaskMutation(false, null,
@@ -8203,17 +8859,29 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         }
     }
 
-    private ExtractBillingEstimate estimateFormGenerateResumeBilling(AidExtractTask task, Long userId,
-                                                                     List<Long> remainingAssetIds,
-                                                                     long usageStartMediaTaskId)
+    private record FormGenerateResumeBillingPlan(ExtractBillingEstimate estimate,
+            List<FormGenerateResumeBillingItem> items)
+    {
+    }
+
+    private FormGenerateResumeBillingPlan prepareFormGenerateResumeBilling(
+            AidExtractTask task, Long userId, List<Long> remainingAssetIds,
+            long usageStartMediaTaskId)
     {
         BigDecimal totalFrozen = BigDecimal.ZERO;
         List<Map<String, Object>> itemSnapshots = new ArrayList<>();
+        List<FormGenerateResumeBillingItem> items = new ArrayList<>();
         String modelCode = task.getModelCode();
+        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(modelCode);
+        if (modelConfig == null)
+        {
+            throw new ServiceException("模型不存在");
+        }
         for (Long assetId : remainingAssetIds)
         {
             FormGenerateValidated validated = validateSingleFormGenerate(assetId, userId);
             BillingCalcResult itemCalc = estimateFormGenerateCost(task.getId(), validated.asset, modelCode);
+            items.add(new FormGenerateResumeBillingItem(modelConfig, itemCalc));
             if (Objects.nonNull(itemCalc) && Objects.nonNull(itemCalc.getAmount()))
             {
                 totalFrozen = totalFrozen.add(itemCalc.getAmount());
@@ -8230,7 +8898,9 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         batchSnap.put("batchType", TASK_TYPE_FORM_GENERATE_BATCH);
         batchSnap.put("items", itemSnapshots);
         batchSnap.put("usageStartMediaTaskId", Math.max(0L, usageStartMediaTaskId));
-        return new ExtractBillingEstimate(totalFrozen, JSONUtil.toJsonStr(batchSnap));
+        return new FormGenerateResumeBillingPlan(
+                new ExtractBillingEstimate(totalFrozen, JSONUtil.toJsonStr(batchSnap)),
+                List.copyOf(items));
     }
 
     /**
@@ -8288,9 +8958,14 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         {
             expectedBizCategory = "main_scene_form";
         }
-        else
+        else if (Objects.equals(ASSET_TYPE_PROP, batchType))
         {
             expectedBizCategory = "main_prop_form";
+        }
+        else
+        {
+            log.error("批量形态生成失败：未知资产类型 {}", batchType);
+            throw new ServiceException("类型不支持");
         }
         return aidAgentService.getByAgentCodeAndAssertBizCategory(agentCode, expectedBizCategory);
     }
@@ -8610,11 +9285,12 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         Map<String, String> userInputs = buildVisualStylistInputs(asset);
         // 隐藏角色画风仅进入实际 LLM user message；任务摘要只存角色档案，避免隐藏提示词落库。
         String characterInput = userInputs.get("character_profiles");
-        String visualDescription = helper.callLlmRawWithInputs(visualPromptTemplate, userInputs,
-                modelCode, parentTaskId, userId, characterInput, "extract",
-                "stage=form_character,item=" + asset.getId(),
-                raw -> isValidCharacterFormOutput(raw, asset),
-                expectedTraceId);
+        String visualDescription = batchParentSubmissionGuard.executeManagedTask(parentTaskId, expectedTraceId,
+                () -> helper.callLlmRawWithInputs(visualPromptTemplate, userInputs,
+                        modelCode, parentTaskId, userId, characterInput, "extract",
+                        "stage=form_character,item=" + asset.getId(),
+                        raw -> isValidCharacterFormOutput(raw, asset),
+                        expectedTraceId), TextTaskExecutionRejectedException::new);
 
         if (!isValidCharacterFormOutput(visualDescription, asset))
         {
@@ -9209,10 +9885,11 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         // aid_media_task.prompt 列只存动态入参摘要，不存模板正文
         String digest = buildSceneStylistTaskDigest(asset);
         // 调 LLM（aid_scene_stylist 智能体）
-        String llmOutput = helper.callLlmRawWithInputs(sceneStyleTemplate, sceneStyleInputs,
-                modelCode, parentTaskId, userId, digest, "extract",
-                "stage=form_scene,item=" + asset.getId(), this::isValidStylistReplay,
-                expectedTraceId);
+        String llmOutput = batchParentSubmissionGuard.executeManagedTask(parentTaskId, expectedTraceId,
+                () -> helper.callLlmRawWithInputs(sceneStyleTemplate, sceneStyleInputs,
+                        modelCode, parentTaskId, userId, digest, "extract",
+                        "stage=form_scene,item=" + asset.getId(), this::isValidStylistReplay,
+                        expectedTraceId), TextTaskExecutionRejectedException::new);
 
         if (StrUtil.isBlank(llmOutput))
         {
@@ -9319,10 +9996,11 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         // aid_media_task.prompt 列只存动态入参摘要，不存模板正文
         String digest = buildPropStylistTaskDigest(asset);
         // 调 LLM（aid_prop_stylist 智能体）
-        String llmOutput = helper.callLlmRawWithInputs(propStyleTemplate, propStyleInputs,
-                modelCode, parentTaskId, userId, digest, "extract",
-                "stage=form_prop,item=" + asset.getId(), this::isValidStylistReplay,
-                expectedTraceId);
+        String llmOutput = batchParentSubmissionGuard.executeManagedTask(parentTaskId, expectedTraceId,
+                () -> helper.callLlmRawWithInputs(propStyleTemplate, propStyleInputs,
+                        modelCode, parentTaskId, userId, digest, "extract",
+                        "stage=form_prop,item=" + asset.getId(), this::isValidStylistReplay,
+                        expectedTraceId), TextTaskExecutionRejectedException::new);
 
         if (StrUtil.isBlank(llmOutput))
         {
@@ -9589,10 +10267,12 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         String systemPrompt = buildScenePropSystemPrompt(asset.getAssetType());
         String userContent = buildScenePropUserContent(asset);
         // userContent 本身就是动态入参（不含模板），直接作为 aid_media_task.prompt 摘要
-        String visualDescription = helper.callLlmRaw(
-                systemPrompt, userContent, modelCode, parentTaskId, userId, userContent, "extract",
-                "stage=form_" + asset.getAssetType() + ",item=" + asset.getId(),
-                StrUtil::isNotBlank, expectedTraceId);
+        String visualDescription = batchParentSubmissionGuard.executeManagedTask(parentTaskId, expectedTraceId,
+                () -> helper.callLlmRaw(
+                        systemPrompt, userContent, modelCode, parentTaskId, userId, userContent, "extract",
+                        "stage=form_" + asset.getAssetType() + ",item=" + asset.getId(),
+                        StrUtil::isNotBlank, expectedTraceId),
+                TextTaskExecutionRejectedException::new);
 
         if (StrUtil.isBlank(visualDescription))
         {
@@ -9682,57 +10362,27 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
                                                      String agentCode, String requestedModelCode,
                                                      String requestedResolution, String requestedAspectRatio)
     {
-        if (CollectionUtil.isEmpty(formIds))
+        FormImageBatchBillingPlan plan = prepareFormImageBatchBillingPlan(formIds, userId,
+                agentCode, requestedModelCode, requestedResolution, requestedAspectRatio);
+        List<Long> uniqueFormIds = plan.formIds();
+        List<FormImageValidated> validatedList = plan.validatedList();
+        String modelCode = plan.modelCode();
+        String resolution = plan.resolution();
+        String aspectRatio = plan.aspectRatio();
+
+        FormImageValidated first = validatedList.get(0);
+        for (FormImageValidated validated : validatedList)
         {
-            log.info("批量形态图生成失败，formIds为空");
-            throw new ServiceException("参数错误");
+            if (!Objects.equals(first.asset.getProjectId(), validated.asset.getProjectId())
+                    || !Objects.equals(first.form.getEpisodeId(), validated.form.getEpisodeId()))
+            {
+                log.info("批量形态图禁止跨项目剧集: userId={}, formIds={}", userId, uniqueFormIds);
+                throw new ServiceException("素材归属不一致");
+            }
         }
-
-        // 本接口纯文字生图，不接受任何用户传入的参考图。无需做远程合法性预校验。
-
-        List<Long> uniqueFormIds = formIds.stream().distinct().collect(Collectors.toList());
-
-        //    批量场景下，若某角色「初始形象」基准形态也在本批内，其基准图会在消费阶段被优先生成
-        //    （formIds 在本方法末尾按初始形象优先排序后存入 inputSnapshot），因此此处对这类变体形态
-        //    不再因"基准图尚未生成"而硬失败，彻底解决「同一角色有多个形态时无法一次性批量生成」的问题。
-        //    一次性加载本批全部 form（按 userId + del_flag 过滤），后续校验 / 排序 / 初始形象在场判定全部复用，
-        //    避免「初始在场集合查一次 + 逐条 getById N 次 + 消费端重排再查一次」的重复查询。
-        Map<Long, AidRolePropSceneForm> batchFormMap = loadBatchFormsById(uniqueFormIds, userId);
-        Set<Long> assetIdsWithInitialFormInBatch = collectInitialFormAssetIds(batchFormMap);
-        // 校验阶段复用 asset / project：同角色多形态共用同一 asset / project，避免对同一行反复查库
-        Map<Long, AidRolePropScene> assetCache = new HashMap<>();
-        Map<Long, AidComicProject> projectCache = new HashMap<>();
-        List<FormImageValidated> validatedList = new ArrayList<>();
-        for (Long formId : uniqueFormIds)
-        {
-            validatedList.add(validateSingleFormImage(formId, batchFormMap.get(formId), userId,
-                    assetIdsWithInitialFormInBatch, assetCache, projectCache));
-        }
-
-        // 批内形态必须关联同一资产类型，且智能体业务分类必须匹配。
-        AidAgent agent = assertAgentForFormImageBatch(agentCode, validatedList);
-
-        // 解析形态图片生成模型与规格。
-        FormImageValidated firstForm = validatedList.get(0);
-        Long projectId = firstForm.asset.getProjectId();
-        ProjectGenConfigScene imageScene = mapAssetTypeToImageScene(firstForm.asset.getAssetType());
-        com.aid.projectgenconfig.service.ResolvedSceneConfig resolved =
-                projectGenConfigResolver.resolve(projectId, userId, imageScene,
-                        agentCode, requestedModelCode, requestedResolution, requestedAspectRatio);
-        String modelCode = resolved.getModelCode();
-        String resolution = resolved.getResolution();
-        String aspectRatio = resolved.getAspectRatio();
-        AgentModelDefault agentModel = new AgentModelDefault(modelCode);
-        for (FormImageValidated v : validatedList)
-        {
-            v.modelCode = modelCode;
-            v.agentModel = agentModel;
-            v.aspectRatio = aspectRatio;
-            v.resolution = resolution;
-        }
-
-        // 同角色初始形象优先于变体形态生成。
-        uniqueFormIds = orderFormIdsInitialFirst(uniqueFormIds, batchFormMap, assetCache);
+        BatchTaskSlotReservation slotReservation = batchTaskSlotService.acquireTaskSlots(
+                first.asset.getProjectId(), first.form.getEpisodeId(),
+                List.of(mapAssetTypeToFormImageLogicalType(first.asset.getAssetType())));
 
         List<String> acquiredLockKeys = new ArrayList<>();
         String itemLockToken = IdUtil.fastSimpleUUID();
@@ -9758,13 +10408,14 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
             {
                 casDeleteExtractLockIfMatch(key, itemLockToken);
             }
+            batchTaskSlotService.release(slotReservation);
             throw e;
         }
 
-        FormImageValidated first = validatedList.get(0);
+        AidExtractTask task = null;
         try
         {
-            AidExtractTask task = new AidExtractTask();
+            task = new AidExtractTask();
             task.setProjectId(first.asset.getProjectId());
             task.setEpisodeId(first.form.getEpisodeId());
             task.setUserId(userId);
@@ -9775,6 +10426,8 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
             inputMap.put("formIds", uniqueFormIds);
             inputMap.put("modelCode", modelCode);
             inputMap.put("itemLockToken", itemLockToken);
+            inputMap.put("assetType", first.asset.getAssetType());
+            batchTaskSlotService.attachSnapshotMetadata(inputMap, slotReservation);
             // 保存 agentCode 供 consumer 加载对应模板
             if (StrUtil.isNotBlank(agentCode))
             {
@@ -9798,15 +10451,17 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
             extractTaskService.save(task);
 
             // 双模式派发统一收口：MQ 开发 MQ；MQ 关走本地线程
-            boolean enqueued = dualModeTaskDispatcher.dispatch(task.getId(),
+            final Long taskId = task.getId();
+            boolean enqueued = dualModeTaskDispatcher.dispatch(taskId,
                     first.asset.getProjectId(), first.form.getEpisodeId(),
                     userId, modelCode, TASK_TYPE_FORM_IMAGE_BATCH,
-                    buildFormBatchLocalJob(task.getId(), userId, LOCAL_SPEC_FORM_IMAGE,
-                            () -> doFormImageBatch(task.getId(), userId,
-                                    taskQueueService.currentLocalDispatchToken(task.getId()))));
+                    buildFormBatchLocalJob(taskId, userId, LOCAL_SPEC_FORM_IMAGE,
+                            () -> doFormImageBatch(taskId, userId,
+                                    taskQueueService.currentLocalDispatchToken(taskId))));
             if (!enqueued)
             {
                 log.warn("批量形态图生成入队失败(可能已取消): taskId={}", task.getId());
+                throw new ServiceException("任务提交失败");
             }
 
             log.info("批量形态图生成父任务创建成功: taskId={}, userId={}, formIds={}", task.getId(), userId, uniqueFormIds);
@@ -9818,12 +10473,99 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         catch (Exception e)
         {
             log.error("批量形态图生成父任务创建失败，回滚所有锁: userId={}", userId, e);
-            for (String key : acquiredLockKeys)
+            boolean canRelease = Objects.isNull(task) || Objects.isNull(task.getId())
+                    || closeFormBatchSubmissionFailure(task, userId, false);
+            if (canRelease)
             {
-                casDeleteExtractLockIfMatch(key, itemLockToken);
+                for (String key : acquiredLockKeys)
+                {
+                    casDeleteExtractLockIfMatch(key, itemLockToken);
+                }
+            }
+            if (Objects.isNull(task) || Objects.isNull(task.getId()))
+            {
+                batchTaskSlotService.release(slotReservation);
             }
             throw new ServiceException("提交失败，请重试");
         }
+    }
+
+    @Override
+    public BillingQuoteVO quoteFormImage(FormImageGenerateRequest request, Long userId)
+    {
+        FormImageBatchBillingPlan plan = prepareFormImageBatchBillingPlan(
+                request.getFormIds(), userId, request.getAgentCode(), request.getModelCode(),
+                request.getResolution(), request.getAspectRatio());
+        Map<Long, FormImageValidated> byId = plan.validatedList().stream()
+                .collect(Collectors.toMap(item -> item.formId, item -> item));
+        List<BillingQuoteVO> items = new ArrayList<>();
+        for (Long formId : plan.formIds())
+        {
+            FormImageValidated validated = byId.get(formId);
+            boolean deferredReference = plan.initialAssetIds().contains(validated.asset.getId());
+            FormImageMediaBillingPlan mediaPlan = buildFormImageMediaBillingPlan(null,
+                    validated.form, validated.asset, validated.project, plan.modelCode(),
+                    plan.resolution(), plan.aspectRatio(), userId, deferredReference);
+            BillingQuoteVO item = mediaPlan.estimated()
+                    ? mediaBillingQuoteService.quotePlannedImage(
+                            "FORM_IMAGE", mediaPlan.request(), 1)
+                    : mediaBillingQuoteService.quoteImage(
+                            "FORM_IMAGE", mediaPlan.request(), 1);
+            items.add(item);
+        }
+        return billingQuoteAssembler.aggregate("FORM_IMAGE", items);
+    }
+
+    private FormImageBatchBillingPlan prepareFormImageBatchBillingPlan(List<Long> formIds,
+            Long userId, String agentCode, String requestedModelCode,
+            String requestedResolution, String requestedAspectRatio)
+    {
+        if (CollectionUtil.isEmpty(formIds))
+        {
+            throw new ServiceException("参数错误");
+        }
+        if (formIds.size() > 100)
+        {
+            throw new ServiceException("批量过多");
+        }
+        List<Long> uniqueFormIds = formIds.stream().distinct().collect(Collectors.toList());
+        Map<Long, AidRolePropSceneForm> batchFormMap = loadBatchFormsById(uniqueFormIds, userId);
+        Set<Long> initialAssetIds = collectInitialFormAssetIds(batchFormMap);
+        Map<Long, AidRolePropScene> assetCache = new HashMap<>();
+        Map<Long, AidComicProject> projectCache = new HashMap<>();
+        List<FormImageValidated> validatedList = new ArrayList<>();
+        for (Long formId : uniqueFormIds)
+        {
+            validatedList.add(validateSingleFormImage(formId, batchFormMap.get(formId), userId,
+                    initialAssetIds, assetCache, projectCache));
+        }
+        assertAgentForFormImageBatch(agentCode, validatedList);
+        FormImageValidated first = validatedList.get(0);
+        ProjectGenConfigScene scene = mapAssetTypeToImageScene(first.asset.getAssetType());
+        com.aid.projectgenconfig.service.ResolvedSceneConfig resolved =
+                projectGenConfigResolver.resolve(first.asset.getProjectId(), userId, scene,
+                        agentCode, requestedModelCode, requestedResolution, requestedAspectRatio);
+        String modelCode = resolved.getModelCode();
+        String resolution = resolved.getResolution();
+        String aspectRatio = resolved.getAspectRatio();
+        AgentModelDefault agentModel = new AgentModelDefault(modelCode);
+        for (FormImageValidated item : validatedList)
+        {
+            item.modelCode = modelCode;
+            item.agentModel = agentModel;
+            item.aspectRatio = aspectRatio;
+            item.resolution = resolution;
+        }
+        List<Long> ordered = orderFormIdsInitialFirst(uniqueFormIds, batchFormMap, assetCache);
+        return new FormImageBatchBillingPlan(List.copyOf(ordered),
+                List.copyOf(validatedList), Set.copyOf(initialAssetIds),
+                modelCode, resolution, aspectRatio);
+    }
+
+    private record FormImageBatchBillingPlan(List<Long> formIds,
+            List<FormImageValidated> validatedList, Set<Long> initialAssetIds,
+            String modelCode, String resolution, String aspectRatio)
+    {
     }
 
     /**
@@ -10144,45 +10886,27 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
                                                      String agentCode, String requestedModelCode,
                                                      String requestedResolution, String requestedAspectRatio)
     {
-        if (CollectionUtil.isEmpty(imageIds))
-        {
-            log.info("批量设定卡生成失败，imageIds为空");
-            throw new ServiceException("参数错误");
-        }
-
-        // 智能体业务分类断言（main_character_card_image），不通过直接抛
-        aidAgentService.getByAgentCodeAndAssertBizCategory(agentCode, BIZ_CATEGORY_MAIN_CHARACTER_CARD_IMAGE);
-
-        List<Long> uniqueImageIds = imageIds.stream().distinct().collect(Collectors.toList());
-
-        List<CardImageValidated> validatedList = new ArrayList<>();
-        for (Long imageId : uniqueImageIds)
-        {
-            validatedList.add(validateSingleCardImage(imageId, userId));
-        }
-
-        // 设定卡批量生成必须属于同一项目。
+        CardImageBatchBillingPlan plan = prepareCardImageBatchBillingPlan(imageIds, userId,
+                agentCode, requestedModelCode, requestedResolution, requestedAspectRatio);
+        List<Long> uniqueImageIds = plan.imageIds();
+        List<CardImageValidated> validatedList = plan.validatedList();
         CardImageValidated first = validatedList.get(0);
-        Long batchProjectId = first.project.getId();
-        for (CardImageValidated v : validatedList)
+        String modelCode = plan.modelCode();
+        String resolution = plan.resolution();
+        String aspectRatio = plan.aspectRatio();
+
+        for (CardImageValidated validated : validatedList)
         {
-            if (!Objects.equals(batchProjectId, v.project.getId()))
+            if (!Objects.equals(first.asset.getProjectId(), validated.asset.getProjectId())
+                    || !Objects.equals(first.asset.getEpisodeId(), validated.asset.getEpisodeId()))
             {
-                log.info("批量设定卡生成失败，角色源图跨项目: imageId={}, projectId={}, 基准projectId={}",
-                        v.imageId, v.project.getId(), batchProjectId);
-                throw new ServiceException("需同一项目");
+                log.info("批量设定卡禁止跨项目剧集: userId={}, imageIds={}", userId, uniqueImageIds);
+                throw new ServiceException("素材归属不一致");
             }
         }
-
-        //    以首张角色源图所属项目为基准解析（已断言整批同项目），解析器内部完成智能体匹配、模型池、
-        //    模型类型 (image)、capability (size/aspectRatio) 全部校验。
-        com.aid.projectgenconfig.service.ResolvedSceneConfig resolved =
-                projectGenConfigResolver.resolve(first.project.getId(), userId,
-                        ProjectGenConfigScene.CHARACTER_CARD_IMAGE,
-                        agentCode, requestedModelCode, requestedResolution, requestedAspectRatio);
-        String modelCode = resolved.getModelCode();
-        String resolution = resolved.getResolution();
-        String aspectRatio = resolved.getAspectRatio();
+        BatchTaskSlotReservation slotReservation = batchTaskSlotService.acquireTaskSlots(
+                first.asset.getProjectId(), first.asset.getEpisodeId(),
+                List.of(BatchTaskLogicalType.FORM_CARD_IMAGE_BATCH));
 
         List<String> acquiredLockKeys = new ArrayList<>();
         String itemLockToken = IdUtil.fastSimpleUUID();
@@ -10210,12 +10934,14 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
             {
                 casDeleteExtractLockIfMatch(key, itemLockToken);
             }
+            batchTaskSlotService.release(slotReservation);
             throw e;
         }
 
+        AidExtractTask task = null;
         try
         {
-            AidExtractTask task = new AidExtractTask();
+            task = new AidExtractTask();
             task.setProjectId(first.asset.getProjectId());
             task.setEpisodeId(first.asset.getEpisodeId());
             task.setUserId(userId);
@@ -10227,6 +10953,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
             inputMap.put("modelCode", modelCode);
             inputMap.put("agentCode", agentCode);
             inputMap.put("itemLockToken", itemLockToken);
+            batchTaskSlotService.attachSnapshotMetadata(inputMap, slotReservation);
             // 保存 resolution / aspectRatio，consumer 端按此下发图片请求
             if (StrUtil.isNotBlank(resolution))
             {
@@ -10245,15 +10972,17 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
             extractTaskService.save(task);
 
             // 双模式派发统一收口：MQ 开发 MQ；MQ 关走本地线程
-            boolean enqueued = dualModeTaskDispatcher.dispatch(task.getId(),
+            final Long taskId = task.getId();
+            boolean enqueued = dualModeTaskDispatcher.dispatch(taskId,
                     first.asset.getProjectId(), first.asset.getEpisodeId(),
                     userId, modelCode, TASK_TYPE_FORM_CARD_IMAGE_BATCH,
-                    buildFormBatchLocalJob(task.getId(), userId, LOCAL_SPEC_FORM_CARD,
-                            () -> doFormCardImageBatch(task.getId(), userId,
-                                    taskQueueService.currentLocalDispatchToken(task.getId()))));
+                    buildFormBatchLocalJob(taskId, userId, LOCAL_SPEC_FORM_CARD,
+                            () -> doFormCardImageBatch(taskId, userId,
+                                    taskQueueService.currentLocalDispatchToken(taskId))));
             if (!enqueued)
             {
                 log.warn("批量设定卡生成入队失败(可能已取消): taskId={}", task.getId());
+                throw new ServiceException("任务提交失败");
             }
 
             log.info("批量设定卡生成父任务创建成功: taskId={}, userId={}, imageIds={}", task.getId(), userId, uniqueImageIds);
@@ -10265,12 +10994,141 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         catch (Exception e)
         {
             log.error("批量设定卡生成父任务创建失败，回滚所有锁: userId={}", userId, e);
-            for (String key : acquiredLockKeys)
+            boolean canRelease = Objects.isNull(task) || Objects.isNull(task.getId())
+                    || closeFormBatchSubmissionFailure(task, userId, false);
+            if (canRelease)
             {
-                casDeleteExtractLockIfMatch(key, itemLockToken);
+                for (String key : acquiredLockKeys)
+                {
+                    casDeleteExtractLockIfMatch(key, itemLockToken);
+                }
+            }
+            if (Objects.isNull(task) || Objects.isNull(task.getId()))
+            {
+                batchTaskSlotService.release(slotReservation);
             }
             throw new ServiceException("提交失败，请重试");
         }
+    }
+
+    @Override
+    public BillingQuoteVO quoteCardImage(FormCardImageGenerateRequest request, Long userId)
+    {
+        CardImageBatchBillingPlan plan = prepareCardImageBatchBillingPlan(
+                request.getImageIds(), userId, request.getAgentCode(), request.getModelCode(),
+                request.getResolution(), request.getAspectRatio());
+        List<BillingQuoteVO> items = new ArrayList<>();
+        for (CardImageValidated validated : plan.validatedList())
+        {
+            CardImageMediaBillingPlan mediaPlan = buildCardImageMediaBillingPlan(null,
+                    validated, plan.modelCode(), plan.resolution(), plan.aspectRatio(), userId);
+            items.add(mediaBillingQuoteService.quoteImage(
+                    "FORM_CARD_IMAGE", mediaPlan.request(), 1));
+        }
+        return billingQuoteAssembler.aggregate("FORM_CARD_IMAGE", items);
+    }
+
+    /** 父任务落库后的同步提交失败必须先持久化终态，再释放批量槽和项目锁。 */
+    private boolean closeFormBatchSubmissionFailure(AidExtractTask task, Long userId,
+                                                     boolean refundPreparedBilling)
+    {
+        AidExtractTask current = extractTaskService.selectAidExtractTaskById(task.getId());
+        if (Objects.isNull(current))
+        {
+            batchTaskSlotService.releaseForTask(task);
+            return true;
+        }
+        if (TASK_STATUS_PENDING.equals(current.getStatus()) || TASK_STATUS_QUEUED.equals(current.getStatus()))
+        {
+            LambdaUpdateWrapper<AidExtractTask> failed = Wrappers.lambdaUpdate();
+            failed.eq(AidExtractTask::getId, current.getId());
+            failed.in(AidExtractTask::getStatus, TASK_STATUS_PENDING, TASK_STATUS_QUEUED);
+            if (StrUtil.isBlank(current.getBillingTraceId()))
+            {
+                failed.isNull(AidExtractTask::getBillingTraceId);
+            }
+            else
+            {
+                failed.eq(AidExtractTask::getBillingTraceId, current.getBillingTraceId());
+            }
+            failed.set(AidExtractTask::getStatus, TASK_STATUS_FAILED);
+            failed.set(AidExtractTask::getErrorMessage, "任务提交失败");
+            failed.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
+            extractTaskService.getBaseMapper().update(null, failed);
+            current = extractTaskService.selectAidExtractTaskById(task.getId());
+        }
+        if (Objects.isNull(current))
+        {
+            batchTaskSlotService.releaseForTask(task);
+            return true;
+        }
+        boolean terminal = TASK_STATUS_SUCCEEDED.equals(current.getStatus())
+                || TASK_STATUS_FAILED.equals(current.getStatus())
+                || TASK_STATUS_PARTIAL_FAILED.equals(current.getStatus())
+                || TASK_STATUS_CANCELLED.equals(current.getStatus());
+        if (!terminal)
+        {
+            log.warn("批量形态任务提交失败补偿跳过活跃任务: taskId={}, status={}",
+                    current.getId(), current.getStatus());
+            return false;
+        }
+        if (refundPreparedBilling && StrUtil.isNotBlank(current.getBillingTraceId()))
+        {
+            try
+            {
+                extractBillingService.refundBilling(current.getId(), userId, current.getBillingTraceId());
+            }
+            catch (Exception refundEx)
+            {
+                log.error("批量形态任务提交失败退款异常，等待补偿: taskId={}", current.getId(), refundEx);
+            }
+        }
+        batchTaskSlotService.releaseForTask(current);
+        return true;
+    }
+
+    private CardImageBatchBillingPlan prepareCardImageBatchBillingPlan(List<Long> imageIds,
+            Long userId, String agentCode, String requestedModelCode,
+            String requestedResolution, String requestedAspectRatio)
+    {
+        if (CollectionUtil.isEmpty(imageIds))
+        {
+            throw new ServiceException("参数错误");
+        }
+        if (imageIds.size() > 100)
+        {
+            throw new ServiceException("批量过多");
+        }
+        aidAgentService.getByAgentCodeAndAssertBizCategory(
+                agentCode, BIZ_CATEGORY_MAIN_CHARACTER_CARD_IMAGE);
+        List<Long> uniqueImageIds = imageIds.stream().distinct().collect(Collectors.toList());
+        List<CardImageValidated> validatedList = new ArrayList<>();
+        for (Long imageId : uniqueImageIds)
+        {
+            validatedList.add(validateSingleCardImage(imageId, userId));
+        }
+        CardImageValidated first = validatedList.get(0);
+        Long projectId = first.project.getId();
+        for (CardImageValidated item : validatedList)
+        {
+            if (!Objects.equals(projectId, item.project.getId()))
+            {
+                throw new ServiceException("需同一项目");
+            }
+        }
+        com.aid.projectgenconfig.service.ResolvedSceneConfig resolved =
+                projectGenConfigResolver.resolve(projectId, userId,
+                        ProjectGenConfigScene.CHARACTER_CARD_IMAGE,
+                        agentCode, requestedModelCode, requestedResolution, requestedAspectRatio);
+        return new CardImageBatchBillingPlan(List.copyOf(uniqueImageIds),
+                List.copyOf(validatedList), resolved.getModelCode(),
+                resolved.getResolution(), resolved.getAspectRatio());
+    }
+
+    private record CardImageBatchBillingPlan(List<Long> imageIds,
+            List<CardImageValidated> validatedList, String modelCode,
+            String resolution, String aspectRatio)
+    {
     }
 
     /**
@@ -10363,7 +11221,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
     @SuppressWarnings("unchecked")
     public String doFormCardImageBatch(Long taskId, Long userId, String dispatchToken)
     {
-        requireCurrentBillingTrace(taskId, dispatchToken);
+        String billingTraceId = requireCurrentBillingTrace(taskId, dispatchToken);
         Map<String, Object> input = parseBatchInput(taskId);
         List<Long> imageIds = parseIdList(input, "imageIds");
         String itemLockToken = resolveItemLockToken(input);
@@ -10403,10 +11261,19 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
             {
                 // 执行单项设定卡生成（角色源图 → 设定卡）
                 Map<String, Object> resultItem = executeSingleCardImageInternal(
-                        taskId, imageId, modelCode, resolution, aspectRatio, userId);
+                        taskId, imageId, modelCode, resolution, aspectRatio, userId,
+                        billingTraceId);
                 successItems.add(resultItem);
                 successCount++;
                 log.info("批量设定卡单项完成: taskId={}, imageId={}, cardImageUrl={}", taskId, imageId, resultItem.get("cardImageUrl"));
+            }
+            catch (BatchTaskExecutionRejectedException rejected)
+            {
+                for (int j = i + 1; j < runTotal; j++)
+                {
+                    releaseBatchItemLock(taskId, buildFormCardImageLockKey(imageIds.get(j)), itemLockToken);
+                }
+                throw rejected;
             }
             catch (Exception e)
             {
@@ -10438,105 +11305,95 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
                                                                String resolvedModelCode,
                                                                String resolvedResolution,
                                                                String resolvedAspectRatio,
-                                                               Long userId)
+                                                               Long userId,
+                                                               String expectedTraceId)
     {
         CardImageValidated v = validateSingleCardImage(imageId, userId);
         AidRolePropSceneFormImage sourceImage = v.sourceImage;
         AidRolePropSceneForm form = v.form;
         AidRolePropScene asset = v.asset;
-        AidComicProject project = v.project;
-
         String modelCode = resolvedModelCode;
-        AgentModelDefault agentModel = new AgentModelDefault(modelCode);
-
-        // 先按最终生成配置与模型能力解析实际尺寸，保证 Provider 参数与提示词中的画布比例完全一致。
-        AiModelConfigVo cardDefaultModelConfig = aiModelConfigService.selectByModelCode(modelCode);
-        ModelCapabilityResolver.ImageSizeSpec cardSizeSpec = ModelCapabilityResolver.resolveImageSpec(
-                cardDefaultModelConfig, resolvedResolution, resolvedAspectRatio);
-
-        // 组装设定卡 prompt：模板正文 + 画风，人物身份仅由角色源图参考图锚定
-        String finalPrompt = buildCardImagePrompt(project, cardSizeSpec.aspectRatio());
-        if (StrUtil.isBlank(finalPrompt))
-        {
-            log.error("设定卡生成失败，最终提示词为空: imageId={}", imageId);
-            throw new ServiceException("模板异常");
-        }
-
-        // 角色源图 URL 拼域名后作为参考图传给媒体服务
-        String fullSourceImageUrl = mediaUrlResolver.toFullUrl(sourceImage.getImageUrl());
-        List<String> refImageList = sanitizeReferenceImages(List.of(fullSourceImageUrl), form.getId());
-
-        // 构建图片生成请求
-        MediaImageGenerateRequest imageRequest = new MediaImageGenerateRequest();
-        imageRequest.setModelName(modelCode);
-        imageRequest.setUserId(userId);
-        imageRequest.setPrompt(finalPrompt);
-        // aid_media_task.prompt 列只存动态入参摘要，不存设定卡 builder 模板正文
-        imageRequest.setTaskPromptDigest(buildCardImagePromptDigest(project, cardSizeSpec.aspectRatio()));
-        // 角色源图作为参考图
-        Map<String, Object> options = imageRequest.getOptions();
-        if (options == null)
-        {
-            options = new HashMap<>();
-        }
-        if (CollectionUtil.isNotEmpty(refImageList))
-        {
-            log.info("设定卡生成参考图: taskId={}, imageId={}, url={}", parentTaskId, imageId, refImageList);
-            // 设定卡模板以单参考图为主
-            if (refImageList.size() == 1)
-            {
-                imageRequest.setReferenceImageUrl(refImageList.get(0));
-            }
-            else
-            {
-                options.put("referenceImages", refImageList);
-            }
-        }
-        else
-        {
-            log.info("设定卡生成无有效参考图: taskId={}, imageId={}", parentTaskId, imageId);
-        }
-        // 强制单图输出
-        options.put("force_single", true);
-        // 尺寸/比例从父任务解析后下发，入参为空时按模型 capability_json 默认档兜底；
-        // 档位/比例到厂商像素尺寸的翻译由 ImageProviderClient 负责，业务层不写死设定卡尺寸
-        if (StrUtil.isNotBlank(cardSizeSpec.aspectRatio()))
-        {
-            options.putIfAbsent("aspect_ratio", cardSizeSpec.aspectRatio());
-        }
-        imageRequest.setOptions(options);
-        imageRequest.setSize(cardSizeSpec.size());
-        log.info("设定卡出图参数: taskId={}, modelCode={}, size={}, aspectRatio={}",
-                parentTaskId, modelCode, imageRequest.getSize(), cardSizeSpec.aspectRatio());
-        imageRequest.setExpectedImageCount(1);
-        // 注入业务任务ID，破除幂等复用
-        imageRequest.setBizTaskId(parentTaskId);
-        imageRequest.setBizTaskType(TASK_TYPE_FORM_CARD_IMAGE_BATCH);
-
-        // Agent 默认参数兜底：业务层已写入解析后的 size / aspect_ratio，applier 内部按 putIfAbsent 不覆盖
-        agentDefaultParamsApplier.applyToImage(agentModel, imageRequest, cardDefaultModelConfig);
+        CardImageMediaBillingPlan mediaPlan = buildCardImageMediaBillingPlan(parentTaskId,
+                v, modelCode, resolvedResolution, resolvedAspectRatio, userId);
+        MediaImageGenerateRequest imageRequest = mediaPlan.request();
+        String finalPrompt = mediaPlan.finalPrompt();
+        List<String> refImageList = mediaPlan.referenceImages();
 
         // 调用图片生成
-        MediaTaskResponse imageResponse = mediaGenerationService.generateImage(imageRequest);
-        String cardImageUrl = resolveImageUrl(imageResponse, modelCode);
-        if (StrUtil.isBlank(cardImageUrl))
+        MediaTaskResponse imageResponse = batchParentSubmissionGuard.executeManagedTask(
+                parentTaskId, expectedTraceId,
+                () -> mediaGenerationService.generateImage(imageRequest));
+        return batchParentSubmissionGuard.executeManagedBusinessCommit(parentTaskId, expectedTraceId, () -> {
+            String cardImageUrl = resolveImageUrl(imageResponse, modelCode);
+            if (StrUtil.isBlank(cardImageUrl))
+            {
+                log.error("设定卡生成失败，图片URL为空: imageId={}", imageId);
+                throw new ServiceException("图片生成失败");
+            }
+            // 写入 aid_role_prop_scene_form_image：sourceType = ai_builder
+            Long cardImageId = persistCardFormImage(
+                    form, asset, cardImageUrl, finalPrompt, refImageList,
+                    sourceImage.getSourceType(), parentTaskId, userId);
+            Map<String, Object> resultMap = new LinkedHashMap<>();
+            resultMap.put("sourceImageId", imageId);
+            resultMap.put("imageId", imageId);
+            resultMap.put("cardImageId", cardImageId);
+            resultMap.put("cardImageUrl", toClientMediaUrl(cardImageUrl));
+            resultMap.put("formId", form.getId());
+            return resultMap;
+        });
+    }
+
+    private CardImageMediaBillingPlan buildCardImageMediaBillingPlan(Long bizTaskId,
+            CardImageValidated validated, String modelCode, String resolution,
+            String aspectRatio, Long userId)
+    {
+        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(modelCode);
+        ModelCapabilityResolver.ImageSizeSpec sizeSpec = ModelCapabilityResolver.resolveImageSpec(
+                modelConfig, resolution, aspectRatio);
+        String finalPrompt = buildCardImagePrompt(validated.project, sizeSpec.aspectRatio());
+        if (StrUtil.isBlank(finalPrompt))
         {
-            log.error("设定卡生成失败，图片URL为空: imageId={}", imageId);
-            throw new ServiceException("图片生成失败");
+            throw new ServiceException("模板异常");
         }
+        String sourceUrl = mediaUrlResolver.toFullUrl(validated.sourceImage.getImageUrl());
+        List<String> referenceImages = sanitizeReferenceImages(
+                List.of(sourceUrl), validated.form.getId());
 
-        // 写入 aid_role_prop_scene_form_image：sourceType = ai_builder
-        Long cardImageId = persistCardFormImage(
-                form, asset, cardImageUrl, finalPrompt, refImageList,
-                sourceImage.getSourceType(), parentTaskId, userId);
+        MediaImageGenerateRequest request = new MediaImageGenerateRequest();
+        request.setModelName(modelCode);
+        request.setUserId(userId);
+        request.setPrompt(finalPrompt);
+        request.setTaskPromptDigest(buildCardImagePromptDigest(
+                validated.project, sizeSpec.aspectRatio()));
+        Map<String, Object> options = new HashMap<>();
+        if (referenceImages.size() == 1)
+        {
+            request.setReferenceImageUrl(referenceImages.get(0));
+        }
+        else if (referenceImages.size() > 1)
+        {
+            options.put("referenceImages", referenceImages);
+        }
+        options.put("force_single", true);
+        if (StrUtil.isNotBlank(sizeSpec.aspectRatio()))
+        {
+            options.put("aspect_ratio", sizeSpec.aspectRatio());
+        }
+        request.setOptions(options);
+        request.setSize(sizeSpec.size());
+        request.setExpectedImageCount(1);
+        request.setBizTaskId(bizTaskId);
+        request.setBizTaskType(TASK_TYPE_FORM_CARD_IMAGE_BATCH);
+        agentDefaultParamsApplier.applyToImage(
+                new AgentModelDefault(modelCode), request, modelConfig);
+        return new CardImageMediaBillingPlan(
+                request, finalPrompt, List.copyOf(referenceImages));
+    }
 
-        Map<String, Object> resultMap = new LinkedHashMap<>();
-        resultMap.put("sourceImageId", imageId);
-        resultMap.put("imageId", imageId);
-        resultMap.put("cardImageId", cardImageId);
-        resultMap.put("cardImageUrl", toClientMediaUrl(cardImageUrl));
-        resultMap.put("formId", form.getId());
-        return resultMap;
+    private record CardImageMediaBillingPlan(MediaImageGenerateRequest request,
+            String finalPrompt, List<String> referenceImages)
+    {
     }
 
     /**
@@ -10560,7 +11417,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
     {
         String effectiveAspectRatio = StrUtil.blankToDefault(aspectRatio, "16:9");
         String template = StrUtil.blankToDefault(
-                helper.loadPromptByName(PROMPT_NAME_CHARACTER_FORM_IMAGE_BUILDER), "")
+                helper.loadPromptByNameReadOnly(PROMPT_NAME_CHARACTER_FORM_IMAGE_BUILDER), "")
                 .replace("{aspect_ratio}", effectiveAspectRatio)
                 .replace("21:9", effectiveAspectRatio)
                 .replace("21：9", effectiveAspectRatio);
@@ -10914,12 +11771,48 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         throw new ServiceException("类型不支持");
     }
 
+    private static String mapAssetTypeToFormGenerateLogicalType(String assetType)
+    {
+        if (Objects.equals(ASSET_TYPE_CHARACTER, assetType))
+        {
+            return BatchTaskLogicalType.FORM_GENERATE_CHARACTER_BATCH;
+        }
+        if (Objects.equals(ASSET_TYPE_SCENE, assetType))
+        {
+            return BatchTaskLogicalType.FORM_GENERATE_SCENE_BATCH;
+        }
+        if (Objects.equals(ASSET_TYPE_PROP, assetType))
+        {
+            return BatchTaskLogicalType.FORM_GENERATE_PROP_BATCH;
+        }
+        log.error("形态生成逻辑槽映射失败: assetType={}", assetType);
+        throw new ServiceException("类型不支持");
+    }
+
+    private static String mapAssetTypeToFormImageLogicalType(String assetType)
+    {
+        if (Objects.equals(ASSET_TYPE_CHARACTER, assetType))
+        {
+            return BatchTaskLogicalType.FORM_IMAGE_CHARACTER_BATCH;
+        }
+        if (Objects.equals(ASSET_TYPE_SCENE, assetType))
+        {
+            return BatchTaskLogicalType.FORM_IMAGE_SCENE_BATCH;
+        }
+        if (Objects.equals(ASSET_TYPE_PROP, assetType))
+        {
+            return BatchTaskLogicalType.FORM_IMAGE_PROP_BATCH;
+        }
+        log.error("形态图逻辑槽映射失败: assetType={}", assetType);
+        throw new ServiceException("类型不支持");
+    }
+
     /**
      * 人物形态图 txt2img prompt 组装（白底主图版）。
      */
     private String buildCharacterFormImagePrompt(AidComicProject project, AidRolePropScene asset, AidRolePropSceneForm form)
     {
-        String template = helper.loadPromptByName(PROMPT_NAME_CHARACTER_FORM_IMAGE_WHITE_BG);
+        String template = helper.loadPromptByNameReadOnly(PROMPT_NAME_CHARACTER_FORM_IMAGE_WHITE_BG);
 
         // 角色图片只使用项目角色隐藏画风，不注入 video_style_type 风格名称。
         String artStylePrompt = projectStyleSnapshotService.resolveCharacterPrompt(project);
@@ -11125,7 +12018,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
      */
     private String buildSceneFormImagePrompt(AidComicProject project, AidRolePropScene asset, AidRolePropSceneForm form)
     {
-        String template = helper.loadPromptByName(PROMPT_NAME_SCENE_IMAGE);
+        String template = helper.loadPromptByNameReadOnly(PROMPT_NAME_SCENE_IMAGE);
         String rawPromptText = Objects.nonNull(form) ? form.getPromptText() : null;
         String assetName = Objects.nonNull(asset) ? StrUtil.blankToDefault(asset.getName(), "") : "";
 
@@ -11228,7 +12121,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
      */
     private String buildPropFormImagePrompt(AidComicProject project, AidRolePropScene asset, AidRolePropSceneForm form)
     {
-        String template = helper.loadPromptByName(PROMPT_NAME_PROP_IMAGE);
+        String template = helper.loadPromptByNameReadOnly(PROMPT_NAME_PROP_IMAGE);
         String rawPromptText = Objects.nonNull(form) ? form.getPromptText() : null;
         String assetName = Objects.nonNull(asset) ? StrUtil.blankToDefault(asset.getName(), "") : "";
 

@@ -45,6 +45,8 @@ import com.aid.billing.dto.BillingInput;
 import com.aid.billing.enums.BillingConstants;
 import com.aid.billing.model.BillingSnapshot;
 import com.aid.billing.service.BillingAmountCalculator;
+import com.aid.billing.service.BillingQuoteAssembler;
+import com.aid.billing.vo.BillingQuoteVO;
 import com.aid.common.core.redis.RedisCache;
 import com.aid.common.error.TaskErrorPresentation;
 import com.aid.common.exception.ServiceException;
@@ -54,6 +56,8 @@ import com.aid.media.dto.MediaTaskResponse;
 import com.aid.model.service.IAiModelBusinessService;
 import com.aid.model.vo.AiModelVO;
 import com.aid.rps.dto.AssetExtractTaskVO;
+import com.aid.rps.dto.StoryboardVideoPromptBatchRequest;
+import com.aid.rps.dto.StoryboardVideoPromptImageBatchRequest;
 import com.aid.rps.dto.StoryboardVideoWithPromptRequest;
 import com.aid.enums.CreationModeEnum;
 import com.aid.rps.assembler.StoryboardSceneContextAssembler;
@@ -65,6 +69,10 @@ import com.aid.rps.model.StoryboardSceneContext;
 import com.aid.rps.helper.ProjectGenerateLockGuard;
 import com.aid.rps.queue.TaskQueueService;
 import com.aid.rps.queue.BatchTaskLocalOrchestrator;
+import com.aid.rps.queue.BatchTaskLogicalType;
+import com.aid.rps.queue.BatchTaskSlotReservation;
+import com.aid.rps.queue.BatchTaskSlotService;
+import com.aid.rps.queue.BatchParentSubmissionGuard;
 import com.aid.rps.resolver.ReferenceAssetSanitizer;
 import com.aid.rps.resolver.StoryboardImageReferenceResolver;
 import com.aid.rps.resolver.StoryboardPromptBatchAligner;
@@ -78,6 +86,9 @@ import com.aid.rps.service.IStoryboardVideoPromptService;
 import com.aid.rps.sse.AssetExtractSseManager;
 import com.aid.service.IAiModelConfigService;
 import com.aid.storyboard.dto.ChainTriggerResult;
+import com.aid.storyboard.dto.StoryboardVideoFromImageGenerateRequest;
+import com.aid.storyboard.dto.StoryboardVideoGenerateRequest;
+import com.aid.storyboard.dto.StoryboardVideoGridGenerateRequest;
 import com.aid.storyboard.service.impl.StoryboardStepChainService;
 import com.aid.storyboard.service.IStoryboardVideoGenerationService;
 
@@ -104,6 +115,7 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
     private static final String TASK_STATUS_QUEUED = "QUEUED";
     private static final String TASK_STATUS_PROCESSING = "PROCESSING";
     private static final String TASK_STATUS_FINALIZING = "FINALIZING";
+    private static final String TASK_STATUS_RECOVERING = "RECOVERING";
     private static final String TASK_STATUS_SUCCEEDED = "SUCCEEDED";
     private static final String TASK_STATUS_FAILED = "FAILED";
     private static final String TASK_STATUS_PARTIAL_FAILED = "PARTIAL_FAILED";
@@ -117,6 +129,9 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
      */
     private static final Set<String> RECONNECTABLE_STATUS = Set.of(
             "PENDING", "QUEUED", "PROCESSING", "SUCCEEDED", "PARTIAL_FAILED");
+    private static final Set<String> ACTIVE_TASK_STATUS = Set.of(
+            TASK_STATUS_PENDING, TASK_STATUS_QUEUED, TASK_STATUS_PROCESSING,
+            TASK_STATUS_FINALIZING, TASK_STATUS_RECOVERING);
 
     /** 计费状态：已完整结算（= ExtractBillingStatus.SUCCESS，续生前置校验用） */
     private static final String BILLING_STATUS_FROZEN = "FROZEN";
@@ -182,6 +197,9 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
     private static final String DIRECTION_IMAGE = "image";
     private static final String DIRECTION_GRID = "grid";
 
+    /** 与链式正式提交的拆批上限保持一致。 */
+    private static final int CHAIN_CHILD_BATCH_SIZE = 20;
+
     /** 模型类型必须为 text */
     private static final String MODEL_TYPE_TEXT = "text";
 
@@ -244,6 +262,12 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
     private IAidComicEpisodeService aidComicEpisodeService;
     @Autowired
     private IAidExtractTaskService extractTaskService;
+
+    @Autowired
+    private BatchTaskSlotService batchTaskSlotService;
+
+    @Autowired
+    private BatchParentSubmissionGuard batchParentSubmissionGuard;
     @Autowired
     private IAidAgentService aidAgentService;
     @Autowired
@@ -261,6 +285,8 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
     private IExtractBillingService extractBillingService;
     @Autowired
     private BillingAmountCalculator billingAmountCalculator;
+    @Autowired
+    private BillingQuoteAssembler billingQuoteAssembler;
     /** 账户服务（建任务前的余额只读预检，冻结仍走统一 prepareBilling） */
     @Autowired
     private com.aid.billing.service.IAccountUpdateService accountUpdateService;
@@ -469,6 +495,150 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
                 continuityMode, previousStoryboardId, null);
     }
 
+    @Override
+    public BillingQuoteVO quoteVideoPrompt(StoryboardVideoPromptBatchRequest request, Long userId)
+    {
+        return quoteVideoPromptPlan("STORYBOARD_VIDEO_PROMPT", DIRECTION_MULTI,
+                request.getProjectId(), request.getEpisodeId(), userId, request.getStoryboardIds(),
+                request.getAgentCode(), request.getModelCode(), request.getOverwrite(),
+                request.getContinuityMode(), request.getPreviousStoryboardId());
+    }
+
+    @Override
+    public BillingQuoteVO quoteVideoPromptImage(StoryboardVideoPromptImageBatchRequest request, Long userId)
+    {
+        return quoteVideoPromptPlan("STORYBOARD_VIDEO_PROMPT_IMAGE", DIRECTION_IMAGE,
+                request.getProjectId(), request.getEpisodeId(), userId, request.getStoryboardIds(),
+                request.getAgentCode(), request.getModelCode(), request.getOverwrite(),
+                request.getContinuityMode(), request.getPreviousStoryboardId());
+    }
+
+    @Override
+    public BillingQuoteVO quoteVideoPromptGrid(StoryboardVideoPromptImageBatchRequest request, Long userId)
+    {
+        return quoteVideoPromptPlan("STORYBOARD_VIDEO_PROMPT_GRID", DIRECTION_GRID,
+                request.getProjectId(), request.getEpisodeId(), userId, request.getStoryboardIds(),
+                request.getAgentCode(), request.getModelCode(), request.getOverwrite(),
+                request.getContinuityMode(), request.getPreviousStoryboardId());
+    }
+
+    @Override
+    public BillingQuoteVO quoteVideoWithPrompt(StoryboardVideoWithPromptRequest request, Long userId)
+    {
+        if (request == null || request.getProjectId() == null || request.getEpisodeId() == null)
+        {
+            throw new ServiceException("参数错误");
+        }
+        AutoVideoRoute route = resolveAutoVideoRoute(
+                resolveCreationMode(request.getProjectId(), request.getEpisodeId(), userId));
+        VideoPromptBillingPlan plan = prepareVideoPromptBillingPlan(route.direction(),
+                request.getProjectId(), request.getEpisodeId(), userId, request.getStoryboardIds(),
+                request.getAgentCode(), request.getModelCode(), request.getOverwrite(),
+                request.getContinuityMode(), request.getPreviousStoryboardId());
+        BillingQuoteVO promptQuote = assembleVideoPromptQuote(
+                quoteTypeForDirection(route.direction()), plan);
+        BillingQuoteVO mediaQuote = quotePlannedVideoBatches(route, request,
+                plan.targetList().stream().map(AidStoryboard::getId).toList(), userId);
+        return billingQuoteAssembler.aggregate(
+                "STORYBOARD_VIDEO_WITH_PROMPT", List.of(promptQuote, mediaQuote));
+    }
+
+    private BillingQuoteVO quoteVideoPromptPlan(String quoteType, String direction,
+            Long projectId, Long episodeId, Long userId, List<Long> storyboardIds,
+            String agentCode, String modelCode, Boolean overwrite,
+            String continuityMode, Long previousStoryboardId)
+    {
+        VideoPromptBillingPlan plan = prepareVideoPromptBillingPlan(direction, projectId, episodeId,
+                userId, storyboardIds, agentCode, modelCode, overwrite,
+                continuityMode, previousStoryboardId);
+        return assembleVideoPromptQuote(quoteType, plan);
+    }
+
+    private BillingQuoteVO assembleVideoPromptQuote(
+            String quoteType, VideoPromptBillingPlan plan)
+    {
+        if (plan.noTargets())
+        {
+            throw new ServiceException("视频提示词已生成");
+        }
+        if (plan.billingResult() == null || !plan.billingResult().isMatched())
+        {
+            throw new ServiceException("计费规则缺失");
+        }
+        return billingQuoteAssembler.single(quoteType, plan.modelConfig(), plan.billingResult(), 1);
+    }
+
+    private BillingQuoteVO quotePlannedVideoBatches(AutoVideoRoute route,
+            StoryboardVideoWithPromptRequest source, List<Long> targetIds, Long userId)
+    {
+        List<BillingQuoteVO> quotes = new ArrayList<>();
+        for (int start = 0; start < targetIds.size(); start += CHAIN_CHILD_BATCH_SIZE)
+        {
+            List<Long> ids = new ArrayList<>(targetIds.subList(
+                    start, Math.min(start + CHAIN_CHILD_BATCH_SIZE, targetIds.size())));
+            if (DIRECTION_IMAGE.equals(route.direction()))
+            {
+                StoryboardVideoFromImageGenerateRequest request = new StoryboardVideoFromImageGenerateRequest();
+                copyPlannedVideoOptions(source, request, ids);
+                quotes.add(storyboardVideoGenerationService.quotePlannedVideoFromImage(request, userId));
+            }
+            else if (DIRECTION_GRID.equals(route.direction()))
+            {
+                StoryboardVideoGridGenerateRequest request = new StoryboardVideoGridGenerateRequest();
+                copyPlannedVideoOptions(source, request, ids);
+                quotes.add(storyboardVideoGenerationService.quotePlannedVideoFromGrid(request, userId));
+            }
+            else
+            {
+                StoryboardVideoGenerateRequest request = new StoryboardVideoGenerateRequest();
+                request.setStoryboardIds(ids);
+                request.setModelName(source.getGenModelName());
+                request.setAspectRatio(source.getGenAspectRatio());
+                request.setResolution(source.getGenResolution());
+                request.setDurationSeconds(source.getGenDurationSeconds());
+                request.setGenerateAudio(source.getGenGenerateAudio());
+                quotes.add(storyboardVideoGenerationService.quotePlannedVideo(request, userId));
+            }
+        }
+        return billingQuoteAssembler.aggregate(quoteTypeForMediaRoute(route), quotes);
+    }
+
+    private void copyPlannedVideoOptions(StoryboardVideoWithPromptRequest source,
+            StoryboardVideoFromImageGenerateRequest target, List<Long> ids)
+    {
+        target.setStoryboardIds(ids);
+        target.setModelName(source.getGenModelName());
+        target.setAspectRatio(source.getGenAspectRatio());
+        target.setResolution(source.getGenResolution());
+        target.setDurationSeconds(source.getGenDurationSeconds());
+        target.setGenerateAudio(source.getGenGenerateAudio());
+    }
+
+    private void copyPlannedVideoOptions(StoryboardVideoWithPromptRequest source,
+            StoryboardVideoGridGenerateRequest target, List<Long> ids)
+    {
+        target.setStoryboardIds(ids);
+        target.setModelName(source.getGenModelName());
+        target.setAspectRatio(source.getGenAspectRatio());
+        target.setResolution(source.getGenResolution());
+        target.setDurationSeconds(source.getGenDurationSeconds());
+        target.setGenerateAudio(source.getGenGenerateAudio());
+    }
+
+    private String quoteTypeForDirection(String direction)
+    {
+        if (DIRECTION_IMAGE.equals(direction)) return "STORYBOARD_VIDEO_PROMPT_IMAGE";
+        if (DIRECTION_GRID.equals(direction)) return "STORYBOARD_VIDEO_PROMPT_GRID";
+        return "STORYBOARD_VIDEO_PROMPT";
+    }
+
+    private String quoteTypeForMediaRoute(AutoVideoRoute route)
+    {
+        if (CHAIN_TYPE_VIDEO_IMAGE.equals(route.chainType())) return "STORYBOARD_VIDEO_IMAGE";
+        if (CHAIN_TYPE_VIDEO_GRID.equals(route.chainType())) return "STORYBOARD_VIDEO_GRID";
+        return "STORYBOARD_VIDEO";
+    }
+
     /** chainNext 链路类型常量（与 StoryboardStepChainService 协议一致）。 */
     private static final String CHAIN_TYPE_VIDEO = "video";
     private static final String CHAIN_TYPE_VIDEO_IMAGE = "video_image";
@@ -489,25 +659,9 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
             throw new ServiceException("参数错误");
         }
         String creationMode = resolveCreationMode(request.getProjectId(), request.getEpisodeId(), userId);
-        CreationModeEnum mode = CreationModeEnum.getByValue(creationMode);
-        String direction;
-        String chainType;
-        if (CreationModeEnum.I2V.equals(mode))
-        {
-            direction = DIRECTION_IMAGE;                 // 图生：回填 video_prompt_image
-            chainType = CHAIN_TYPE_VIDEO_IMAGE;          // 出片走 generateVideoFromImage
-        }
-        else if (CreationModeEnum.AUTO_GRID.equals(mode))
-        {
-            direction = DIRECTION_GRID;                  // 宫格：回填 video_prompt_image
-            chainType = CHAIN_TYPE_VIDEO_GRID;           // 出片走 generateVideoFromGrid
-        }
-        else
-        {
-            // multi / pro / 缺省：多参方向（pro 的专属池切换在出片侧按创作模式自动完成）
-            direction = DIRECTION_MULTI;                 // 回填 video_prompt
-            chainType = CHAIN_TYPE_VIDEO;                // 出片走 generateVideo
-        }
+        AutoVideoRoute route = resolveAutoVideoRoute(creationMode);
+        String direction = route.direction();
+        String chainType = route.chainType();
         Map<String, Object> chainNext = new LinkedHashMap<>();
         chainNext.put("type", chainType);                                  // 出片链路类型
         chainNext.put("modelName", request.getGenModelName());             // 出片模型（可选）
@@ -521,6 +675,24 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
                 request.getStoryboardIds(), request.getAgentCode(), request.getModelCode(),
                 request.getOverwrite(), request.getContinuityMode(),
                 request.getPreviousStoryboardId(), chainNext);
+    }
+
+    private AutoVideoRoute resolveAutoVideoRoute(String creationMode)
+    {
+        CreationModeEnum mode = CreationModeEnum.getByValue(creationMode);
+        if (CreationModeEnum.I2V.equals(mode))
+        {
+            return new AutoVideoRoute(DIRECTION_IMAGE, CHAIN_TYPE_VIDEO_IMAGE);
+        }
+        if (CreationModeEnum.AUTO_GRID.equals(mode))
+        {
+            return new AutoVideoRoute(DIRECTION_GRID, CHAIN_TYPE_VIDEO_GRID);
+        }
+        return new AutoVideoRoute(DIRECTION_MULTI, CHAIN_TYPE_VIDEO);
+    }
+
+    private record AutoVideoRoute(String direction, String chainType)
+    {
     }
 
     /**
@@ -559,114 +731,25 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
                                                      Long previousStoryboardId,
                                                      Map<String, Object> chainNext)
     {
-        boolean imageDir = DIRECTION_IMAGE.equals(direction);
-        boolean gridDir = DIRECTION_GRID.equals(direction);
-        // 回填/判定列：图生与宫格都用 video_prompt_image 列（宫格复用图生列，不新增列）
-        boolean imageColumn = imageDir || gridDir;
-        if (Objects.isNull(projectId) || Objects.isNull(episodeId) || Objects.isNull(userId))
+        VideoPromptBillingPlan plan = prepareVideoPromptBillingPlan(direction, projectId, episodeId, userId,
+                storyboardIds, agentCode, modelCode, overwrite, continuityMode, previousStoryboardId);
+        if (plan.noTargets())
         {
-            throw new ServiceException("参数错误");
-        }
-        // storyboardIds 可选：不传 → 处理本剧集全部分镜；传了 → 仅处理这些
-        List<Long> uniqueIds = CollectionUtil.isEmpty(storyboardIds) ? new ArrayList<>()
-                : storyboardIds.stream().filter(Objects::nonNull).distinct().collect(Collectors.toList());
-        boolean explicitShots = CollectionUtil.isNotEmpty(uniqueIds);
-        // 传了分镜 → 默认覆盖（重新生成这些镜头）；不传 → 由 overwrite 区分 重新生成(true)/继续生成(false)
-        boolean overwriteFlag = explicitShots || Boolean.TRUE.equals(overwrite);
-
-        AidComicProject project = projectService.selectAidComicProjectById(projectId);
-        if (Objects.isNull(project) || !Objects.equals(userId, project.getUserId())
-                || !DEL_FLAG_NORMAL.equals(project.getDelFlag()))
-        {
-            throw new ServiceException("项目不存在");
-        }
-
-        // 2&3. 统一解析：项目级配置 → aid_config 兜底（3 级链路）。
-        //      按方向选场景：多参=main_storyboard_video_prompt / 图生=main_storyboard_video_prompt_image。
-        //      解析器内部完成：智能体存在 + status=1 + biz_category 校验，
-        //      模型存在 + model_type=text + 在该 funcCode 模型池内校验（两方向均做池校验）。
-        com.aid.projectgenconfig.enums.ProjectGenConfigScene scene = gridDir
-                ? com.aid.projectgenconfig.enums.ProjectGenConfigScene.STORYBOARD_VIDEO_PROMPT_GRID
-                : (imageDir
-                    ? com.aid.projectgenconfig.enums.ProjectGenConfigScene.STORYBOARD_VIDEO_PROMPT_IMAGE
-                    : com.aid.projectgenconfig.enums.ProjectGenConfigScene.STORYBOARD_VIDEO_PROMPT);
-        com.aid.projectgenconfig.service.ResolvedSceneConfig resolved =
-                projectGenConfigResolver.resolve(projectId, episodeId, userId, scene, agentCode, modelCode, null, null);
-        agentCode = resolved.getAgentCode();
-        String resolvedModelCode = resolved.getModelCode();
-        // 智能体 prompt_content 非空校验（resolver 不返回 agent 实体，按解析后的 agentCode 重载一次）
-        AidAgent agent = aidAgentService.getByAgentCode(agentCode);
-        if (Objects.isNull(agent) || StrUtil.isBlank(agent.getPromptContent()))
-        {
-            throw new ServiceException("智能体不可用");
-        }
-        // 计费需要 modelConfig（resolver 已校验存在 + text + 在池内，此处仅取配置对象供预冻结使用）
-        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(resolvedModelCode);
-        if (Objects.isNull(modelConfig))
-        {
-            throw new ServiceException("模型不可用");
-        }
-
-        List<AidStoryboard> storyboardList = explicitShots
-                ? loadTargetStoryboards(projectId, episodeId, userId, uniqueIds)
-                : loadEpisodeStoryboards(projectId, episodeId, userId);
-        if (CollectionUtil.isEmpty(storyboardList))
-        {
-            throw new ServiceException("分镜不能为空");
-        }
-
-        //    图生方向判定 video_prompt_image，多参方向判定 video_prompt
-        List<AidStoryboard> targetList = overwriteFlag ? storyboardList : storyboardList.stream()
-                .filter(s -> StrUtil.isBlank(imageColumn ? s.getVideoPromptImage() : s.getVideoPrompt()))
-                .collect(Collectors.toList());
-        if (CollectionUtil.isEmpty(targetList))
-        {
-            // 断线重连兜底：全部已生成且未 overwrite 时，本次没有新目标镜头。
-            // 若存在可重连的最近任务（活跃 / 有产物终态），回传其 taskId 供前端重订阅 SSE 拉取进度或终态，
-            // 不再直接抛「已生成」死路（解决「生成中途断线 → 回到页面重复点击 → 提示已生成无法恢复」）。
             AssetExtractTaskVO reconnect = findReconnectableTask(projectId, episodeId, userId);
-            if (Objects.nonNull(reconnect))
+            if (reconnect != null)
             {
                 return reconnect;
             }
             throw new ServiceException("视频提示词已生成");
         }
-
-        //    图生 / 宫格方向额外要求 image_prompt。镜头组结构（pro multiref + auto_grid grid）校验「画面说明」。
-        boolean groupStructure = gridDir || AGENT_CODE_MULTIREF.equals(agentCode);
-        if (imageColumn)
-        {
-            assertImagePromptReadyForVideoPrompt(targetList);
-        }
-        for (AidStoryboard sb : targetList)
-        {
-            validateShotForVideoPrompt(sb, imageColumn, groupStructure);
-        }
-
-        boolean singleSelection = explicitShots && uniqueIds.size() == 1;
-        ContinuityContext continuityContext = continuityAssembler.resolve(
-                projectId, episodeId, userId, targetList, continuityMode,
-                previousStoryboardId, singleSelection, imageColumn);
-
-        //    校验前置：预估金额与余额预检提前到建任务之前，
-        //    余额不足时直接拦截，不再产生「先建任务再冻结失败回滚成 FAILED」的废任务记录。
-        //    结算阶段按 provider 真实 token 重算实际金额（TOKEN 口径多退少补，与统一计费机制一致）。
-        String styleType = StrUtil.nullToEmpty(project.getVideoStyleType());
-        String styleValue = StrUtil.nullToEmpty(project.getVideoStyleValue());
-        int batchInputChars = estimateBatchInputChars(direction, agentCode, resolvedModelCode,
-                styleType, styleValue, targetList, projectId, episodeId, userId,
-                continuityContext);
-        int batchOutputChars = ESTIMATED_OUTPUT_CHARS * targetList.size();
-        Map<String, Object> billingParams = new HashMap<>();
-        billingParams.put("inputChars", batchInputChars);
-        billingParams.put("inputTokens", BillingConstants.charsToTokens(batchInputChars));
-        billingParams.put("outputTokens", BillingConstants.charsToTokens(batchOutputChars));
-        billingParams.put("totalChars", batchInputChars + batchOutputChars);
-        helper.applyLlmBillingLimits(billingParams, 1);
-        BillingInput billingInput = new BillingInput("TEXT", billingParams);
-        BillingCalcResult calc = billingAmountCalculator.calculatePreHoldAmount(modelConfig, billingInput);
-        BigDecimal totalFrozen = (calc != null && calc.isMatched() && calc.getAmount() != null)
-                ? calc.getAmount() : BigDecimal.ZERO;
+        agentCode = plan.agentCode();
+        String resolvedModelCode = plan.modelCode();
+        List<AidStoryboard> targetList = plan.targetList();
+        boolean overwriteFlag = plan.overwrite();
+        boolean singleSelection = plan.singleSelection();
+        ContinuityContext continuityContext = plan.continuityContext();
+        BillingCalcResult calc = plan.billingResult();
+        BigDecimal totalFrozen = plan.preHoldAmount();
         // 余额前置预检（只读）：不足直接抛「预扣余额不足」，最终仍以 prepareBilling 锁内冻结为准
         accountUpdateService.precheckBalance(userId, totalFrozen);
 
@@ -678,7 +761,18 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
                 lockKey, lockTtlSeconds, TASK_TYPE_STORYBOARD_VIDEO_PROMPT_BATCH, projectId, episodeId);
         if (!lockResult.isAcquired())
         {
-            throw new ServiceException("任务处理中");
+            throw new ServiceException("任务执行中，请先停止");
+        }
+        BatchTaskSlotReservation slotReservation;
+        try
+        {
+            slotReservation = batchTaskSlotService.acquireTaskSlots(projectId, episodeId,
+                    List.of(BatchTaskLogicalType.STORYBOARD_VIDEO_WORKFLOW));
+        }
+        catch (RuntimeException ex)
+        {
+            projectLockGuard.releaseIfMatch(lockKey, lockResult.getToken());
+            throw ex;
         }
 
         AidExtractTask task = null;
@@ -717,6 +811,7 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
             {
                 inputMap.put("chainNext", chainNext);
             }
+            batchTaskSlotService.attachSnapshotMetadata(inputMap, slotReservation);
             try
             {
                 String inputSnapshot = OBJECT_MAPPER.writeValueAsString(inputMap);
@@ -803,9 +898,243 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
                     }
                 }
             }
+            if (task != null && task.getId() != null)
+            {
+                batchTaskSlotService.releaseForTask(task);
+            }
+            else
+            {
+                batchTaskSlotService.release(slotReservation);
+            }
             if (e instanceof ServiceException) { throw (ServiceException) e; }
             throw new ServiceException("提交失败，请重试");
         }
+    }
+
+    /** 构建只读视频提示词提交计划；正式提交与报价共同消费该不可变结果。 */
+    private VideoPromptBillingPlan prepareVideoPromptBillingPlan(String direction,
+            Long projectId, Long episodeId, Long userId, List<Long> storyboardIds,
+            String requestedAgentCode, String requestedModelCode, Boolean overwrite,
+            String continuityMode, Long previousStoryboardId)
+    {
+        boolean imageDir = DIRECTION_IMAGE.equals(direction);
+        boolean gridDir = DIRECTION_GRID.equals(direction);
+        boolean imageColumn = imageDir || gridDir;
+        if (Objects.isNull(projectId) || Objects.isNull(episodeId) || Objects.isNull(userId))
+        {
+            throw new ServiceException("参数错误");
+        }
+        if (storyboardIds != null && storyboardIds.size() > 100)
+        {
+            throw new ServiceException("批量过多");
+        }
+        List<Long> uniqueIds = CollectionUtil.isEmpty(storyboardIds) ? new ArrayList<>()
+                : storyboardIds.stream().filter(Objects::nonNull).distinct().collect(Collectors.toList());
+        boolean explicitShots = CollectionUtil.isNotEmpty(uniqueIds);
+        boolean overwriteFlag = explicitShots || Boolean.TRUE.equals(overwrite);
+
+        AidComicProject project = projectService.selectAidComicProjectById(projectId);
+        if (Objects.isNull(project) || !Objects.equals(userId, project.getUserId())
+                || !DEL_FLAG_NORMAL.equals(project.getDelFlag()))
+        {
+            throw new ServiceException("项目不存在");
+        }
+        com.aid.projectgenconfig.enums.ProjectGenConfigScene scene = gridDir
+                ? com.aid.projectgenconfig.enums.ProjectGenConfigScene.STORYBOARD_VIDEO_PROMPT_GRID
+                : (imageDir
+                    ? com.aid.projectgenconfig.enums.ProjectGenConfigScene.STORYBOARD_VIDEO_PROMPT_IMAGE
+                    : com.aid.projectgenconfig.enums.ProjectGenConfigScene.STORYBOARD_VIDEO_PROMPT);
+        com.aid.projectgenconfig.service.ResolvedSceneConfig resolved = projectGenConfigResolver.resolve(
+                projectId, episodeId, userId, scene, requestedAgentCode, requestedModelCode, null, null);
+        String agentCode = resolved.getAgentCode();
+        String modelCode = resolved.getModelCode();
+        AidAgent agent = aidAgentService.getByAgentCode(agentCode);
+        if (Objects.isNull(agent) || StrUtil.isBlank(agent.getPromptContent()))
+        {
+            throw new ServiceException("智能体不可用");
+        }
+        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(modelCode);
+        if (Objects.isNull(modelConfig))
+        {
+            throw new ServiceException("模型不可用");
+        }
+
+        List<AidStoryboard> storyboardList = explicitShots
+                ? loadTargetStoryboards(projectId, episodeId, userId, uniqueIds)
+                : loadEpisodeStoryboards(projectId, episodeId, userId);
+        if (CollectionUtil.isEmpty(storyboardList))
+        {
+            throw new ServiceException("分镜不能为空");
+        }
+        List<AidStoryboard> targetList = overwriteFlag ? storyboardList : storyboardList.stream()
+                .filter(item -> StrUtil.isBlank(imageColumn
+                        ? item.getVideoPromptImage() : item.getVideoPrompt()))
+                .collect(Collectors.toList());
+        if (CollectionUtil.isEmpty(targetList))
+        {
+            return new VideoPromptBillingPlan(agentCode, modelCode, modelConfig, List.of(),
+                    overwriteFlag, false, null, null, BigDecimal.ZERO, true);
+        }
+        if (targetList.size() > 100)
+        {
+            throw new ServiceException("批量过多");
+        }
+
+        boolean groupStructure = gridDir || AGENT_CODE_MULTIREF.equals(agentCode);
+        if (imageColumn)
+        {
+            assertImagePromptReadyForVideoPrompt(targetList);
+        }
+        for (AidStoryboard storyboard : targetList)
+        {
+            validateShotForVideoPrompt(storyboard, imageColumn, groupStructure);
+        }
+        boolean singleSelection = explicitShots && uniqueIds.size() == 1;
+        ContinuityContext continuityContext = continuityAssembler.resolve(
+                projectId, episodeId, userId, targetList, continuityMode,
+                previousStoryboardId, singleSelection, imageColumn);
+        int batchInputChars = estimateBatchInputChars(direction, agentCode, modelCode,
+                StrUtil.nullToEmpty(project.getVideoStyleType()),
+                StrUtil.nullToEmpty(project.getVideoStyleValue()), targetList,
+                projectId, episodeId, userId, continuityContext);
+        int batchOutputChars = ESTIMATED_OUTPUT_CHARS * targetList.size();
+        Map<String, Object> billingParams = new HashMap<>();
+        billingParams.put("inputChars", batchInputChars);
+        billingParams.put("inputTokens", BillingConstants.charsToTokens(batchInputChars));
+        billingParams.put("outputTokens", BillingConstants.charsToTokens(batchOutputChars));
+        billingParams.put("totalChars", batchInputChars + batchOutputChars);
+        helper.applyLlmBillingLimits(billingParams, 1);
+        BillingCalcResult result = billingAmountCalculator.calculatePreHoldAmount(
+                modelConfig, new BillingInput("TEXT", billingParams));
+        BigDecimal preHoldAmount = result != null && result.isMatched() && result.getAmount() != null
+                ? result.getAmount() : BigDecimal.ZERO;
+        return new VideoPromptBillingPlan(agentCode, modelCode, modelConfig,
+                List.copyOf(targetList), overwriteFlag, singleSelection, continuityContext,
+                result, preHoldAmount, false);
+    }
+
+    private record VideoPromptBillingPlan(String agentCode, String modelCode,
+            AiModelConfigVo modelConfig, List<AidStoryboard> targetList, boolean overwrite,
+            boolean singleSelection, ContinuityContext continuityContext,
+            BillingCalcResult billingResult, BigDecimal preHoldAmount,
+            boolean noTargets)
+    {
+    }
+
+    private record VideoPromptResumePlan(AidExtractTask task, Map<String, Object> input,
+            String direction, VideoPromptBillingPlan billingPlan, String billingSnapshotJson)
+    {
+    }
+
+    @Override
+    public BillingQuoteVO quoteResumeVideoPrompt(Long taskId, Long userId)
+    {
+        VideoPromptResumePlan plan = prepareVideoPromptResumePlan(taskId, userId);
+        return assembleVideoPromptQuote("TASK_RESUME", plan.billingPlan());
+    }
+
+    @SuppressWarnings("unchecked")
+    private VideoPromptResumePlan prepareVideoPromptResumePlan(Long taskId, Long userId)
+    {
+        AidExtractTask task = requireVideoPromptResumeTask(taskId, userId);
+        Map<String, Object> input;
+        try
+        {
+            input = OBJECT_MAPPER.readValue(task.getInputSnapshot(), Map.class);
+        }
+        catch (Exception e)
+        {
+            throw new ServiceException("解析失败");
+        }
+        String direction = String.valueOf(input.getOrDefault("direction", DIRECTION_MULTI));
+        boolean imageColumn = DIRECTION_IMAGE.equals(direction) || DIRECTION_GRID.equals(direction);
+        Object rawStoryboardIds = input.get("storyboardIds");
+        List<Long> originalIds = rawStoryboardIds instanceof List<?> rawIds
+                ? rawIds.stream().map(Convert::toLong).filter(Objects::nonNull)
+                        .distinct().toList()
+                : List.of();
+        if (originalIds.isEmpty())
+        {
+            throw new ServiceException("分镜不能为空");
+        }
+        List<AidStoryboard> stored = storyboardService.list(
+                Wrappers.<AidStoryboard>lambdaQuery()
+                        .select(AidStoryboard::getId, AidStoryboard::getVideoPrompt,
+                                AidStoryboard::getVideoPromptImage)
+                        .in(AidStoryboard::getId, originalIds)
+                        .eq(AidStoryboard::getProjectId, task.getProjectId())
+                        .eq(AidStoryboard::getEpisodeId, task.getEpisodeId())
+                        .eq(AidStoryboard::getUserId, userId)
+                        .eq(AidStoryboard::getDelFlag, DEL_FLAG_NORMAL));
+        List<Long> remainingIds = restoreSnapshotOrder(stored, originalIds).stream()
+                .filter(storyboard -> StrUtil.isBlank(imageColumn
+                        ? storyboard.getVideoPromptImage() : storyboard.getVideoPrompt()))
+                .map(AidStoryboard::getId)
+                .toList();
+        if (remainingIds.isEmpty())
+        {
+            throw new ServiceException("无可续生镜头");
+        }
+        boolean gridDirection = DIRECTION_GRID.equals(direction);
+        boolean imageDirection = DIRECTION_IMAGE.equals(direction);
+        String defaultAgent = gridDirection ? DEFAULT_AGENT_CODE_GRID
+                : (imageDirection ? DEFAULT_AGENT_CODE_IMAGE : DEFAULT_AGENT_CODE);
+        String agentCode = StrUtil.blankToDefault(
+                String.valueOf(input.getOrDefault("agentCode", defaultAgent)), defaultAgent);
+        String modelCode = StrUtil.blankToDefault(
+                String.valueOf(input.getOrDefault("modelCode", task.getModelCode())),
+                task.getModelCode());
+        VideoPromptBillingPlan billingPlan = prepareVideoPromptBillingPlan(direction,
+                task.getProjectId(), task.getEpisodeId(), userId, remainingIds,
+                agentCode, modelCode, Boolean.TRUE,
+                Convert.toStr(input.get("continuityMode"), null),
+                Convert.toLong(input.get("previousStoryboardId")));
+        BillingCalcResult result = billingPlan.billingResult();
+        String billingSnapshotJson = null;
+        if (result != null && result.getSnapshot() != null)
+        {
+            attachUsageWatermark(result.getSnapshot(),
+                    extractBillingService.findLatestBillingMediaTaskId(taskId));
+            billingSnapshotJson = JSONUtil.toJsonStr(result.getSnapshot());
+        }
+        return new VideoPromptResumePlan(task, new LinkedHashMap<>(input), direction,
+                billingPlan, billingSnapshotJson);
+    }
+
+    private AidExtractTask requireVideoPromptResumeTask(Long taskId, Long userId)
+    {
+        if (taskId == null)
+        {
+            throw new ServiceException("任务不能为空");
+        }
+        AidExtractTask task = extractTaskService.selectAidExtractTaskById(taskId);
+        if (task == null || !DEL_FLAG_NORMAL.equals(task.getDelFlag())
+                || !Objects.equals(userId, task.getUserId()))
+        {
+            throw new ServiceException("任务不存在");
+        }
+        if (!TASK_TYPE_STORYBOARD_VIDEO_PROMPT_BATCH.equals(task.getTaskType()))
+        {
+            throw new ServiceException("类型不支持");
+        }
+        if (!TASK_STATUS_PARTIAL_FAILED.equals(task.getStatus())
+                && !TASK_STATUS_FAILED.equals(task.getStatus())
+                && !TASK_STATUS_CANCELLED.equals(task.getStatus()))
+        {
+            throw new ServiceException("状态不支持");
+        }
+        boolean refundedTerminal = BILLING_STATUS_REFUNDED.equals(task.getBillingStatus());
+        if (!BILLING_STATUS_SUCCESS.equals(task.getBillingStatus()) && !refundedTerminal)
+        {
+            throw new ServiceException("结算未完成");
+        }
+        if (task.getCreateTime() != null
+                && System.currentTimeMillis() - task.getCreateTime().getTime()
+                        > RESUME_WINDOW_HOURS * 3600_000L)
+        {
+            throw new ServiceException("任务已过期");
+        }
+        return task;
     }
 
     /**
@@ -834,6 +1163,10 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
             return null;
         }
         String status = latest.getStatus();
+        if (ACTIVE_TASK_STATUS.contains(status))
+        {
+            throw new ServiceException("任务执行中，请先停止");
+        }
         // 纯失败/取消无产物，不重连
         if (!RECONNECTABLE_STATUS.contains(status))
         {
@@ -1021,6 +1354,8 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
             // 整段批量的输出与镜头按「相关键」绑定，相关键即入参每段标题里的不透明标识。
             // 输出契约在此统一收口追加，四个方向共用，避免新增方向漏加。
             userContent = appendBatchOutputContract(userContent, targetList, unitLabel);
+            String finalUserContent = userContent;
+            String finalUnitLabel = unitLabel;
             // provider 无真实 usage 时也按最终 messages 兜底，不能漏掉 system 或合并消息标题。
             totalInputChars = helper.estimateLlmInputChars(systemPrompt, userContent, modelCode);
 
@@ -1036,13 +1371,16 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
                 // 即使命中媒体层幂等复用（不产生新行）也能定位被复用的那条媒体任务，避免漏算
                 int outputTokenCap = helper.resolveStructuredOutputTokens(
                         targetList.size(), OUTPUT_TOKENS_PER_STORYBOARD);
-                MediaTaskResponse llmResp = helper.callLlmRawForResponse(
-                        systemPrompt, userContent, modelCode, taskId, userId, null, BIZ_TASK_TYPE,
-                        // 整批是一个原子业务交付槽位。续生会把 storyboardIds 收缩为 remaining，
-                        // 因此 stable slot 禁止携带本轮 count/index；实际目标集合由 messages SHA 区分。
-                        "stage=video_prompt,direction=" + direction + ",item=batch",
-                        raw -> isReplayVideoOutputValid(raw, targetList, unitLabel,
-                                direction, agentCode), executionTraceId, outputTokenCap);
+                MediaTaskResponse llmResp = batchParentSubmissionGuard.executeManagedTask(
+                        taskId, executionTraceId,
+                        () -> helper.callLlmRawForResponse(
+                                systemPrompt, finalUserContent, modelCode, taskId, userId, null, BIZ_TASK_TYPE,
+                                // 整批是一个原子业务交付槽位。续生会把 storyboardIds 收缩为 remaining，
+                                // 因此 stable slot 禁止携带本轮 count/index；实际目标集合由 messages SHA 区分。
+                                "stage=video_prompt,direction=" + direction + ",item=batch",
+                                raw -> isReplayVideoOutputValid(raw, targetList, finalUnitLabel,
+                                        direction, agentCode), executionTraceId, outputTokenCap),
+                        TextTaskExecutionRejectedException::new);
                 if (llmResp != null)
                 {
                     llmRaw = llmResp.getTextContent();
@@ -1248,6 +1586,7 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
         if (!TASK_STATUS_PARTIAL_FAILED.equals(task.getStatus())
                 && !TASK_STATUS_FAILED.equals(task.getStatus())
                 && !TASK_STATUS_CANCELLED.equals(task.getStatus())) { throw new ServiceException("状态不支持"); }
+        VideoPromptResumePlan preparedResume = prepareVideoPromptResumePlan(taskId, userId);
         String originalStatus = task.getStatus();
         // 旧计费周期必须已完整结算（billing_status=SUCCESS）才允许续生：
         // 若仍是 PARTIAL_SUCCESS（首跑欠扣待追补），重置会覆盖旧周期追补快照导致欠款无法追扣，
@@ -1418,7 +1757,8 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
                 throw new ServiceException("续生失败，请重试");
             }
 
-            String retryBillingSnapshotJson = resumeSnapshotJson;
+            BigDecimal retryFrozenAmount = preparedResume.billingPlan().preHoldAmount();
+            String retryBillingSnapshotJson = preparedResume.billingSnapshotJson();
             String dispatchMode = dualModeTaskDispatcher.resolveDispatchMode();
             try
             {
@@ -1430,7 +1770,7 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
                     try
                     {
                         billingContext = extractBillingService.rearmBillingForResume(taskId, userId,
-                                totalRetryFrozen, retryBillingSnapshotJson, originalStatus,
+                                retryFrozenAmount, retryBillingSnapshotJson, originalStatus,
                                 new ResumeTaskMutation(true, null, true, resumeInputJson,
                                         true, remaining.size()), dispatchMode);
                         taskQueueService.assertTaskDispatchLockHeld(taskId);
@@ -2104,7 +2444,7 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
         userContent = continuityAssembler.appendContext(userContent, continuityContext);
         // 预冻结必须与实际下发消息同源，身份契约的字符数不能漏算。
         userContent = appendBatchOutputContract(userContent, shots, unitLabel);
-        String systemPrompt = helper.loadPromptByName(agentCode);
+        String systemPrompt = helper.loadPromptByNameReadOnly(agentCode);
         return helper.estimateLlmInputChars(systemPrompt, userContent, modelCode);
     }
 

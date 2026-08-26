@@ -24,6 +24,8 @@ import com.aid.common.utils.DateUtils;
 import com.aid.notify.wechat.service.IWechatNotifyService;
 import com.aid.rps.dto.ExtractTaskMessage;
 import com.aid.rps.queue.BatchTaskLocalOrchestrator;
+import com.aid.rps.queue.BatchTaskExecutionRejectedException;
+import com.aid.rps.queue.BatchTaskSlotService;
 import com.aid.rps.queue.TaskQueueService;
 import com.aid.rps.service.IAssetExtractService;
 import com.aid.rps.service.IExtractBillingService;
@@ -148,6 +150,9 @@ public class AssetExtractConsumer implements RocketMQListener<String>, RocketMQP
     private TaskQueueService taskQueueService;
 
     @Autowired
+    private BatchTaskSlotService batchTaskSlotService;
+
+    @Autowired
     private com.aid.rps.service.IStoryboardScriptService storyboardScriptService;
 
     @Autowired
@@ -223,6 +228,7 @@ public class AssetExtractConsumer implements RocketMQListener<String>, RocketMQP
         if (!Objects.equals(TASK_STATUS_PENDING, task.getStatus()))
         {
             log.info("跳过非PENDING任务: taskId={}, status={}", taskId, task.getStatus());
+            releaseLogicalSlotIfTerminal(taskId);
             return;
         }
         String dispatchToken = taskQueueService.resolveMqConsumerDispatchToken(message);
@@ -301,6 +307,20 @@ public class AssetExtractConsumer implements RocketMQListener<String>, RocketMQP
             {
                 log.warn("释放并发名额异常(不影响业务): taskId={}", taskId, slotEx);
             }
+            releaseLogicalSlotIfTerminal(taskId);
+        }
+    }
+
+    private void releaseLogicalSlotIfTerminal(Long taskId)
+    {
+        try
+        {
+            AidExtractTask current = extractTaskService.selectAidExtractTaskById(taskId);
+            batchTaskSlotService.releaseForTask(current);
+        }
+        catch (Exception ex)
+        {
+            log.warn("MQ批量任务释放逻辑槽异常: taskId={}, err={}", taskId, ex.getMessage());
         }
     }
 
@@ -728,6 +748,11 @@ public class AssetExtractConsumer implements RocketMQListener<String>, RocketMQP
             }
             log.info("MQ批量形态生成完成: taskId={}", taskId);
         }
+        catch (BatchTaskExecutionRejectedException rejected)
+        {
+            closeSubmissionRejectedTask(taskId, userId, dispatchToken,
+                    TASK_TYPE_FORM_GENERATE_BATCH);
+        }
         catch (Exception e)
         {
             log.error("MQ批量形态生成失败: taskId={}, userId={}", taskId, userId, e);
@@ -857,6 +882,11 @@ public class AssetExtractConsumer implements RocketMQListener<String>, RocketMQP
             }
             log.info("MQ批量形态图生成完成: taskId={}", taskId);
         }
+        catch (BatchTaskExecutionRejectedException rejected)
+        {
+            closeSubmissionRejectedTask(taskId, userId, dispatchToken,
+                    TASK_TYPE_FORM_IMAGE_BATCH);
+        }
         catch (Exception e)
         {
             log.error("MQ批量形态图生成失败: taskId={}, userId={}", taskId, userId, e);
@@ -957,6 +987,11 @@ public class AssetExtractConsumer implements RocketMQListener<String>, RocketMQP
                 sseManager.sendComplete(taskId, resultJson);
             }
             log.info("MQ批量设定卡生成完成: taskId={}", taskId);
+        }
+        catch (BatchTaskExecutionRejectedException rejected)
+        {
+            closeSubmissionRejectedTask(taskId, userId, dispatchToken,
+                    TASK_TYPE_FORM_CARD_IMAGE_BATCH);
         }
         catch (Exception e)
         {
@@ -1076,6 +1111,11 @@ public class AssetExtractConsumer implements RocketMQListener<String>, RocketMQP
                 sseManager.sendComplete(taskId, resultJson);
             }
             log.info("MQ分镜脚本批量完成: taskId={}", taskId);
+        }
+        catch (BatchTaskExecutionRejectedException rejected)
+        {
+            closeSubmissionRejectedTask(taskId, userId, dispatchToken,
+                    TASK_TYPE_STORYBOARD_SCRIPT_BATCH);
         }
         catch (Exception e)
         {
@@ -1219,6 +1259,11 @@ public class AssetExtractConsumer implements RocketMQListener<String>, RocketMQP
             }
             log.info("MQ分镜图脚本批量完成: taskId={}", taskId);
         }
+        catch (BatchTaskExecutionRejectedException rejected)
+        {
+            closeSubmissionRejectedTask(taskId, userId, dispatchToken,
+                    TASK_TYPE_STORYBOARD_IMAGE_PROMPT_BATCH);
+        }
         catch (Exception e)
         {
             log.error("MQ分镜图脚本批量失败: taskId={}, userId={}", taskId, userId, e);
@@ -1334,6 +1379,11 @@ public class AssetExtractConsumer implements RocketMQListener<String>, RocketMQP
             try { sseManager.sendComplete(taskId, OBJECT_MAPPER.readValue(resultJson, Map.class), chain.getChildTaskIds(), chain.getChildTaskType()); }
             catch (Exception e) { sseManager.sendComplete(taskId, resultJson, chain.getChildTaskIds(), chain.getChildTaskType()); }
             log.info("MQ视频提示词批量完成: taskId={}", taskId);
+        }
+        catch (BatchTaskExecutionRejectedException rejected)
+        {
+            closeSubmissionRejectedTask(taskId, userId, dispatchToken,
+                    TASK_TYPE_STORYBOARD_VIDEO_PROMPT_BATCH);
         }
         catch (Exception e)
         {
@@ -1598,6 +1648,31 @@ public class AssetExtractConsumer implements RocketMQListener<String>, RocketMQP
             log.info("取消终态CAS未命中: taskId={}", taskId);
         }
         return Boolean.TRUE.equals(updated);
+    }
+
+    private void closeSubmissionRejectedTask(Long taskId, Long userId,
+                                             String dispatchToken, String taskType)
+    {
+        if (!updateTaskCancelledWithResult(taskId, null, dispatchToken))
+        {
+            return;
+        }
+        try
+        {
+            boolean billingClosed = extractBillingService.settleOrRefundAfterExecutionFailure(
+                    taskId, userId, dispatchToken);
+            if (!billingClosed)
+            {
+                log.warn("MQ停止任务计费尚未收敛，保留补偿: taskId={}, type={}", taskId, taskType);
+            }
+        }
+        catch (Exception billingEx)
+        {
+            log.error("MQ停止任务计费收口异常: taskId={}, type={}", taskId, taskType, billingEx);
+        }
+        assetExtractService.releaseBatchFormLocks(taskId, taskType, dispatchToken);
+        sseManager.sendCancelled(taskId, "用户取消");
+        log.info("MQ批量任务在提交周期内取消: taskId={}, type={}", taskId, taskType);
     }
 
     /**

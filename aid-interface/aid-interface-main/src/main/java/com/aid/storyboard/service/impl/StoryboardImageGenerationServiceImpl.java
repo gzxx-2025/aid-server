@@ -13,6 +13,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import jakarta.annotation.PreDestroy;
 
@@ -42,12 +43,18 @@ import com.aid.common.error.ErrorNormalizer;
 import com.aid.common.error.TaskErrorPresentation;
 import com.aid.common.error.TaskErrorResult;
 import com.aid.common.exception.ServiceException;
+import com.aid.billing.dto.BillingCalcResult;
+import com.aid.billing.service.BillingPreHoldCalculationService;
+import com.aid.billing.service.BillingQuoteAssembler;
+import com.aid.billing.vo.BillingQuoteVO;
 import com.aid.common.utils.DateUtils;
 import com.aid.domain.vo.AiModelConfigVo;
 import com.aid.media.dto.MediaImageGenerateRequest;
 import com.aid.media.dto.MediaTaskResponse;
+import com.aid.media.dto.PreparedMediaBillingInput;
 import com.aid.media.provider.ReferenceImageLimiter;
 import com.aid.media.service.IMediaGenerationService;
+import com.aid.media.service.MediaBillingQuotePreparer;
 import com.aid.media.service.MediaTaskArchiveService;
 import com.aid.media.util.ModelCapabilityResolver;
 import com.aid.model.service.IAiModelBusinessService;
@@ -56,6 +63,12 @@ import com.aid.notify.wechat.service.IWechatNotifyService;
 import com.aid.rps.queue.MediaGenFanInSupport;
 import com.aid.rps.resolver.StoryboardImageReferenceResolver;
 import com.aid.rps.service.IAssetExtractService;
+import com.aid.rps.queue.BatchTaskLogicalType;
+import com.aid.rps.queue.BatchTaskSlotReservation;
+import com.aid.rps.queue.BatchTaskSlotService;
+import com.aid.rps.queue.BatchParentSubmissionGuard;
+import com.aid.rps.queue.BatchTaskExecutionRejectedException;
+import com.aid.rps.service.IRpsFormImageBusinessService.ReferenceEnablePlan;
 import com.aid.rps.sse.AssetExtractSseManager;
 import com.aid.service.IAiModelConfigService;
 import com.aid.storyboard.dto.StoryboardImageGenerateRequest;
@@ -195,6 +208,15 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
     @Autowired
     private IMediaGenerationService mediaGenerationService;
 
+    @Autowired
+    private MediaBillingQuotePreparer mediaBillingQuotePreparer;
+
+    @Autowired
+    private BillingPreHoldCalculationService billingPreHoldCalculationService;
+
+    @Autowired
+    private BillingQuoteAssembler billingQuoteAssembler;
+
     /** 媒体任务终态载荷二阶段压缩：业务上下文消费成功后再清理。 */
     @Autowired
     private MediaTaskArchiveService mediaTaskArchiveService;
@@ -225,6 +247,12 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
     @Autowired
     private IAssetExtractService assetExtractService;
 
+    @Autowired
+    private BatchTaskSlotService batchTaskSlotService;
+
+    @Autowired
+    private BatchParentSubmissionGuard batchParentSubmissionGuard;
+
     /** 任务排队 / 多维并发调度服务 */
     @Autowired
     private com.aid.rps.queue.TaskQueueService taskQueueService;
@@ -244,6 +272,13 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
     @Override
     public StoryboardImageGenerateVO generateImage(StoryboardImageGenerateRequest request, Long userId,
             boolean batchMode)
+    {
+        return generateImage(request, userId, batchMode, null);
+    }
+
+    @Override
+    public StoryboardImageGenerateVO generateImage(StoryboardImageGenerateRequest request, Long userId,
+            boolean batchMode, BatchTaskSlotReservation slotReservation)
     {
         validateUserId(userId);
         List<Long> ids = validateBatchRequest(request);
@@ -269,12 +304,67 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
 
         final boolean singleFinal = single;
         final int perShotCountFinal = perShotCount;
-        return submitBatch(userId, ids, single, perShotCount, batchMode || !single,
+        boolean batchWorkflow = batchMode || !single;
+        return submitBatch(userId, ids, single, perShotCount, batchWorkflow, batchWorkflow,
                 effectiveAgentCode, modelCode, modelId, modelConfig,
                 resolvedAspectRatio, resolvedSize,
                 request.getNegativePrompt(), request.getUserInputText(),
+                slotReservation,
                 sb -> prepareShot(sb, singleFinal, request.getImagePrompt(), request.getUserInputText(),
-                        userId, perShotCountFinal, modelConfig));
+                        userId, perShotCountFinal, modelConfig, true));
+    }
+
+    @Override
+    public BillingQuoteVO quoteImage(StoryboardImageGenerateRequest request, Long userId)
+    {
+        return quoteImageInternal(request, userId, false);
+    }
+
+    @Override
+    public BillingQuoteVO quotePlannedImage(StoryboardImageGenerateRequest request, Long userId)
+    {
+        return quoteImageInternal(request, userId, true);
+    }
+
+    private BillingQuoteVO quoteImageInternal(
+            StoryboardImageGenerateRequest request, Long userId, boolean plannedPrompt)
+    {
+        validateUserId(userId);
+        List<Long> ids = validateBatchRequest(request);
+        boolean single = ids.size() == 1;
+        int perShotCount = single ? clampCount(request.getCount()) : 1;
+        AidAgent agent = loadAndAssertAgent(StrUtil.blankToDefault(request.getAgentCode(), DEFAULT_AGENT_CODE));
+        AiModelConfigVo modelConfig = resolveModelConfig(request.getModelName(), agent);
+        ModelCapabilityResolver.ImageSizeSpec sizeSpec = ModelCapabilityResolver.resolveImageSpec(
+                modelConfig, request.getSize(), request.getAspectRatio());
+
+        List<BillingQuoteVO> items = new ArrayList<>();
+        for (Long id : ids)
+        {
+            AidStoryboard storyboard = loadAndCheckStoryboard(id, userId);
+            PreparedShot shot = plannedPrompt ? null : prepareShot(
+                    storyboard, single, request.getImagePrompt(), request.getUserInputText(),
+                    userId, perShotCount, modelConfig, false);
+            MediaImageGenerateRequest media = buildImageMediaRequest(
+                    storyboard, plannedPrompt ? null : shot.finalPrompt,
+                    plannedPrompt ? List.of() : shot.referenceImages,
+                    plannedPrompt ? null : shot.referenceManifestJson,
+                    modelConfig, userId, sizeSpec.size(), sizeSpec.aspectRatio(),
+                    request.getNegativePrompt(), Map.of());
+            PreparedMediaBillingInput prepared = plannedPrompt
+                    ? mediaBillingQuotePreparer.preparePlannedImageBilling(media)
+                    : mediaBillingQuotePreparer.prepareImageBilling(media);
+            BillingCalcResult result = billingPreHoldCalculationService.calculate(
+                    prepared.modelConfig(), prepared.billingInput());
+            if (result == null || !result.isMatched())
+            {
+                throw new ServiceException(result == null ? "计费规则缺失" : result.getErrorMessage());
+            }
+            BillingQuoteVO item = billingQuoteAssembler.single(
+                    "STORYBOARD_IMAGE", prepared.modelConfig(), result, perShotCount);
+            items.add(plannedPrompt ? billingQuoteAssembler.asEstimated(item) : item);
+        }
+        return billingQuoteAssembler.aggregate("STORYBOARD_IMAGE", items);
     }
     private void validateUserId(Long userId)
     {
@@ -464,14 +554,17 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
      * @param perShotCount      本镜头出图张数
      */
     private PreparedShot prepareShot(AidStoryboard sb, boolean single, String inputImagePrompt,
-                                     String userInputText, Long userId, int perShotCount, AiModelConfigVo modelConfig)
+                                     String userInputText, Long userId, int perShotCount,
+                                     AiModelConfigVo modelConfig, boolean applyReferenceEnable)
     {
         String imagePrompt = resolveImagePrompt(single ? inputImagePrompt : null, sb);
         Map<Integer, String> refNameByN = parseAtReferences(imagePrompt);
+        List<Long> additionallyEnabledIds = List.of();
         if (CollectionUtil.isNotEmpty(refNameByN))
         {
-            List<String> missingNames = rpsFormImageBusinessService.enableReferencesAndCollectMissing(
+            ReferenceEnablePlan enablePlan = rpsFormImageBusinessService.planReferenceEnable(
                     sb.getProjectId(), userId, refNameByN.values());
+            List<String> missingNames = enablePlan.missingNames();
             if (CollectionUtil.isNotEmpty(missingNames))
             {
                 log.warn("分镜图生成存在失效引用，将降级为文字描述: storyboardId={}, missing={}", sb.getId(),
@@ -484,8 +577,9 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
                         .collect(java.util.stream.Collectors.toList());
                 if (CollectionUtil.isNotEmpty(availableNames))
                 {
-                    List<String> unexpectedMissing = rpsFormImageBusinessService.enableReferencesAndCollectMissing(
+                    enablePlan = rpsFormImageBusinessService.planReferenceEnable(
                             sb.getProjectId(), userId, availableNames);
+                    List<String> unexpectedMissing = enablePlan.missingNames();
                     if (CollectionUtil.isNotEmpty(unexpectedMissing))
                     {
                         log.warn("分镜图有效引用二次启用时状态变化，将继续文字降级: storyboardId={}, missing={}",
@@ -493,21 +587,28 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
                     }
                 }
             }
+            additionallyEnabledIds = enablePlan.imageIdsToEnable();
+            if (applyReferenceEnable)
+            {
+                rpsFormImageBusinessService.applyReferenceEnablePlan(enablePlan, userId);
+            }
         }
         int maxReferenceImages = ReferenceImageLimiter.resolveMax(modelConfig, MAX_REFERENCE_IMAGES);
-        ImagePromptResolution promptResolution = compactImagePrompt(imagePrompt, sb, userId, maxReferenceImages);
+        ImagePromptResolution promptResolution = compactImagePrompt(
+                imagePrompt, sb, userId, maxReferenceImages, additionallyEnabledIds);
         String effectivePrompt = promptResolution.prompt;
         StoryboardImageReferenceResolver.ResolveResult refResult = storyboardImageReferenceResolver.resolve(
-                effectivePrompt, sb.getProjectId(), userId);
+                effectivePrompt, sb.getProjectId(), userId, additionallyEnabledIds);
         if (CollectionUtil.isNotEmpty(refResult.getUnresolvedNames()))
         {
             // 并发删除等极小窗口的二次兜底：再次文字化，禁止把悬空编号交给 Provider。
             log.warn("分镜图生成引用解析期间状态变化，将再次文字降级: storyboardId={}, unresolved={}",
                     sb.getId(), formatMissingRefs(effectivePrompt, refResult.getUnresolvedNames()));
-            promptResolution = compactImagePrompt(effectivePrompt, sb, userId, maxReferenceImages);
+            promptResolution = compactImagePrompt(
+                    effectivePrompt, sb, userId, maxReferenceImages, additionallyEnabledIds);
             effectivePrompt = promptResolution.prompt;
             refResult = storyboardImageReferenceResolver.resolve(
-                    effectivePrompt, sb.getProjectId(), userId);
+                    effectivePrompt, sb.getProjectId(), userId, additionallyEnabledIds);
         }
         int minReferenceImages = ReferenceImageLimiter.readMinFromCapabilityJson(modelConfig.getCapabilityJson());
         if (refResult.getReferenceImageUrls().size() < minReferenceImages
@@ -522,7 +623,8 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
         String finalPrompt = buildFinalPrompt(effectivePrompt, refResult, userInputText);
         List<String> referenceImages = ReferenceImageLimiter.limit(
                 refResult.getReferenceImageUrls(), modelConfig, MAX_REFERENCE_IMAGES, "分镜图生成");
-        String referenceManifestJson = buildReferenceManifestJson(effectivePrompt, sb, userId);
+        String referenceManifestJson = buildReferenceManifestJson(
+                effectivePrompt, sb, userId, additionallyEnabledIds);
         String userImagePromptInput = single ? inputImagePrompt : null;
         return new PreparedShot(sb, finalPrompt, imagePrompt, referenceImages, referenceManifestJson,
                 userImagePromptInput, perShotCount);
@@ -530,10 +632,12 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
 
     /** 把有图引用压缩为连续序号；无图引用只保留名称文本，让模型按描述自由生成。 */
     private ImagePromptResolution compactImagePrompt(String prompt, AidStoryboard storyboard, Long userId,
-                                                      int maxReferenceImages)
+                                                      int maxReferenceImages,
+                                                      List<Long> additionallyEnabledIds)
     {
         List<StoryboardImageReferenceResolver.ResolvedImageReference> rich =
-                storyboardImageReferenceResolver.resolveRich(prompt, storyboard.getProjectId(), userId);
+                storyboardImageReferenceResolver.resolveRich(
+                        prompt, storyboard.getProjectId(), userId, additionallyEnabledIds);
         Map<Integer, Integer> compactByOriginal = new LinkedHashMap<>();
         int compact = 0;
         for (StoryboardImageReferenceResolver.ResolvedImageReference ref : rich)
@@ -785,13 +889,14 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
     }
 
     /** 构建富化引用清单 JSON（供 Provider 层「厂商参考图渲染策略」消费）；解析失败/无引用返回 null。 */
-    private String buildReferenceManifestJson(String imagePrompt, AidStoryboard storyboard, Long userId)
+    private String buildReferenceManifestJson(String imagePrompt, AidStoryboard storyboard, Long userId,
+                                              List<Long> additionallyEnabledIds)
     {
         try
         {
             List<StoryboardImageReferenceResolver.ResolvedImageReference> manifest =
                     storyboardImageReferenceResolver.resolveRich(imagePrompt,
-                            storyboard.getProjectId(), userId);
+                            storyboard.getProjectId(), userId, additionallyEnabledIds);
             if (CollectionUtil.isEmpty(manifest))
             {
                 return null;
@@ -914,13 +1019,17 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
      * 逐镜头抢锁 + 解析 → 创建单一父任务并异步入队。
      */
     private StoryboardImageGenerateVO submitBatch(Long userId, List<Long> ids, boolean single, int perShotCount,
+            boolean batchWorkflow,
             boolean overwriteExistingFinal,
             String agentCode, String modelCode, Long modelId, AiModelConfigVo modelConfig, String aspectRatio,
-            String size, String negativePrompt, String userInputText, ShotPreparer preparer)
+            String size, String negativePrompt, String userInputText,
+            BatchTaskSlotReservation inheritedReservation, ShotPreparer preparer)
     {
         List<PreparedShot> prepared = new ArrayList<>();
         List<ShotLock> heldLocks = new ArrayList<>();
         List<StoryboardImageGenerateVO.ShotResult> rejected = new ArrayList<>();
+        BatchTaskSlotReservation slotReservation = null;
+        boolean acquiredHere = false;
         try
         {
             for (Long id : ids)
@@ -956,18 +1065,62 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
             if (prepared.isEmpty())
             {
                 log.info("分镜批量出图无可受理镜头: ids={}, rejectedCount={}", ids, rejected.size());
+                if (ids.stream().filter(Objects::nonNull).distinct().count() > 1
+                        && CollectionUtil.isNotEmpty(rejected)
+                        && rejected.stream().allMatch(item -> "任务处理中".equals(item.getReason())))
+                {
+                    throw new ServiceException("任务执行中，请先停止");
+                }
                 String reason = rejected.isEmpty() ? "没有可生成的分镜" : rejected.get(0).getReason();
                 throw TaskErrorPresentation.toServiceException(reason, "没有可生成分镜");
             }
+            slotReservation = resolveWorkflowSlot(prepared, inheritedReservation, batchWorkflow);
+            acquiredHere = inheritedReservation == null && slotReservation != null;
             return createBatchTaskAndEnqueue(userId, agentCode, modelCode, modelId, modelConfig, aspectRatio, size,
                     negativePrompt, userInputText, perShotCount, overwriteExistingFinal,
-                    prepared, heldLocks, rejected);
+                    prepared, heldLocks, rejected, slotReservation);
         }
         catch (RuntimeException e)
         {
             for (ShotLock l : heldLocks) { releaseLockIfMine(l.key, l.token); }
+            if (acquiredHere)
+            {
+                batchTaskSlotService.release(slotReservation);
+            }
             throw e;
         }
+    }
+
+    private BatchTaskSlotReservation resolveWorkflowSlot(List<PreparedShot> prepared,
+                                                          BatchTaskSlotReservation inheritedReservation,
+                                                          boolean batchWorkflow)
+    {
+        AidStoryboard first = prepared.get(0).storyboard;
+        boolean sameScope = prepared.stream().allMatch(item ->
+                Objects.equals(first.getProjectId(), item.storyboard.getProjectId())
+                        && Objects.equals(first.getEpisodeId(), item.storyboard.getEpisodeId()));
+        if (!sameScope)
+        {
+            throw new ServiceException("分镜归属不一致");
+        }
+        if (inheritedReservation != null)
+        {
+            if (!Objects.equals(first.getProjectId(), inheritedReservation.projectId())
+                    || !Objects.equals(first.getEpisodeId(), inheritedReservation.episodeId())
+                    || !inheritedReservation.logicalTypes().contains(
+                            BatchTaskLogicalType.STORYBOARD_IMAGE_WORKFLOW))
+            {
+                throw new ServiceException("任务范围无效");
+            }
+            batchTaskSlotService.requireOwned(inheritedReservation);
+            return inheritedReservation;
+        }
+        if (!batchWorkflow)
+        {
+            return null;
+        }
+        return batchTaskSlotService.acquireTaskSlots(first.getProjectId(), first.getEpisodeId(),
+                List.of(BatchTaskLogicalType.STORYBOARD_IMAGE_WORKFLOW));
     }
 
     /** 创建单一父任务（写 input_snapshot/totalCount）+ 构建每镜头 Job + 入队异步执行。 */
@@ -975,7 +1128,8 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
             Long modelId, AiModelConfigVo modelConfig, String aspectRatio, String size,
             String negativePrompt, String userInputText, int perShotCount, boolean overwriteExistingFinal,
             List<PreparedShot> prepared,
-            List<ShotLock> heldLocks, List<StoryboardImageGenerateVO.ShotResult> rejected)
+            List<ShotLock> heldLocks, List<StoryboardImageGenerateVO.ShotResult> rejected,
+            BatchTaskSlotReservation slotReservation)
     {
         AidStoryboard firstSb = prepared.get(0).storyboard;
         Long projectId = firstSb.getProjectId();
@@ -1020,14 +1174,15 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
         inputMap.put("shots", shotsSnapshot);
         inputMap.put("allShots", allShotsSnapshot);
         inputMap.put("runNo", 0);
+        batchTaskSlotService.attachSnapshotMetadata(inputMap, slotReservation);
         try
         {
             task.setInputSnapshot(OBJECT_MAPPER.writeValueAsString(inputMap));
         }
         catch (Exception e)
         {
-            log.warn("分镜批量出图 inputSnapshot 序列化失败, 降级", e);
-            task.setInputSnapshot("{\"taskType\":\"" + TASK_TYPE_STORYBOARD_IMAGE_GENERATE + "\"}");
+            log.error("分镜批量出图 inputSnapshot 序列化失败", e);
+            throw new ServiceException("提交失败");
         }
         task.setStatus(TASK_STATUS_PENDING);
         task.setTotalCount(newSubtasks);
@@ -1286,10 +1441,14 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
                         String reused = reconcileExistingMediaUrl(bizSeq);
                         if (StrUtil.isNotBlank(reused))
                         {
-                            persistGenRecordIdempotent(shot, bizSeq, reused, genParamsJson);
+                            batchParentSubmissionGuard.executeManagedBusinessCommit(taskId, dispatchToken, () -> {
+                                persistGenRecordIdempotent(shot, bizSeq, reused, genParamsJson);
+                                return null;
+                            });
                             continue;
                         }
-                        MediaTaskResponse resp = submitSingleImageMedia(shot, bizSeq, genParamsJson);
+                        MediaTaskResponse resp = submitSingleImageMedia(
+                                shot, bizSeq, genParamsJson, dispatchToken);
                         String st = Objects.isNull(resp) ? null : resp.getStatus();
                         if (TASK_STATUS_SUCCEEDED.equals(st))
                         {
@@ -1297,7 +1456,12 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
                             {
                                 // DIRECT 同步直出：内联幂等落库。落库失败不计失败——media 已成功且会发终态事件，
                                 // 由事件监听幂等兜底落库；若此处误计 fail 会与事件成功落库形成「同一 take 既成功又失败」双计数。
-                                try { persistGenRecordIdempotent(shot, bizSeq, resp.getOssUrl(), genParamsJson); }
+                                try {
+                                    batchParentSubmissionGuard.executeManagedBusinessCommit(taskId, dispatchToken, () -> {
+                                        persistGenRecordIdempotent(shot, bizSeq, resp.getOssUrl(), genParamsJson);
+                                        return null;
+                                    });
+                                }
                                 catch (Exception pe) { log.error("分镜批量出图DIRECT内联落库失败,交由事件兜底: taskId={}, bizSeq={}", taskId, bizSeq, pe); }
                             }
                             else
@@ -1321,7 +1485,10 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
                             }
                             else
                             {
-                                fanInSupport.incrFail(taskId, "媒体任务提交失败");
+                                batchParentSubmissionGuard.executeManagedBusinessCommit(taskId, dispatchToken, () -> {
+                                    fanInSupport.incrFail(taskId, "媒体任务提交失败");
+                                    return null;
+                                });
                             }
                         }
                     }
@@ -1329,11 +1496,19 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
                     {
                         asyncPending++; // 在飞/待补偿：视为异步在途
                     }
+                    catch (BatchTaskExecutionRejectedException rejected)
+                    {
+                        cancelledMid = true;
+                        break outer;
+                    }
                     catch (Exception perItemEx)
                     {
                         log.error("分镜批量出图单张提交失败: taskId={}, storyboardId={}, take={}, err={}",
                                 taskId, shot.storyboard.getId(), slot + 1, perItemEx.getMessage());
-                        fanInSupport.incrFail(taskId, perItemEx.getMessage());
+                        batchParentSubmissionGuard.executeManagedBusinessCommit(taskId, dispatchToken, () -> {
+                            fanInSupport.incrFail(taskId, perItemEx.getMessage());
+                            return null;
+                        });
                     }
                 }
             }
@@ -1356,7 +1531,10 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
                 return;
             }
             // 全部同步完成/复用/失败 → 立即收尾（finalize 内部释放锁/名额）
-            finalizeImageBatchIfDone(taskId);
+            batchParentSubmissionGuard.executeManagedBusinessCommit(taskId, dispatchToken, () -> {
+                finalizeImageBatchIfDone(taskId);
+                return null;
+            });
         }
         catch (Exception e)
         {
@@ -1427,9 +1605,166 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
             return false;
         }
     }
+    private record ImageResumeBillingPlan(AidExtractTask task, AiModelConfigVo modelConfig,
+            String aspectRatio, String size, String negativePrompt,
+            List<PreparedShot> shots)
+    {
+    }
+
+    @Override
+    public BillingQuoteVO quoteResumeImage(Long taskId, Long userId)
+    {
+        ImageResumeBillingPlan plan = prepareImageResumeBillingPlan(taskId, userId);
+        List<BillingQuoteVO> items = new ArrayList<>(plan.shots().size());
+        for (PreparedShot shot : plan.shots())
+        {
+            MediaImageGenerateRequest request = buildImageMediaRequest(
+                    shot.storyboard, shot.finalPrompt, shot.referenceImages,
+                    shot.referenceManifestJson, plan.modelConfig(), userId,
+                    plan.size(), plan.aspectRatio(), plan.negativePrompt(), Map.of());
+            PreparedMediaBillingInput prepared = mediaBillingQuotePreparer.prepareImageBilling(request);
+            BillingCalcResult result = billingPreHoldCalculationService.calculate(
+                    prepared.modelConfig(), prepared.billingInput());
+            if (result == null || !result.isMatched())
+            {
+                throw new ServiceException(result == null
+                        ? "计费规则缺失" : result.getErrorMessage());
+            }
+            items.add(billingQuoteAssembler.single(
+                    "TASK_RESUME", prepared.modelConfig(), result, shot.takeCount));
+        }
+        return billingQuoteAssembler.aggregate("TASK_RESUME", items);
+    }
+
+    private ImageResumeBillingPlan prepareImageResumeBillingPlan(Long taskId, Long userId)
+    {
+        validateUserId(userId);
+        if (taskId == null || taskId <= 0)
+        {
+            throw new ServiceException("参数错误");
+        }
+        AidExtractTask task = extractTaskService.getById(taskId);
+        if (task == null || !DEL_FLAG_NORMAL.equals(task.getDelFlag())
+                || !Objects.equals(userId, task.getUserId()))
+        {
+            throw new ServiceException("任务不存在");
+        }
+        if (!TASK_TYPE_STORYBOARD_IMAGE_GENERATE.equals(task.getTaskType()))
+        {
+            throw new ServiceException("类型不支持");
+        }
+        if (!TASK_STATUS_PARTIAL_FAILED.equals(task.getStatus())
+                && !TASK_STATUS_FAILED.equals(task.getStatus())
+                && !TASK_STATUS_CANCELLED.equals(task.getStatus()))
+        {
+            throw new ServiceException("状态不支持");
+        }
+        JsonNode input;
+        try
+        {
+            input = OBJECT_MAPPER.readTree(StrUtil.blankToDefault(task.getInputSnapshot(), "{}"));
+        }
+        catch (Exception e)
+        {
+            throw new ServiceException("任务数据异常");
+        }
+        if (input.path("runNo").asInt(0) >= MAX_RUN_NO)
+        {
+            throw new ServiceException("重试次数超限");
+        }
+        LinkedHashMap<Long, Integer> takeByShot = new LinkedHashMap<>();
+        JsonNode allShots = input.path("allShots");
+        if (!allShots.isArray() || allShots.isEmpty())
+        {
+            allShots = input.path("shots");
+        }
+        if (allShots.isArray())
+        {
+            for (JsonNode node : allShots)
+            {
+                long storyboardId = node.path("storyboardId").asLong(0L);
+                int takeCount = node.path("takeCount").asInt(0);
+                if (storyboardId > 0L && takeCount > 0)
+                {
+                    takeByShot.put(storyboardId, takeCount);
+                }
+            }
+        }
+        if (takeByShot.isEmpty())
+        {
+            throw new ServiceException("任务数据异常");
+        }
+        Map<Long, TreeSet<Integer>> succeeded = new LinkedHashMap<>();
+        for (AidGenRecord record : loadSucceededRecordsByParentTask(taskId, takeByShot.keySet()))
+        {
+            Long storyboardId = record.getStoryboardId();
+            int takeCount = takeByShot.getOrDefault(storyboardId, 0);
+            if (takeCount <= 0)
+            {
+                continue;
+            }
+            TreeSet<Integer> slots = succeeded.computeIfAbsent(storyboardId, key -> new TreeSet<>());
+            Integer slot = parseTakeIndexFromGenParams(record.getGenParams());
+            if (slot != null)
+            {
+                if (slot < 0 || slot >= takeCount || slots.contains(slot))
+                {
+                    continue;
+                }
+            }
+            else
+            {
+                for (int index = 0; index < takeCount; index++)
+                {
+                    if (!slots.contains(index))
+                    {
+                        slot = index;
+                        break;
+                    }
+                }
+            }
+            if (slot != null)
+            {
+                slots.add(slot);
+            }
+        }
+        String modelCode = input.path("modelCode").asText(null);
+        String agentCode = input.path("agentCode").asText(DEFAULT_AGENT_CODE);
+        if (StrUtil.isBlank(modelCode))
+        {
+            throw new ServiceException("任务数据异常");
+        }
+        AiModelConfigVo modelConfig = resolveModelConfig(modelCode, loadAndAssertAgent(agentCode));
+        String userInputText = input.hasNonNull("userInputText")
+                ? input.get("userInputText").asText() : null;
+        List<PreparedShot> shots = new ArrayList<>();
+        for (Map.Entry<Long, Integer> entry : takeByShot.entrySet())
+        {
+            int remaining = entry.getValue()
+                    - succeeded.getOrDefault(entry.getKey(), new TreeSet<>()).size();
+            if (remaining <= 0)
+            {
+                continue;
+            }
+            AidStoryboard storyboard = loadAndCheckStoryboard(entry.getKey(), userId);
+            shots.add(prepareShot(storyboard, false, null, userInputText,
+                    userId, remaining, modelConfig, false));
+        }
+        if (shots.isEmpty())
+        {
+            throw new ServiceException("无可续生项");
+        }
+        return new ImageResumeBillingPlan(task, modelConfig,
+                input.hasNonNull("aspectRatio") ? input.get("aspectRatio").asText() : null,
+                input.hasNonNull("size") ? input.get("size").asText() : null,
+                input.hasNonNull("negativePrompt") ? input.get("negativePrompt").asText() : null,
+                List.copyOf(shots));
+    }
+
     @Override
     public StoryboardImageGenerateVO resumeImage(Long taskId, Long userId)
     {
+        ImageResumeBillingPlan preparedResume = prepareImageResumeBillingPlan(taskId, userId);
         validateUserId(userId);
         if (Objects.isNull(taskId) || taskId <= 0)
         {
@@ -1604,6 +1939,9 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
         Long modelId = modelConfig.getId();
 
         final String userInputF = userInputText;
+        Map<Long, PreparedShot> plannedShots = preparedResume.shots().stream()
+                .collect(Collectors.toMap(shot -> shot.storyboard.getId(), shot -> shot,
+                        (left, right) -> left, LinkedHashMap::new));
         List<PreparedShot> prepared = new ArrayList<>();
         List<ShotLock> heldLocks = new ArrayList<>();
         boolean forcePartial = false;
@@ -1611,39 +1949,56 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
         Long episodeId = null;
         try
         {
-            for (Map.Entry<Long, Integer> en : remainByShot.entrySet())
+            Map<Long, AidStoryboard> resumeStoryboards = new LinkedHashMap<>();
+            try
             {
-                Long id = en.getKey();
-                int remain = en.getValue();
-                String lockKey = FORM_LOCK_PREFIX + TASK_TYPE_STORYBOARD_IMAGE_GENERATE + ":" + id;
-                ShotLock heldThis = null;
-                try
+                // 先获取计划内全部镜头锁；任一失败即在媒体计费前整体退出。
+                for (Long id : remainByShot.keySet())
                 {
                     AidStoryboard sb = loadAndCheckStoryboard(id, userId);
+                    resumeStoryboards.put(id, sb);
+                    String lockKey = FORM_LOCK_PREFIX + TASK_TYPE_STORYBOARD_IMAGE_GENERATE + ":" + id;
                     String token = acquireShotLock(lockKey, id);
                     if (token == null)
                     {
-                        log.info("分镜批量出图续生跳过被占用镜头(保持待补): storyboardId={}", id);
-                        forcePartial = true;
-                        Map<String, Object> kept = priorShotFull.get(id);
-                        if (kept != null) { seedShotResults.add(kept); }
-                        continue;
+                        throw new ServiceException("任务处理中");
                     }
-                    heldThis = new ShotLock(lockKey, token);
-                    heldLocks.add(heldThis);
-                    // 续生统一走库内 image_prompt（single=false），用户补充沿用快照
-                    PreparedShot ps = prepareShot(sb, false, null, userInputF, userId, remain, modelConfig);
-                    prepared.add(ps);
-                    if (projectId == null) { projectId = sb.getProjectId(); episodeId = sb.getEpisodeId(); }
+                    heldLocks.add(new ShotLock(lockKey, token));
+                    if (projectId == null)
+                    {
+                        projectId = sb.getProjectId();
+                        episodeId = sb.getEpisodeId();
+                    }
                 }
-                catch (RuntimeException e)
+                // 全部锁成功后才应用引用启用；实际下发继续消费锁前生成的不可变计划。
+                for (Map.Entry<Long, Integer> entry : remainByShot.entrySet())
                 {
-                    if (heldThis != null) { releaseLockIfMine(heldThis.key, heldThis.token); heldLocks.remove(heldThis); }
-                    log.info("分镜批量出图续生跳过镜头(保持待补): storyboardId={}, reason={}", id, e.getMessage());
-                    forcePartial = true;
-                    Map<String, Object> kept = priorShotFull.get(id);
-                    if (kept != null) { seedShotResults.add(kept); }
+                    Long id = entry.getKey();
+                    int remain = entry.getValue();
+                    PreparedShot ps = plannedShots.get(id);
+                    if (ps == null || ps.takeCount != remain)
+                    {
+                        throw new ServiceException("任务数据变化");
+                    }
+                    PreparedShot applied = prepareShot(
+                            resumeStoryboards.get(id), false, null, userInputF,
+                            userId, remain, modelConfig, true);
+                    if (!Objects.equals(ps.finalPrompt, applied.finalPrompt)
+                            || !Objects.equals(ps.referenceImages, applied.referenceImages))
+                    {
+                        throw new ServiceException("任务数据变化");
+                    }
+                    prepared.add(ps);
                 }
+            }
+            catch (RuntimeException e)
+            {
+                for (ShotLock held : heldLocks)
+                {
+                    releaseLockIfMine(held.key, held.token);
+                }
+                heldLocks.clear();
+                throw e;
             }
             if (prepared.isEmpty())
             {
@@ -1686,6 +2041,8 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
             newSnap.put("allShots", allShotsOut);
             newSnap.put("runNo", newRunNo);
             newSnap.put("priorTotalCount", originalTotalCount);
+            batchTaskSlotService.attachSnapshotMetadata(
+                    newSnap, batchTaskSlotService.reservationFromTask(task));
             String newSnapJson;
             try
             {
@@ -1826,49 +2183,10 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
      * DIRECT 同步直出 → 响应即终态(SUCCEEDED+ossUrl)，调用方内联落库；异步 → 响应为中间态，
      * 由 media 调度中心轮询到终态后发事件,{@code StoryboardImageGenEventListener} 扇入收尾。
      */
-    private MediaTaskResponse submitSingleImageMedia(ImageGenJob job, long bizSeq, String genParamsJson)
+    private MediaTaskResponse submitSingleImageMedia(ImageGenJob job, long bizSeq,
+                                                     String genParamsJson, String dispatchToken)
     {
         AidStoryboard storyboard = job.storyboard;
-
-        MediaImageGenerateRequest imageRequest = new MediaImageGenerateRequest();
-        imageRequest.setPrompt(job.finalPrompt);
-        imageRequest.setModelName(job.modelCode);
-        // 关键：异步线程内 SecurityContext 丢失，必须显式透传 userId 否则计费跳过
-        imageRequest.setUserId(job.userId);
-        imageRequest.setProjectId(storyboard.getProjectId());
-        imageRequest.setEpisodeId(storyboard.getEpisodeId());
-        imageRequest.setBizTaskType(BIZ_TASK_TYPE);
-        // bizTaskId 确定性编码：续生重跑同槽位 → 同 bizTaskId → 媒体层幂等复用；同时是扇入反解父任务/落库幂等的依据
-        imageRequest.setBizTaskId(bizSeq);
-
-        if (StrUtil.isNotBlank(job.negativePrompt))
-        {
-            imageRequest.setNegativePrompt(job.negativePrompt);
-        }
-        if (StrUtil.isNotBlank(job.size))
-        {
-            imageRequest.setSize(job.size);
-        }
-        imageRequest.setExpectedImageCount(1);
-
-        Map<String, Object> options = new HashMap<>();
-        if (CollectionUtil.isNotEmpty(job.referenceImages))
-        {
-            if (job.referenceImages.size() == 1)
-            {
-                imageRequest.setReferenceImageUrl(job.referenceImages.get(0));
-            }
-            options.put("referenceImages", new ArrayList<>(job.referenceImages));
-        }
-        if (StrUtil.isNotBlank(job.referenceManifestJson))
-        {
-            options.put("referenceManifest", job.referenceManifestJson);
-        }
-        if (StrUtil.isNotBlank(job.aspectRatio))
-        {
-            options.put("aspect_ratio", job.aspectRatio);
-        }
-        options.put("force_single", true);
         // 扇入上下文：随 request_json 落库，事件回调时由 listener 反读重建 gen_record（厂商 Provider 只取已知键，不下发此键）
         Map<String, Object> ctx = new LinkedHashMap<>();
         ctx.put("storyboardId", storyboard.getId());
@@ -1878,13 +2196,58 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
         ctx.put("genParams", genParamsJson);
         ctx.put("bizSeq", bizSeq);
         ctx.put("overwriteExistingFinal", job.overwriteExistingFinal);
-        options.put(OPT_KEY_CTX, ctx);
-        imageRequest.setOptions(options);
+        ctx.put("executionTraceId", dispatchToken);
+        MediaImageGenerateRequest imageRequest = buildImageMediaRequest(
+                storyboard, job.finalPrompt, job.referenceImages, job.referenceManifestJson,
+                job.modelConfig, job.userId, job.size, job.aspectRatio, job.negativePrompt,
+                Map.of(OPT_KEY_CTX, ctx));
+        imageRequest.setBizTaskType(BIZ_TASK_TYPE);
+        // bizTaskId 确定性编码：续生重跑同槽位 → 同 bizTaskId → 媒体层幂等复用；同时是扇入反解父任务/落库幂等的依据
+        imageRequest.setBizTaskId(bizSeq);
 
-        AgentModelDefault agentModel = new AgentModelDefault(job.modelCode);
-        agentDefaultParamsApplier.applyToImage(agentModel, imageRequest, job.modelConfig);
+        return batchParentSubmissionGuard.executeManagedTask(job.taskId, dispatchToken,
+                () -> mediaGenerationService.generateImage(imageRequest));
+    }
 
-        return mediaGenerationService.generateImage(imageRequest);
+    /** 正式提交与只读报价共用的媒体请求快照构造器。 */
+    private MediaImageGenerateRequest buildImageMediaRequest(
+            AidStoryboard storyboard, String prompt, List<String> referenceImages,
+            String referenceManifestJson, AiModelConfigVo modelConfig, Long userId,
+            String size, String aspectRatio, String negativePrompt,
+            Map<String, Object> extraOptions)
+    {
+        MediaImageGenerateRequest request = new MediaImageGenerateRequest();
+        request.setPrompt(prompt);
+        request.setModelName(modelConfig.getModelCode());
+        request.setUserId(userId);
+        request.setProjectId(storyboard.getProjectId());
+        request.setEpisodeId(storyboard.getEpisodeId());
+        request.setNegativePrompt(negativePrompt);
+        request.setSize(size);
+        request.setExpectedImageCount(1);
+        Map<String, Object> options = new LinkedHashMap<>();
+        if (CollectionUtil.isNotEmpty(referenceImages))
+        {
+            request.setReferenceImageUrl(referenceImages.get(0));
+            options.put("referenceImages", new ArrayList<>(referenceImages));
+        }
+        if (StrUtil.isNotBlank(referenceManifestJson))
+        {
+            options.put("referenceManifest", referenceManifestJson);
+        }
+        if (StrUtil.isNotBlank(aspectRatio))
+        {
+            options.put("aspect_ratio", aspectRatio);
+        }
+        options.put("force_single", true);
+        if (extraOptions != null)
+        {
+            options.putAll(extraOptions);
+        }
+        request.setOptions(options);
+        agentDefaultParamsApplier.applyToImage(
+                new AgentModelDefault(modelConfig.getModelCode()), request, modelConfig);
+        return request;
     }
 
     /**
@@ -2109,29 +2472,41 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
         }
         long bizSeq = mt.getBizTaskId();
         Long parentTaskId = fanInSupport.decodeParentTaskId(bizSeq);
-        boolean contextConsumed = false;
+        Map<String, Object> ctx = extractCtxFromMediaTask(mt);
+        String executionTraceId = ctx.get("executionTraceId") instanceof String trace ? trace : null;
         try
         {
-            if (success && StrUtil.isNotBlank(ossUrl))
-            {
-                contextConsumed = persistGenRecordFromCtx(mt, bizSeq, ossUrl);
-            }
-            else if (!success)
-            {
-                fanInSupport.incrFail(parentTaskId);
-                contextConsumed = true;
-            }
+            batchParentSubmissionGuard.executeManagedBusinessCommit(parentTaskId, executionTraceId, () -> {
+                boolean contextConsumed = false;
+                try
+                {
+                    if (success && StrUtil.isNotBlank(ossUrl))
+                    {
+                        contextConsumed = persistGenRecordFromCtx(mt, bizSeq, ossUrl);
+                    }
+                    else if (!success)
+                    {
+                        fanInSupport.incrFail(parentTaskId);
+                        contextConsumed = true;
+                    }
+                }
+                catch (Exception e)
+                {
+                    log.error("分镜图事件落库异常: mediaTaskId={}, bizSeq={}", mediaTaskId, bizSeq, e);
+                    fanInSupport.incrFail(parentTaskId, "任务数据处理异常: " + e.getMessage());
+                }
+                finalizeImageBatchIfDone(parentTaskId);
+                if (contextConsumed)
+                {
+                    mediaTaskArchiveService.removeConsumedFanInContext(mediaTaskId, OPT_KEY_CTX);
+                }
+                return null;
+            });
         }
-        catch (Exception e)
+        catch (BatchTaskExecutionRejectedException rejected)
         {
-            log.error("分镜图事件落库异常: mediaTaskId={}, bizSeq={}", mediaTaskId, bizSeq, e);
-            // 落库异常按失败计数，避免父任务永远等不齐
-            fanInSupport.incrFail(parentTaskId, "任务数据处理异常: " + e.getMessage());
-        }
-        finalizeImageBatchIfDone(parentTaskId);
-        if (contextConsumed)
-        {
-            mediaTaskArchiveService.removeConsumedFanInContext(mediaTaskId, OPT_KEY_CTX);
+            log.info("分镜图事件执行周期已变化，跳过业务回写: mediaTaskId={}, parentTaskId={}",
+                    mediaTaskId, parentTaskId);
         }
     }
 
@@ -2560,6 +2935,7 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
             return false;
         }
         wechatNotifyService.notifyTaskTerminal(taskId);
+        releaseWorkflowSlot(taskId);
         return true;
     }
 
@@ -2582,6 +2958,7 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
             return false;
         }
         wechatNotifyService.notifyTaskTerminal(taskId);
+        releaseWorkflowSlot(taskId);
         return true;
     }
 
@@ -2601,6 +2978,7 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
             return false;
         }
         wechatNotifyService.notifyTaskTerminal(taskId);
+        releaseWorkflowSlot(taskId);
         return true;
     }
 
@@ -2625,6 +3003,7 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
             log.warn("分镜图生成取消CAS未命中, 终态已被其他分支接管: taskId={}", taskId);
             return false;
         }
+        releaseWorkflowSlot(taskId);
         return true;
     }
 
@@ -2646,7 +3025,13 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
             log.warn("分镜图生成取消(保留结果)CAS未命中, 终态已被其他分支接管: taskId={}", taskId);
             return false;
         }
+        releaseWorkflowSlot(taskId);
         return true;
+    }
+
+    private void releaseWorkflowSlot(Long taskId)
+    {
+        batchTaskSlotService.releaseForTask(extractTaskService.selectAidExtractTaskById(taskId));
     }
 
     /**

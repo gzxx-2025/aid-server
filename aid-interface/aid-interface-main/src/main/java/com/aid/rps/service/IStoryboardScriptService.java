@@ -3,6 +3,8 @@ package com.aid.rps.service;
 import java.util.List;
 
 import com.aid.rps.dto.AssetExtractTaskVO;
+import com.aid.rps.dto.StoryboardScriptBatchRequest;
+import com.aid.billing.vo.BillingQuoteVO;
 
 /**
  * 按项目和剧集维度使用当前有效剧本生成分镜脚本。
@@ -29,6 +31,9 @@ public interface IStoryboardScriptService
                                                       String agentCode, String modelCode, String mode,
                                                       Boolean overwrite);
 
+    /** 无副作用地复用正式直驱批次计划生成分镜脚本报价。 */
+    BillingQuoteVO quoteStoryboardScript(StoryboardScriptBatchRequest request, Long userId);
+
     /**
      * 按当前有效剧本片段生成并保存分镜脚本。
      *
@@ -46,4 +51,7 @@ public interface IStoryboardScriptService
      * @return 续生提交后的任务 VO（taskId + PROCESSING）
      */
     AssetExtractTaskVO resumeStoryboardScript(Long taskId, Long userId);
+
+    /** 分镜脚本失败批次续生报价。 */
+    BillingQuoteVO quoteResumeStoryboardScript(Long taskId, Long userId);
 }

@@ -14,6 +14,7 @@ import com.aid.rps.vo.RpsAssetVO;
 import com.aid.rps.vo.RpsFormImageDetailVO;
 import com.aid.rps.vo.RpsSceneFormImageBatchSplitVO;
 import com.aid.rps.vo.RpsSceneFormImageSplitVO;
+import com.aid.billing.vo.BillingQuoteVO;
 
 /**
  * 形态图片实例业务 Service（aid_role_prop_scene_form_image）：只负责图片实例增删改查。
@@ -22,6 +23,16 @@ import com.aid.rps.vo.RpsSceneFormImageSplitVO;
  */
 public interface IRpsFormImageBusinessService
 {
+    /** 引用即启用的只读计划；正式提交应用 imageIdsToEnable，报价只消费同一快照。 */
+    record ReferenceEnablePlan(Long projectId, List<String> missingNames, List<Long> imageIdsToEnable)
+    {
+        public ReferenceEnablePlan
+        {
+            missingNames = missingNames == null ? List.of() : List.copyOf(missingNames);
+            imageIdsToEnable = imageIdsToEnable == null ? List.of() : List.copyOf(imageIdsToEnable);
+        }
+    }
+
     /**
      * 新增形态图片实例（仅 upload / official 来源；ai_auto / ai_manual 走 AssetExtract 链路）。
      *
@@ -50,6 +61,12 @@ public interface IRpsFormImageBusinessService
      */
     List<String> enableReferencesAndCollectMissing(Long projectId, Long userId, Collection<String> names);
 
+    /** 纯查询地计算缺失引用和待启用图片，不更新图片状态。 */
+    ReferenceEnablePlan planReferenceEnable(Long projectId, Long userId, Collection<String> names);
+
+    /** 正式提交应用只读计划；报价链禁止调用。 */
+    void applyReferenceEnablePlan(ReferenceEnablePlan plan, Long userId);
+
     /**
      * 编辑形态图片实例。
      *
@@ -76,6 +93,9 @@ public interface IRpsFormImageBusinessService
      * @return 任务提交结果（含 taskId 和 PENDING 状态）
      */
     AssetExtractTaskVO upscaleImage(RpsFormImageUpscaleRequest request, Long userId);
+
+    /** 无任务、无锁、无远程图片探测地报价形态图高清请求。 */
+    BillingQuoteVO quoteUpscaleImage(RpsFormImageUpscaleRequest request, Long userId);
 
     /**
      * 执行高清生成（MQ Consumer 调用，不要直接在 Controller 中调用）。

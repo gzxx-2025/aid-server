@@ -5,6 +5,7 @@ import java.util.Map;
 
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 
@@ -25,6 +26,7 @@ public class AssetExtractRequest
 
     /** 提取类型列表: "character", "scene", "prop"（必填，剧集模式允许三类同提） */
     @NotEmpty(message = "提取类型不能为空")
+    @Size(max = 3, message = "提取类型过多")
     private List<String> extractTypes;
 
     /**

@@ -35,6 +35,10 @@ public final class ModelCapabilityValidator {
     /** capability_json 键：视频时长白名单（秒） */
     private static final String KEY_DURATION_OPTIONS = "durationOptions";
 
+    /** capability_json 键：提示词最大字符数 */
+    private static final String KEY_MAX_PROMPT_CHARACTERS = "maxPromptCharacters";
+    private static final String KEY_MAX_PROMPT_CHARACTERS_CJK = "maxPromptCharactersCjk";
+
     /** capability_json 键：是否支持音画同出用户开关 */
     private static final String KEY_SUPPORTS_AUDIO = "supportsAudio";
     private static final String KEY_DEFAULT_AUDIO = "defaultAudio";
@@ -49,6 +53,39 @@ public final class ModelCapabilityValidator {
     private static final String[] OPTION_RATIO_KEYS = {"aspect_ratio", "aspectRatio"};
 
     private ModelCapabilityValidator() {
+    }
+
+    /** 明确配置的提示词字符上限在建任务和预冻结前生效。 */
+    public static void validatePrompt(AiModelConfigVo modelConfig, String prompt) {
+        if (Objects.isNull(modelConfig) || StrUtil.isBlank(prompt)) {
+            return;
+        }
+        JsonNode capability = ModelCapabilityResolver.parseCapability(modelConfig.getCapabilityJson());
+        boolean cjk = containsCjk(prompt);
+        JsonNode maxNode = capability == null ? null : capability.get(
+                cjk ? KEY_MAX_PROMPT_CHARACTERS_CJK : KEY_MAX_PROMPT_CHARACTERS);
+        if ((maxNode == null || !maxNode.isNumber()) && cjk && capability != null) {
+            maxNode = capability.get(KEY_MAX_PROMPT_CHARACTERS);
+        }
+        if (maxNode == null || !maxNode.isNumber()) {
+            return;
+        }
+        int max = (int) Math.floor(maxNode.doubleValue());
+        if (max >= 0 && prompt.length() > max) {
+            log.info("提示词超过模型能力上限: modelCode={}, cjk={}, max={}, actual={}",
+                    modelConfig.getModelCode(), cjk, max, prompt.length());
+            throw new ServiceException("提示词过长");
+        }
+    }
+
+    private static boolean containsCjk(String prompt) {
+        return prompt.codePoints().anyMatch(codePoint -> {
+            Character.UnicodeScript script = Character.UnicodeScript.of(codePoint);
+            return script == Character.UnicodeScript.HAN
+                    || script == Character.UnicodeScript.HIRAGANA
+                    || script == Character.UnicodeScript.KATAKANA
+                    || script == Character.UnicodeScript.HANGUL;
+        });
     }
 
     /**

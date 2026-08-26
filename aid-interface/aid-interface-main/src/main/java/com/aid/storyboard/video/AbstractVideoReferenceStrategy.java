@@ -56,6 +56,12 @@ public abstract class AbstractVideoReferenceStrategy implements VideoReferenceSt
      */
     protected String buildReferenceLegend(List<ResolvedReference> refs)
     {
+        return buildReferenceLegend(refs, 0);
+    }
+
+    /** 按实际数组前置数量生成连续编号的参考图说明。 */
+    protected String buildReferenceLegend(List<ResolvedReference> refs, int indexOffset)
+    {
         if (CollectionUtil.isEmpty(refs))
         {
             return "";
@@ -68,7 +74,7 @@ public abstract class AbstractVideoReferenceStrategy implements VideoReferenceSt
             {
                 sb.append("，");
             }
-            sb.append("图片").append(i + 1).append('=')
+            sb.append("图片").append(indexOffset + i + 1).append('=')
                     .append(r.displayName()).append('（').append(r.typeLabel()).append('）');
         }
         return sb.toString();
@@ -101,12 +107,18 @@ public abstract class AbstractVideoReferenceStrategy implements VideoReferenceSt
      */
     protected String remapPromptForPicked(String prompt, List<ResolvedReference> picked)
     {
+        return remapPromptForPicked(prompt, picked, 0);
+    }
+
+    /** 按最终数组前置数量重排私有引用编号。 */
+    protected String remapPromptForPicked(String prompt, List<ResolvedReference> picked, int indexOffset)
+    {
         Map<Integer, Integer> compactByOriginal = new LinkedHashMap<>();
         if (CollectionUtil.isNotEmpty(picked))
         {
             for (int i = 0; i < picked.size(); i++)
             {
-                compactByOriginal.put(picked.get(i).getOriginalN(), i + 1);
+                compactByOriginal.put(picked.get(i).getOriginalN(), indexOffset + i + 1);
             }
         }
         Matcher matcher = AT_REF_PATTERN.matcher(StrUtil.nullToEmpty(prompt));

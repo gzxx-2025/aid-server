@@ -34,6 +34,16 @@ public class MinimaxH3VideoProviderClient implements VideoProviderClient {
     }
 
     @Override
+    public Integer fallbackMaxReferenceImages(AiModelConfigVo modelConfig) {
+        return 9;
+    }
+
+    @Override
+    public Integer fallbackMaxReferenceVideos(AiModelConfigVo modelConfig) {
+        return 3;
+    }
+
+    @Override
     public boolean supportsProviderCode(String providerCode) {
         return MinimaxH3Constants.PROVIDER_CODE.equalsIgnoreCase(StrUtil.trim(providerCode));
     }

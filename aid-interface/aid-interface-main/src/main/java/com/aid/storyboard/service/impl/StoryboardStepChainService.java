@@ -1,11 +1,14 @@
 package com.aid.storyboard.service.impl;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
@@ -20,6 +23,10 @@ import com.aid.common.core.redis.RedisCache;
 import com.aid.common.error.TaskErrorPresentation;
 import com.aid.common.exception.ServiceException;
 import com.aid.rps.queue.BatchPromptTerminalEvent;
+import com.aid.rps.queue.BatchParentSubmissionGuard;
+import com.aid.rps.queue.BatchTaskSlotReservation;
+import com.aid.rps.queue.BatchTaskSlotService;
+import com.aid.rps.queue.TaskCancelFlagManager;
 import com.aid.storyboard.dto.ChainTriggerResult;
 import com.aid.storyboard.dto.StoryboardImageGenerateRequest;
 import com.aid.storyboard.dto.StoryboardImageGenerateVO;
@@ -88,6 +95,15 @@ public class StoryboardStepChainService
     @Resource
     private RedisCache redisCache;
 
+    @Resource
+    private BatchTaskSlotService batchTaskSlotService;
+
+    @Resource
+    private BatchParentSubmissionGuard batchParentSubmissionGuard;
+
+    @Resource
+    private TaskCancelFlagManager taskCancelFlagManager;
+
     /**
      * 监听本地派发路径的提示词批量终态事件（{@code BatchTaskLocalOrchestrator} 发布），触发下一步。
      * MQ 路径由 {@code AssetExtractConsumer} 直接调用 {@link #onPromptBatchTerminal}；本地路径走事件解耦，
@@ -123,6 +139,8 @@ public class StoryboardStepChainService
 
         AidExtractTask task = extractTaskService.selectAidExtractTaskById(taskId);
         if (Objects.isNull(task) || StrUtil.isBlank(task.getInputSnapshot())) { return ChainTriggerResult.empty(); }
+        if (isChainCancelled(task.getResultData())) { return ChainTriggerResult.empty(); }
+        if (taskCancelFlagManager.isCancelled(taskId)) { return ChainTriggerResult.empty(); }
 
         Map<String, Object> chainNext;
         List<Long> storyboardIds;
@@ -151,35 +169,93 @@ public class StoryboardStepChainService
         String type = strVal(chainNext.get("type"));
         try
         {
-            // 镜头级幂等：去重判定下沉到 trigger 内（按 taskId×storyboardId 的 Redis Set），
-            // 既保证重复终态事件不重复触发，又支持续生补齐后仅触发新分镜。
-            if (CHAIN_TYPE_IMAGE.equals(type))
+            BatchTaskSlotReservation slotReservation = batchTaskSlotService.reservationFromTask(task);
+            if (slotReservation == null)
             {
-                List<Long> childIds = triggerImage(taskId, storyboardIds, userId, chainNext);
-                return CollectionUtil.isEmpty(childIds) ? ChainTriggerResult.empty()
-                        : ChainTriggerResult.success(childIds, CHILD_TASK_TYPE_IMAGE);
+                throw new ServiceException("任务状态异常");
             }
-            else if (CHAIN_TYPE_VIDEO_IMAGE.equals(type))
+            PersistedChainChildren persistedChildren = loadPersistedChainChildren(
+                    task, slotReservation, type);
+            backfillClaimedShots(taskId, persistedChildren.storyboardIds());
+            List<Long> readyShots = filterReadyShots(type, storyboardIds);
+            if (isSupportedChainType(type) && CollectionUtil.isEmpty(readyShots))
             {
-                List<Long> childIds = triggerVideoFromImage(taskId, storyboardIds, userId, chainNext);
-                return CollectionUtil.isEmpty(childIds) ? ChainTriggerResult.empty()
-                        : ChainTriggerResult.success(childIds, CHILD_TASK_TYPE_VIDEO);
+                return ChainTriggerResult.empty();
             }
-            else if (CHAIN_TYPE_VIDEO_GRID.equals(type))
+            if (persistedChildren.storyboardIds().containsAll(readyShots))
             {
-                List<Long> childIds = triggerVideoGrid(taskId, storyboardIds, userId, chainNext);
-                return CollectionUtil.isEmpty(childIds) ? ChainTriggerResult.empty()
-                        : ChainTriggerResult.success(childIds, CHILD_TASK_TYPE_VIDEO);
+                List<Long> existingChildIds = parseExistingChainChildTaskIds(task.getResultData());
+                for (Long childTaskId : persistedChildren.childTaskIds())
+                {
+                    if (!existingChildIds.contains(childTaskId))
+                    {
+                        existingChildIds.add(childTaskId);
+                    }
+                }
+                return CollectionUtil.isEmpty(existingChildIds) ? ChainTriggerResult.empty()
+                        : ChainTriggerResult.success(existingChildIds, chainChildType(type));
             }
-            else if (CHAIN_TYPE_VIDEO.equals(type))
+            // 组合链只接受父任务入库前写入的持有凭证；旧在途任务无凭证时失败关闭，避免通用 bypass。
+            batchTaskSlotService.requireOwned(slotReservation);
+            String handoffToken = batchTaskSlotService.openHandoff(slotReservation);
+            if (StrUtil.isBlank(handoffToken))
             {
-                List<Long> childIds = triggerVideo(taskId, storyboardIds, userId, chainNext);
-                return CollectionUtil.isEmpty(childIds) ? ChainTriggerResult.empty()
-                        : ChainTriggerResult.success(childIds, CHILD_TASK_TYPE_VIDEO);
+                // 同 owner 的重复终态事件正在执行交接，按幂等 no-op 处理。
+                return ChainTriggerResult.empty();
+            }
+            // 已取得唯一交接权后，Redis 占位若没有持久子任务佐证，说明上次在子任务落库前中断；
+            // 清理后重新 claim，持久子任务才是跨重启幂等真源。
+            releaseShots(taskId, readyShots.stream()
+                    .filter(storyboardId -> !persistedChildren.storyboardIds().contains(storyboardId))
+                    .toList());
+            List<Long> childIds = new ArrayList<>();
+            try
+            {
+                // 镜头级幂等：去重判定下沉到 trigger 内（按 taskId×storyboardId 的 Redis Set），
+                // 既保证重复终态事件不重复触发，又支持续生补齐后仅触发新分镜。
+                if (CHAIN_TYPE_IMAGE.equals(type))
+                {
+                    triggerImage(taskId, storyboardIds, userId, chainNext,
+                            slotReservation, handoffToken, childIds);
+                    return CollectionUtil.isEmpty(childIds) ? ChainTriggerResult.empty()
+                            : ChainTriggerResult.success(childIds, CHILD_TASK_TYPE_IMAGE);
+                }
+                else if (CHAIN_TYPE_VIDEO_IMAGE.equals(type))
+                {
+                    triggerVideoFromImage(taskId, storyboardIds, userId, chainNext,
+                            slotReservation, handoffToken, childIds);
+                    return CollectionUtil.isEmpty(childIds) ? ChainTriggerResult.empty()
+                            : ChainTriggerResult.success(childIds, CHILD_TASK_TYPE_VIDEO);
+                }
+                else if (CHAIN_TYPE_VIDEO_GRID.equals(type))
+                {
+                    triggerVideoGrid(taskId, storyboardIds, userId, chainNext,
+                            slotReservation, handoffToken, childIds);
+                    return CollectionUtil.isEmpty(childIds) ? ChainTriggerResult.empty()
+                            : ChainTriggerResult.success(childIds, CHILD_TASK_TYPE_VIDEO);
+                }
+                else if (CHAIN_TYPE_VIDEO.equals(type))
+                {
+                    triggerVideo(taskId, storyboardIds, userId, chainNext,
+                            slotReservation, handoffToken, childIds);
+                    return CollectionUtil.isEmpty(childIds) ? ChainTriggerResult.empty()
+                            : ChainTriggerResult.success(childIds, CHILD_TASK_TYPE_VIDEO);
+                }
+            }
+            finally
+            {
+                if (batchTaskSlotService.closeHandoff(slotReservation, handoffToken))
+                {
+                    releaseAfterHandoff(taskId, childIds);
+                }
             }
         }
         catch (ChainSubmitException e)
         {
+            if (taskCancelFlagManager.isCancelled(taskId))
+            {
+                return ChainTriggerResult.empty();
+            }
             log.error("分镜合并链路触发部分失败: taskId={}, type={}, childTaskIds={}",
                     taskId, type, e.getChildTaskIds(), e);
             return ChainTriggerResult.failed(e.getChildTaskType(), e.getChildTaskIds(),
@@ -187,6 +263,10 @@ public class StoryboardStepChainService
         }
         catch (Exception e)
         {
+            if (taskCancelFlagManager.isCancelled(taskId))
+            {
+                return ChainTriggerResult.empty();
+            }
             // 下一步触发失败不回滚已生成的提示词；记录便于排查（用户可手动发起出图/出片）
             log.error("分镜合并链路触发下一步失败(提示词已生成,不影响): taskId={}, type={}", taskId, type, e);
             return ChainTriggerResult.failed(chainChildType(type), resolveChainFailureMessage(type, e));
@@ -240,7 +320,10 @@ public class StoryboardStepChainService
      *
      * @return 出图子任务 ID 列表；无待触发分镜时返回空列表
      */
-    private List<Long> triggerImage(Long promptTaskId, List<Long> storyboardIds, Long userId, Map<String, Object> chainNext)
+    private void triggerImage(Long promptTaskId, List<Long> storyboardIds, Long userId,
+                              Map<String, Object> chainNext,
+                              BatchTaskSlotReservation slotReservation, String handoffToken,
+                              List<Long> childTaskIds)
     {
         List<Long> ready = filterByPrompt(storyboardIds, AidStoryboard::getImagePrompt);
         // 镜头级去重：仅保留本任务此前未触发过出图的分镜
@@ -248,9 +331,8 @@ public class StoryboardStepChainService
         if (CollectionUtil.isEmpty(toTrigger))
         {
             log.info("分镜合并出图：无待触发分镜(均无提示词或已触发)，跳过, taskId={}, userId={}", promptTaskId, userId);
-            return new ArrayList<>();
+            return;
         }
-        List<Long> childTaskIds = new ArrayList<>();
         List<Long> submittedShots = new ArrayList<>();
         try
         {
@@ -264,7 +346,10 @@ public class StoryboardStepChainService
                 req.setSize(strVal(chainNext.get("size")));
                 req.setNegativePrompt(strVal(chainNext.get("negativePrompt")));
                 // 多镜头强制每镜 1 张，不传 count
-                StoryboardImageGenerateVO vo = storyboardImageGenerationService.generateImage(req, userId, true);
+                StoryboardImageGenerateVO vo = executeRootChainSubmission(promptTaskId,
+                        slotReservation, handoffToken,
+                        () -> storyboardImageGenerationService.generateImage(
+                                req, userId, true, slotReservation));
                 Long childTaskId = Objects.isNull(vo) ? null : vo.getTaskId();
                 ensureChildTaskCreated(promptTaskId, batchIds, childTaskId);
                 childTaskIds.add(childTaskId);
@@ -280,7 +365,6 @@ public class StoryboardStepChainService
         }
         log.info("分镜合并出图已触发: promptTaskId={}, shotCount={}, childImageTaskIds={}, userId={}",
                 promptTaskId, toTrigger.size(), childTaskIds, userId);
-        return childTaskIds;
     }
 
     /**
@@ -288,16 +372,18 @@ public class StoryboardStepChainService
      *
      * @return 出片子任务 ID 列表；无待触发分镜时返回空列表
      */
-    private List<Long> triggerVideo(Long promptTaskId, List<Long> storyboardIds, Long userId, Map<String, Object> chainNext)
+    private void triggerVideo(Long promptTaskId, List<Long> storyboardIds, Long userId,
+                              Map<String, Object> chainNext,
+                              BatchTaskSlotReservation slotReservation, String handoffToken,
+                              List<Long> childTaskIds)
     {
         List<Long> ready = filterByPrompt(storyboardIds, AidStoryboard::getVideoPrompt);
         List<Long> toTrigger = claimUntriggeredShots(promptTaskId, ready);
         if (CollectionUtil.isEmpty(toTrigger))
         {
             log.info("分镜合并出片：无待触发分镜(均无提示词或已触发)，跳过, taskId={}, userId={}", promptTaskId, userId);
-            return new ArrayList<>();
+            return;
         }
-        List<Long> childTaskIds = new ArrayList<>();
         List<Long> submittedShots = new ArrayList<>();
         try
         {
@@ -310,7 +396,10 @@ public class StoryboardStepChainService
                 req.setResolution(strVal(chainNext.get("resolution")));
                 if (chainNext.get("durationSeconds") instanceof Number n) { req.setDurationSeconds(n.intValue()); }
                 if (chainNext.get("generateAudio") instanceof Boolean b) { req.setGenerateAudio(b); }
-                StoryboardVideoGenerateVO vo = storyboardVideoGenerationService.generateVideo(req, userId, true);
+                StoryboardVideoGenerateVO vo = executeRootChainSubmission(promptTaskId,
+                        slotReservation, handoffToken,
+                        () -> storyboardVideoGenerationService.generateVideo(
+                                req, userId, true, slotReservation));
                 Long childTaskId = Objects.isNull(vo) ? null : vo.getTaskId();
                 ensureChildTaskCreated(promptTaskId, batchIds, childTaskId);
                 childTaskIds.add(childTaskId);
@@ -325,7 +414,6 @@ public class StoryboardStepChainService
         }
         log.info("分镜合并出片已触发: promptTaskId={}, shotCount={}, childVideoTaskIds={}, userId={}",
                 promptTaskId, toTrigger.size(), childTaskIds, userId);
-        return childTaskIds;
     }
 
     /**
@@ -333,7 +421,10 @@ public class StoryboardStepChainService
      *
      * @return 出片子任务 ID 列表；无待触发分镜时返回空列表
      */
-    private List<Long> triggerVideoFromImage(Long promptTaskId, List<Long> storyboardIds, Long userId, Map<String, Object> chainNext)
+    private void triggerVideoFromImage(Long promptTaskId, List<Long> storyboardIds, Long userId,
+                                       Map<String, Object> chainNext,
+                                       BatchTaskSlotReservation slotReservation, String handoffToken,
+                                       List<Long> childTaskIds)
     {
         // 图生方向视频提示词回填在 video_prompt_image 列
         List<Long> ready = filterByPrompt(storyboardIds, AidStoryboard::getVideoPromptImage);
@@ -341,9 +432,8 @@ public class StoryboardStepChainService
         if (CollectionUtil.isEmpty(toTrigger))
         {
             log.info("分镜合并图生出片：无待触发分镜(均无提示词或已触发)，跳过, taskId={}, userId={}", promptTaskId, userId);
-            return new ArrayList<>();
+            return;
         }
-        List<Long> childTaskIds = new ArrayList<>();
         List<Long> submittedShots = new ArrayList<>();
         try
         {
@@ -357,8 +447,10 @@ public class StoryboardStepChainService
                 if (chainNext.get("durationSeconds") instanceof Number n) { req.setDurationSeconds(n.intValue()); }
                 if (chainNext.get("generateAudio") instanceof Boolean b) { req.setGenerateAudio(b); }
                 // 不传 images：多镜头各自回落分镜主图 final_image_id 作参考；多镜头每镜 1 条，不传 count
-                StoryboardVideoGenerateVO vo =
-                        storyboardVideoGenerationService.generateVideoFromImage(req, userId, true);
+                StoryboardVideoGenerateVO vo = executeRootChainSubmission(promptTaskId,
+                        slotReservation, handoffToken,
+                        () -> storyboardVideoGenerationService.generateVideoFromImage(
+                                req, userId, true, slotReservation));
                 Long childTaskId = Objects.isNull(vo) ? null : vo.getTaskId();
                 ensureChildTaskCreated(promptTaskId, batchIds, childTaskId);
                 childTaskIds.add(childTaskId);
@@ -373,7 +465,6 @@ public class StoryboardStepChainService
         }
         log.info("分镜合并图生出片已触发: promptTaskId={}, shotCount={}, childVideoTaskIds={}, userId={}",
                 promptTaskId, toTrigger.size(), childTaskIds, userId);
-        return childTaskIds;
     }
 
     /**
@@ -381,7 +472,10 @@ public class StoryboardStepChainService
      *
      * @return 出片子任务 ID 列表；无待触发分镜时返回空列表
      */
-    private List<Long> triggerVideoGrid(Long promptTaskId, List<Long> storyboardIds, Long userId, Map<String, Object> chainNext)
+    private void triggerVideoGrid(Long promptTaskId, List<Long> storyboardIds, Long userId,
+                                  Map<String, Object> chainNext,
+                                  BatchTaskSlotReservation slotReservation, String handoffToken,
+                                  List<Long> childTaskIds)
     {
         // 宫格视频提示词回填在 video_prompt_image 列（复用图生列）
         List<Long> ready = filterByPrompt(storyboardIds, AidStoryboard::getVideoPromptImage);
@@ -389,9 +483,8 @@ public class StoryboardStepChainService
         if (CollectionUtil.isEmpty(toTrigger))
         {
             log.info("分镜合并宫格出片：无待触发分镜(均无提示词或已触发)，跳过, taskId={}, userId={}", promptTaskId, userId);
-            return new ArrayList<>();
+            return;
         }
-        List<Long> childTaskIds = new ArrayList<>();
         List<Long> submittedShots = new ArrayList<>();
         try
         {
@@ -405,8 +498,10 @@ public class StoryboardStepChainService
                 if (chainNext.get("durationSeconds") instanceof Number n) { req.setDurationSeconds(n.intValue()); }
                 if (chainNext.get("generateAudio") instanceof Boolean b) { req.setGenerateAudio(b); }
                 // 多镜头每镜 1 条，不传 count
-                StoryboardVideoGenerateVO vo =
-                        storyboardVideoGenerationService.generateVideoFromGrid(req, userId, true);
+                StoryboardVideoGenerateVO vo = executeRootChainSubmission(promptTaskId,
+                        slotReservation, handoffToken,
+                        () -> storyboardVideoGenerationService.generateVideoFromGrid(
+                                req, userId, true, slotReservation));
                 Long childTaskId = Objects.isNull(vo) ? null : vo.getTaskId();
                 ensureChildTaskCreated(promptTaskId, batchIds, childTaskId);
                 childTaskIds.add(childTaskId);
@@ -421,7 +516,209 @@ public class StoryboardStepChainService
         }
         log.info("分镜合并宫格出片已触发: promptTaskId={}, shotCount={}, childVideoTaskIds={}, userId={}",
                 promptTaskId, toTrigger.size(), childTaskIds, userId);
+    }
+
+    private void releaseAfterHandoff(Long promptTaskId, List<Long> childTaskIds)
+    {
+        batchTaskSlotService.releaseForTask(extractTaskService.selectAidExtractTaskById(promptTaskId));
+        if (CollectionUtil.isNotEmpty(childTaskIds))
+        {
+            Long lastChildTaskId = childTaskIds.get(childTaskIds.size() - 1);
+            batchTaskSlotService.releaseForTask(extractTaskService.selectAidExtractTaskById(lastChildTaskId));
+        }
+    }
+
+    private <T> T executeRootChainSubmission(Long promptTaskId,
+                                             BatchTaskSlotReservation reservation,
+                                             String handoffToken, Supplier<T> submission)
+    {
+        return batchParentSubmissionGuard.execute(promptTaskId, () ->
+        {
+            if (taskCancelFlagManager.isCancelled(promptTaskId))
+            {
+                throw new ServiceException("任务已停止");
+            }
+            AidExtractTask root = extractTaskService.selectAidExtractTaskById(promptTaskId);
+            if (root == null || isChainCancelled(root.getResultData()))
+            {
+                throw new ServiceException("任务已停止");
+            }
+            BatchTaskSlotReservation currentReservation = batchTaskSlotService.reservationFromTask(root);
+            if (currentReservation == null
+                    || !Objects.equals(reservation.ownerToken(), currentReservation.ownerToken())
+                    || !Objects.equals(reservation.projectId(), currentReservation.projectId())
+                    || !Objects.equals(reservation.episodeId(), currentReservation.episodeId()))
+            {
+                throw new ServiceException("任务已停止");
+            }
+            batchTaskSlotService.renewHandoff(reservation, handoffToken);
+            return submission.get();
+        });
+    }
+
+    private List<Long> filterReadyShots(String type, List<Long> storyboardIds)
+    {
+        if (CHAIN_TYPE_IMAGE.equals(type))
+        {
+            return filterByPrompt(storyboardIds, AidStoryboard::getImagePrompt);
+        }
+        if (CHAIN_TYPE_VIDEO.equals(type))
+        {
+            return filterByPrompt(storyboardIds, AidStoryboard::getVideoPrompt);
+        }
+        if (CHAIN_TYPE_VIDEO_IMAGE.equals(type) || CHAIN_TYPE_VIDEO_GRID.equals(type))
+        {
+            return filterByPrompt(storyboardIds, AidStoryboard::getVideoPromptImage);
+        }
+        return new ArrayList<>();
+    }
+
+    private boolean isSupportedChainType(String type)
+    {
+        return CHAIN_TYPE_IMAGE.equals(type) || CHAIN_TYPE_VIDEO.equals(type)
+                || CHAIN_TYPE_VIDEO_IMAGE.equals(type) || CHAIN_TYPE_VIDEO_GRID.equals(type);
+    }
+
+    private PersistedChainChildren loadPersistedChainChildren(AidExtractTask root,
+                                                               BatchTaskSlotReservation reservation,
+                                                               String chainType)
+    {
+        if (!isSupportedChainType(chainType))
+        {
+            return new PersistedChainChildren(new LinkedHashSet<>(), new ArrayList<>());
+        }
+        String childTaskType = CHAIN_TYPE_IMAGE.equals(chainType)
+                ? CHILD_TASK_TYPE_IMAGE : CHILD_TASK_TYPE_VIDEO;
+        List<AidExtractTask> candidates = extractTaskService.list(
+                com.baomidou.mybatisplus.core.toolkit.Wrappers.<AidExtractTask>lambdaQuery()
+                        .select(AidExtractTask::getId, AidExtractTask::getProjectId,
+                                AidExtractTask::getEpisodeId, AidExtractTask::getInputSnapshot)
+                        .eq(AidExtractTask::getUserId, root.getUserId())
+                        .eq(AidExtractTask::getProjectId, reservation.projectId())
+                        .eq(AidExtractTask::getEpisodeId, reservation.episodeId())
+                        .eq(AidExtractTask::getTaskType, childTaskType)
+                        .eq(AidExtractTask::getDelFlag, "0"));
+        Set<Long> coveredShots = new LinkedHashSet<>();
+        List<Long> childTaskIds = new ArrayList<>();
+        for (AidExtractTask child : candidates)
+        {
+            BatchTaskSlotReservation childReservation = batchTaskSlotService.reservationFromTask(child);
+            if (childReservation == null
+                    || !Objects.equals(reservation.ownerToken(), childReservation.ownerToken()))
+            {
+                continue;
+            }
+            Set<Long> childShots = parseChildStoryboardIds(child);
+            if (childShots.isEmpty())
+            {
+                log.error("组合链持久子任务缺少镜头快照: rootTaskId={}, childTaskId={}",
+                        root.getId(), child.getId());
+                throw new ServiceException("任务状态异常");
+            }
+            coveredShots.addAll(childShots);
+            childTaskIds.add(child.getId());
+        }
+        return new PersistedChainChildren(coveredShots, childTaskIds);
+    }
+
+    private Set<Long> parseChildStoryboardIds(AidExtractTask child)
+    {
+        Set<Long> storyboardIds = new LinkedHashSet<>();
+        try
+        {
+            JsonNode snapshot = OBJECT_MAPPER.readTree(child.getInputSnapshot());
+            collectStoryboardIds(snapshot.path("storyboardIds"), storyboardIds);
+            collectStoryboardIds(snapshot.path("shots"), storyboardIds);
+            collectStoryboardIds(snapshot.path("allShots"), storyboardIds);
+            return storyboardIds;
+        }
+        catch (Exception ex)
+        {
+            log.error("组合链持久子任务快照解析失败: childTaskId={}", child.getId(), ex);
+            throw new ServiceException("任务状态异常");
+        }
+    }
+
+    private void collectStoryboardIds(JsonNode values, Set<Long> target)
+    {
+        if (!values.isArray())
+        {
+            return;
+        }
+        for (JsonNode value : values)
+        {
+            if (value.canConvertToLong())
+            {
+                target.add(value.asLong());
+            }
+            else if (value.isObject() && value.path("storyboardId").canConvertToLong())
+            {
+                target.add(value.path("storyboardId").asLong());
+            }
+            else
+            {
+                throw new ServiceException("任务状态异常");
+            }
+        }
+    }
+
+    private void backfillClaimedShots(Long promptTaskId, Set<Long> storyboardIds)
+    {
+        if (CollectionUtil.isEmpty(storyboardIds))
+        {
+            return;
+        }
+        String key = REDIS_CHAIN_SHOTS_PREFIX + promptTaskId;
+        redisCache.redisTemplate.opsForSet().add(
+                key, storyboardIds.stream().map(String::valueOf).toArray());
+        redisCache.redisTemplate.expire(key, CHAIN_ONCE_TTL_SECONDS, TimeUnit.SECONDS);
+    }
+
+    private record PersistedChainChildren(Set<Long> storyboardIds, List<Long> childTaskIds) { }
+
+    private List<Long> parseExistingChainChildTaskIds(String resultData)
+    {
+        List<Long> childTaskIds = new ArrayList<>();
+        if (StrUtil.isBlank(resultData))
+        {
+            return childTaskIds;
+        }
+        try
+        {
+            JsonNode values = OBJECT_MAPPER.readTree(resultData).path("chainChildTaskIds");
+            if (values.isArray())
+            {
+                for (JsonNode value : values)
+                {
+                    if (value.canConvertToLong() && !childTaskIds.contains(value.asLong()))
+                    {
+                        childTaskIds.add(value.asLong());
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            log.warn("读取组合链子任务记录失败: err={}", ex.getMessage());
+        }
         return childTaskIds;
+    }
+
+    private boolean isChainCancelled(String resultData)
+    {
+        if (StrUtil.isBlank(resultData))
+        {
+            return false;
+        }
+        try
+        {
+            return OBJECT_MAPPER.readTree(resultData).path("chainCancelled").asBoolean(false);
+        }
+        catch (Exception ex)
+        {
+            log.warn("读取组合链停止标记失败: err={}", ex.getMessage());
+            return true;
+        }
     }
 
     private List<List<Long>> splitBatches(List<Long> ids)

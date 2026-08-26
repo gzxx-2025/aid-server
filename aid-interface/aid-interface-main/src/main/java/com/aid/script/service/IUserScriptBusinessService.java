@@ -2,6 +2,7 @@ package com.aid.script.service;
 
 import java.util.List;
 import com.aid.aid.domain.AidComicScript;
+import com.aid.script.dto.UserScriptAutoSaveRequest;
 import com.aid.script.dto.UserScriptQueryRequest;
 import com.aid.script.dto.UserScriptSaveRequest;
 import com.aid.script.dto.UserScriptUploadRequest;
@@ -32,7 +33,7 @@ public interface IUserScriptBusinessService
     /**
      * 静默保存剧本（只更新内容，不更新版本号）
      */
-    AidComicScript autoSaveUserScript(UserScriptSaveRequest request, Long userId);
+    AidComicScript autoSaveUserScript(UserScriptAutoSaveRequest request, Long userId);
 
     /**
      * 上传剧本文件并入库。
@@ -44,7 +45,7 @@ public interface IUserScriptBusinessService
     AidComicScript uploadUserScript(UserScriptUploadRequest request, Long userId);
 
     /**
-     * 删除剧本（带归属校验，物理删除）
+     * 软删除历史剧本
      */
     int softDeleteUserScriptById(Long id, Long userId);
 }

@@ -16,6 +16,7 @@ import com.aid.compose.ComposeConstants;
 import com.aid.compose.domain.ComposeBillingSnapshot;
 import com.aid.compose.service.ComposeBillingService;
 import com.aid.compose.service.ComposeCompletionService;
+import com.aid.compose.service.ComposeBatchSlotCoordinator;
 import com.aid.media.enums.MediaBillingStatus;
 import com.aid.media.provider.ProviderTaskResult;
 
@@ -45,6 +46,8 @@ public class ComposeCompletionServiceImpl implements ComposeCompletionService {
     /** 合成计费服务 */
     private final ComposeBillingService composeBillingService;
 
+    private final ComposeBatchSlotCoordinator composeBatchSlotCoordinator;
+
     @Override
     public void onSucceeded(AidMediaTask task, ProviderTaskResult result) {
         ComposeBillingSnapshot snapshot = parseSnapshot(task);
@@ -63,6 +66,13 @@ public class ComposeCompletionServiceImpl implements ComposeCompletionService {
         update.set(AidMediaTask::getFrozenAmount, BigDecimal.ZERO);
         update.set(AidMediaTask::getUpdateTime, new Date());
         aidMediaTaskMapper.update(null, update);
+        if (ComposeConstants.CALLBACK_EPISODE_EDITOR.equalsIgnoreCase(task.getCallbackCategory())
+                && Objects.nonNull(task.getCallbackRecordId())) {
+            composeBatchSlotCoordinator.releaseExport(
+                    task.getCallbackRecordId(), String.valueOf(task.getId()));
+        } else if (StrUtil.isNotBlank(task.getComposeBatchId())) {
+            composeBatchSlotCoordinator.releaseVoiceover(task.getComposeBatchId());
+        }
         log.info("合成成功收口完成, taskId={}, actualSeconds={}", task.getId(), actualSeconds);
     }
 
@@ -84,6 +94,10 @@ public class ComposeCompletionServiceImpl implements ComposeCompletionService {
         if (ComposeConstants.CALLBACK_EPISODE_EDITOR.equalsIgnoreCase(task.getCallbackCategory())
                 && Objects.nonNull(task.getCallbackRecordId())) {
             writeEpisodeEditorFailed(task, result);
+            composeBatchSlotCoordinator.releaseExport(
+                    task.getCallbackRecordId(), String.valueOf(task.getId()));
+        } else if (StrUtil.isNotBlank(task.getComposeBatchId())) {
+            composeBatchSlotCoordinator.releaseVoiceover(task.getComposeBatchId());
         }
         log.info("合成失败收口完成, taskId={}", task.getId());
     }

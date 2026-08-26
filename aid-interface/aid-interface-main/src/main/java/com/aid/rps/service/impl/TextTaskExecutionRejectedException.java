@@ -1,17 +1,19 @@
 package com.aid.rps.service.impl;
 
+import com.aid.rps.queue.BatchTaskExecutionRejectedException;
+
 /**
  * 表示文本任务执行周期已失去业务提交权。
  *
  * @author 视觉AID
  */
-public final class TextTaskExecutionRejectedException extends RuntimeException
+public final class TextTaskExecutionRejectedException extends BatchTaskExecutionRejectedException
 {
     private static final long serialVersionUID = 1L;
 
     public TextTaskExecutionRejectedException()
     {
-        super("任务已失效");
+        super();
     }
 
     static TextTaskExecutionRejectedException find(Throwable error)

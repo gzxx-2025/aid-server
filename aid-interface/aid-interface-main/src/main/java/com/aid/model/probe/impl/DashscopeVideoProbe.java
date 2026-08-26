@@ -21,7 +21,7 @@ import cn.hutool.core.util.StrUtil;
 public class DashscopeVideoProbe extends AbstractReadOnlyProbe {
 
     private static final Set<String> KNOWN_TASK_STATUSES = Set.of(
-            "PENDING", "RUNNING", "SUCCEEDED", "FAILED", "CANCELED");
+            "PENDING", "RUNNING", "SUCCEEDED", "FAILED", "CANCELED", "UNKNOWN");
 
     @Override
     public String protocol() {

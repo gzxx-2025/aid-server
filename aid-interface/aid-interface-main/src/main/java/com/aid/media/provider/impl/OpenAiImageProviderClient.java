@@ -50,6 +50,11 @@ public class OpenAiImageProviderClient implements ImageProviderClient {
     }
 
     @Override
+    public Integer fallbackMaxReferenceImages(AiModelConfigVo modelConfig) {
+        return OpenAiImageConstants.MAX_REFERENCE_IMAGES;
+    }
+
+    @Override
     public boolean supportsProviderCode(String providerCode) {
         return providerCode != null
                 && OpenAiImageConstants.PROVIDER_CODE.equalsIgnoreCase(providerCode.trim());

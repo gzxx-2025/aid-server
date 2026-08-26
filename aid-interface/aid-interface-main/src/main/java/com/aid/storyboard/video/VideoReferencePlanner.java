@@ -8,11 +8,10 @@ import org.springframework.stereotype.Component;
 import com.aid.common.exception.ServiceException;
 import com.aid.domain.vo.AiModelConfigVo;
 
-import cn.hutool.core.util.StrUtil;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 分镜视频参考装配策略路由器：按模型 {@code provider_code} 路由到唯一匹配策略，未命中则用兜底策略。
+ * 分镜视频参考装配策略路由器：按完整模型配置路由到唯一匹配策略，未命中则用兜底策略。
  *
  * @author 视觉AID
  */
@@ -30,7 +29,7 @@ public class VideoReferencePlanner
     /**
      * 按模型配置选定策略并装配参考方案。
      *
-     * @param ctx 装配上下文（其中 modelConfig.providerCode 决定路由）
+     * @param ctx 装配上下文（其中 modelConfig 决定路由）
      * @return 装配产物（最终 prompt / referenceImages / 首帧）
      */
     public VideoReferencePlan plan(VideoReferenceContext ctx)
@@ -40,27 +39,28 @@ public class VideoReferencePlanner
     }
 
     /**
-     * provider_code 强路由：唯一命中专用策略 → 命中多个抛错（配置/实现冲突）→ 0 个回退默认策略。
+     * 完整模型配置路由：唯一命中专用策略 → 命中多个抛错（配置/实现冲突）→ 0 个回退默认策略。
      */
     private VideoReferenceStrategy resolveStrategy(AiModelConfigVo modelConfig)
     {
         String providerCode = modelConfig == null ? null : modelConfig.getProviderCode();
-        if (StrUtil.isNotBlank(providerCode))
+        String protocol = modelConfig == null ? null : modelConfig.getProtocol();
+        List<VideoReferenceStrategy> hit = strategies.stream()
+                .filter(s -> !s.isDefault())
+                .filter(s -> s.supportsModelConfig(modelConfig))
+                .toList();
+        if (hit.size() == 1)
         {
-            List<VideoReferenceStrategy> hit = strategies.stream()
-                    .filter(s -> s.supportsProviderCode(providerCode))
-                    .toList();
-            if (hit.size() == 1)
-            {
-                return hit.get(0);
-            }
-            if (hit.size() > 1)
-            {
-                log.error("视频参考策略 providerCode 命中多个: providerCode={}, count={}", providerCode, hit.size());
-                throw new ServiceException("系统繁忙");
-            }
-            log.info("视频参考策略 providerCode 未命中专用策略, 回退默认: providerCode={}", providerCode);
+            return hit.get(0);
         }
+        if (hit.size() > 1)
+        {
+            log.error("视频参考策略命中多个: providerCode={}, protocol={}, count={}",
+                    providerCode, protocol, hit.size());
+            throw new ServiceException("系统繁忙");
+        }
+        log.info("视频参考策略未命中专用策略, 回退默认: providerCode={}, protocol={}",
+                providerCode, protocol);
         return resolveDefault();
     }
 

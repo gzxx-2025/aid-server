@@ -21,10 +21,12 @@ import com.aid.common.page.SafePageUtils;
 import com.aid.common.utils.DateUtils;
 import com.aid.enums.ProjectTypeEnum;
 import com.aid.enums.ScriptStatusEnum;
+import com.aid.script.dto.UserScriptAutoSaveRequest;
 import com.aid.script.dto.UserScriptQueryRequest;
 import com.aid.script.dto.UserScriptSaveRequest;
 import com.aid.script.dto.UserScriptUploadRequest;
 import com.aid.script.helper.ScriptFileExtractor;
+import com.aid.script.helper.UserScriptContentHash;
 import com.aid.script.service.IUserScriptBusinessService;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.StrUtil;
@@ -86,11 +88,22 @@ public class UserScriptBusinessServiceImpl implements IUserScriptBusinessService
      */
     private AidComicProject getAndCheckProject(Long projectId, Long userId)
     {
-        AidComicProject project = aidComicProjectService.getOne(
-                Wrappers.<AidComicProject>lambdaQuery()
-                        .eq(AidComicProject::getId, projectId)
-                        .eq(AidComicProject::getUserId, userId)
-                        .eq(AidComicProject::getDelFlag, "0"));
+        return getAndCheckProject(projectId, userId, false);
+    }
+
+    /**
+     * 校验项目归属，写入流程可同时锁定项目行。
+     */
+    private AidComicProject getAndCheckProject(Long projectId, Long userId, boolean forUpdate)
+    {
+        LambdaQueryWrapper<AidComicProject> wrapper = Wrappers.<AidComicProject>lambdaQuery()
+                .eq(AidComicProject::getId, projectId)
+                .eq(AidComicProject::getUserId, userId)
+                .eq(AidComicProject::getDelFlag, "0");
+        if (forUpdate) {
+            wrapper.last("FOR UPDATE");
+        }
+        AidComicProject project = aidComicProjectService.getOne(wrapper);
         if (project == null) {
             log.info("剧本操作项目缺失或越权, projectId={}, userId={}", projectId, userId);
             throw new ServiceException("项目不存在");
@@ -119,27 +132,28 @@ public class UserScriptBusinessServiceImpl implements IUserScriptBusinessService
     /**
      * 校验请求参数（项目归属 + 电影/剧集类型校验）
      */
-    private AidComicProject validateRequest(UserScriptSaveRequest request, Long userId)
+    private AidComicProject validateRequest(Long projectId, Long episodeId, String originalText,
+            Long userId, boolean lockProject)
     {
-        AidComicProject project = getAndCheckProject(request.getProjectId(), userId);
+        AidComicProject project = getAndCheckProject(projectId, userId, lockProject);
         boolean isMovie = ProjectTypeEnum.MOVIE.getValue().equals(project.getProjectType());
-        if (isMovie && request.getEpisodeId() != 0L) {
+        if (isMovie && episodeId != 0L) {
             throw new RuntimeException("电影类型项目集数ID应为0");
         }
         if (!isMovie) {
-            if (request.getEpisodeId() == 0L) {
+            if (episodeId == 0L) {
                 throw new RuntimeException("剧集类型项目必须指定集数ID");
             }
-            checkEpisodeBelongsToProject(request.getEpisodeId(), request.getProjectId());
+            checkEpisodeBelongsToProject(episodeId, projectId);
         }
         // 剧本原文与上传口径一致：仅允许 <br> 换行标签，其它 HTML 标签一律拒绝
         // （上传/分集导入允许 <br> 入库，保存必须兼容，否则导入内容一经编辑即无法保存）
-        assertOnlyLineBreakHtml(request.getOriginalText());
+        assertOnlyLineBreakHtml(originalText);
         // 字数上限与上传口径一致：保存目标恒为单集/电影整篇，超限拒绝（防绕过上传限制写入超大文本）
-        int wordCount = countWord(request.getOriginalText());
+        int wordCount = countWord(originalText);
         if (wordCount > MAX_WORD_EPISODE_SINGLE) {
             log.info("剧本保存超字数, projectId={}, episodeId={}, wordCount={}, max={}",
-                    request.getProjectId(), request.getEpisodeId(), wordCount, MAX_WORD_EPISODE_SINGLE);
+                    projectId, episodeId, wordCount, MAX_WORD_EPISODE_SINGLE);
             throw new ServiceException("剧本超1万字");
         }
         return project;
@@ -148,20 +162,22 @@ public class UserScriptBusinessServiceImpl implements IUserScriptBusinessService
     /**
      * 查询该集当前使用中的剧本
      */
-    private AidComicScript getCurrentScript(Long projectId, Long episodeId, Long userId)
+    private AidComicScript getCurrentScript(Long projectId, Long episodeId, Long userId, boolean forUpdate)
     {
-        return aidComicScriptService.getOne(
-                Wrappers.<AidComicScript>lambdaQuery()
-                        .select(AidComicScript::getId, AidComicScript::getProjectId,
-                                AidComicScript::getEpisodeId, AidComicScript::getOriginalText,
-                                AidComicScript::getIsExtracted, AidComicScript::getComicVersion,
-                                AidComicScript::getStatus, AidComicScript::getCreateTime,
-                                AidComicScript::getUpdateTime)
-                        .eq(AidComicScript::getProjectId, projectId)
-                        .eq(AidComicScript::getEpisodeId, episodeId)
-                        .eq(AidComicScript::getUserId, userId)
-                        .eq(AidComicScript::getStatus, ScriptStatusEnum.IN_USE.getValue())
-                        .eq(AidComicScript::getDelFlag, "0"));
+        LambdaQueryWrapper<AidComicScript> wrapper = Wrappers.<AidComicScript>lambdaQuery()
+                .select(AidComicScript::getId, AidComicScript::getProjectId,
+                        AidComicScript::getEpisodeId, AidComicScript::getOriginalText,
+                        AidComicScript::getIsExtracted, AidComicScript::getComicVersion,
+                        AidComicScript::getStatus, AidComicScript::getCreateTime,
+                        AidComicScript::getUpdateTime)
+                .eq(AidComicScript::getProjectId, projectId)
+                .eq(AidComicScript::getEpisodeId, episodeId)
+                .eq(AidComicScript::getUserId, userId)
+                .eq(AidComicScript::getStatus, ScriptStatusEnum.IN_USE.getValue())
+                .eq(AidComicScript::getDelFlag, "0")
+                .orderByDesc(AidComicScript::getId);
+        wrapper.last(forUpdate ? "LIMIT 1 FOR UPDATE" : "LIMIT 1");
+        return aidComicScriptService.getOne(wrapper);
     }
 
     /**
@@ -171,7 +187,8 @@ public class UserScriptBusinessServiceImpl implements IUserScriptBusinessService
     {
         AidComicScript script = aidComicScriptService.getOne(
                 Wrappers.<AidComicScript>lambdaQuery()
-                        .select(AidComicScript::getId, AidComicScript::getProjectId)
+                        .select(AidComicScript::getId, AidComicScript::getProjectId,
+                                AidComicScript::getStatus)
                         .eq(AidComicScript::getId, id)
                         .eq(AidComicScript::getUserId, userId)
                         .eq(AidComicScript::getDelFlag, "0"));
@@ -180,6 +197,40 @@ public class UserScriptBusinessServiceImpl implements IUserScriptBusinessService
         }
         getAndCheckProject(script.getProjectId(), userId);
         return script;
+    }
+
+    /**
+     * 校验客户端编辑基线，避免不同页面静默覆盖。
+     */
+    private void assertBaselineMatches(AidComicScript currentScript, Long baseScriptId, String baseContentHash,
+            Long projectId, Long episodeId, Long userId)
+    {
+        boolean hasBaseScriptId = Objects.nonNull(baseScriptId);
+        boolean hasBaseContentHash = StrUtil.isNotBlank(baseContentHash);
+        if (!hasBaseScriptId && !hasBaseContentHash) {
+            return;
+        }
+        if (!hasBaseScriptId || !hasBaseContentHash) {
+            log.info("剧本保存基线参数不完整, projectId={}, episodeId={}, userId={}",
+                    projectId, episodeId, userId);
+            throw new ServiceException("基线参数有误", 400);
+        }
+
+        boolean matched;
+        if (Objects.isNull(currentScript)) {
+            matched = Objects.equals(0L, baseScriptId)
+                    && UserScriptContentHash.calculate("").equalsIgnoreCase(baseContentHash);
+        } else {
+            matched = Objects.equals(currentScript.getId(), baseScriptId)
+                    && UserScriptContentHash.calculate(currentScript.getOriginalText())
+                            .equalsIgnoreCase(baseContentHash);
+        }
+        if (!matched) {
+            log.info("剧本保存基线冲突, projectId={}, episodeId={}, userId={}, baseScriptId={}, currentScriptId={}",
+                    projectId, episodeId, userId, baseScriptId,
+                    Objects.isNull(currentScript) ? null : currentScript.getId());
+            throw new ServiceException("剧本内容冲突", 409);
+        }
     }
 
     @Override
@@ -259,10 +310,11 @@ public class UserScriptBusinessServiceImpl implements IUserScriptBusinessService
     @Transactional(rollbackFor = Exception.class)
     public AidComicScript saveUserScript(UserScriptSaveRequest request, Long userId)
     {
-        validateRequest(request, userId);
+        validateRequest(request.getProjectId(), request.getEpisodeId(), request.getOriginalText(), userId, true);
 
         // 创建 / 版本+1 统一入库
-        return doSaveAsNewVersion(request.getProjectId(), request.getEpisodeId(), userId, request.getOriginalText());
+        return doSaveAsNewVersion(request.getProjectId(), request.getEpisodeId(), userId,
+                request.getOriginalText(), request.getBaseScriptId(), request.getBaseContentHash());
     }
 
     /**
@@ -274,10 +326,12 @@ public class UserScriptBusinessServiceImpl implements IUserScriptBusinessService
      * @param originalText 剧本原文
      * @return 新写入的剧本记录
      */
-    private AidComicScript doSaveAsNewVersion(Long projectId, Long episodeId, Long userId, String originalText)
+    private AidComicScript doSaveAsNewVersion(Long projectId, Long episodeId, Long userId, String originalText,
+            Long baseScriptId, String baseContentHash)
     {
         // 查询该集当前使用中的剧本
-        AidComicScript currentScript = getCurrentScript(projectId, episodeId, userId);
+        AidComicScript currentScript = getCurrentScript(projectId, episodeId, userId, true);
+        assertBaselineMatches(currentScript, baseScriptId, baseContentHash, projectId, episodeId, userId);
 
         if (currentScript == null) {
             AidComicScript script = new AidComicScript();
@@ -321,12 +375,14 @@ public class UserScriptBusinessServiceImpl implements IUserScriptBusinessService
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public AidComicScript autoSaveUserScript(UserScriptSaveRequest request, Long userId)
+    public AidComicScript autoSaveUserScript(UserScriptAutoSaveRequest request, Long userId)
     {
-        validateRequest(request, userId);
+        validateRequest(request.getProjectId(), request.getEpisodeId(), request.getOriginalText(), userId, true);
 
         // 查询该集当前使用中的剧本
-        AidComicScript currentScript = getCurrentScript(request.getProjectId(), request.getEpisodeId(), userId);
+        AidComicScript currentScript = getCurrentScript(request.getProjectId(), request.getEpisodeId(), userId, true);
+        assertBaselineMatches(currentScript, request.getBaseScriptId(), request.getBaseContentHash(),
+                request.getProjectId(), request.getEpisodeId(), userId);
 
         if (Objects.isNull(currentScript))
         {
@@ -402,7 +458,8 @@ public class UserScriptBusinessServiceImpl implements IUserScriptBusinessService
                 log.error("剧本上传失败：电影超字数, wordCount={}, max={}", wordCount, MAX_WORD_MOVIE);
                 throw new ServiceException("剧本超1万字");
             }
-            return doSaveAsNewVersion(projectId, 0L, userId, originalText);
+            getAndCheckProject(projectId, userId, true);
+            return doSaveAsNewVersion(projectId, 0L, userId, originalText, null, null);
         }
         boolean singleEpisode = Objects.nonNull(episodeId) && episodeId != 0L;
         if (singleEpisode) {
@@ -413,7 +470,8 @@ public class UserScriptBusinessServiceImpl implements IUserScriptBusinessService
                         episodeId, wordCount, MAX_WORD_EPISODE_SINGLE);
                 throw new ServiceException("单集超1万字");
             }
-            return doSaveAsNewVersion(projectId, episodeId, userId, originalText);
+            getAndCheckProject(projectId, userId, true);
+            return doSaveAsNewVersion(projectId, episodeId, userId, originalText, null, null);
         }
 
         // 未指定剧集ID：按"整篇导入"处理，整篇限制 10 万字
@@ -466,12 +524,38 @@ public class UserScriptBusinessServiceImpl implements IUserScriptBusinessService
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public int softDeleteUserScriptById(Long id, Long userId)
     {
-        getAndCheckScript(id, userId);
+        AidComicScript snapshot = getAndCheckScript(id, userId);
+        getAndCheckProject(snapshot.getProjectId(), userId, true);
 
-        // 硬删除：项目主数据不保留回收站，校验归属后物理删除（剧本无 OSS 文件，无需清理）
-        return aidComicScriptService.getBaseMapper().delete(Wrappers.<AidComicScript>lambdaQuery()
-                .eq(AidComicScript::getId, id)) > 0 ? 1 : 0;
+        AidComicScript script = aidComicScriptService.getOne(
+                Wrappers.<AidComicScript>lambdaQuery()
+                        .select(AidComicScript::getId, AidComicScript::getProjectId,
+                                AidComicScript::getStatus)
+                        .eq(AidComicScript::getId, id)
+                        .eq(AidComicScript::getUserId, userId)
+                        .eq(AidComicScript::getDelFlag, "0")
+                        .last("FOR UPDATE"));
+        if (Objects.isNull(script)) {
+            log.info("剧本删除目标不存在, scriptId={}, userId={}", id, userId);
+            throw new ServiceException("剧本不存在");
+        }
+        if (!Objects.equals(ScriptStatusEnum.HISTORY.getValue(), script.getStatus())) {
+            log.info("剧本删除目标不是历史版本, scriptId={}, status={}, userId={}",
+                    id, script.getStatus(), userId);
+            throw new ServiceException("仅历史可删除");
+        }
+
+        LambdaUpdateWrapper<AidComicScript> updateWrapper = Wrappers.lambdaUpdate();
+        updateWrapper.eq(AidComicScript::getId, id);
+        updateWrapper.eq(AidComicScript::getUserId, userId);
+        updateWrapper.eq(AidComicScript::getStatus, ScriptStatusEnum.HISTORY.getValue());
+        updateWrapper.eq(AidComicScript::getDelFlag, "0");
+        updateWrapper.set(AidComicScript::getDelFlag, "1");
+        updateWrapper.set(AidComicScript::getUpdateBy, String.valueOf(userId));
+        updateWrapper.set(AidComicScript::getUpdateTime, DateUtils.getNowDate());
+        return aidComicScriptService.update(updateWrapper) ? 1 : 0;
     }
 }

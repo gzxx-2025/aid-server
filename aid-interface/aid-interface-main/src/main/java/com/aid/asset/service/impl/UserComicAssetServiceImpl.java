@@ -272,8 +272,8 @@ public class UserComicAssetServiceImpl implements IUserComicAssetService {
                 ? DEFAULT_PAGE_SIZE : Math.min(request.getPageSize(), MAX_PAGE_SIZE);
         long from = (long) (pageNum - 1) * pageSize;
 
-        // 个人素材没有官方分类；选择具体分类时只返回匹配的官方风格。
-        long personalCount = StrUtil.isBlank(categoryCode)
+        // 未登录请求与具体官方分类筛选均不进入个人素材查询，避免个人数据混入首页匿名响应。
+        long personalCount = Objects.nonNull(userId) && userId > 0 && StrUtil.isBlank(categoryCode)
                 ? aidUserComicAssetService.count(buildPersonalCountWrapper(userId, assetType, keyword)) : 0;
         long recommendedCount = aidComicAssetService.count(
                 buildOfficialCountWrapper(assetType, keyword, categoryCode, true));

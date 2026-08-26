@@ -7,8 +7,10 @@ import com.aid.asset.dto.UserComicAssetDetailRequest;
 import com.aid.asset.dto.UserComicAssetListRequest;
 import com.aid.asset.dto.UserComicAssetUpdateRequest;
 import com.aid.asset.service.IUserComicAssetService;
+import com.aid.common.annotation.Anonymous;
 import com.aid.common.core.controller.BaseController;
 import com.aid.common.core.domain.AjaxResult;
+import com.aid.common.satoken.utils.LoginHelper;
 import com.aid.common.utils.SecurityUtils;
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
@@ -66,10 +68,11 @@ public class UserComicAssetController extends BaseController {
      * 每条带 sourceFlag：custom 个人(可编辑/删除) / official 官方(只读)，便于前端判断操作权限。
      */
     @PostMapping("/page")
+    @Anonymous
     @Operation(summary = "合并分页查询个人与官方素材",
-            description = "官方推荐风格优先，其后为个人素材与官方非推荐素材；支持风格分类筛选")
+            description = "未登录时仅返回官方素材；登录后按官方推荐、个人素材、官方非推荐顺序返回；支持风格分类筛选")
     public AjaxResult page(@RequestBody(required = false) MergedAssetPageRequest request) {
-        Long userId = SecurityUtils.getUserId();
+        Long userId = LoginHelper.getUserId();
         Map<String, Object> data = userComicAssetService.pageMergedAssets(request, userId);
         return AjaxResult.success("查询成功", data);
     }

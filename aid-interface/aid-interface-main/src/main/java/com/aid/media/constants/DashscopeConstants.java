@@ -14,6 +14,8 @@ public final class DashscopeConstants {
 
     /** aid_ai_provider.provider_code 约定：阿里百炼服务商登记为该 code，调度层按此精确路由 */
     public static final String PROVIDER_CODE = "dashscope";
+    /** 兼容早期升级脚本创建的供应商编码，新数据统一使用 {@link #PROVIDER_CODE}。 */
+    public static final String PROVIDER_CODE_WAN3 = "dashscope-wan3";
 
     /** 任务 ID 占位符（部分网关配置模板使用） */
     public static final String URL_TASK_ID_PLACEHOLDER = "{taskId}";
@@ -61,6 +63,20 @@ public final class DashscopeConstants {
     /** 万相视频族（wan* / wanx*，注意 wanx 亦以 wan 开头） */
     public static final String MODEL_VIDEO_WAN_PREFIX = "wan";
     public static final String MODEL_VIDEO_WANX_PREFIX = "wanx";
+    public static final String MODEL_WAN3 = "wan3.0-video";
+    public static final String MODEL_WAN3_PRIME = "wan3.0-video-prime";
+    /** Wan3.0 两个全模态视频模型的共同前缀，仅用于展示族归类。 */
+    public static final String MODEL_WAN3_PREFIX = "wan3.0-video";
+
+    /** Wan3.0 多模态输入硬限制。 */
+    public static final int WAN3_MAX_REFERENCE_IMAGES = 10;
+    public static final int WAN3_MAX_REFERENCE_VIDEOS = 5;
+    public static final int WAN3_MAX_REFERENCE_AUDIOS = 5;
+    public static final int WAN3_MAX_INPUT_VIDEO_SECONDS = 15;
+    public static final int WAN3_MAX_INPUT_AUDIO_SECONDS = 15;
+    public static final int WAN3_MIN_MEDIA_SECONDS = 1;
+    public static final int WAN3_MAX_OUTPUT_SECONDS = 30;
+    public static final int WAN3_MIN_OUTPUT_SECONDS = 2;
 
     /** 归一化后的任务状态（与 MediaTaskStatus 枚举值字符串一致） */
     public static final String TASK_STATUS_PROCESSING = "PROCESSING";

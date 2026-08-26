@@ -9,6 +9,7 @@ import com.aid.aid.domain.AidAiModel;
 import com.aid.aid.domain.AidAiProvider;
 import com.aid.model.probe.ProbeResult;
 import com.aid.common.utils.ProviderEndpointUtils;
+import com.aid.media.provider.impl.AgnesVideo25RequestBuilder;
 
 import cn.hutool.core.util.StrUtil;
 
@@ -33,8 +34,10 @@ public class AgnesProbe extends AbstractReadOnlyProbe {
 
     @Override
     protected String resolvePath(AidAiModel model, AidAiProvider provider) {
-        return ProviderEndpointUtils.normalizeTaskQueryTemplate(provider.getTaskQuerySuffix())
+        String path = ProviderEndpointUtils.normalizeTaskQueryTemplate(provider.getTaskQuerySuffix())
                 .replace("%s", ProbeHttpSupport.randomProbeId());
+        return AgnesVideo25RequestBuilder.appendModelName(path,
+                model == null ? null : model.getRealModelCode());
     }
 
     @Override

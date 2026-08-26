@@ -1,6 +1,7 @@
 package com.aid.rps.resolver;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -110,6 +111,13 @@ public class StoryboardImageReferenceResolver
      */
     public ResolveResult resolve(String imagePrompt, Long projectId, Long userId)
     {
+        return resolve(imagePrompt, projectId, userId, List.of());
+    }
+
+    /** 按“已启用 + 正式提交计划待启用”快照解析，供正式提交与只读报价共用。 */
+    public ResolveResult resolve(String imagePrompt, Long projectId, Long userId,
+                                 Collection<Long> additionallyEnabledIds)
+    {
         ResolveResult result = new ResolveResult();
         if (StrUtil.isBlank(imagePrompt) || Objects.isNull(projectId) || Objects.isNull(userId))
         {
@@ -136,18 +144,28 @@ public class StoryboardImageReferenceResolver
         //    可引用域=项目+用户（不按集过滤）：剧集角色形态图归属项目级（episode_id=0）、
         //    跨集复用资产的图归属其它集，编剧字典本身按项目装配，按集过滤会漏配；
         //    电影模式项目下所有行 episode_id=0，结果集不变
-        List<AidRolePropSceneFormImage> imgs = rpsFormImageService.list(
-                Wrappers.<AidRolePropSceneFormImage>lambdaQuery()
-                        .select(AidRolePropSceneFormImage::getId,
-                                AidRolePropSceneFormImage::getName,
-                                AidRolePropSceneFormImage::getImageUrl,
-                                AidRolePropSceneFormImage::getSortOrder)
-                        .eq(AidRolePropSceneFormImage::getProjectId, projectId)
-                        .eq(AidRolePropSceneFormImage::getUserId, userId)
-                        .eq(AidRolePropSceneFormImage::getIsUse, IS_USE_YES)
-                        .eq(AidRolePropSceneFormImage::getIsSplitSource, IS_SPLIT_SOURCE_NO)
-                        .eq(AidRolePropSceneFormImage::getDelFlag, DEL_FLAG_NORMAL)
-                        .orderByAsc(AidRolePropSceneFormImage::getSortOrder));
+        Set<Long> plannedIds = normalizedIds(additionallyEnabledIds);
+        var query = Wrappers.<AidRolePropSceneFormImage>lambdaQuery()
+                .select(AidRolePropSceneFormImage::getId,
+                        AidRolePropSceneFormImage::getName,
+                        AidRolePropSceneFormImage::getImageUrl,
+                        AidRolePropSceneFormImage::getSortOrder)
+                .eq(AidRolePropSceneFormImage::getProjectId, projectId)
+                .eq(AidRolePropSceneFormImage::getUserId, userId)
+                .eq(AidRolePropSceneFormImage::getIsSplitSource, IS_SPLIT_SOURCE_NO)
+                .eq(AidRolePropSceneFormImage::getDelFlag, DEL_FLAG_NORMAL);
+        if (plannedIds.isEmpty())
+        {
+            query.eq(AidRolePropSceneFormImage::getIsUse, IS_USE_YES);
+        }
+        else
+        {
+            query.and(w -> w.eq(AidRolePropSceneFormImage::getIsUse, IS_USE_YES)
+                    .or().in(AidRolePropSceneFormImage::getId, plannedIds));
+        }
+        query.orderByAsc(AidRolePropSceneFormImage::getSortOrder)
+                .orderByAsc(AidRolePropSceneFormImage::getId);
+        List<AidRolePropSceneFormImage> imgs = rpsFormImageService.list(query);
 
         // 同 name 多图时按 sort_order 升序取首张 image_url 非空的；key 统一 trim + 分隔符归一化
         Map<String, AidRolePropSceneFormImage> byName = new LinkedHashMap<>();
@@ -213,6 +231,13 @@ public class StoryboardImageReferenceResolver
      */
     public List<ResolvedImageReference> resolveRich(String imagePrompt, Long projectId, Long userId)
     {
+        return resolveRich(imagePrompt, projectId, userId, List.of());
+    }
+
+    /** 富化解析“已启用 + 正式提交计划待启用”快照。 */
+    public List<ResolvedImageReference> resolveRich(String imagePrompt, Long projectId, Long userId,
+                                                    Collection<Long> additionallyEnabledIds)
+    {
         List<ResolvedImageReference> out = new ArrayList<>();
         if (StrUtil.isBlank(imagePrompt) || Objects.isNull(projectId) || Objects.isNull(userId))
         {
@@ -237,19 +262,29 @@ public class StoryboardImageReferenceResolver
 
         // 可引用域=项目+用户（不按集过滤），口径与 resolve 一致：
         // 项目级角色图（episode_id=0）/ 跨集复用资产图按集过滤会漏配
-        List<AidRolePropSceneFormImage> imgs = rpsFormImageService.list(
-                Wrappers.<AidRolePropSceneFormImage>lambdaQuery()
-                        .select(AidRolePropSceneFormImage::getId,
-                                AidRolePropSceneFormImage::getName,
-                                AidRolePropSceneFormImage::getImageUrl,
-                                AidRolePropSceneFormImage::getAssetId,
-                                AidRolePropSceneFormImage::getSortOrder)
-                        .eq(AidRolePropSceneFormImage::getProjectId, projectId)
-                        .eq(AidRolePropSceneFormImage::getUserId, userId)
-                        .eq(AidRolePropSceneFormImage::getIsUse, IS_USE_YES)
-                        .eq(AidRolePropSceneFormImage::getIsSplitSource, IS_SPLIT_SOURCE_NO)
-                        .eq(AidRolePropSceneFormImage::getDelFlag, DEL_FLAG_NORMAL)
-                        .orderByAsc(AidRolePropSceneFormImage::getSortOrder));
+        Set<Long> plannedIds = normalizedIds(additionallyEnabledIds);
+        var query = Wrappers.<AidRolePropSceneFormImage>lambdaQuery()
+                .select(AidRolePropSceneFormImage::getId,
+                        AidRolePropSceneFormImage::getName,
+                        AidRolePropSceneFormImage::getImageUrl,
+                        AidRolePropSceneFormImage::getAssetId,
+                        AidRolePropSceneFormImage::getSortOrder)
+                .eq(AidRolePropSceneFormImage::getProjectId, projectId)
+                .eq(AidRolePropSceneFormImage::getUserId, userId)
+                .eq(AidRolePropSceneFormImage::getIsSplitSource, IS_SPLIT_SOURCE_NO)
+                .eq(AidRolePropSceneFormImage::getDelFlag, DEL_FLAG_NORMAL);
+        if (plannedIds.isEmpty())
+        {
+            query.eq(AidRolePropSceneFormImage::getIsUse, IS_USE_YES);
+        }
+        else
+        {
+            query.and(w -> w.eq(AidRolePropSceneFormImage::getIsUse, IS_USE_YES)
+                    .or().in(AidRolePropSceneFormImage::getId, plannedIds));
+        }
+        query.orderByAsc(AidRolePropSceneFormImage::getSortOrder)
+                .orderByAsc(AidRolePropSceneFormImage::getId);
+        List<AidRolePropSceneFormImage> imgs = rpsFormImageService.list(query);
 
         // 同 name 取首张「image_url 非空」的（与 resolve / 白名单口径一致）；key 统一 trim + 分隔符归一化
         Map<String, AidRolePropSceneFormImage> byName = new LinkedHashMap<>();
@@ -315,6 +350,16 @@ public class StoryboardImageReferenceResolver
             out.add(ref);
         }
         return out;
+    }
+
+    private static Set<Long> normalizedIds(Collection<Long> ids)
+    {
+        if (CollectionUtil.isEmpty(ids))
+        {
+            return Collections.emptySet();
+        }
+        return ids.stream().filter(Objects::nonNull)
+                .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
     }
 
     /**

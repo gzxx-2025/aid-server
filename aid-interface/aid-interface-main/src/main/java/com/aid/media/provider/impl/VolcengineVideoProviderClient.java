@@ -63,6 +63,16 @@ public class VolcengineVideoProviderClient implements VideoProviderClient {
     }
 
     @Override
+    public Integer fallbackMaxReferenceImages(AiModelConfigVo modelConfig) {
+        return DEFAULT_MAX_REFERENCE_IMAGES;
+    }
+
+    @Override
+    public Integer fallbackMaxReferenceVideos(AiModelConfigVo modelConfig) {
+        return DEFAULT_MAX_REFERENCE_VIDEOS;
+    }
+
+    @Override
     public boolean supportsProviderCode(String providerCode) {
         // 火山方舟 Seedance 视频：按 provider_code 精确归属
         return providerCode != null

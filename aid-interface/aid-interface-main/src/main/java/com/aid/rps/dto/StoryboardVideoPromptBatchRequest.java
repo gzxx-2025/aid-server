@@ -3,6 +3,7 @@ package com.aid.rps.dto;
 import java.util.List;
 
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 /**
@@ -22,6 +23,7 @@ public class StoryboardVideoPromptBatchRequest
     private Long episodeId;
 
     /** 要生成的分镜 ID 列表（可选，不传=全部分镜由 overwrite 区分重生/续生；传了默认覆盖） */
+    @Size(max = 100, message = "批量过多")
     private List<@NotNull(message = "分镜ID非法") Long> storyboardIds;
 
     /** 智能体编码（默认 aid_visual_director，biz 须为 main_storyboard_video_prompt） */

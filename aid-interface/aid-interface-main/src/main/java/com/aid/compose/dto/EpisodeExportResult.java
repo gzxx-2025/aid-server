@@ -7,6 +7,7 @@ import lombok.Data;
  * 接口2 出参：导出受理结果。
  * 素材未变命中复用时直接返回成片（exportStatus=2 + finalVideoUrl，无需轮询）；
  * 否则为异步受理（exportStatus=1），前端轮询导出进度查询接口获取终态。
+ * 已有导出仍在运行时拒绝重复请求并提示先停止，不返回本结果。
  *
  * @author 视觉AID
  */
@@ -25,7 +26,7 @@ public class EpisodeExportResult {
     /** 导出状态：1=合成中（轮询进度接口）；2=成功（命中复用直接返回，取 finalVideoUrl，无需轮询） */
     private Integer exportStatus;
 
-    /** 是否复用已有成片：true=直接返回既有成片；false=异步任务路径（新受理或幂等返回运行中任务） */
+    /** 是否复用已有成片：true=直接返回既有成片；false=本次新异步受理 */
     private Boolean reused;
 
     /** 成片视频地址（出参自动拼域名）；仅 reused=true（exportStatus=2）时非空，可直接播放/下载 */

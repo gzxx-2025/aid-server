@@ -27,6 +27,10 @@ public class AiModelVO implements Serializable
     /** 前端展示名称 */
     private String modelName;
 
+    /** 模型专属LOGO；为空表示未单独配置。 */
+    @com.aid.common.aid.oss.annotation.MediaUrl
+    private String modelLogo;
+
     /** 模型分类 (text-文本, image-生图, video-生视频, audio-配音) */
     private String modelType;
 
@@ -52,7 +56,7 @@ public class AiModelVO implements Serializable
     /** 服务商展示名称 (如: 字节火山引擎, OpenAI) */
     private String providerName;
 
-    /** 服务商LOGO图标URL（厂家品牌图标） */
+    /** 兼容展示LOGO：模型LOGO优先，为空时回退服务商LOGO。 */
     @com.aid.common.aid.oss.annotation.MediaUrl
     private String providerLogo;
 

@@ -25,6 +25,16 @@ public interface VideoProviderClient {
         return false;
     }
 
+    /** capability 未配置时的厂商参考图默认上限；null 表示不在公共层额外限制。 */
+    default Integer fallbackMaxReferenceImages(AiModelConfigVo modelConfig) {
+        return null;
+    }
+
+    /** capability 未配置时的厂商参考视频默认上限；0 表示禁止，null 表示不在公共层额外限制。 */
+    default Integer fallbackMaxReferenceVideos(AiModelConfigVo modelConfig) {
+        return null;
+    }
+
     // 提交视频生成任务：返回直出URL或providerTaskId。
     ProviderSubmitResult submit(AiModelConfigVo modelConfig, MediaVideoGenerateRequest request);
 

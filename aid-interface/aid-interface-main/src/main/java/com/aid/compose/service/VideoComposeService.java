@@ -29,7 +29,7 @@ public interface VideoComposeService {
 
     /**
      * 接口2：前端剪辑器直接拼接合成（导出成片）。
-     * 定位或自动创建 aid_episode_editor（校验归属，防越权），运行中重复请求幂等返回原任务；
+     * 定位或自动创建 aid_episode_editor（校验归属，防越权），运行中重复请求拒绝并提示先停止；
      * 新请求置 exportStatus=1、覆盖 timelineJson，调用核心方法提交合成，回填 exportTaskId。
      *
      * @param request 接口2 入参
@@ -55,4 +55,10 @@ public interface VideoComposeService {
      * @return 合成进度结果
      */
     ComposeStatusResult queryComposeStatus(ComposeStatusRequest request);
+
+    /** 停止接口1业务链；已受理媒体任务继续由统一终态链真实结算。 */
+    void cancelVoiceover(ComposeStatusRequest request);
+
+    /** 停止剧集/电影成片导出；迟到媒体结果不再回写已取消剪辑记录。 */
+    void cancelExport(EpisodeExportStatusRequest request);
 }

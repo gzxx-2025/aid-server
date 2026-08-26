@@ -51,6 +51,8 @@ import com.aid.domain.vo.AiModelConfigVo;
 import com.aid.media.dto.MediaImageGenerateRequest;
 import com.aid.media.dto.MediaTaskResponse;
 import com.aid.media.service.IMediaGenerationService;
+import com.aid.media.service.MediaBillingQuoteService;
+import com.aid.billing.vo.BillingQuoteVO;
 import com.aid.media.util.ModelCapabilityResolver;
 import com.aid.rps.dto.AssetExtractTaskVO;
 import com.aid.rps.dto.RpsFormImageCreateRequest;
@@ -194,6 +196,9 @@ public class RpsFormImageBusinessServiceImpl implements IRpsFormImageBusinessSer
 
     @Autowired
     private IMediaGenerationService mediaGenerationService;
+
+    @Autowired
+    private MediaBillingQuoteService mediaBillingQuoteService;
 
     @Autowired
     private TransactionTemplate transactionTemplate;
@@ -340,23 +345,32 @@ public class RpsFormImageBusinessServiceImpl implements IRpsFormImageBusinessSer
     public java.util.List<String> enableReferencesAndCollectMissing(Long projectId, Long userId,
                                                                     java.util.Collection<String> names)
     {
+        ReferenceEnablePlan plan = planReferenceEnable(projectId, userId, names);
+        applyReferenceEnablePlan(plan, userId);
+        return plan.missingNames();
+    }
+
+    @Override
+    public ReferenceEnablePlan planReferenceEnable(Long projectId, Long userId,
+                                                   java.util.Collection<String> names)
+    {
         List<String> missing = new ArrayList<>();
         if (CollectionUtil.isEmpty(names))
         {
-            return missing;
+            return new ReferenceEnablePlan(projectId, missing, List.of());
         }
         java.util.Set<String> nameSet = names.stream()
                 .filter(StrUtil::isNotBlank)
                 .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
         if (nameSet.isEmpty())
         {
-            return missing;
+            return new ReferenceEnablePlan(projectId, missing, List.of());
         }
         // 作用域不完整 → 无法按归属解析，全部计入真实缺失，
         // 杜绝"作用域为空 → resolver 返回空 → 绕过参考缺失校验 → 仍建任务走自行发挥"
         if (Objects.isNull(projectId) || Objects.isNull(userId))
         {
-            return new ArrayList<>(nameSet);
+            return new ReferenceEnablePlan(projectId, new ArrayList<>(nameSet), List.of());
         }
         // 候选图：整作用域加载（不按 name IN 过滤），便于对占位名做归一化 + 方位后缀回退匹配；
         // 可引用域=项目+用户（不按集过滤），与 StoryboardImageReferenceResolver 出图解析口径一致：
@@ -421,11 +435,24 @@ public class RpsFormImageBusinessServiceImpl implements IRpsFormImageBusinessSer
                 toEnable.add(latest.getId());
             }
         }
-        // 原子：存在真实缺失 → 不启用任何图（请求注定缺失硬失败、不建任务，不留 is_use 副作用）
+        // 原子计划：存在真实缺失时，本轮不包含任何待启用图。
         if (CollectionUtil.isNotEmpty(missing))
         {
-            return missing;
+            return new ReferenceEnablePlan(projectId, missing, List.of());
         }
+        return new ReferenceEnablePlan(projectId, missing, toEnable);
+    }
+
+    @Override
+    @Transactional
+    public void applyReferenceEnablePlan(ReferenceEnablePlan plan, Long userId)
+    {
+        if (plan == null || CollectionUtil.isEmpty(plan.imageIdsToEnable())
+                || CollectionUtil.isNotEmpty(plan.missingNames()) || Objects.isNull(userId))
+        {
+            return;
+        }
+        List<Long> toEnable = plan.imageIdsToEnable();
         if (CollectionUtil.isNotEmpty(toEnable))
         {
             Date now = DateUtils.getNowDate();
@@ -438,9 +465,8 @@ public class RpsFormImageBusinessServiceImpl implements IRpsFormImageBusinessSer
             enableUpd.set(AidRolePropSceneFormImage::getUpdateBy, String.valueOf(userId));
             rpsFormImageService.update(enableUpd);
             log.info("引用即启用: projectId={}, userId={}, 启用图数={}, ids={}",
-                    projectId, userId, toEnable.size(), toEnable);
+                    plan.projectId(), userId, toEnable.size(), toEnable);
         }
-        return missing;
     }
 
     @Override
@@ -1065,42 +1091,11 @@ public class RpsFormImageBusinessServiceImpl implements IRpsFormImageBusinessSer
     @Override
     public AssetExtractTaskVO upscaleImage(RpsFormImageUpscaleRequest request, Long userId)
     {
-        LambdaQueryWrapper<AidRolePropSceneFormImage> imgQuery = Wrappers.lambdaQuery();
-        imgQuery.eq(AidRolePropSceneFormImage::getId, request.getImageId());
-        imgQuery.eq(AidRolePropSceneFormImage::getUserId, userId);
-        imgQuery.eq(AidRolePropSceneFormImage::getDelFlag, DEL_FLAG_NORMAL);
-        AidRolePropSceneFormImage img = rpsFormImageService.getOne(imgQuery);
-        if (Objects.isNull(img))
-        {
-            log.info("高清任务提交失败，图片不存在或不属于当前用户: imageId={}", request.getImageId());
-            throw new RuntimeException("图片不存在");
-        }
-        // 校验当前图片有 URL 可作参考图
-        if (StrUtil.isBlank(img.getImageUrl()))
-        {
-            log.info("高清任务提交失败，图片URL为空: imageId={}", request.getImageId());
-            throw new RuntimeException("图片无内容");
-        }
-
-        String effectiveModelCode = StrUtil.trimToNull(request.getModelCode());
-        if (StrUtil.isBlank(effectiveModelCode))
-        {
-            log.info("高清任务提交失败，未传模型: imageId={}", request.getImageId());
-            throw new RuntimeException("请选择模型");
-        }
-        // 校验：模型存在 / 启用 / model_type=image / 在 func_code=image_upscale 的功能池内
-        // 高清"能力"由功能池统一治理（运营把能做高清的模型加入池即可），无需额外卡 imageRefine 能力位。
-        validateModelInUpscalePool(effectiveModelCode);
-        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(effectiveModelCode);
-        if (Objects.isNull(modelConfig))
-        {
-            log.error("高清任务提交失败，模型不存在: modelCode={}", effectiveModelCode);
-            throw new RuntimeException("模型无效");
-        }
-
-        String effectiveResolution = resolveUpscaleResolution(request.getResolution(), modelConfig, effectiveModelCode);
-
-        String fullReferenceUrl = resolveAccessibleImageUrl(img.getImageUrl(), request.getImageId());
+        UpscaleBillingPlan plan = prepareUpscaleBillingPlan(request, userId, true);
+        AidRolePropSceneFormImage img = plan.image();
+        String effectiveModelCode = plan.modelCode();
+        String effectiveResolution = plan.resolution();
+        String fullReferenceUrl = plan.referenceUrl();
 
         String lockKey = buildUpscaleLockKey(request.getImageId());
         Boolean locked = redisCache.redisTemplate.opsForValue()
@@ -1156,6 +1151,66 @@ public class RpsFormImageBusinessServiceImpl implements IRpsFormImageBusinessSer
             redisCache.deleteObject(lockKey);
             throw e;
         }
+    }
+
+    @Override
+    public BillingQuoteVO quoteUpscaleImage(RpsFormImageUpscaleRequest request, Long userId)
+    {
+        UpscaleBillingPlan plan = prepareUpscaleBillingPlan(request, userId, false);
+        MediaImageGenerateRequest mediaRequest = buildUpscaleMediaRequest(
+                plan.image().getProjectId(), plan.image().getEpisodeId(), userId,
+                plan.modelCode(), plan.resolution(), plan.referenceUrl(), null);
+        return mediaBillingQuoteService.quoteImage("FORM_IMAGE_UPSCALE", mediaRequest, 1);
+    }
+
+    private UpscaleBillingPlan prepareUpscaleBillingPlan(
+            RpsFormImageUpscaleRequest request, Long userId, boolean validateRemoteImage)
+    {
+        LambdaQueryWrapper<AidRolePropSceneFormImage> imgQuery = Wrappers.lambdaQuery();
+        imgQuery.eq(AidRolePropSceneFormImage::getId, request.getImageId());
+        imgQuery.eq(AidRolePropSceneFormImage::getUserId, userId);
+        imgQuery.eq(AidRolePropSceneFormImage::getDelFlag, DEL_FLAG_NORMAL);
+        AidRolePropSceneFormImage img = rpsFormImageService.getOne(imgQuery);
+        if (Objects.isNull(img))
+        {
+            log.info("高清任务提交失败，图片不存在或不属于当前用户: imageId={}", request.getImageId());
+            throw new RuntimeException("图片不存在");
+        }
+        // 校验当前图片有 URL 可作参考图
+        if (StrUtil.isBlank(img.getImageUrl()))
+        {
+            log.info("高清任务提交失败，图片URL为空: imageId={}", request.getImageId());
+            throw new RuntimeException("图片无内容");
+        }
+
+        String effectiveModelCode = StrUtil.trimToNull(request.getModelCode());
+        if (StrUtil.isBlank(effectiveModelCode))
+        {
+            log.info("高清任务提交失败，未传模型: imageId={}", request.getImageId());
+            throw new RuntimeException("请选择模型");
+        }
+        // 校验：模型存在 / 启用 / model_type=image / 在 func_code=image_upscale 的功能池内
+        // 高清"能力"由功能池统一治理（运营把能做高清的模型加入池即可），无需额外卡 imageRefine 能力位。
+        validateModelInUpscalePool(effectiveModelCode);
+        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(effectiveModelCode);
+        if (Objects.isNull(modelConfig))
+        {
+            log.error("高清任务提交失败，模型不存在: modelCode={}", effectiveModelCode);
+            throw new RuntimeException("模型无效");
+        }
+
+        String effectiveResolution = resolveUpscaleResolution(request.getResolution(), modelConfig, effectiveModelCode);
+
+        String fullReferenceUrl = validateRemoteImage
+                ? resolveAccessibleImageUrl(img.getImageUrl(), request.getImageId())
+                : mediaUrlResolver.toFullUrl(img.getImageUrl());
+        return new UpscaleBillingPlan(
+                img, effectiveModelCode, effectiveResolution, fullReferenceUrl);
+    }
+
+    private record UpscaleBillingPlan(AidRolePropSceneFormImage image,
+            String modelCode, String resolution, String referenceUrl)
+    {
     }
 
     /**
@@ -1394,24 +1449,9 @@ public class RpsFormImageBusinessServiceImpl implements IRpsFormImageBusinessSer
         log.info("高清MQ消费开始: taskId={}, imageId={}, modelCode={}, resolution={}, refUrl={}",
                 taskId, imageId, modelCode, resolution, referenceUrl);
 
-        MediaImageGenerateRequest imageRequest = new MediaImageGenerateRequest();
-        imageRequest.setModelName(modelCode);
-        imageRequest.setUserId(userId);
-        imageRequest.setPrompt(UPSCALE_FALLBACK_PROMPT);
-        imageRequest.setReferenceImageUrl(referenceUrl);
-        imageRequest.setExpectedImageCount(1);
-        imageRequest.setProjectId(task.getProjectId());
-        imageRequest.setEpisodeId(task.getEpisodeId());
-        Map<String, Object> options = new HashMap<>();
-        if (StrUtil.isNotBlank(resolution))
-        {
-            options.put("resolution", resolution);
-        }
-        options.put("force_single", true);
-        imageRequest.setOptions(options);
-        // 注入业务任务ID，破除幂等复用
-        imageRequest.setBizTaskId(taskId);
-        imageRequest.setBizTaskType(TASK_TYPE_IMAGE_UPSCALE);
+        MediaImageGenerateRequest imageRequest = buildUpscaleMediaRequest(
+                task.getProjectId(), task.getEpisodeId(), userId, modelCode,
+                resolution, referenceUrl, taskId);
 
         MediaTaskResponse imageResponse = mediaGenerationService.generateImage(imageRequest);
 
@@ -1436,6 +1476,31 @@ public class RpsFormImageBusinessServiceImpl implements IRpsFormImageBusinessSer
         resultMap.put("modelCode", modelCode);
         resultMap.put("resolution", resolution);
         return resultMap;
+    }
+
+    private MediaImageGenerateRequest buildUpscaleMediaRequest(Long projectId, Long episodeId,
+            Long userId, String modelCode, String resolution, String referenceUrl,
+            Long bizTaskId)
+    {
+        MediaImageGenerateRequest imageRequest = new MediaImageGenerateRequest();
+        imageRequest.setModelName(modelCode);
+        imageRequest.setUserId(userId);
+        imageRequest.setPrompt(UPSCALE_FALLBACK_PROMPT);
+        imageRequest.setReferenceImageUrl(referenceUrl);
+        imageRequest.setExpectedImageCount(1);
+        imageRequest.setProjectId(projectId);
+        imageRequest.setEpisodeId(episodeId);
+        Map<String, Object> options = new HashMap<>();
+        if (StrUtil.isNotBlank(resolution))
+        {
+            options.put("resolution", resolution);
+        }
+        options.put("force_single", true);
+        imageRequest.setOptions(options);
+        // 注入业务任务ID，破除幂等复用
+        imageRequest.setBizTaskId(bizTaskId);
+        imageRequest.setBizTaskType(TASK_TYPE_IMAGE_UPSCALE);
+        return imageRequest;
     }
 
     /**

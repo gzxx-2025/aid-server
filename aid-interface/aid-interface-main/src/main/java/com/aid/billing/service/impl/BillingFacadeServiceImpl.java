@@ -12,8 +12,8 @@ import com.aid.billing.enums.MeterType;
 import com.aid.billing.enums.TextSettleStatus;
 import com.aid.billing.model.BillingSnapshot;
 import com.aid.billing.model.BillingRule;
-import com.aid.billing.estimate.BillingEstimateResolver;
 import com.aid.billing.service.BillingAmountCalculator;
+import com.aid.billing.service.BillingPreHoldCalculationService;
 import com.aid.billing.service.BillingFacadeService;
 import com.aid.billing.service.BillingRuleResolver;
 import com.aid.billing.service.IAccountUpdateService;
@@ -41,7 +41,7 @@ import java.util.Map;
 public class BillingFacadeServiceImpl implements BillingFacadeService {
 
     private final BillingAmountCalculator billingAmountCalculator;
-    private final BillingEstimateResolver billingEstimateResolver;
+    private final BillingPreHoldCalculationService billingPreHoldCalculationService;
     private final BillingRuleResolver billingRuleResolver;
     private final IMediaBillingService mediaBillingService;
     private final AidMediaTaskMapper aidMediaTaskMapper;
@@ -59,29 +59,19 @@ public class BillingFacadeServiceImpl implements BillingFacadeService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void prepareBilling(AidMediaTask task, AiModelConfigVo modelConfig, BillingInput billingInput) {
-        TextReasoningBillingResolver.enrich(billingInput, modelConfig);
-        // 预冻结参数估算：按 meterType 分发，增补 inputTokens/outputTokens 等预估值
-        billingEstimateResolver.enrichEstimate(billingInput, modelConfig);
-
-        // 计算预扣金额
-        BillingCalcResult calcResult = billingAmountCalculator.calculatePreHoldAmount(modelConfig, billingInput);
+        BillingCalcResult calcResult = billingPreHoldCalculationService.calculate(modelConfig, billingInput);
         if (!calcResult.isMatched()) {
             log.error("预扣计费失败, modelCode={}, error={}", modelConfig.getModelCode(), calcResult.getErrorMessage());
             throw new ServiceException("计费规则缺失");
         }
 
         // 计算器已完成：官方原价 × 模型基础倍率 × 单模型倍率。
-        BigDecimal adjustedAmount = BillingConstants.normalizeAccountAmount(calcResult.getAmount());
+        BigDecimal adjustedAmount = calcResult.getAmount();
         String meterType = calcResult.getSnapshot() != null ? calcResult.getSnapshot().getMeterType() : "UNKNOWN";
         log.info("预扣计费, model={}, meterType={}, calculated={}, adjusted={}",
                 modelConfig.getModelCode(), meterType, calcResult.getAmount(), adjustedAmount);
         if ("TOKEN".equals(meterType)) {
             log.info("[预冻结-TOKEN] finalPreHold={}", adjustedAmount);
-        }
-
-        // 将预扣金额冻结到快照，结算时沿用任务创建时的模型倍率快照。
-        if (calcResult.getSnapshot() != null) {
-            calcResult.getSnapshot().setPreHoldAmount(adjustedAmount);
         }
 
         // 写入计费参数和快照到任务

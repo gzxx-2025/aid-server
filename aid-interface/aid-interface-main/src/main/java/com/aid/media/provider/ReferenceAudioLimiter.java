@@ -174,7 +174,7 @@ public final class ReferenceAudioLimiter {
         /** 是否声明支持参考音频。 */
         private boolean supported;
 
-        /** 条数上限；未配置为 0。 */
+        /** 条数上限；0=不支持，-1=厂商未声明上限，正整数=明确上限。 */
         private int maxCount;
 
         /** 单条最短时长秒；未配置为 0 表示不限。 */
@@ -195,7 +195,8 @@ public final class ReferenceAudioLimiter {
          * @return 完整可用返回 true
          */
         public boolean isUsable() {
-            return supported && maxCount > 0 && CollectionUtil.isNotEmpty(formats);
+            return supported && (maxCount == -1 || maxCount > 0)
+                    && CollectionUtil.isNotEmpty(formats);
         }
 
         /**
@@ -214,10 +215,14 @@ public final class ReferenceAudioLimiter {
          * @return 命中返回 true
          */
         public boolean acceptsFormat(String format) {
-            if (StrUtil.isBlank(format) || CollectionUtil.isEmpty(formats)) {
+            if (CollectionUtil.isEmpty(formats)) {
                 return false;
             }
-            return formats.contains(StrUtil.trim(format).toLowerCase(Locale.ROOT));
+            if (formats.contains("*")) {
+                return true;
+            }
+            return StrUtil.isNotBlank(format)
+                    && formats.contains(StrUtil.trim(format).toLowerCase(Locale.ROOT));
         }
 
         /**

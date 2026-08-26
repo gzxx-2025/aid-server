@@ -12,14 +12,15 @@ import lombok.Data;
 
 /**
  * C 端首屏公开配置聚合 VO。
- * 将行为验证码状态、短信/邮箱验证码策略、接口加密状态、基础配置、平台品牌图片、支付渠道开关、营销活动等匿名配置
- * 合并为一个 {@code POST /auth/public-config}，前端在登录/发码页加载时一次性获取全部 UI 渲染所需配置。
+ * 将行为验证码状态、短信/邮箱验证码策略、接口加密状态、基础配置、平台品牌图片、微信通知总开关、
+ * 支付渠道、上传限制和营销活动等平台级配置合并为一个 {@code POST /auth/public-config}。
+ * 未登录时只返回平台级配置；登录后在 {@code wechatNotify} 中追加当前用户通知状态。
  * 服务端 Redis 缓存 30s，aid_config 改动后最多 30s 内生效。
  *
  * @author 视觉AID
  */
 @Data
-@Builder
+@Builder(toBuilder = true)
 public class PublicConfigVO
 {
     /** 行为验证码块（来自 BehaviorCaptchaController#status 的等价口径） */
@@ -40,7 +41,7 @@ public class PublicConfigVO
     /** 接口加密状态块（来自 aid_config category=api_crypto） */
     private CryptoStatus crypto;
 
-    /** 微信公众号模板消息推送公开状态 */
+    /** 微信公众号模板消息推送配置；登录后追加当前用户绑定、开关及可推送状态 */
     private WechatNotifyPublicVO wechatNotify;
 
     /**

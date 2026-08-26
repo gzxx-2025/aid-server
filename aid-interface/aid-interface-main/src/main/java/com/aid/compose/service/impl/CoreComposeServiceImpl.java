@@ -832,6 +832,7 @@ public class CoreComposeServiceImpl implements CoreComposeService {
                 ? MediaBillingStatus.FROZEN.name() : MediaBillingStatus.INIT.name());
         task.setBillingSnapshotJson(JSON.toJSONString(snapshot));
         task.setComposeBatchId(command.getComposeBatchId());
+        task.setParentTaskId(command.getParentTaskId());
         task.setCallbackCategory(command.getCallbackCategory());
         task.setCallbackRecordId(command.getCallbackRecordId());
         task.setRetryCount(0);
@@ -969,6 +970,9 @@ public class CoreComposeServiceImpl implements CoreComposeService {
         request.put("version", 2);
         request.put("composePlan", plan);
         request.put("storageSnapshot", snapshot);
+        if (StrUtil.isNotBlank(command.getParentExecutionTraceId())) {
+            request.put("parentExecutionTraceId", command.getParentExecutionTraceId());
+        }
         if (MpsConfigManager.MODE_TENCENT_MPS.equals(media.getProcessMode())) {
             request.put("editMediaRequest", assembleEditMediaRequest(
                     command, tracks, resolution, taskId, media, storage));

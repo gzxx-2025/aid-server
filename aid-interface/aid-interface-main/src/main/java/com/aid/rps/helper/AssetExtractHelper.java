@@ -1567,6 +1567,17 @@ public class AssetExtractHelper
      */
     public String loadPromptByName(String promptName)
     {
+        return loadPromptByName(promptName, true);
+    }
+
+    /** 只读加载提示词；报价/计划阶段禁止创建或刷新本地缓存文件。 */
+    public String loadPromptByNameReadOnly(String promptName)
+    {
+        return loadPromptByName(promptName, false);
+    }
+
+    private String loadPromptByName(String promptName, boolean writeCache)
+    {
         if (StrUtil.isBlank(promptName))
         {
             log.error("提示词加载失败：agentCode 为空");
@@ -1609,6 +1620,10 @@ public class AssetExtractHelper
             throw new RuntimeException("系统配置异常");
         }
 
+        if (!writeCache)
+        {
+            return agent.getPromptContent();
+        }
         try
         {
             FileUtil.mkdir(basePath);

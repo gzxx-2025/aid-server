@@ -2,11 +2,7 @@ package com.aid.media.constants;
 
 import java.util.Set;
 
-/**
- * Agnes AI（OpenAI 兼容网关）服务商常量：协议标识、provider_code、默认参数、JSON 字段等。
- *
- * @author 视觉AID
- */
+/** Agnes 服务商协议、模型与请求常量。 */
 public final class AgnesConstants {
 
     private AgnesConstants() {
@@ -30,6 +26,18 @@ public final class AgnesConstants {
 
     /** 默认视频模型 */
     public static final String DEFAULT_VIDEO_MODEL = "agnes-video-v2.0";
+    /** Agnes Video 2.5 上游模型名。 */
+    public static final String VIDEO_MODEL_25 = "agnes-video-2.5";
+    /** Agnes Video 2.5 Flash 上游模型名。 */
+    public static final String VIDEO_MODEL_25_FLASH = "agnes-video-2.5-flash";
+    /** Agnes Video 2.5 最短输出秒数。 */
+    public static final int VIDEO_25_MIN_SECONDS = 4;
+    /** Agnes Video 2.5 最长输出秒数。 */
+    public static final int VIDEO_25_MAX_SECONDS = 12;
+    /** Agnes Video 2.5 默认输出秒数。 */
+    public static final int VIDEO_25_DEFAULT_SECONDS = 5;
+    /** Agnes Video 2.5 Flash 参考图片上限。 */
+    public static final int VIDEO_25_FLASH_MAX_IMAGES = 5;
     /** 请求字段：模型名 */
     public static final String JSON_MODEL = "model";
     /** 请求字段：提示词 */

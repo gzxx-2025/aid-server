@@ -134,7 +134,7 @@ public class AiModelBusinessServiceImpl implements IAiModelBusinessService
         LambdaQueryWrapper<AidAiModel> modelWrapper = Wrappers.lambdaQuery();
         // 注意：新增字段时务必同步追加到 select，否则前端拿不到能力配置
         modelWrapper.select(AidAiModel::getId, AidAiModel::getModelCode,
-                AidAiModel::getModelName, AidAiModel::getModelType,
+                AidAiModel::getModelName, AidAiModel::getLogoUrl, AidAiModel::getModelType,
                 AidAiModel::getGenerateMode,
                 AidAiModel::getCostCredits, AidAiModel::getPriority,
                 AidAiModel::getProviderId, AidAiModel::getImageRefine,
@@ -251,7 +251,7 @@ public class AiModelBusinessServiceImpl implements IAiModelBusinessService
         //    注意：这里不按优先级排序，因为最终要按 modelIds 配置顺序返回
         LambdaQueryWrapper<AidAiModel> modelWrapper = Wrappers.lambdaQuery();
         modelWrapper.select(AidAiModel::getId, AidAiModel::getModelCode,
-                AidAiModel::getModelName, AidAiModel::getModelType,
+                AidAiModel::getModelName, AidAiModel::getLogoUrl, AidAiModel::getModelType,
                 AidAiModel::getGenerateMode,
                 AidAiModel::getCostCredits, AidAiModel::getPriority,
                 AidAiModel::getProviderId, AidAiModel::getImageRefine,
@@ -343,7 +343,8 @@ public class AiModelBusinessServiceImpl implements IAiModelBusinessService
         vo.setPriority(model.getPriority());
         vo.setImageRefine(model.getImageRefine());
         vo.setProviderName(providerName);
-        vo.setProviderLogo(providerLogo);
+        vo.setModelLogo(model.getLogoUrl());
+        vo.setProviderLogo(StrUtil.isNotBlank(model.getLogoUrl()) ? model.getLogoUrl() : providerLogo);
         // 模型能力扩展字段（图片/视频统一，供前端动态渲染参数面板）
         vo.setSupportsTextInput(model.getSupportsTextInput());
         vo.setSupportsImageInput(model.getSupportsImageInput());

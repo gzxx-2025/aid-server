@@ -4,6 +4,7 @@ import java.util.List;
 
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 /**
@@ -24,6 +25,7 @@ public class StoryboardImagePromptBatchRequest
 
     /** 要生成图脚本的分镜 ID 列表（必填，非空，须归属当前用户且未删除） */
     @NotEmpty(message = "分镜不能为空")
+    @Size(max = 100, message = "批量过多")
     private List<@NotNull(message = "分镜不能为空") Long> storyboardIds;
 
     /** 智能体编码（默认 aid_storyboard_script_stylist，biz 须为 main_storyboard_stylist） */

@@ -4,7 +4,10 @@ import java.util.List;
 import java.util.Map;
 
 import com.aid.rps.dto.AssetExtractTaskVO;
+import com.aid.rps.dto.StoryboardVideoPromptBatchRequest;
+import com.aid.rps.dto.StoryboardVideoPromptImageBatchRequest;
 import com.aid.rps.dto.StoryboardVideoWithPromptRequest;
+import com.aid.billing.vo.BillingQuoteVO;
 
 /**
  * 批量生成"分镜视频提示词"服务（视觉导演多参版）。
@@ -75,6 +78,18 @@ public interface IStoryboardVideoPromptService
                                                     Boolean overwrite, String continuityMode,
                                                     Long previousStoryboardId);
 
+    /** 无副作用地复用正式提交计划，报价多参方向的视频提示词。 */
+    BillingQuoteVO quoteVideoPrompt(StoryboardVideoPromptBatchRequest request, Long userId);
+
+    /** 无副作用地复用正式提交计划，报价图生方向的视频提示词。 */
+    BillingQuoteVO quoteVideoPromptImage(StoryboardVideoPromptImageBatchRequest request, Long userId);
+
+    /** 无副作用地复用正式提交计划，报价宫格方向的视频提示词。 */
+    BillingQuoteVO quoteVideoPromptGrid(StoryboardVideoPromptImageBatchRequest request, Long userId);
+
+    /** 按正式 creationMode 路由，聚合提示词与后续出片两段权威报价。 */
+    BillingQuoteVO quoteVideoWithPrompt(StoryboardVideoWithPromptRequest request, Long userId);
+
     /**
      * 【统一视频合一】批量生成分镜视频提示词 + 自动出片，按创作模式自动路由（一次点击两阶段）。
      *
@@ -98,6 +113,9 @@ public interface IStoryboardVideoPromptService
      * 续生：仅对 {@code PARTIAL_FAILED} 终态任务可调，重跑未生成 video_prompt 的镜头。
      */
     AssetExtractTaskVO resumeVideoPrompt(Long taskId, Long userId);
+
+    /** 分镜视频提示词剩余镜头续生报价。 */
+    BillingQuoteVO quoteResumeVideoPrompt(Long taskId, Long userId);
 
     /**
      * 手动落库单条分镜的视频提示词（用户在前端手动填写后保存）。

@@ -2,6 +2,7 @@ package com.aid.storyboard.service;
 
 import com.aid.rps.dto.AssetExtractTaskVO;
 import com.aid.storyboard.dto.StoryboardImageUpscaleRequest;
+import com.aid.billing.vo.BillingQuoteVO;
 
 /**
  * 分镜图高清服务。
@@ -18,4 +19,7 @@ public interface IStoryboardImageUpscaleService
      * @return 任务视图（taskId + PENDING）
      */
     AssetExtractTaskVO upscaleStoryboardImage(StoryboardImageUpscaleRequest request, Long userId);
+
+    /** 无副作用地报价分镜图高清请求。 */
+    BillingQuoteVO quoteUpscaleImage(StoryboardImageUpscaleRequest request, Long userId);
 }

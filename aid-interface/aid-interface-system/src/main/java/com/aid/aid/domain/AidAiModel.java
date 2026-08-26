@@ -8,6 +8,7 @@ import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.fasterxml.jackson.annotation.JsonFormat;
 import com.aid.common.annotation.Excel;
+import com.aid.common.aid.oss.annotation.MediaUrl;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
@@ -49,6 +50,11 @@ public class AidAiModel extends BaseEntity implements Serializable
     /** 前端展示名称 */
     @Excel(name = "前端展示名称")
     private String modelName;
+
+    /** 模型专属LOGO；为空时客户端回退所属服务商LOGO，存相对路径并由 @MediaUrl 转换。 */
+    @Excel(name = "模型LOGO")
+    @MediaUrl
+    private String logoUrl;
 
     /** 模型分类 (image生图, video生视频, audio配音) */
     @Excel(name = "模型分类 (image生图, video生视频, audio配音)")

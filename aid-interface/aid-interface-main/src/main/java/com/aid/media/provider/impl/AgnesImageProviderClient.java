@@ -66,6 +66,11 @@ public class AgnesImageProviderClient implements ImageProviderClient {
     }
 
     @Override
+    public Integer fallbackMaxReferenceImages(AiModelConfigVo modelConfig) {
+        return MAX_REFERENCE_IMAGES;
+    }
+
+    @Override
     public boolean supportsProviderCode(String providerCode) {
         // Agnes 图片：按 provider_code 精确归属
         return providerCode != null

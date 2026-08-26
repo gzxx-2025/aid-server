@@ -39,6 +39,9 @@ public final class MediaInternalOptionKeys {
     /** 视频输入图比例归一化临时文件映射（任务终态恢复原始 URL 后清理） */
     public static final String NORMALIZED_VIDEO_INPUTS = "normalizedVideoInputs";
 
+    /** 编排父任务执行周期（仅用于迟到业务结果隔离）。 */
+    public static final String PARENT_EXECUTION_TRACE_ID = "parentExecutionTraceId";
+
     private static final Set<String> KEYS = Set.of(
             SBZ_IMAGE_GEN_CTX,
             SBZ_VIDEO_GEN_CTX,
@@ -48,7 +51,8 @@ public final class MediaInternalOptionKeys {
             EXPECTED_IMAGE_COUNT,
             ESTIMATED_OUTPUT_CHARS,
             MAX_OUTPUT_CHARS,
-            NORMALIZED_VIDEO_INPUTS);
+            NORMALIZED_VIDEO_INPUTS,
+            PARENT_EXECUTION_TRACE_ID);
 
     /**
      * 判定 options 键是否为平台内部键（不允许出现在上游请求体）。

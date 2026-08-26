@@ -25,6 +25,8 @@ import com.aid.media.enums.MediaType;
 import com.aid.media.event.MediaTaskCompletedEvent;
 import com.aid.media.event.MediaTaskOssPersistedEvent;
 import com.aid.media.util.AudioDurationProber;
+import com.aid.rps.queue.BatchParentSubmissionGuard;
+import com.aid.rps.queue.BatchTaskExecutionRejectedException;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.event.EventListener;
@@ -69,6 +71,9 @@ public class AudioRecordEventListener {
     @Resource
     private MediaUrlResolver mediaUrlResolver;
 
+    @Resource
+    private BatchParentSubmissionGuard batchParentSubmissionGuard;
+
     /**
      * 媒体任务终态事件：
      *
@@ -93,9 +98,24 @@ public class AudioRecordEventListener {
             log.warn("AudioRecordEventListener 业务音频记录缺失, audioRecordId={}", mediaTask.getBizTaskId());
             return;
         }
+        executeBusinessEventGuard(mediaTask, audioRecord,
+                () -> handleMediaTaskCompleted(mediaTask, audioRecord.getId()));
+    }
+
+    private void handleMediaTaskCompleted(AidMediaTask mediaTask, Long audioRecordId) {
+        AidAudioRecord audioRecord = aidAudioRecordService.getById(audioRecordId);
+        if (Objects.isNull(audioRecord)) {
+            return;
+        }
+        if (isCancelledComposeVoiceover(audioRecord)) {
+            log.info("已取消一键配音忽略迟到媒体终态, audioRecordId={}, mediaTaskId={}",
+                    audioRecord.getId(), mediaTask.getId());
+            return;
+        }
 
         LambdaUpdateWrapper<AidAudioRecord> update = new LambdaUpdateWrapper<>();
         update.eq(AidAudioRecord::getId, audioRecord.getId());
+        excludePersistedComposeCancellation(update, audioRecord);
         update.set(AidAudioRecord::getUpdateTime, DateUtils.getNowDate());
         update.set(AidAudioRecord::getTtsMediaTaskId, mediaTask.getId());
 
@@ -105,7 +125,10 @@ public class AudioRecordEventListener {
                 log.info("AudioRecordEventListener 媒体任务 SUCCEEDED 但 ossUrl 未就绪, 保持 PROCESSING 等待 OSS 事件, audioRecordId={}, mediaTaskId={}",
                         audioRecord.getId(), mediaTask.getId());
                 try {
-                    aidAudioRecordService.update(update);
+                    if (!aidAudioRecordService.update(update)) {
+                        log.info("已取消一键配音忽略迟到媒体任务ID回填, audioRecordId={}, mediaTaskId={}",
+                                audioRecord.getId(), mediaTask.getId());
+                    }
                 } catch (Exception ex) {
                     log.error("AudioRecordEventListener 同步 ttsMediaTaskId 异常 audioRecordId={}", audioRecord.getId(), ex);
                 }
@@ -120,7 +143,11 @@ public class AudioRecordEventListener {
                     audioRecord.getId(), StrUtil.length(mediaTask.getOssUrl()));
 
             try {
-                aidAudioRecordService.update(update);
+                if (!aidAudioRecordService.update(update)) {
+                    log.info("已取消一键配音忽略迟到成功回填, audioRecordId={}, mediaTaskId={}",
+                            audioRecord.getId(), mediaTask.getId());
+                    return;
+                }
             } catch (Exception ex) {
                 log.error("AudioRecordEventListener 回填异常 audioRecordId={}", audioRecord.getId(), ex);
                 return;
@@ -168,9 +195,24 @@ public class AudioRecordEventListener {
             log.warn("AudioRecordEventListener ossPersisted 业务音频记录缺失, audioRecordId={}", mediaTask.getBizTaskId());
             return;
         }
+        executeBusinessEventGuard(mediaTask, audioRecord,
+                () -> handleMediaTaskOssPersisted(mediaTask, audioRecord.getId()));
+    }
+
+    private void handleMediaTaskOssPersisted(AidMediaTask mediaTask, Long audioRecordId) {
+        AidAudioRecord audioRecord = aidAudioRecordService.getById(audioRecordId);
+        if (Objects.isNull(audioRecord)) {
+            return;
+        }
+        if (isCancelledComposeVoiceover(audioRecord)) {
+            log.info("已取消一键配音忽略迟到OSS结果, audioRecordId={}, mediaTaskId={}",
+                    audioRecord.getId(), mediaTask.getId());
+            return;
+        }
 
         LambdaUpdateWrapper<AidAudioRecord> update = new LambdaUpdateWrapper<>();
         update.eq(AidAudioRecord::getId, audioRecord.getId());
+        excludePersistedComposeCancellation(update, audioRecord);
         update.set(AidAudioRecord::getUpdateTime, DateUtils.getNowDate());
         update.set(AidAudioRecord::getTtsMediaTaskId, mediaTask.getId());
         update.set(AidAudioRecord::getAudioUrl, mediaTask.getOssUrl());
@@ -179,7 +221,11 @@ public class AudioRecordEventListener {
         applyDurationMs(update, audioRecord, mediaTask);
 
         try {
-            aidAudioRecordService.update(update);
+            if (!aidAudioRecordService.update(update)) {
+                log.info("已取消一键配音忽略迟到OSS回填, audioRecordId={}, mediaTaskId={}",
+                        audioRecord.getId(), mediaTask.getId());
+                return;
+            }
             log.info("AudioRecordEventListener ossPersisted 回填成功 audioRecordId={}, mediaTaskId={}",
                     audioRecord.getId(), mediaTask.getId());
         } catch (Exception ex) {
@@ -188,6 +234,63 @@ public class AudioRecordEventListener {
         }
         // 资产表幂等写入
         upsertAudioAsset(audioRecord, mediaTask);
+    }
+
+    private void executeBusinessEventGuard(AidMediaTask mediaTask, AidAudioRecord audioRecord, Runnable action) {
+        if (StrUtil.startWith(audioRecord.getComposeBatchId(), "cb_")) {
+            batchParentSubmissionGuard.execute("voiceover:" + audioRecord.getComposeBatchId(), () -> {
+                action.run();
+                return null;
+            });
+            return;
+        }
+        if (Objects.isNull(mediaTask.getParentTaskId())) {
+            action.run();
+            return;
+        }
+        String executionTraceId = extractParentExecutionTrace(mediaTask);
+        try {
+            batchParentSubmissionGuard.executeManagedBusinessCommit(
+                    mediaTask.getParentTaskId(), executionTraceId, () -> {
+                        action.run();
+                        return null;
+                    });
+        } catch (BatchTaskExecutionRejectedException rejected) {
+            log.info("配音媒体事件执行周期已变化，跳过业务回写: mediaTaskId={}, parentTaskId={}",
+                    mediaTask.getId(), mediaTask.getParentTaskId());
+        }
+    }
+
+    private String extractParentExecutionTrace(AidMediaTask mediaTask) {
+        if (Objects.isNull(mediaTask) || StrUtil.isBlank(mediaTask.getRequestJson())) {
+            return null;
+        }
+        try {
+            cn.hutool.json.JSONObject request = JSONUtil.parseObj(mediaTask.getRequestJson());
+            cn.hutool.json.JSONObject options = request.getJSONObject("options");
+            return Objects.isNull(options) ? null : options.getStr("parentExecutionTraceId");
+        } catch (Exception ex) {
+            log.warn("配音媒体事件解析父执行周期失败: mediaTaskId={}", mediaTask.getId());
+            return null;
+        }
+    }
+
+    private boolean isCancelledComposeVoiceover(AidAudioRecord audioRecord) {
+        return StrUtil.startWith(audioRecord.getComposeBatchId(), "cb_")
+                && MediaTaskStatus.FAILED.name().equals(audioRecord.getStatus())
+                && "用户取消".equals(audioRecord.getErrorMessage());
+    }
+
+    /** cb_ 批次的迟到事件不得覆盖持久化的 FAILED + 用户取消。 */
+    private void excludePersistedComposeCancellation(LambdaUpdateWrapper<AidAudioRecord> update,
+                                                      AidAudioRecord audioRecord) {
+        if (!StrUtil.startWith(audioRecord.getComposeBatchId(), "cb_")) {
+            return;
+        }
+        update.and(wrapper -> wrapper.isNull(AidAudioRecord::getStatus)
+                .or().ne(AidAudioRecord::getStatus, MediaTaskStatus.FAILED.name())
+                .or().isNull(AidAudioRecord::getErrorMessage)
+                .or().ne(AidAudioRecord::getErrorMessage, "用户取消"));
     }
 
     /**

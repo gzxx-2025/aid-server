@@ -4,6 +4,7 @@ import cn.hutool.core.text.CharSequenceUtil;
 import com.aid.billing.dto.BillingInput;
 import com.aid.billing.enums.MeterType;
 import com.aid.billing.model.BillingRule;
+import com.aid.billing.model.BillingSku;
 import com.aid.billing.service.BillingRuleResolver;
 import com.aid.domain.vo.AiModelConfigVo;
 import lombok.extern.slf4j.Slf4j;
@@ -47,7 +48,7 @@ public class BillingEstimateResolver {
         if (billingInput == null || modelConfig == null) {
             return;
         }
-        MeterType meterType = resolveMeterType(modelConfig);
+        MeterType meterType = resolveMeterType(modelConfig, billingInput);
         BillingEstimateStrategy strategy = strategies.get(meterType);
         if (strategy != null) {
             log.info("预冻结估算分发: modelCode={}, meterType={}, strategy={}",
@@ -62,12 +63,25 @@ public class BillingEstimateResolver {
      * 2) 对 IMAGE 模型：识别已知 TOKEN 图片模型族（Gemini / gpt-image*），避免误落 PER_IMAGE
      * 3) 其余按 modelType 推断
      */
-    private MeterType resolveMeterType(AiModelConfigVo modelConfig) {
+    private MeterType resolveMeterType(AiModelConfigVo modelConfig, BillingInput billingInput) {
         String modelCode = modelConfig.getModelCode();
         // 优先从 billingRuleJson 解析
         if (CharSequenceUtil.isNotBlank(modelConfig.getBillingRuleJson())) {
             try {
                 BillingRule rule = billingRuleResolver.parseRule(modelConfig);
+                BillingSku matchedSku = rule == null || billingInput == null
+                        ? null : billingRuleResolver.resolve(rule, billingInput.getParams());
+                if (matchedSku != null && CharSequenceUtil.isNotBlank(matchedSku.getMeterType())) {
+                    MeterType skuMeterType = MeterType.of(matchedSku.getMeterType());
+                    if (skuMeterType != null) {
+                        return skuMeterType;
+                    }
+                    log.error("SKU级meterType无效，计算器将拒绝计费, modelCode={}, skuCode={}, meterType={}",
+                            modelCode, matchedSku.getSkuCode(), matchedSku.getMeterType());
+                }
+                if (matchedSku == null && hasEnabledTokenSku(rule)) {
+                    return MeterType.TOKEN;
+                }
                 if (rule != null && CharSequenceUtil.isNotBlank(rule.getMeterType())) {
                     MeterType mt = MeterType.of(rule.getMeterType());
                     if (mt != null) {
@@ -99,6 +113,17 @@ public class BillingEstimateResolver {
         log.warn("meterType未配置且modelType未知, 兜底为SKU_PACKAGE, modelCode={}, modelType={}",
                 modelCode, modelType);
         return MeterType.SKU_PACKAGE;
+    }
+
+    /** 未估算 token 时可能尚未命中 TOKEN 档位；先走 TOKEN 策略，再由计算器最终匹配。 */
+    private boolean hasEnabledTokenSku(BillingRule rule) {
+        return rule != null && rule.getSkus() != null && rule.getSkus().stream()
+                .filter(java.util.Objects::nonNull)
+                .filter(BillingSku::isEnabled)
+                .map(BillingSku::getMeterType)
+                .filter(CharSequenceUtil::isNotBlank)
+                .map(MeterType::of)
+                .anyMatch(MeterType.TOKEN::equals);
     }
 
     /**

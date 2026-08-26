@@ -43,4 +43,10 @@ public class ComposeCommand {
 
     /** 接口1配音→合成事件链批次号（落 aid_media_task.compose_batch_id） */
     private String composeBatchId;
+
+    /** 业务父任务ID（落 aid_media_task.parent_task_id，用于取消后的迟到回写隔离） */
+    private Long parentTaskId;
+
+    /** 业务父任务执行周期（仅内部编排写入，用于迟到结果隔离）。 */
+    private String parentExecutionTraceId;
 }

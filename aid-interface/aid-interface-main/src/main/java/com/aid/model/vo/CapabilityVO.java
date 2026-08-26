@@ -116,6 +116,8 @@ public class CapabilityVO implements Serializable
     private Integer referenceVideoMinDurationSeconds;
     private Integer referenceVideoMaxDurationSeconds;
     private Integer referenceVideoMaxTotalDurationSeconds;
+    /** 输入视频总时长与输出视频时长之和上限，秒。 */
+    private Integer maxInputOutputVideoDurationSeconds;
     private List<String> referenceVideoFormats;
     private Integer referenceVideoMaxFileSizeMb;
     private Integer referenceVideoMinDimensionPixels;

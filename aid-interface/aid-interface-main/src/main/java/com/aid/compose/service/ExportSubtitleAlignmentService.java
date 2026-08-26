@@ -7,6 +7,10 @@ import com.aid.compose.dto.timeline.TimelineSegment;
 import java.util.List;
 import java.util.Map;
 import java.util.function.BiConsumer;
+import java.util.function.Function;
+import java.util.function.Supplier;
+
+import com.aid.media.dto.SpeechRecognitionResult;
 
 /**
  * 导出自动字幕服务。开启后按分镜同步识别视频，并把时间戳字幕回填到合成分组与工程时间轴。
@@ -35,7 +39,16 @@ public interface ExportSubtitleAlignmentService {
      * @param checkpointCallback 每次状态变化后立即持久化时间轴的回调
      * @param heartbeatCallback  上游等待期间刷新本次导出存活时间的回调
      */
+    default void align(List<ComposeGroupDto> groups, List<TimelineSegment> matchedSegments,
+                       Map<Long, AidGenRecord> selectedVideos, BiConsumer<Integer, Integer> progressCallback,
+                       Runnable checkpointCallback, Runnable heartbeatCallback) {
+        align(groups, matchedSegments, selectedVideos, progressCallback,
+                checkpointCallback, heartbeatCallback, Supplier::get);
+    }
+
+    /** 每次真实 ASR 受理均由调用方提供的停止互斥器包裹。 */
     void align(List<ComposeGroupDto> groups, List<TimelineSegment> matchedSegments,
                Map<Long, AidGenRecord> selectedVideos, BiConsumer<Integer, Integer> progressCallback,
-               Runnable checkpointCallback, Runnable heartbeatCallback);
+               Runnable checkpointCallback, Runnable heartbeatCallback,
+               Function<Supplier<SpeechRecognitionResult>, SpeechRecognitionResult> submissionGuard);
 }

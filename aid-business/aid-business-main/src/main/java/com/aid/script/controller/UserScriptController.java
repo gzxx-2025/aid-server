@@ -12,11 +12,13 @@ import com.aid.common.core.page.TableDataInfo;
 import com.aid.common.utils.SecurityUtils;
 import com.github.pagehelper.PageInfo;
 import com.aid.script.dto.ScriptSplitPreviewRequest;
+import com.aid.script.dto.UserScriptAutoSaveRequest;
 import com.aid.script.dto.UserScriptDeleteRequest;
 import com.aid.script.dto.UserScriptDetailByProjectRequest;
 import com.aid.script.dto.UserScriptQueryRequest;
 import com.aid.script.dto.UserScriptSaveRequest;
 import com.aid.script.dto.UserScriptUploadRequest;
+import com.aid.script.helper.UserScriptContentHash;
 import com.aid.script.service.IScriptSplitService;
 import com.aid.script.service.IUserScriptBusinessService;
 import com.aid.script.vo.ScriptSplitConfirmVO;
@@ -90,7 +92,7 @@ public class UserScriptController extends BaseController
      * 静默保存剧本（只更新内容，不更新版本号）
      */
     @PostMapping("/autoSave")
-    public AjaxResult autoSave(@Valid @RequestBody UserScriptSaveRequest request)
+    public AjaxResult autoSave(@Valid @RequestBody UserScriptAutoSaveRequest request)
     {
         Long userId = SecurityUtils.getUserId();
         AidComicScript script = userScriptBusinessService.autoSaveUserScript(request, userId);
@@ -146,7 +148,7 @@ public class UserScriptController extends BaseController
     }
 
     /**
-     * 删除剧本（物理删除，删除后不可恢复）
+     * 软删除历史剧本
      */
     @PostMapping("/delete")
     public AjaxResult remove(@Valid @RequestBody UserScriptDeleteRequest request)
@@ -163,6 +165,7 @@ public class UserScriptController extends BaseController
                 .projectId(script.getProjectId())
                 .episodeId(script.getEpisodeId())
                 .originalText(script.getOriginalText())
+                .contentHash(UserScriptContentHash.calculate(script.getOriginalText()))
                 .isExtracted(script.getIsExtracted())
                 .comicVersion(script.getComicVersion())
                 .status(script.getStatus())

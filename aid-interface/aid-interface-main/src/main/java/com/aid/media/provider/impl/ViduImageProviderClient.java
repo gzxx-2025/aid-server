@@ -47,6 +47,11 @@ public class ViduImageProviderClient implements ImageProviderClient {
     }
 
     @Override
+    public Integer fallbackMaxReferenceImages(AiModelConfigVo modelConfig) {
+        return VIDU_IMAGE_REFERENCE_MAX;
+    }
+
+    @Override
     public boolean supportsProviderCode(String providerCode) {
         // Vidu 图片：按 provider_code 精确归属
         return providerCode != null

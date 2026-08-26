@@ -2,6 +2,8 @@ package com.aid.storyboard.service;
 
 import com.aid.storyboard.dto.StoryboardImageGenerateRequest;
 import com.aid.storyboard.dto.StoryboardImageGenerateVO;
+import com.aid.billing.vo.BillingQuoteVO;
+import com.aid.rps.queue.BatchTaskSlotReservation;
 
 /**
  * 分镜图生成服务。
@@ -29,6 +31,16 @@ public interface IStoryboardImageGenerationService
      */
     StoryboardImageGenerateVO generateImage(StoryboardImageGenerateRequest request, Long userId, boolean batchMode);
 
+    /** 组合链内部续用提示词父任务持有的逻辑槽。 */
+    StoryboardImageGenerateVO generateImage(StoryboardImageGenerateRequest request, Long userId,
+                                            boolean batchMode, BatchTaskSlotReservation slotReservation);
+
+    /** 按分镜业务入参映射到统一图片计费链的只读报价。 */
+    BillingQuoteVO quoteImage(StoryboardImageGenerateRequest request, Long userId);
+
+    /** 合并流程中提示词尚未生成时，仅基于已知模型/规格/数量的图片报价。 */
+    BillingQuoteVO quotePlannedImage(StoryboardImageGenerateRequest request, Long userId);
+
     /**
      * 续生分镜图出图（断点续生，只补跑未成功镜头，已成功子任务不重复出图与扣费）。
      *
@@ -37,6 +49,9 @@ public interface IStoryboardImageGenerationService
      * @return taskId + PENDING 的父任务视图
      */
     StoryboardImageGenerateVO resumeImage(Long taskId, Long userId);
+
+    /** 分镜图片缺失槽位续生报价。 */
+    BillingQuoteVO quoteResumeImage(Long taskId, Long userId);
 
     /**
      * 媒体子任务终态回调：成功幂等落 {@code aid_gen_record}，失败计数，随后尝试父任务收尾。

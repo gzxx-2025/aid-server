@@ -25,6 +25,11 @@ public interface ImageProviderClient {
         return false;
     }
 
+    /** capability 未配置时的厂商参考图默认上限；null 表示不在公共层额外限制。 */
+    default Integer fallbackMaxReferenceImages(AiModelConfigVo modelConfig) {
+        return null;
+    }
+
     // 提交图片生成任务：返回直出URL或providerTaskId。
     // 说明：具体走同步还是异步、请求体协议差异（如 messages/prompt）由实现类按模型名自行路由。
     ProviderSubmitResult submit(AiModelConfigVo modelConfig, MediaImageGenerateRequest request);

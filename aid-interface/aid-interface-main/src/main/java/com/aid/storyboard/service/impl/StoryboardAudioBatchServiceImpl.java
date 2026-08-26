@@ -42,6 +42,8 @@ import com.aid.aid.service.IAidStoryboardService;
 import com.aid.common.aid.oss.util.MediaUrlResolver;
 import com.aid.common.error.TaskErrorPresentation;
 import com.aid.common.exception.ServiceException;
+import com.aid.billing.service.BillingQuoteAssembler;
+import com.aid.billing.vo.BillingQuoteVO;
 import com.aid.common.utils.DateUtils;
 import com.aid.domain.vo.AiModelConfigVo;
 import com.aid.media.constants.MinimaxTtsConstants;
@@ -57,6 +59,10 @@ import com.aid.enums.GenTypeEnum;
 import com.aid.media.enums.MediaTaskStatus;
 import com.aid.notify.wechat.service.IWechatNotifyService;
 import com.aid.rps.dto.AssetExtractTaskVO;
+import com.aid.rps.queue.BatchTaskLogicalType;
+import com.aid.rps.queue.BatchParentSubmissionGuard;
+import com.aid.rps.queue.BatchTaskSlotReservation;
+import com.aid.rps.queue.BatchTaskSlotService;
 import com.aid.rps.resolver.StoryboardAudioReferenceResolver;
 import com.aid.rps.resolver.StoryboardAudioReferenceResolver.DialogueSegment;
 import com.aid.rps.resolver.StoryboardImageReferenceResolver;
@@ -98,12 +104,12 @@ public class StoryboardAudioBatchServiceImpl implements IStoryboardAudioBatchSer
     private static final String TASK_STATUS_SUCCEEDED = "SUCCEEDED";
     private static final String TASK_STATUS_FAILED = "FAILED";
     private static final String TASK_STATUS_PARTIAL_FAILED = "PARTIAL_FAILED";
+    private static final String TASK_STATUS_CANCELLED = "CANCELLED";
 
     /** 单批分镜上限（与分镜最终产物批量上限同口径） */
     private static final int MAX_BATCH_SIZE = 50;
 
     /** 活跃父任务视为「在跑」的最大静默时长（毫秒）：超时视为中断残留，自动置 FAILED 放行新批次 */
-    private static final long ACTIVE_TASK_STALE_MS = 30L * 60L * 1000L;
 
     /** 批量配音受理锁前缀：同用户+项目+剧集只允许一个请求执行“查活跃任务→创建父任务”。 */
     private static final String ACCEPT_LOCK_PREFIX = "storyboard:audio:batch:accept:";
@@ -191,6 +197,9 @@ public class StoryboardAudioBatchServiceImpl implements IStoryboardAudioBatchSer
     private IStoryboardWorkbenchService storyboardWorkbenchService;
 
     @Resource
+    private BillingQuoteAssembler billingQuoteAssembler;
+
+    @Resource
     private ICreationStepService creationStepService;
 
     @Resource
@@ -213,6 +222,12 @@ public class StoryboardAudioBatchServiceImpl implements IStoryboardAudioBatchSer
     /** 任务执行租约登记/心跳（僵尸回收按租约判活，PROCESSING 期间必须持有租约） */
     @Resource
     private IAssetExtractService assetExtractService;
+
+    @Resource
+    private BatchTaskSlotService batchTaskSlotService;
+
+    @Resource
+    private BatchParentSubmissionGuard batchParentSubmissionGuard;
 
     /** 通用线程池：承载批量配音的异步执行（配音串行 + 合成并行等待） */
     @Resource
@@ -272,6 +287,92 @@ public class StoryboardAudioBatchServiceImpl implements IStoryboardAudioBatchSer
         return acceptBatchWithLock(request, userId, projectId, episodeId);
     }
 
+    @Override
+    public BillingQuoteVO quoteBatchAudio(StoryboardAudioBatchRequest request, Long userId) {
+        AudioBatchBillingPlan plan = prepareAudioBatchBillingPlan(request, userId);
+        List<BillingQuoteVO> items = new ArrayList<>();
+        for (AidStoryboard storyboard : plan.targets()) {
+            List<DialogueSegment> segments = audioReferenceResolver.parse(storyboard.getDialogueText());
+            Map<Integer, Long> voiceBySegment = plan.voiceByStoryboardSegment().get(storyboard.getId());
+            for (DialogueSegment segment : segments) {
+                Long boundVoiceLibraryId = Objects.isNull(voiceBySegment)
+                        ? null : voiceBySegment.get(segment.getIndex());
+                items.add(storyboardWorkbenchService.quoteAudio(
+                        buildSegmentAudioRequest(request, storyboard, segment.getText(), boundVoiceLibraryId),
+                        userId));
+            }
+        }
+        return billingQuoteAssembler.aggregate("STORYBOARD_AUDIO_BATCH", items);
+    }
+
+    /** 正式批量受理和报价共用的只读目标、音色与素材计划。 */
+    private AudioBatchBillingPlan prepareAudioBatchBillingPlan(
+            StoryboardAudioBatchRequest request, Long userId) {
+        if (request == null || request.getProjectId() == null
+                || request.getEpisodeId() == null || userId == null) {
+            throw new ServiceException("参数错误");
+        }
+        if (!ComposeConstants.isValidResolution(request.getResolution())) {
+            throw new ServiceException("分辨率无效");
+        }
+        assertFallbackVoicePaired(request.getVoiceLibraryId(), request.getVoiceModelId(), request.getTimbreCode());
+        Long projectId = request.getProjectId();
+        Long episodeId = request.getEpisodeId();
+        creationStepService.checkStepUnlocked(projectId, episodeId, userId, CreationStepEnum.AUDIO.getValue());
+
+        List<AidStoryboard> targets = loadDialogueStoryboards(request, userId);
+        if (CollectionUtil.isEmpty(targets)) {
+            throw new ServiceException("无可配音分镜");
+        }
+        if (!Boolean.TRUE.equals(request.getOverwrite())) {
+            Set<Long> dubbedStoryboardIds = loadDubbedStoryboardIds(targets, userId);
+            targets = targets.stream()
+                    .filter(s -> !dubbedStoryboardIds.contains(s.getId()))
+                    .collect(Collectors.toList());
+            if (CollectionUtil.isEmpty(targets)) {
+                throw new ServiceException("已全部配音");
+            }
+        }
+        if (targets.size() > MAX_BATCH_SIZE) {
+            throw new ServiceException("批量过多");
+        }
+
+        Map<Long, AidGenRecord> finalVideos = loadAndValidateFinalVideos(targets, userId);
+        Map<Long, Map<Integer, Long>> voiceBySegment =
+                resolveSegmentVoiceBindings(targets, projectId, episodeId, userId);
+        Map<Long, Long> voiceByStoryboard = firstVoiceByStoryboard(voiceBySegment);
+        boolean hasFallback = request.getVoiceLibraryId() != null
+                || (request.getVoiceModelId() != null && StrUtil.isNotBlank(request.getTimbreCode()));
+        List<Long> unresolved = findUnresolvedStoryboards(targets, voiceBySegment);
+        if (!hasFallback && CollectionUtil.isNotEmpty(unresolved)) {
+            throw new ServiceException("请先绑定音色");
+        }
+        String representativeModelCode = validateVoicesUsable(
+                allVoiceBindings(voiceBySegment), request.getVoiceLibraryId());
+        if (StrUtil.isBlank(representativeModelCode)) {
+            representativeModelCode = resolveFallbackModelCode(request.getVoiceModelId());
+        }
+        if (StrUtil.isBlank(representativeModelCode)) {
+            throw new ServiceException("模型异常");
+        }
+        return new AudioBatchBillingPlan(List.copyOf(targets), Map.copyOf(finalVideos),
+                copyNestedVoiceMap(voiceBySegment), Map.copyOf(voiceByStoryboard), representativeModelCode);
+    }
+
+    private Map<Long, Map<Integer, Long>> copyNestedVoiceMap(Map<Long, Map<Integer, Long>> source) {
+        Map<Long, Map<Integer, Long>> copy = new LinkedHashMap<>();
+        source.forEach((key, value) -> copy.put(key, Map.copyOf(value)));
+        return Map.copyOf(copy);
+    }
+
+    private record AudioBatchBillingPlan(
+            List<AidStoryboard> targets,
+            Map<Long, AidGenRecord> finalVideoByStoryboardId,
+            Map<Long, Map<Integer, Long>> voiceByStoryboardSegment,
+            Map<Long, Long> voiceByStoryboardId,
+            String representativeModelCode) {
+    }
+
     /** 在分布式锁内完成活跃任务检查和父任务创建，保证防重原子性。 */
     private AssetExtractTaskVO acceptBatchWithLock(StoryboardAudioBatchRequest request, Long userId,
                                                     Long projectId, Long episodeId) {
@@ -282,8 +383,8 @@ public class StoryboardAudioBatchServiceImpl implements IStoryboardAudioBatchSer
             locked = lock.tryLock(ACCEPT_LOCK_WAIT_SECONDS, TimeUnit.SECONDS);
             if (!locked) {
                 AidExtractTask active = findActiveTask(projectId, episodeId, userId);
-                if (Objects.nonNull(active) && !isStale(active)) {
-                    return buildActiveTaskResult(active);
+                if (Objects.nonNull(active)) {
+                    throw new ServiceException("任务执行中，请先停止");
                 }
                 log.info("批量配音受理锁竞争失败, projectId={}, episodeId={}, userId={}",
                         projectId, episodeId, userId);
@@ -311,93 +412,48 @@ public class StoryboardAudioBatchServiceImpl implements IStoryboardAudioBatchSer
     /** 受理锁保护的批量配音建任务主流程。 */
     private AssetExtractTaskVO acceptBatchLocked(StoryboardAudioBatchRequest request, Long userId,
                                                   Long projectId, Long episodeId) {
-
-        // 步骤校验：配音需步骤6已解锁
-        creationStepService.checkStepUnlocked(projectId, episodeId, userId, CreationStepEnum.AUDIO.getValue());
-
-        // 防重：同项目+剧集已有活跃批量配音任务 → 幂等返回该任务（前端重连 SSE）；
-        //       静默超 30 分钟的活跃任务视为中断残留，置 FAILED 后放行新批次
+        // 防重：活跃父任务可能仍有已受理的 TTS/合成媒体子任务，不能按本地静默时长误杀。
+        // 僵尸收口只能由统一任务/租约对账在确认无在途工作后处理。
         AidExtractTask active = findActiveTask(projectId, episodeId, userId);
         if (Objects.nonNull(active)) {
-            if (isStale(active)) {
-                markStaleFailed(active);
-            } else {
-                log.info("批量配音重连活跃任务: taskId={}, projectId={}, episodeId={}",
-                        active.getId(), projectId, episodeId);
-                return buildActiveTaskResult(active);
-            }
+            log.info("批量配音已有活跃任务: taskId={}, projectId={}, episodeId={}",
+                    active.getId(), projectId, episodeId);
+            throw new ServiceException("任务执行中，请先停止");
         }
 
-        // 加载目标分镜：仅「有台词」的分镜（清洗后非空）
-        List<AidStoryboard> targets = loadDialogueStoryboards(request, userId);
-        if (CollectionUtil.isEmpty(targets)) {
-            log.info("批量配音无可配分镜, projectId={}, episodeId={}", projectId, episodeId);
-            throw new ServiceException("无可配音分镜");
-        }
-
-        // overwrite=false：配音轨已有「使用中」配音视频（is_selected=1 的 compose 记录）的分镜视为已配音，跳过；
-        // overwrite=true：重配——新增一条配音视频记录后在配音轨内切换使用中，原记录一律保留不覆盖
-        if (!Boolean.TRUE.equals(request.getOverwrite())) {
-            Set<Long> dubbedStoryboardIds = loadDubbedStoryboardIds(targets, userId);
-            targets = targets.stream()
-                    .filter(s -> !dubbedStoryboardIds.contains(s.getId()))
-                    .collect(Collectors.toList());
-            if (CollectionUtil.isEmpty(targets)) {
-                log.info("批量配音全部分镜已配音(overwrite=false), projectId={}, episodeId={}", projectId, episodeId);
-                throw new ServiceException("已全部配音");
-            }
-        }
-        if (targets.size() > MAX_BATCH_SIZE) {
-            log.info("批量配音超上限, size={}, max={}", targets.size(), MAX_BATCH_SIZE);
-            throw new ServiceException("批量过多");
-        }
-
-        // 前置校验分镜视频（配音素材源，恒取原视频轨）：存在、归属本人、文件已生成、时长已回填
-        Map<Long, AidGenRecord> finalVideoByStoryboardId = loadAndValidateFinalVideos(targets, userId);
-
-        // 逐分镜解析音色：角色绑定优先 → 请求兜底；双空整批拒绝（前置校验，不产生任务记录）
-        Map<Long, Map<Integer, Long>> voiceByStoryboardSegment =
-                resolveSegmentVoiceBindings(targets, projectId, episodeId, userId);
-        Map<Long, Long> voiceByStoryboardId = firstVoiceByStoryboard(voiceByStoryboardSegment);
-        boolean hasFallback = Objects.nonNull(request.getVoiceLibraryId())
-                || (Objects.nonNull(request.getVoiceModelId()) && StrUtil.isNotBlank(request.getTimbreCode()));
-        List<Long> unresolved = findUnresolvedStoryboards(targets, voiceByStoryboardSegment);
-        if (!hasFallback && CollectionUtil.isNotEmpty(unresolved)) {
-            log.info("批量配音存在未绑定音色的分镜, projectId={}, episodeId={}, unresolved={}",
-                    projectId, episodeId, unresolved);
-            throw new ServiceException("请先绑定音色");
-        }
-
-        // 前置校验本批音色可用性（建任务之前）：绑定音色 + 兜底音色须启用未删未下架、所属模型启用；
-        // 返回代表性模型编码（本批逐分镜模型可能不同，取首个启用模型代表，父任务 model_code 非空约束用）
-        String representativeModelCode = validateVoicesUsable(
-                allVoiceBindings(voiceByStoryboardSegment), request.getVoiceLibraryId());
-        if (StrUtil.isBlank(representativeModelCode)) {
-            // 老入参兜底（voiceModelId+timbreCode）：按模型ID反查编码并校验启用
-            representativeModelCode = resolveFallbackModelCode(request.getVoiceModelId());
-        }
-        if (StrUtil.isBlank(representativeModelCode)) {
-            log.error("批量配音无法解析模型编码, projectId={}, episodeId={}", projectId, episodeId);
-            throw new ServiceException("模型异常");
-        }
+        AudioBatchBillingPlan plan = prepareAudioBatchBillingPlan(request, userId);
+        List<AidStoryboard> targets = plan.targets();
+        Map<Long, AidGenRecord> finalVideoByStoryboardId = plan.finalVideoByStoryboardId();
+        Map<Long, Map<Integer, Long>> voiceByStoryboardSegment = plan.voiceByStoryboardSegment();
+        Map<Long, Long> voiceByStoryboardId = plan.voiceByStoryboardId();
+        String representativeModelCode = plan.representativeModelCode();
+        BatchTaskSlotReservation slotReservation = batchTaskSlotService.acquireTaskSlots(
+                projectId, episodeId, List.of(BatchTaskLogicalType.STORYBOARD_AUDIO_GENERATE));
 
         // 创建父任务（SSE / 微信推送锚点)；配音与合成的计费随各自统一任务逐条冻结/结算，父级不另设扣费
         AidExtractTask task = new AidExtractTask();
-        task.setProjectId(projectId);
-        task.setEpisodeId(episodeId);
-        task.setUserId(userId);
-        task.setTaskType(TASK_TYPE_AUDIO_BATCH);
-        task.setStatus(TASK_STATUS_PENDING);
-        // model_code 为表非空列（NOT NULL）：填代表性 TTS 模型编码，缺省会触发数据库非空约束报"数据非法"
-        task.setModelCode(representativeModelCode);
-        task.setTotalCount(targets.size());
-        task.setInputSnapshot(buildInputSnapshot(request, targets, voiceByStoryboardId, finalVideoByStoryboardId));
-        task.setDelFlag(DEL_FLAG_NORMAL);
-        task.setCreateTime(DateUtils.getNowDate());
-        task.setCreateBy(String.valueOf(userId));
-        task.setUpdateTime(DateUtils.getNowDate());
-        task.setUpdateBy(String.valueOf(userId));
-        extractTaskService.save(task);
+        try {
+            task.setProjectId(projectId);
+            task.setEpisodeId(episodeId);
+            task.setUserId(userId);
+            task.setTaskType(TASK_TYPE_AUDIO_BATCH);
+            task.setStatus(TASK_STATUS_PENDING);
+            task.setBillingTraceId(java.util.UUID.randomUUID().toString().replace("-", ""));
+            // model_code 为表非空列（NOT NULL）：填代表性 TTS 模型编码，缺省会触发数据库非空约束报"数据非法"
+            task.setModelCode(representativeModelCode);
+            task.setTotalCount(targets.size());
+            task.setInputSnapshot(buildInputSnapshot(request, targets, voiceByStoryboardId,
+                    finalVideoByStoryboardId, slotReservation));
+            task.setDelFlag(DEL_FLAG_NORMAL);
+            task.setCreateTime(DateUtils.getNowDate());
+            task.setCreateBy(String.valueOf(userId));
+            task.setUpdateTime(DateUtils.getNowDate());
+            task.setUpdateBy(String.valueOf(userId));
+            extractTaskService.save(task);
+        } catch (RuntimeException ex) {
+            batchTaskSlotService.release(slotReservation);
+            throw ex;
+        }
         Long taskId = task.getId();
 
         List<AidStoryboard> finalTargets = targets;
@@ -447,6 +503,9 @@ public class StoryboardAudioBatchServiceImpl implements IStoryboardAudioBatchSer
 
             // ===== 阶段一：逐分镜串行配音 + 提交单组合成 =====
             for (int i = 0; i < total; i++) {
+                if (stopAudioBatchIfCancelled(taskId)) {
+                    return;
+                }
                 AidStoryboard storyboard = targets.get(i);
                 ItemContext ctx = new ItemContext();
                 ctx.storyboardId = storyboard.getId();
@@ -460,13 +519,21 @@ public class StoryboardAudioBatchServiceImpl implements IStoryboardAudioBatchSer
                 items.add(ctx);
                 try {
                     // 1) 配音（同步 TTS；极少数 OSS 未就绪兜底短等待）
-                    List<AidAudioRecord> audioRecords = dubSegments(request, storyboard,
+                    List<AidAudioRecord> audioRecords = dubSegments(taskId, request, storyboard,
                             voiceByStoryboardSegment.get(storyboard.getId()), userId);
                     ctx.audioRecordId = audioRecords.get(0).getId();
+                    // TTS 全部完成到合成提交之间仍需再次确认父任务未取消，
+                    // 避免取消恰好落在该窗口时继续创建新的合成任务。
+                    if (stopAudioBatchIfCancelled(taskId)) {
+                        return;
+                    }
                     // 2) 提交该分镜「视频+配音」单组合成（成片经 ComposeResultListener 回写 gen_record）
                     ctx.composeMediaTaskId = submitDubCompose(taskId, storyboard, originalVideo,
                             audioRecords, request, userId);
                 } catch (Exception e) {
+                    if (stopAudioBatchIfCancelled(taskId)) {
+                        return;
+                    }
                     // 单条失败不阻断整批
                     String rawReason = e instanceof ServiceException serviceException
                             ? StrUtil.blankToDefault(serviceException.getDetailMessage(), serviceException.getMessage())
@@ -484,7 +551,13 @@ public class StoryboardAudioBatchServiceImpl implements IStoryboardAudioBatchSer
             }
 
             // ===== 阶段二：统一等待合成终态（MPS 并行），成片就绪后切换"使用中" =====
+            if (stopAudioBatchIfCancelled(taskId)) {
+                return;
+            }
             awaitComposeAndSwitch(taskId, items, userId, total);
+            if (stopAudioBatchIfCancelled(taskId)) {
+                return;
+            }
 
             // ===== 终态汇总 =====
             long succeeded = items.stream().filter(it -> TASK_STATUS_SUCCEEDED.equals(it.status)).count();
@@ -539,7 +612,8 @@ public class StoryboardAudioBatchServiceImpl implements IStoryboardAudioBatchSer
      * 单分镜配音：复用 generateAudio 全链路；返回已就绪（audioUrl 非空）的配音记录。
      * 极少数同步成功但 OSS 未就绪的兜底场景短轮询等待，超时按失败处理。
      */
-    private List<AidAudioRecord> dubSegments(StoryboardAudioBatchRequest request, AidStoryboard storyboard,
+    private List<AidAudioRecord> dubSegments(Long taskId, StoryboardAudioBatchRequest request,
+                                             AidStoryboard storyboard,
                                              Map<Integer, Long> voiceBySegment, Long userId) {
         List<DialogueSegment> segments = audioReferenceResolver.parse(storyboard.getDialogueText());
         if (CollectionUtil.isEmpty(segments)) {
@@ -548,39 +622,38 @@ public class StoryboardAudioBatchServiceImpl implements IStoryboardAudioBatchSer
         }
         List<AidAudioRecord> records = new ArrayList<>(segments.size());
         for (DialogueSegment segment : segments) {
+            if (stopAudioBatchIfCancelled(taskId)) {
+                throw new ServiceException("用户取消");
+            }
             Long boundVoiceLibraryId = Objects.isNull(voiceBySegment)
                     ? null : voiceBySegment.get(segment.getIndex());
-            records.add(dubSegment(request, storyboard, segment.getText(), boundVoiceLibraryId, userId));
+            records.add(dubSegment(taskId, request, storyboard, segment.getText(), boundVoiceLibraryId, userId));
         }
         return records;
     }
 
-    private AidAudioRecord dubSegment(StoryboardAudioBatchRequest request, AidStoryboard storyboard,
+    private AidAudioRecord dubSegment(Long taskId, StoryboardAudioBatchRequest request, AidStoryboard storyboard,
                                       String dialogueText, Long boundVoiceLibraryId, Long userId) {
-        GenerateAudioRequest single = new GenerateAudioRequest();
-        single.setStoryboardId(storyboard.getId());
-        single.setTtsText(dialogueText);
-        if (Objects.nonNull(boundVoiceLibraryId)) {
-            single.setVoiceLibraryId(boundVoiceLibraryId);
-        } else if (Objects.nonNull(request.getVoiceLibraryId())) {
-            single.setVoiceLibraryId(request.getVoiceLibraryId());
-        } else {
-            // 兼容老入参兜底（前置校验已保证 voiceModelId+timbreCode 成对存在）
-            single.setVoiceModelId(request.getVoiceModelId());
-            single.setTimbreCode(request.getTimbreCode());
+        if (stopAudioBatchIfCancelled(taskId)) {
+            throw new ServiceException("用户取消");
         }
-        single.setEmotion(request.getEmotion());
-        single.setEmotionScale(request.getEmotionScale());
-        single.setSpeechRate(request.getSpeechRate());
-        single.setLoudnessRate(request.getLoudnessRate());
-        single.setPitch(request.getPitch());
-        AudioTaskVO vo = storyboardWorkbenchService.generateAudio(single, userId);
+        GenerateAudioRequest single = buildSegmentAudioRequest(
+                request, storyboard, dialogueText, boundVoiceLibraryId);
+        String executionTraceId = requireAudioSubmissionTrace(taskId);
+        AudioTaskVO vo = batchParentSubmissionGuard.executeManagedTask(taskId, executionTraceId, () -> {
+            requireAudioSubmissionActive(taskId);
+            return storyboardWorkbenchService.generateAudioForParent(
+                    single, userId, taskId, executionTraceId);
+        });
         if (Objects.isNull(vo) || Objects.isNull(vo.getId())) {
             log.error("批量配音 TTS 无返回, storyboardId={}", storyboard.getId());
             throw new ServiceException("配音失败");
         }
         // 常规路径：同步成功直接返回；兜底路径：短轮询等 OSS 回填
         for (int i = 0; i <= AUDIO_WAIT_MAX_TIMES; i++) {
+            if (stopAudioBatchIfCancelled(taskId)) {
+                throw new ServiceException("用户取消");
+            }
             AidAudioRecord record = aidAudioRecordService.getById(vo.getId());
             if (Objects.isNull(record)) {
                 log.error("批量配音 TTS 失败, storyboardId={}, audioRecordId={}", storyboard.getId(), vo.getId());
@@ -601,9 +674,36 @@ public class StoryboardAudioBatchServiceImpl implements IStoryboardAudioBatchSer
                 Thread.currentThread().interrupt();
                 throw new ServiceException("配音失败");
             }
+            if (stopAudioBatchIfCancelled(taskId)) {
+                throw new ServiceException("用户取消");
+            }
         }
         log.error("批量配音等待音频就绪超时, storyboardId={}, audioRecordId={}", storyboard.getId(), vo.getId());
         throw new ServiceException("配音超时");
+    }
+
+    /** 正式逐段配音和批量报价共用的单次 TTS 请求映射。 */
+    private GenerateAudioRequest buildSegmentAudioRequest(
+            StoryboardAudioBatchRequest request, AidStoryboard storyboard,
+            String dialogueText, Long boundVoiceLibraryId) {
+        GenerateAudioRequest single = new GenerateAudioRequest();
+        single.setStoryboardId(storyboard.getId());
+        single.setTtsText(dialogueText);
+        if (Objects.nonNull(boundVoiceLibraryId)) {
+            single.setVoiceLibraryId(boundVoiceLibraryId);
+        } else if (Objects.nonNull(request.getVoiceLibraryId())) {
+            single.setVoiceLibraryId(request.getVoiceLibraryId());
+        } else {
+            // 兼容老入参兜底（前置校验已保证 voiceModelId+timbreCode 成对存在）
+            single.setVoiceModelId(request.getVoiceModelId());
+            single.setTimbreCode(request.getTimbreCode());
+        }
+        single.setEmotion(request.getEmotion());
+        single.setEmotionScale(request.getEmotionScale());
+        single.setSpeechRate(request.getSpeechRate());
+        single.setLoudnessRate(request.getLoudnessRate());
+        single.setPitch(request.getPitch());
+        return single;
     }
 
     /**
@@ -652,9 +752,15 @@ public class StoryboardAudioBatchServiceImpl implements IStoryboardAudioBatchSer
         // 成片落 aid_gen_record，归属本分镜（ComposeResultListener 按 callbackRecordId 写 storyboardId）
         command.setCallbackCategory(ComposeConstants.CALLBACK_GEN_RECORD);
         command.setCallbackRecordId(storyboard.getId());
+        command.setParentTaskId(taskId);
         // 批次标识仅供排查（aid_media_task.compose_batch_id）；audio_record 未写该批次号，不会误触发接口1事件链
         command.setComposeBatchId("adub_" + taskId + "_" + storyboard.getId());
-        ComposeSubmitResult submit = coreComposeService.compose(command);
+        String executionTraceId = requireAudioSubmissionTrace(taskId);
+        command.setParentExecutionTraceId(executionTraceId);
+        ComposeSubmitResult submit = batchParentSubmissionGuard.executeManagedTask(taskId, executionTraceId, () -> {
+            requireAudioSubmissionActive(taskId);
+            return coreComposeService.compose(command);
+        });
         return submit.getMediaTaskId();
     }
 
@@ -669,6 +775,9 @@ public class StoryboardAudioBatchServiceImpl implements IStoryboardAudioBatchSer
      */
     private void awaitComposeAndSwitch(Long taskId, List<ItemContext> items, Long userId, int total) {
         for (int round = 0; round < COMPOSE_POLL_MAX_TIMES; round++) {
+            if (stopAudioBatchIfCancelled(taskId)) {
+                return;
+            }
             List<ItemContext> pending = items.stream()
                     .filter(it -> !it.finished())
                     .collect(Collectors.toList());
@@ -680,6 +789,9 @@ public class StoryboardAudioBatchServiceImpl implements IStoryboardAudioBatchSer
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 log.warn("批量配音合成等待被中断, taskId={}", taskId);
+                return;
+            }
+            if (stopAudioBatchIfCancelled(taskId)) {
                 return;
             }
             // 批查在途合成任务状态（查询字段精简：仅终态判定必需列）
@@ -700,6 +812,9 @@ public class StoryboardAudioBatchServiceImpl implements IStoryboardAudioBatchSer
                 }
             }
             for (ItemContext ctx : pending) {
+                if (stopAudioBatchIfCancelled(taskId)) {
+                    return;
+                }
                 AidMediaTask mediaTask = Objects.isNull(ctx.composeMediaTaskId)
                         ? null : taskById.get(ctx.composeMediaTaskId);
                 if (Objects.isNull(mediaTask)) {
@@ -744,6 +859,9 @@ public class StoryboardAudioBatchServiceImpl implements IStoryboardAudioBatchSer
         boolean hasProviderTaskId = StrUtil.isNotBlank(mediaTask.getProviderTaskId());
         AidGenRecord dubbedRecord = null;
         for (int i = 0; i < GEN_RECORD_WAIT_MAX_TIMES; i++) {
+            if (stopAudioBatchIfCancelled(taskId)) {
+                return;
+            }
             dubbedRecord = aidGenRecordService.getOne(Wrappers.<AidGenRecord>lambdaQuery()
                     .select(AidGenRecord::getId, AidGenRecord::getFileUrl)
                     .eq(AidGenRecord::getStoryboardId, ctx.storyboardId)
@@ -763,6 +881,9 @@ public class StoryboardAudioBatchServiceImpl implements IStoryboardAudioBatchSer
                 break;
             }
         }
+        if (stopAudioBatchIfCancelled(taskId)) {
+            return;
+        }
         if (Objects.isNull(dubbedRecord)) {
             // 成片已出但记录未落（监听器异常等极端场景）：按失败记录，成片可从媒体任务复查
             ctx.status = TASK_STATUS_FAILED;
@@ -773,15 +894,22 @@ public class StoryboardAudioBatchServiceImpl implements IStoryboardAudioBatchSer
         }
         ctx.dubbedVideoRecordId = dubbedRecord.getId();
         ctx.dubbedVideoUrl = dubbedRecord.getFileUrl();
+        AidGenRecord finalDubbedRecord = dubbedRecord;
         try {
-            // 视频大类单选切换：新配音视频设为被选中（原视频与旧配音视频的选中自动取消）；
-            // finalVideoId 指针不受影响——详情"分镜视频"恒为配音前原视频
-            SetFinalSelectionRequest select = new SetFinalSelectionRequest();
-            select.setStoryboardId(ctx.storyboardId);
-            select.setRecordId(dubbedRecord.getId());
-            select.setRecordType(RECORD_TYPE_VIDEO);
-            storyboardWorkbenchService.setFinalSelection(select, userId);
-            ctx.status = TASK_STATUS_SUCCEEDED;
+            if (stopAudioBatchIfCancelled(taskId)) {
+                return;
+            }
+            String executionTraceId = requireAudioSubmissionTrace(taskId);
+            batchParentSubmissionGuard.executeManagedBusinessCommit(taskId, executionTraceId, () -> {
+                // 视频大类单选切换：新配音视频设为被选中；finalVideoId 保持原视频指针。
+                SetFinalSelectionRequest select = new SetFinalSelectionRequest();
+                select.setStoryboardId(ctx.storyboardId);
+                select.setRecordId(finalDubbedRecord.getId());
+                select.setRecordType(RECORD_TYPE_VIDEO);
+                storyboardWorkbenchService.setFinalSelection(select, userId);
+                ctx.status = TASK_STATUS_SUCCEEDED;
+                return null;
+            });
             log.info("批量配音单条完成: taskId={}, storyboardId={}, dubbedRecordId={}, originalRecordId={}",
                     taskId, ctx.storyboardId, ctx.dubbedVideoRecordId, ctx.originalVideoRecordId);
         } catch (Exception e) {
@@ -1368,8 +1496,7 @@ public class StoryboardAudioBatchServiceImpl implements IStoryboardAudioBatchSer
     private AidExtractTask findActiveTask(Long projectId, Long episodeId, Long userId) {
         return extractTaskService.getOne(
                 Wrappers.<AidExtractTask>lambdaQuery()
-                        .select(AidExtractTask::getId, AidExtractTask::getStatus,
-                                AidExtractTask::getTotalCount, AidExtractTask::getUpdateTime)
+                        .select(AidExtractTask::getId, AidExtractTask::getStatus)
                         .eq(AidExtractTask::getProjectId, projectId)
                         .eq(AidExtractTask::getEpisodeId, episodeId)
                         .eq(AidExtractTask::getUserId, userId)
@@ -1380,47 +1507,76 @@ public class StoryboardAudioBatchServiceImpl implements IStoryboardAudioBatchSer
                         .last("LIMIT 1"), false);
     }
 
-    /** 活跃任务幂等返回结构。 */
-    private AssetExtractTaskVO buildActiveTaskResult(AidExtractTask active) {
-        return AssetExtractTaskVO.builder()
-                .taskId(active.getId())
-                .status(active.getStatus())
-                .totalCount(active.getTotalCount())
-                .build();
-    }
-
-    /** 活跃任务是否为中断残留：updateTime 静默超过 {@value #ACTIVE_TASK_STALE_MS} 毫秒。 */
-    private boolean isStale(AidExtractTask task) {
-        Date updateTime = task.getUpdateTime();
-        return Objects.isNull(updateTime)
-                || System.currentTimeMillis() - updateTime.getTime() > ACTIVE_TASK_STALE_MS;
-    }
-
-    /** 中断残留任务置 FAILED（放行新批次；在途配音/合成由各自事件链收尾，不受影响）。 */
-    private void markStaleFailed(AidExtractTask task) {
-        log.warn("批量配音清理中断残留任务: taskId={}, status={}", task.getId(), task.getStatus());
-        extractTaskService.update(Wrappers.<AidExtractTask>lambdaUpdate()
-                .eq(AidExtractTask::getId, task.getId())
-                .in(AidExtractTask::getStatus, TASK_STATUS_PENDING, TASK_STATUS_PROCESSING)
-                .set(AidExtractTask::getStatus, TASK_STATUS_FAILED)
-                .set(AidExtractTask::getErrorMessage, "任务中断")
-                .set(AidExtractTask::getUpdateTime, DateUtils.getNowDate()));
-    }
-
     /** 父任务置 FAILED（仅非终态可置，避免覆盖已写入的终态）。 */
     private void failTask(Long taskId, String errorMessage) {
-        extractTaskService.update(Wrappers.<AidExtractTask>lambdaUpdate()
+        boolean updated = extractTaskService.update(Wrappers.<AidExtractTask>lambdaUpdate()
                 .eq(AidExtractTask::getId, taskId)
                 .in(AidExtractTask::getStatus, TASK_STATUS_PENDING, TASK_STATUS_PROCESSING)
                 .set(AidExtractTask::getStatus, TASK_STATUS_FAILED)
                 .set(AidExtractTask::getErrorMessage, errorMessage)
                 .set(AidExtractTask::getUpdateTime, DateUtils.getNowDate()));
+        if (updated) {
+            batchTaskSlotService.releaseForTask(extractTaskService.selectAidExtractTaskById(taskId));
+        }
+    }
+
+    private boolean stopAudioBatchIfCancelled(Long taskId) {
+        AidExtractTask current = extractTaskService.selectAidExtractTaskById(taskId);
+        if (!assetExtractService.isTaskCancelled(taskId)) {
+            return current == null || !isActiveAudioParent(current);
+        }
+        return batchParentSubmissionGuard.execute(taskId, () -> {
+            AidExtractTask lockedTask = extractTaskService.selectAidExtractTaskById(taskId);
+            if (lockedTask == null || TASK_STATUS_CANCELLED.equals(lockedTask.getStatus())) {
+                return true;
+            }
+            if (!assetExtractService.isTaskCancelled(taskId)) {
+                return !isActiveAudioParent(lockedTask);
+            }
+            boolean updated = extractTaskService.update(Wrappers.<AidExtractTask>lambdaUpdate()
+                    .eq(AidExtractTask::getId, taskId)
+                    .in(AidExtractTask::getStatus, TASK_STATUS_PENDING, TASK_STATUS_PROCESSING)
+                    .set(AidExtractTask::getStatus, TASK_STATUS_CANCELLED)
+                    .set(AidExtractTask::getErrorMessage, "用户取消")
+                    .set(AidExtractTask::getUpdateTime, DateUtils.getNowDate()));
+            AidExtractTask cancelledTask = extractTaskService.selectAidExtractTaskById(taskId);
+            if (cancelledTask != null && TASK_STATUS_CANCELLED.equals(cancelledTask.getStatus())) {
+                batchTaskSlotService.releaseForTask(cancelledTask);
+                if (updated) {
+                    sseManager.sendCancelled(taskId, "用户取消");
+                }
+                return true;
+            }
+            return !isActiveAudioParent(cancelledTask);
+        });
+    }
+
+    private void requireAudioSubmissionActive(Long taskId) {
+        AidExtractTask current = extractTaskService.selectAidExtractTaskById(taskId);
+        if (assetExtractService.isTaskCancelled(taskId) || !isActiveAudioParent(current)) {
+            throw new ServiceException("用户取消");
+        }
+    }
+
+    private String requireAudioSubmissionTrace(Long taskId) {
+        AidExtractTask parent = extractTaskService.selectAidExtractTaskById(taskId);
+        if (Objects.isNull(parent) || StrUtil.isBlank(parent.getBillingTraceId())) {
+            throw new ServiceException("任务已停止");
+        }
+        return parent.getBillingTraceId();
+    }
+
+    private boolean isActiveAudioParent(AidExtractTask task) {
+        return task != null && TASK_TYPE_AUDIO_BATCH.equals(task.getTaskType())
+                && (TASK_STATUS_PENDING.equals(task.getStatus())
+                        || TASK_STATUS_PROCESSING.equals(task.getStatus()));
     }
 
     /** 构建输入快照JSON（排查依据，含逐分镜音色与原视频记录ID）。 */
     private String buildInputSnapshot(StoryboardAudioBatchRequest request, List<AidStoryboard> targets,
                                       Map<Long, Long> voiceByStoryboardId,
-                                      Map<Long, AidGenRecord> finalVideoByStoryboardId) {
+                                      Map<Long, AidGenRecord> finalVideoByStoryboardId,
+                                      BatchTaskSlotReservation slotReservation) {
         Map<String, Object> snapshot = new LinkedHashMap<>();
         snapshot.put("projectId", request.getProjectId());
         snapshot.put("episodeId", request.getEpisodeId());
@@ -1434,6 +1590,7 @@ public class StoryboardAudioBatchServiceImpl implements IStoryboardAudioBatchSer
             originalVideoIds.put(s.getId(), Objects.isNull(record) ? null : record.getId());
         }
         snapshot.put("originalVideoRecordIds", originalVideoIds);
+        batchTaskSlotService.attachSnapshotMetadata(snapshot, slotReservation);
         try {
             return OBJECT_MAPPER.writeValueAsString(snapshot);
         } catch (Exception e) {
@@ -1453,14 +1610,22 @@ public class StoryboardAudioBatchServiceImpl implements IStoryboardAudioBatchSer
             log.warn("批量配音 resultData 序列化失败, taskId={}", taskId, e);
             return;
         }
-        LambdaUpdateWrapper<AidExtractTask> update = Wrappers.lambdaUpdate();
-        update.eq(AidExtractTask::getId, taskId);
-        update.set(AidExtractTask::getResultData, json);
-        if (!TASK_STATUS_PROCESSING.equals(status)) {
-            update.set(AidExtractTask::getStatus, status);
-            update.set(AidExtractTask::getErrorMessage, errorMessage);
-        }
-        update.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
-        extractTaskService.update(update);
+        String executionTraceId = requireAudioSubmissionTrace(taskId);
+        batchParentSubmissionGuard.executeManagedBusinessCommit(taskId, executionTraceId, () -> {
+            LambdaUpdateWrapper<AidExtractTask> update = Wrappers.lambdaUpdate();
+            update.eq(AidExtractTask::getId, taskId);
+            update.in(AidExtractTask::getStatus, TASK_STATUS_PENDING, TASK_STATUS_PROCESSING);
+            update.set(AidExtractTask::getResultData, json);
+            if (!TASK_STATUS_PROCESSING.equals(status)) {
+                update.set(AidExtractTask::getStatus, status);
+                update.set(AidExtractTask::getErrorMessage, errorMessage);
+            }
+            update.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
+            boolean updated = extractTaskService.update(update);
+            if (updated && !TASK_STATUS_PROCESSING.equals(status)) {
+                batchTaskSlotService.releaseForTask(extractTaskService.selectAidExtractTaskById(taskId));
+            }
+            return null;
+        });
     }
 }

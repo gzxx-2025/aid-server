@@ -5,7 +5,11 @@ import java.util.Map;
 import com.aid.rps.dto.AssetExtractRequest;
 import com.aid.rps.dto.AssetExtractTaskVO;
 import com.aid.rps.dto.CancelBatchResult;
+import com.aid.rps.dto.FormImageGenerateRequest;
+import com.aid.rps.dto.FormCardImageGenerateRequest;
+import com.aid.rps.dto.FormGenerateRequest;
 import com.aid.rps.vo.RpsAssetVO;
+import com.aid.billing.vo.BillingQuoteVO;
 
 /**
  * AI资产提取Service接口
@@ -22,6 +26,9 @@ public interface IAssetExtractService
      * @return 提取任务VO（含taskId和PENDING状态）
      */
     AssetExtractTaskVO extractAssets(AssetExtractRequest request, Long userId);
+
+    /** 无副作用地复用正式提取计划生成逐调用报价。 */
+    BillingQuoteVO quoteExtractAssets(AssetExtractRequest request, Long userId);
 
 
     /**
@@ -52,6 +59,9 @@ public interface IAssetExtractService
      */
     AssetExtractTaskVO batchGenerateForm(List<Long> assetIds, Long userId, String agentCode, String modelCode);
 
+    /** 无任务、无锁地复用正式形态描述计费计划报价。 */
+    BillingQuoteVO quoteFormGenerate(FormGenerateRequest request, Long userId);
+
     /**
      * 费用预估（同步）。
      *
@@ -74,6 +84,9 @@ public interface IAssetExtractService
      */
     AssetExtractTaskVO batchGenerateFormImage(List<Long> formIds, Long userId, String agentCode,
                                               String modelCode, String resolution, String aspectRatio);
+
+    /** 无任务、无锁地报价批量基础形态图真实媒体计划。 */
+    BillingQuoteVO quoteFormImage(FormImageGenerateRequest request, Long userId);
 
     /**
      * 批量形态生成核心逻辑（由 Consumer 调用），逐项处理并返回结果 JSON。
@@ -104,6 +117,9 @@ public interface IAssetExtractService
     AssetExtractTaskVO batchGenerateCardImage(List<Long> imageIds, Long userId, String agentCode,
                                               String modelCode, String resolution, String aspectRatio);
 
+    /** 无任务、无锁地报价批量角色卡真实媒体计划。 */
+    BillingQuoteVO quoteCardImage(FormCardImageGenerateRequest request, Long userId);
+
     /**
      * 批量角色设定卡生成核心逻辑（由 Consumer 调用），逐张处理并返回结果 JSON。
      */
@@ -118,6 +134,9 @@ public interface IAssetExtractService
      * @return 续生提交后的任务VO
      */
     AssetExtractTaskVO resumeFormBatchTask(Long taskId, Long userId);
+
+    /** 三类形态批次续生的剩余项报价。 */
+    BillingQuoteVO quoteResumeFormBatchTask(Long taskId, Long userId);
 
     /**
      * 取消单个任务（统一停止接口）。
@@ -183,6 +202,9 @@ public interface IAssetExtractService
      * @return 续跑提交后的任务 VO
      */
     AssetExtractTaskVO resumeExtract(Long taskId, Long userId);
+
+    /** 资产提取续生的剩余稳定调用槽报价。 */
+    BillingQuoteVO quoteResumeExtract(Long taskId, Long userId);
     /**
      * 仅释放指定派发周期占用的多维并发名额与执行租约。
      *

@@ -23,10 +23,12 @@ import com.aid.compose.domain.ComposeCommand;
 import com.aid.compose.domain.ComposeGroup;
 import com.aid.compose.domain.ComposePendingContext;
 import com.aid.compose.service.ComposeBatchStore;
+import com.aid.compose.service.ComposeBatchSlotCoordinator;
 import com.aid.compose.service.CoreComposeService;
 import com.aid.media.enums.MediaTaskStatus;
 import com.aid.media.event.MediaTaskOssPersistedEvent;
 import com.aid.media.util.AudioDurationProber;
+import com.aid.rps.queue.BatchParentSubmissionGuard;
 
 import cn.hutool.core.collection.CollectionUtil;
 import cn.hutool.core.util.StrUtil;
@@ -61,6 +63,10 @@ public class ComposeAudioReadyListener {
 
     /** 合成批次 Redis 暂存/并发控制 */
     private final ComposeBatchStore composeBatchStore;
+
+    private final ComposeBatchSlotCoordinator composeBatchSlotCoordinator;
+
+    private final BatchParentSubmissionGuard batchParentSubmissionGuard;
 
     /** 核心合成方法 */
     private final CoreComposeService coreComposeService;
@@ -97,52 +103,95 @@ public class ComposeAudioReadyListener {
      * @param batchId 合成批次号
      */
     private void handleBatch(String batchId) {
-        if (composeBatchStore.isTriggered(batchId) || composeBatchStore.isFailed(batchId)) {
-            return;
+        try {
+            batchParentSubmissionGuard.execute("voiceover:" + batchId, () -> {
+                handleBatchLocked(batchId);
+                return Boolean.TRUE;
+            });
+        } catch (Exception ex) {
+            log.error("接口1 合成触发锁定异常, batchId={}", batchId, ex);
         }
+    }
+
+    /** watchdog submission guard 内复核业务终态并同步受理合成。 */
+    private void handleBatchLocked(String batchId) {
         List<AidAudioRecord> records = listBatchRecords(batchId);
         if (CollectionUtil.isEmpty(records)) {
             return;
         }
-        // 批内任一失败 → 标记失败、跳过合成
+        AidMediaTask persistedComposeTask = findPersistedComposeTask(batchId);
+        if (Objects.nonNull(persistedComposeTask)) {
+            try {
+                composeBatchStore.markTriggered(batchId);
+            } catch (Exception markerEx) {
+                log.warn("接口1 已受理合成标记写入失败, batchId={}, err={}", batchId, markerEx.getMessage());
+            }
+            if (MediaTaskStatus.FAILED.name().equals(persistedComposeTask.getStatus())) {
+                persistBatchFailed(batchId, "合成失败");
+                markFailedBestEffort(batchId);
+                composeBatchSlotCoordinator.releaseVoiceover(batchId);
+            }
+            // 任意持久化 COMPOSE 记录均说明同步受理已经越过边界；活跃/成功任务等待统一终态与 OSS 回写。
+            return;
+        }
         boolean anyFailed = records.stream()
                 .anyMatch(r -> MediaTaskStatus.FAILED.name().equals(r.getStatus()));
         if (anyFailed) {
-            composeBatchStore.markFailed(batchId);
+            markFailedBestEffort(batchId);
+            composeBatchSlotCoordinator.releaseVoiceover(batchId);
             log.info("接口1 批内配音失败, 跳过合成, batchId={}", batchId);
             return;
         }
-        // 未全部成功 → 等待
         boolean allSucceeded = records.stream()
                 .allMatch(r -> MediaTaskStatus.SUCCEEDED.name().equals(r.getStatus()));
         if (!allSucceeded) {
             return;
         }
-        // 分布式锁 + 已触发标记：同批仅触发一次
-        if (!composeBatchStore.tryLock(batchId)) {
-            return;
-        }
         try {
-            if (!composeBatchStore.markTriggered(batchId)) {
-                return;
-            }
             ComposePendingContext context = composeBatchStore.getContext(batchId);
             if (Objects.isNull(context) || CollectionUtil.isEmpty(context.getItems())) {
                 // 上下文缺失（Redis 过期/丢失）永远无法合成：标记失败让进度查询收敛终态，避免批次永久卡"合成中"
-                composeBatchStore.markFailed(batchId);
+                persistBatchFailed(batchId, "合成上下文缺失");
+                markFailedBestEffort(batchId);
+                composeBatchSlotCoordinator.releaseVoiceover(batchId);
                 log.error("接口1 合成上下文缺失,已标记批次失败, batchId={}", batchId);
                 return;
             }
             ComposeCommand command = buildCommand(context, records);
+            try {
+                composeBatchStore.markTriggered(batchId);
+            } catch (Exception markerEx) {
+                // Redis 标记只用于加速；watchdog guard + 持久 COMPOSE 任务才是幂等边界。
+                log.warn("接口1 合成触发标记写入失败, batchId={}, err={}", batchId, markerEx.getMessage());
+            }
             coreComposeService.compose(command);
-            composeBatchStore.clearContext(batchId);
+            try {
+                composeBatchStore.clearContext(batchId);
+            } catch (Exception clearEx) {
+                log.warn("接口1 合成上下文清理失败, batchId={}, err={}", batchId, clearEx.getMessage());
+            }
             log.info("接口1 配音齐全, 触发合成, batchId={}, groups={}", batchId, command.getGroups().size());
         } catch (Exception ex) {
-            // 触发合成失败：标记该批失败，避免 triggered 已置位却无成片、且无后续事件重触发导致批次永久卡死
-            composeBatchStore.markFailed(batchId);
+            AidMediaTask acceptedComposeTask = findPersistedComposeTask(batchId);
+            if (Objects.nonNull(acceptedComposeTask)) {
+                // 同步调用抛错但任务已落库时，以统一媒体任务的真实终态为准，不能把已受理任务伪造失败。
+                log.warn("接口1 合成调用异常但任务已受理, batchId={}, mediaTaskId={}, status={}",
+                        batchId, acceptedComposeTask.getId(), acceptedComposeTask.getStatus());
+                return;
+            }
+            // 未产生持久媒体任务才收口业务失败；DB 是 Redis 丢失后的失败真源。
+            persistBatchFailed(batchId, "合成失败");
+            markFailedBestEffort(batchId);
+            composeBatchSlotCoordinator.releaseVoiceover(batchId);
             log.error("接口1 触发合成异常,已标记批次失败, batchId={}", batchId, ex);
-        } finally {
-            composeBatchStore.unlock(batchId);
+        }
+    }
+
+    private void markFailedBestEffort(String batchId) {
+        try {
+            composeBatchStore.markFailed(batchId);
+        } catch (Exception ex) {
+            log.warn("接口1 合成失败标记写入异常, batchId={}, err={}", batchId, ex.getMessage());
         }
     }
 
@@ -161,6 +210,26 @@ public class ComposeAudioReadyListener {
         wrapper.eq(AidAudioRecord::getComposeBatchId, batchId);
         wrapper.orderByAsc(AidAudioRecord::getId);
         return aidAudioRecordMapper.selectList(wrapper);
+    }
+
+    private AidMediaTask findPersistedComposeTask(String batchId) {
+        LambdaQueryWrapper<AidMediaTask> query = new LambdaQueryWrapper<>();
+        query.select(AidMediaTask::getId, AidMediaTask::getStatus, AidMediaTask::getOssUrl);
+        query.eq(AidMediaTask::getComposeBatchId, batchId);
+        query.eq(AidMediaTask::getMediaType, ComposeConstants.MEDIA_TYPE_COMPOSE);
+        query.orderByDesc(AidMediaTask::getId);
+        query.last("LIMIT 1");
+        return aidMediaTaskMapper.selectOne(query);
+    }
+
+    /** 把“全配音成功但无法创建合成”的失败持久化，供 Redis 丢失后的 DB 判活恢复。 */
+    private void persistBatchFailed(String batchId, String errorMessage) {
+        LambdaUpdateWrapper<AidAudioRecord> update = new LambdaUpdateWrapper<>();
+        update.eq(AidAudioRecord::getComposeBatchId, batchId);
+        update.set(AidAudioRecord::getStatus, MediaTaskStatus.FAILED.name());
+        update.set(AidAudioRecord::getErrorMessage, errorMessage);
+        update.set(AidAudioRecord::getUpdateTime, new Date());
+        aidAudioRecordMapper.update(null, update);
     }
 
     /**

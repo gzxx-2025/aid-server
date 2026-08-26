@@ -14,6 +14,10 @@ import com.aid.aid.service.*;
 import com.aid.billing.enums.BillingConstants;
 import com.aid.billing.service.IAccountUpdateService;
 import com.aid.billing.service.BillingPriceMultiplierService;
+import com.aid.billing.dto.BillingCalcResult;
+import com.aid.billing.service.BillingPreHoldCalculationService;
+import com.aid.billing.service.BillingQuoteAssembler;
+import com.aid.billing.vo.BillingQuoteVO;
 import com.aid.common.error.TaskErrorPresentation;
 import com.aid.common.exception.ServiceException;
 import com.aid.common.utils.DateUtils;
@@ -36,9 +40,11 @@ import com.aid.media.dto.MediaImageGenerateRequest;
 import com.aid.media.dto.MediaTaskResponse;
 import com.aid.media.dto.MediaVideoGenerateRequest;
 import com.aid.media.dto.MediaAudioGenerateRequest;
+import com.aid.media.dto.PreparedMediaBillingInput;
 import com.aid.media.enums.MediaTaskStatus;
 import com.aid.media.enums.MediaType;
 import com.aid.media.service.IMediaGenerationService;
+import com.aid.media.service.MediaBillingQuotePreparer;
 import com.aid.media.util.ModelCapabilityResolver;
 import com.aid.media.util.UploadedMediaPathValidator;
 import com.aid.model.service.IAiModelBusinessService;
@@ -219,6 +225,12 @@ public class StoryboardWorkbenchServiceImpl implements IStoryboardWorkbenchServi
     private ICreationStepService creationStepService;
     @Autowired
     private IMediaGenerationService mediaGenerationService;
+    @Autowired
+    private MediaBillingQuotePreparer mediaBillingQuotePreparer;
+    @Autowired
+    private BillingPreHoldCalculationService billingPreHoldCalculationService;
+    @Autowired
+    private BillingQuoteAssembler billingQuoteAssembler;
     @Autowired
     private IAidComicAssetService aidComicAssetService;
     @Autowired
@@ -1715,55 +1727,54 @@ public class StoryboardWorkbenchServiceImpl implements IStoryboardWorkbenchServi
         return generateAudioForParent(request, userId, null);
     }
 
-    /**
-     * 编排任务内部配音入口：业务校验、媒体调度与计费流程和公开配音入口完全一致，
-     * 仅额外写入 parent_task_id，供父任务续租与重启对账。
-     */
     @Override
-    public AudioTaskVO generateAudioForParent(GenerateAudioRequest request, Long userId, Long parentTaskId) {
+    public BillingQuoteVO quoteAudio(GenerateAudioRequest request, Long userId) {
+        PreparedAudioBillingPlan plan = prepareAudioBillingPlan(request, userId, null, null);
+        PreparedMediaBillingInput prepared = mediaBillingQuotePreparer.prepareAudioBilling(plan.mediaRequest());
+        BillingCalcResult result = billingPreHoldCalculationService.calculate(
+                prepared.modelConfig(), prepared.billingInput());
+        if (result == null || !result.isMatched()) {
+            throw new ServiceException(result == null ? "计费规则缺失" : result.getErrorMessage());
+        }
+        return billingQuoteAssembler.single("STORYBOARD_AUDIO", prepared.modelConfig(), result, 1);
+    }
+
+    /** 正式提交和只读报价共用的配音前置计划，构建过程位于 AidAudioRecord 写入之前。 */
+    private PreparedAudioBillingPlan prepareAudioBillingPlan(
+            GenerateAudioRequest request, Long userId, Long parentTaskId, String parentExecutionTraceId) {
+        if (request == null || userId == null) {
+            throw new ServiceException("参数错误");
+        }
         AidStoryboard storyboard = getStoryboardWithOwnerCheck(request.getStoryboardId(), userId);
-        // 步骤校验：配音需要步骤6已解锁
         creationStepService.checkStepUnlocked(storyboard.getProjectId(), storyboard.getEpisodeId(), userId,
                 CreationStepEnum.AUDIO.getValue());
 
         ResolvedVoice resolved = resolveVoice(request);
         validateCommonAudioParams(request);
-
-        //      台词标记统一清洗：dialogue_text 带入的「[角色_形象]：」「@音频N[...]」「|」等结构标记
-        //      对 TTS 是噪声（会被朗读出来且按字符计费），先剥掉只留可朗读正文；
-        //      清洗幂等，用户手输的纯文本不受影响。清洗后为空说明全是标记，直接短文案拦截。
         String ttsText = DialogueTextSanitizer.sanitize(request.getTtsText());
         if (StrUtil.isBlank(ttsText)) {
             log.info("generateAudio 台词清洗后为空: userId={}, rawLen={}",
                     userId, StrUtil.length(request.getTtsText()));
             throw new ServiceException("配音文字无效");
         }
-        //      - MiniMax 异步长文本 T2A V2：text ≤ 5 万字符；
-        //      - 豆包异步长文本同量级；
-        //      统一在业务层按常量拦截，避免超长文本走到预冻结 / 上游提交再失败，省掉回滚成本。
-        //      校验和后续提交/落库都基于清洗后的同一份 ttsText，保证长度/计费一致。
         if (ttsText.length() > TTS_TEXT_MAX_LENGTH) {
             log.info("generateAudio 文本超长: userId={}, modelCode={}, textLen={}, max={}",
                     userId, resolved.modelCode, ttsText.length(), TTS_TEXT_MAX_LENGTH);
             throw new ServiceException("文本过长");
         }
 
-        //      按"模型 capability_json.emotions"声明的白名单拦截，避免 speech-2.8-* 传 fluent/whisper
-        //      绕过 SQL 能力声明最终被上游报错。白名单为空 → 视为"模型未声明能力"不拦截。
         String requestedEmotion = StrUtil.trimToEmpty(request.getEmotion());
         if (StrUtil.isNotBlank(requestedEmotion)
-                && cn.hutool.core.collection.CollectionUtil.isNotEmpty(resolved.supportedEmotions)
+                && CollectionUtil.isNotEmpty(resolved.supportedEmotions)
                 && !resolved.supportedEmotions.contains(requestedEmotion)) {
             log.info("generateAudio 情感不在模型白名单, userId={}, modelCode={}, emotion={}, supported={}",
                     userId, resolved.modelCode, requestedEmotion, resolved.supportedEmotions);
             throw new ServiceException("情感不支持");
         }
 
-        // MiniMax 特有参数在建记录 / 计费前先行校验：校验失败直接短文案拦截，不落 aid_audio_record 行
-        boolean isMinimax = isMiniMaxProvider(resolved);
-        if (isMinimax) {
+        boolean minimax = isMiniMaxProvider(resolved);
+        if (minimax) {
             validateMinimaxParams(request);
-            //  MiniMax 走同步 /v1/t2a_v2，官方 text 上限 1 万字符（低于通用 5 万上限），单独收紧拦截
             if (ttsText.length() > com.aid.media.constants.MinimaxTtsConstants.SYNC_TEXT_MAX_LENGTH) {
                 log.info("generateAudio MiniMax同步接口文本超长: userId={}, modelCode={}, textLen={}, max={}",
                         userId, resolved.modelCode, ttsText.length(),
@@ -1771,6 +1782,100 @@ public class StoryboardWorkbenchServiceImpl implements IStoryboardWorkbenchServi
                 throw new ServiceException("文本过长");
             }
         }
+
+        MediaAudioGenerateRequest mediaReq = new MediaAudioGenerateRequest();
+        mediaReq.setUserId(userId);
+        mediaReq.setProjectId(storyboard.getProjectId());
+        mediaReq.setEpisodeId(storyboard.getEpisodeId());
+        mediaReq.setModelName(resolved.modelCode);
+        mediaReq.setTtsText(ttsText);
+        mediaReq.setVoiceCode(resolved.voiceCode);
+        mediaReq.setLanguage(resolved.language);
+        mediaReq.setEmotion(StrUtil.isNotBlank(requestedEmotion) ? requestedEmotion : resolved.defaultEmotion);
+        mediaReq.setEmotionScale(request.getEmotionScale());
+        mediaReq.setSpeechRate(request.getSpeechRate());
+        mediaReq.setLoudnessRate(request.getLoudnessRate());
+        mediaReq.setPitch(request.getPitch() != null ? request.getPitch() : resolved.defaultPitch);
+        mediaReq.setAudioFormat(StrUtil.isNotBlank(request.getAudioFormat())
+                ? request.getAudioFormat() : resolved.audioFormat);
+        mediaReq.setSampleRate(request.getSampleRate() != null ? request.getSampleRate() : resolved.sampleRate);
+        mediaReq.setParentTaskId(parentTaskId);
+        Map<String, Object> options = minimax ? buildMinimaxAudioOptions(request) : new LinkedHashMap<>();
+        if (StrUtil.isNotBlank(parentExecutionTraceId)) {
+            options.put("parentExecutionTraceId", parentExecutionTraceId);
+        }
+        mediaReq.setOptions(options.isEmpty() ? null : options);
+        return new PreparedAudioBillingPlan(storyboard, resolved, ttsText, mediaReq);
+    }
+
+    private Map<String, Object> buildMinimaxAudioOptions(GenerateAudioRequest request) {
+        Map<String, Object> options = new LinkedHashMap<>();
+        if (StrUtil.isNotBlank(request.getLanguageBoost())) {
+            options.put(com.aid.media.constants.MinimaxTtsConstants.OPTIONS_LANGUAGE_BOOST,
+                    request.getLanguageBoost().trim());
+        }
+        if (request.getEnglishNormalization() != null) {
+            options.put(com.aid.media.constants.MinimaxTtsConstants.OPTIONS_ENGLISH_NORMALIZATION,
+                    request.getEnglishNormalization());
+        }
+        if (request.getAigcWatermark() != null) {
+            options.put(com.aid.media.constants.MinimaxTtsConstants.OPTIONS_AIGC_WATERMARK,
+                    request.getAigcWatermark());
+        }
+        if (request.getChannel() != null) {
+            options.put(com.aid.media.constants.MinimaxTtsConstants.OPTIONS_CHANNEL, request.getChannel());
+        }
+        if (request.getBitrate() != null) {
+            options.put(com.aid.media.constants.MinimaxTtsConstants.OPTIONS_BITRATE, request.getBitrate());
+        }
+        if (CollectionUtil.isNotEmpty(request.getPronunciationTone())) {
+            List<String> filteredTone = normalizeMinimaxToneList(request.getPronunciationTone());
+            if (!filteredTone.isEmpty()) {
+                options.put(com.aid.media.constants.MinimaxTtsConstants.OPTIONS_PRONUNCIATION_TONE, filteredTone);
+            }
+        }
+        if (StrUtil.isNotBlank(request.getSoundEffect())) {
+            options.put(com.aid.media.constants.MinimaxTtsConstants.OPTIONS_SOUND_EFFECT,
+                    request.getSoundEffect().trim());
+        }
+        if (request.getVoiceModifyIntensity() != null) {
+            options.put(com.aid.media.constants.MinimaxTtsConstants.OPTIONS_VOICE_MODIFY_INTENSITY,
+                    request.getVoiceModifyIntensity());
+        }
+        if (request.getVoiceModifyTimbre() != null) {
+            options.put(com.aid.media.constants.MinimaxTtsConstants.OPTIONS_VOICE_MODIFY_TIMBRE,
+                    request.getVoiceModifyTimbre());
+        }
+        if (request.getVoiceModifyPitch() != null) {
+            options.put("voiceModifyPitch", request.getVoiceModifyPitch());
+        }
+        return options.isEmpty() ? null : options;
+    }
+
+    private record PreparedAudioBillingPlan(
+            AidStoryboard storyboard,
+            ResolvedVoice resolvedVoice,
+            String ttsText,
+            MediaAudioGenerateRequest mediaRequest) {
+    }
+
+    /**
+     * 编排任务内部配音入口：业务校验、媒体调度与计费流程和公开配音入口完全一致，
+     * 仅额外写入 parent_task_id，供父任务续租与重启对账。
+     */
+    @Override
+    public AudioTaskVO generateAudioForParent(GenerateAudioRequest request, Long userId, Long parentTaskId) {
+        return generateAudioForParent(request, userId, parentTaskId, null);
+    }
+
+    @Override
+    public AudioTaskVO generateAudioForParent(GenerateAudioRequest request, Long userId, Long parentTaskId,
+                                              String parentExecutionTraceId) {
+        PreparedAudioBillingPlan plan = prepareAudioBillingPlan(
+                request, userId, parentTaskId, parentExecutionTraceId);
+        AidStoryboard storyboard = plan.storyboard();
+        ResolvedVoice resolved = plan.resolvedVoice();
+        String ttsText = plan.ttsText();
 
         //    落库和后续提交都用 trim 后的 ttsText，和长度校验同一份数据。
         AidAudioRecord task = new AidAudioRecord();
@@ -1791,78 +1896,9 @@ public class StoryboardWorkbenchServiceImpl implements IStoryboardWorkbenchServi
         task.setCreateTime(DateUtils.getNowDate());
         aidAudioRecordService.save(task);
 
-        MediaAudioGenerateRequest mediaReq = new MediaAudioGenerateRequest();
-        mediaReq.setUserId(userId);
-        mediaReq.setProjectId(storyboard.getProjectId());
-        mediaReq.setEpisodeId(storyboard.getEpisodeId());
-        mediaReq.setModelName(resolved.modelCode);
-        mediaReq.setTtsText(ttsText);
-        mediaReq.setVoiceCode(resolved.voiceCode);
-        mediaReq.setLanguage(resolved.language);
-        mediaReq.setEmotion(StrUtil.isNotBlank(requestedEmotion) ? requestedEmotion : resolved.defaultEmotion);
-        mediaReq.setEmotionScale(request.getEmotionScale());
-        mediaReq.setSpeechRate(request.getSpeechRate());
-        mediaReq.setLoudnessRate(request.getLoudnessRate());
-        mediaReq.setPitch(request.getPitch() != null ? request.getPitch() : resolved.defaultPitch);
-        mediaReq.setAudioFormat(StrUtil.isNotBlank(request.getAudioFormat()) ? request.getAudioFormat() : resolved.audioFormat);
-        mediaReq.setSampleRate(request.getSampleRate() != null ? request.getSampleRate() : resolved.sampleRate);
+        MediaAudioGenerateRequest mediaReq = plan.mediaRequest();
         mediaReq.setBizTaskId(task.getId());
         mediaReq.setBizTaskType("audio_record");
-        mediaReq.setParentTaskId(parentTaskId);
-
-        //      只有 isMinimax=true 时才写入 options；豆包保持 options=null。
-        //      所有值使用 validate 后的 trim/过滤结果。
-        if (isMinimax) {
-            java.util.Map<String, Object> minimaxOptions = new java.util.LinkedHashMap<>();
-            // languageBoost：已在 validateMinimaxParams 校验过白名单
-            if (StrUtil.isNotBlank(request.getLanguageBoost())) {
-                minimaxOptions.put(com.aid.media.constants.MinimaxTtsConstants.OPTIONS_LANGUAGE_BOOST,
-                        request.getLanguageBoost().trim());
-            }
-            if (Objects.nonNull(request.getEnglishNormalization())) {
-                minimaxOptions.put(com.aid.media.constants.MinimaxTtsConstants.OPTIONS_ENGLISH_NORMALIZATION,
-                        request.getEnglishNormalization());
-            }
-            if (Objects.nonNull(request.getAigcWatermark())) {
-                minimaxOptions.put(com.aid.media.constants.MinimaxTtsConstants.OPTIONS_AIGC_WATERMARK,
-                        request.getAigcWatermark());
-            }
-            if (Objects.nonNull(request.getChannel())) {
-                minimaxOptions.put(com.aid.media.constants.MinimaxTtsConstants.OPTIONS_CHANNEL,
-                        request.getChannel());
-            }
-            if (Objects.nonNull(request.getBitrate())) {
-                minimaxOptions.put(com.aid.media.constants.MinimaxTtsConstants.OPTIONS_BITRATE,
-                        request.getBitrate());
-            }
-            // pronunciationTone：复用 normalizeMinimaxToneList（和校验共用同一份归一化结果）
-            if (cn.hutool.core.collection.CollectionUtil.isNotEmpty(request.getPronunciationTone())) {
-                java.util.List<String> filteredTone = normalizeMinimaxToneList(request.getPronunciationTone());
-                if (!filteredTone.isEmpty()) {
-                    minimaxOptions.put(com.aid.media.constants.MinimaxTtsConstants.OPTIONS_PRONUNCIATION_TONE,
-                            filteredTone);
-                }
-            }
-            // soundEffect：写入 trim 后的值
-            if (StrUtil.isNotBlank(request.getSoundEffect())) {
-                minimaxOptions.put(com.aid.media.constants.MinimaxTtsConstants.OPTIONS_SOUND_EFFECT,
-                        request.getSoundEffect().trim());
-            }
-            if (Objects.nonNull(request.getVoiceModifyIntensity())) {
-                minimaxOptions.put(com.aid.media.constants.MinimaxTtsConstants.OPTIONS_VOICE_MODIFY_INTENSITY,
-                        request.getVoiceModifyIntensity());
-            }
-            if (Objects.nonNull(request.getVoiceModifyTimbre())) {
-                minimaxOptions.put(com.aid.media.constants.MinimaxTtsConstants.OPTIONS_VOICE_MODIFY_TIMBRE,
-                        request.getVoiceModifyTimbre());
-            }
-            if (Objects.nonNull(request.getVoiceModifyPitch())) {
-                minimaxOptions.put("voiceModifyPitch", request.getVoiceModifyPitch());
-            }
-            if (!minimaxOptions.isEmpty()) {
-                mediaReq.setOptions(minimaxOptions);
-            }
-        }
 
         MediaTaskResponse mediaResp;
         try {

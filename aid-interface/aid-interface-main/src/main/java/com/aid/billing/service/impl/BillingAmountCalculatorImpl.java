@@ -16,6 +16,7 @@ import com.aid.billing.service.BillingAmountCalculator;
 import com.aid.billing.service.BillingPriceMultiplierService;
 import com.aid.billing.service.BillingRuleResolver;
 import com.aid.billing.util.TextTokenEstimator;
+import com.aid.billing.util.BillingSettlementPolicy;
 import com.aid.domain.vo.AiModelConfigVo;
 import com.aid.media.provider.ProviderUsageSupport;
 import com.aid.media.provider.TextOutputLimitResolver;
@@ -44,10 +45,9 @@ public class BillingAmountCalculatorImpl implements BillingAmountCalculator {
 
     @Override
     public BillingCalcResult calculatePreHoldAmount(AiModelConfigVo modelConfig, BillingInput billingInput) {
-        MeterType meterType = resolveMeterType(modelConfig);
-        log.info("预扣计费分发: modelCode={}, meterType={}", modelConfig.getModelCode(), meterType);
-
         if (BillingMode.of(modelConfig.getBillingMode()) == BillingMode.FIXED) {
+            MeterType meterType = resolveMeterType(modelConfig, null, null);
+            log.info("预扣计费分发: modelCode={}, meterType={}", modelConfig.getModelCode(), meterType);
             return applyFreeDecision(modelConfig,
                     calculateFixedPreHold(modelConfig, billingInput, meterType));
         }
@@ -58,13 +58,35 @@ public class BillingAmountCalculatorImpl implements BillingAmountCalculator {
             return BillingCalcResult.notMatched("计费规则缺失");
         }
 
-        normalizeTextTokenPreHoldParams(modelConfig, billingInput, rule, meterType);
+        MeterType fallbackMeterType = resolveMeterType(modelConfig, rule, null);
+        if (fallbackMeterType == null) {
+            log.error("模型级meterType非法，拒绝计费, modelCode={}, meterType={}",
+                    modelConfig.getModelCode(), rule.getMeterType());
+            return BillingCalcResult.notMatched("计费规则无效");
+        }
+        if (fallbackMeterType == MeterType.TOKEN || hasEnabledTokenSku(rule)) {
+            normalizeTextTokenPreHoldParams(modelConfig, billingInput, rule, MeterType.TOKEN);
+        }
 
         BillingSku matchedSku = billingRuleResolver.resolve(rule, billingInput.getParams());
         if (matchedSku == null) {
             log.error("SKU未命中, modelCode={}, params={}", modelConfig.getModelCode(), billingInput.getParams());
             return BillingCalcResult.notMatched("计费规则缺失");
         }
+
+        MeterType meterType = resolveMeterType(modelConfig, rule, matchedSku);
+        if (meterType == null) {
+            log.error("SKU级meterType非法，拒绝计费, modelCode={}, skuCode={}, meterType={}",
+                    modelConfig.getModelCode(), matchedSku.getSkuCode(), matchedSku.getMeterType());
+            return BillingCalcResult.notMatched("计费规则无效");
+        }
+        if (!hasValidMatchedSkuPrice(matchedSku, meterType)) {
+            log.error("SKU主价格无效，拒绝计费, modelCode={}, skuCode={}, meterType={}",
+                    modelConfig.getModelCode(), matchedSku.getSkuCode(), meterType);
+            return BillingCalcResult.notMatched("计费规则无效");
+        }
+        log.info("预扣计费分发: modelCode={}, skuCode={}, meterType={}",
+                modelConfig.getModelCode(), matchedSku.getSkuCode(), meterType);
 
         BillingCalcResult result = switch (meterType) {
             case TOKEN -> preHoldToken(modelConfig, matchedSku, rule, billingInput);
@@ -97,15 +119,33 @@ public class BillingAmountCalculatorImpl implements BillingAmountCalculator {
     /**
      * 从模型配置解析计费计量类型。
      */
-    private MeterType resolveMeterType(AiModelConfigVo modelConfig) {
+    private MeterType resolveMeterType(AiModelConfigVo modelConfig, BillingRule parsedRule,
+                                       BillingSku matchedSku) {
         String modelCode = modelConfig.getModelCode();
+        if (matchedSku != null && CharSequenceUtil.isNotBlank(matchedSku.getMeterType())) {
+            MeterType skuMeterType = MeterType.of(matchedSku.getMeterType());
+            if (skuMeterType != null) {
+                return skuMeterType;
+            }
+            log.error("SKU级meterType无效, modelCode={}, skuCode={}, meterType={}",
+                    modelCode, matchedSku.getSkuCode(), matchedSku.getMeterType());
+            return null;
+        }
+        BillingRule rule = parsedRule;
         if (CharSequenceUtil.isNotBlank(modelConfig.getBillingRuleJson())) {
             try {
-                BillingRule rule = billingRuleResolver.parseRule(modelConfig);
+                if (rule == null) {
+                    rule = billingRuleResolver.parseRule(modelConfig);
+                }
                 if (rule != null && CharSequenceUtil.isNotBlank(rule.getMeterType())) {
                     MeterType mt = MeterType.of(rule.getMeterType());
                     if (mt != null) {
                         return mt;
+                    }
+                    if (parsedRule != null || BillingMode.of(modelConfig.getBillingMode()) == BillingMode.SKU) {
+                        log.error("模型级meterType无效, modelCode={}, meterType={}",
+                                modelCode, rule.getMeterType());
+                        return null;
                     }
                 }
             } catch (Exception e) {
@@ -130,6 +170,31 @@ public class BillingAmountCalculatorImpl implements BillingAmountCalculator {
         log.warn("meterType未配置且modelType未知, 兜底为SKU_PACKAGE, modelCode={}, modelType={}",
                 modelCode, modelType);
         return MeterType.SKU_PACKAGE;
+    }
+
+    /** TOKEN 档位可能依赖估算后的 inputTokens 命中，匹配 SKU 前必须先完成保守估算。 */
+    private boolean hasEnabledTokenSku(BillingRule rule) {
+        return rule != null && rule.getSkus() != null && rule.getSkus().stream()
+                .filter(Objects::nonNull)
+                .filter(BillingSku::isEnabled)
+                .map(BillingSku::getMeterType)
+                .filter(CharSequenceUtil::isNotBlank)
+                .map(MeterType::of)
+                .anyMatch(MeterType.TOKEN::equals);
+    }
+
+    /** 显式 SKU 口径必须提供同单位主价格；仅无 SKU 口径的旧规则保留历史反推兜底。 */
+    private boolean hasValidMatchedSkuPrice(BillingSku sku, MeterType meterType) {
+        boolean explicitMeterType = CharSequenceUtil.isNotBlank(sku.getMeterType());
+        return switch (meterType) {
+            case TOKEN -> isPositive(sku.getInputPricePerMillion()) || isPositive(sku.getOutputPricePerMillion());
+            case PER_IMAGE, SKU_PACKAGE -> isPositive(sku.getPrice());
+            case PER_SECOND -> isPositive(sku.getPricePerSecond())
+                    || (!explicitMeterType && isPositive(sku.getPrice())
+                    && safeGetInt(sku.getMatch(), "durationMax", 0) > 0);
+            case PER_CHAR -> isPositive(sku.getPricePerChar())
+                    || (!explicitMeterType && isPositive(sku.getPrice()));
+        };
     }
 
     /**
@@ -471,8 +536,13 @@ public class BillingAmountCalculatorImpl implements BillingAmountCalculator {
             markSettleDone(snapshot, preHoldAmount, preHoldAmount);
             return BillingCalcResult.fixed(preHoldAmount, snapshot);
         } else if (meterType == MeterType.PER_SECOND) {
-            // PER_SECOND：按实际秒数 × 每秒单价 结算
-            return settleWithPerSecondPricing(preHoldAmount, snapshot, usageData);
+            if (BillingSettlementPolicy.isEstimated(meterType.name(), billingMode, ruleJson)) {
+                // 依赖上游真实时长或允许退款：按实际秒数 × 每秒单价结算。
+                return settleWithPerSecondPricing(preHoldAmount, snapshot, usageData);
+            }
+            // 显式 DIRECT_SETTLE + ESTIMATE：请求时长就是最终计费量。
+            markSettleDone(snapshot, preHoldAmount, preHoldAmount);
+            return BillingCalcResult.sku(snapshot.getSkuCode(), snapshot.getSkuName(), preHoldAmount, snapshot);
         } else if (meterType == MeterType.SKU_PACKAGE) {
             // SKU_PACKAGE：直接按预扣金额结算
             markSettleDone(snapshot, preHoldAmount, preHoldAmount);
@@ -667,11 +737,25 @@ public class BillingAmountCalculatorImpl implements BillingAmountCalculator {
         actualParams.put("outputTokens", actualUsage.outputTokens);
         actualParams.put("totalTokens", (long) actualUsage.inputTokens + actualUsage.outputTokens);
         BillingSku matched = billingRuleResolver.resolve(rule, actualParams);
+        if (Objects.nonNull(matched)) {
+            MeterType actualMeterType = resolveFrozenSkuMeterType(rule, matched);
+            if (actualMeterType != MeterType.TOKEN) {
+                log.error("实际Token命中非TOKEN冻结档位，沿用预冻结档位: model={}, skuCode={}, meterType={}",
+                        snapshot.getModelName(), matched.getSkuCode(), actualMeterType);
+                return null;
+            }
+        }
         if (Objects.isNull(matched)) {
             log.error("实际Token未命中冻结计费规则，沿用预冻结档位: model={}, inputTokens={}, outputTokens={}",
                     snapshot.getModelName(), actualUsage.inputTokens, actualUsage.outputTokens);
         }
         return matched;
+    }
+
+    private MeterType resolveFrozenSkuMeterType(BillingRule rule, BillingSku sku) {
+        String raw = CharSequenceUtil.isNotBlank(sku.getMeterType())
+                ? sku.getMeterType() : rule.getMeterType();
+        return MeterType.of(raw);
     }
     /**
      * PER_SECOND 结算：pricePerSecond × usageData.actualDuration × finalMultiplier，只退不补。

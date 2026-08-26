@@ -50,7 +50,7 @@ public class MediaImageGenerateRequest {
     /**
      * 目标输出张数（可选，仅用于预扣与展示）。
      * 最终扣费以 provider 实际返回图片张数为准，不作为结算依据。
-     * 为空、&lt;=0 时后端按 1 兜底；各模型上限由 ImageBillingCapabilityHelper 统一约束。
+     * 为空时按 1；&lt;=0 时拒绝；超过模型上限时沿用既有业务规则截断并回写请求。
      */
     private Integer expectedImageCount;
 

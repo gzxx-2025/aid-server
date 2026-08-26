@@ -2,6 +2,7 @@ package com.aid.storyboard.service;
 
 import com.aid.storyboard.dto.StoryboardMultiViewGridImageGenerateRequest;
 import com.aid.storyboard.dto.StoryboardMultiViewGridImageGenerateVO;
+import com.aid.billing.vo.BillingQuoteVO;
 
 /**
  * 分镜机位生图服务。
@@ -18,5 +19,9 @@ public interface IStoryboardMultiViewGridImageService
      * @return 分镜机位生图任务视图
      */
     StoryboardMultiViewGridImageGenerateVO generateMultiViewGridImage(
+            StoryboardMultiViewGridImageGenerateRequest request, Long userId);
+
+    /** 无任务、无锁、无远程图片探测地报价同一机位图请求。 */
+    BillingQuoteVO quoteMultiViewGridImage(
             StoryboardMultiViewGridImageGenerateRequest request, Long userId);
 }

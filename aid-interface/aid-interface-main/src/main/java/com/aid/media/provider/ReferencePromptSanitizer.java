@@ -67,6 +67,22 @@ public final class ReferencePromptSanitizer {
     /** Seedance 官方索引引用：{@code @imageN/@videoN/@audioN}。 */
     private static final Pattern SEEDANCE_INDEX_REF = Pattern.compile("@(image|video|audio)(\\d+)\\b");
 
+    /** Wan3.0 兼容的英文索引引用，允许带或不带 {@code @}。 */
+    private static final Pattern WAN3_INDEX_REF = Pattern.compile("@?(image|video|audio)(\\d+)(?!\\d)");
+    /** Wan3.0 兼容业务历史的中文 {@code @图片N/@图N/@视频N/@音频N} 引用。 */
+    private static final Pattern WAN3_CHINESE_INDEX_REF =
+            Pattern.compile("@(图片|图|视频|音频)(\\d+)(?!\\d)");
+
+    /** Agnes Video 2.5 官方素材引用：{@code <Picture N>/<Audio N>/<Video N>}。 */
+    private static final Pattern AGNES25_OFFICIAL_REF =
+            Pattern.compile("<(Picture|Audio|Video)\\s+(\\d+)>", Pattern.CASE_INSENSITIVE);
+    /** Agnes Video 2.5 兼容系统英文索引引用。 */
+    private static final Pattern AGNES25_INDEX_REF =
+            Pattern.compile("@(image|video|audio)(\\d+)(?!\\d)", Pattern.CASE_INSENSITIVE);
+    /** Agnes Video 2.5 兼容系统中文索引引用。 */
+    private static final Pattern AGNES25_CHINESE_INDEX_REF =
+            Pattern.compile("@(图片|图|视频|音频)(\\d+)(?!\\d)");
+
     /** 仅清理非 Seedance 官方索引语法的选择标记。 */
     private static final Pattern SEEDANCE_STRAY_AT_MARKER =
             Pattern.compile("@(?!(?:image|video|audio)\\d+\\b)(?=\\S)");
@@ -184,6 +200,141 @@ public final class ReferencePromptSanitizer {
      */
     public static String sanitizeForSeedance(String prompt, int dispatchedImageCount,
                                              int dispatchedVideoCount, int dispatchedAudioCount) {
+        return sanitizeForIndexedMedia(prompt, dispatchedImageCount,
+                dispatchedVideoCount, dispatchedAudioCount);
+    }
+
+    /** Wan3.0 索引素材清洗：统一转换为官方的“图N/视频N/音频N”自然语言引用。 */
+    public static String sanitizeForWan3(String prompt, int imageCount,
+                                         int videoCount, int audioCount) {
+        if (StrUtil.isBlank(prompt)) {
+            return prompt;
+        }
+        String cleaned = MAPPING_SECTION.matcher(prompt).replaceAll("");
+        cleaned = applyPlaceholder(cleaned, REF_PLACEHOLDER, "图", imageCount, null);
+        cleaned = applyPlaceholder(cleaned, AUDIO_REF_PLACEHOLDER, "音频", audioCount, AUDIO_NAME_PREFIX);
+        cleaned = rewriteWan3ChineseRefs(cleaned, imageCount, videoCount, audioCount);
+        Matcher matcher = WAN3_INDEX_REF.matcher(cleaned);
+        StringBuffer rewritten = new StringBuffer();
+        while (matcher.find()) {
+            String kind = matcher.group(1);
+            int index = parseIndex(matcher.group(2));
+            int max = "image".equals(kind) ? imageCount : "video".equals(kind) ? videoCount : audioCount;
+            String label = "image".equals(kind) ? "图" : "video".equals(kind) ? "视频" : "音频";
+            String replacement = index >= 1 && index <= max ? label + index : label + matcher.group(2);
+            matcher.appendReplacement(rewritten, Matcher.quoteReplacement(replacement));
+        }
+        matcher.appendTail(rewritten);
+        return STRAY_AT_MARKER.matcher(rewritten.toString()).replaceAll("").strip();
+    }
+
+    /** Agnes Video 2.5 素材索引清洗：统一转换为厂商官方尖括号引用。 */
+    public static String sanitizeForAgnes25(String prompt, int imageCount,
+                                            int videoCount, int audioCount) {
+        if (StrUtil.isBlank(prompt)) {
+            return prompt;
+        }
+        String cleaned = MAPPING_SECTION.matcher(prompt).replaceAll("");
+        cleaned = applyAgnes25Placeholder(cleaned, REF_PLACEHOLDER,
+                "Picture", imageCount, null);
+        cleaned = applyAgnes25Placeholder(cleaned, AUDIO_REF_PLACEHOLDER,
+                "Audio", audioCount, AUDIO_NAME_PREFIX);
+        cleaned = rewriteAgnes25ChineseRefs(cleaned, imageCount, videoCount, audioCount);
+        cleaned = rewriteAgnes25IndexedRefs(cleaned, imageCount, videoCount, audioCount);
+        cleaned = rewriteAgnes25OfficialRefs(cleaned, imageCount, videoCount, audioCount);
+        return STRAY_AT_MARKER.matcher(cleaned).replaceAll("").strip();
+    }
+
+    private static String applyAgnes25Placeholder(String prompt, Pattern pattern, String kind,
+                                                   int count, String namePrefix) {
+        Matcher matcher = pattern.matcher(prompt);
+        StringBuffer rewritten = new StringBuffer();
+        while (matcher.find()) {
+            int index = parseIndex(matcher.group(1));
+            String replacement = index >= 1 && index <= count
+                    ? "<" + kind + " " + index + ">"
+                    : degradeName(matcher.group(2), namePrefix);
+            matcher.appendReplacement(rewritten, Matcher.quoteReplacement(replacement));
+        }
+        matcher.appendTail(rewritten);
+        return rewritten.toString();
+    }
+
+    private static String rewriteAgnes25ChineseRefs(String prompt, int imageCount,
+                                                     int videoCount, int audioCount) {
+        Matcher matcher = AGNES25_CHINESE_INDEX_REF.matcher(prompt);
+        StringBuffer rewritten = new StringBuffer();
+        while (matcher.find()) {
+            String rawKind = matcher.group(1);
+            String kind = "视频".equals(rawKind) ? "Video" : "音频".equals(rawKind) ? "Audio" : "Picture";
+            int max = "Video".equals(kind) ? videoCount : "Audio".equals(kind) ? audioCount : imageCount;
+            int index = parseIndex(matcher.group(2));
+            String replacement = index >= 1 && index <= max
+                    ? "<" + kind + " " + index + ">" : rawKind + matcher.group(2);
+            matcher.appendReplacement(rewritten, Matcher.quoteReplacement(replacement));
+        }
+        matcher.appendTail(rewritten);
+        return rewritten.toString();
+    }
+
+    private static String rewriteAgnes25IndexedRefs(String prompt, int imageCount,
+                                                     int videoCount, int audioCount) {
+        Matcher matcher = AGNES25_INDEX_REF.matcher(prompt);
+        StringBuffer rewritten = new StringBuffer();
+        while (matcher.find()) {
+            String rawKind = matcher.group(1).toLowerCase();
+            String kind = "video".equals(rawKind) ? "Video" : "audio".equals(rawKind) ? "Audio" : "Picture";
+            int max = "Video".equals(kind) ? videoCount : "Audio".equals(kind) ? audioCount : imageCount;
+            int index = parseIndex(matcher.group(2));
+            String replacement = index >= 1 && index <= max
+                    ? "<" + kind + " " + index + ">" : rawKind + matcher.group(2);
+            matcher.appendReplacement(rewritten, Matcher.quoteReplacement(replacement));
+        }
+        matcher.appendTail(rewritten);
+        return rewritten.toString();
+    }
+
+    private static String rewriteAgnes25OfficialRefs(String prompt, int imageCount,
+                                                      int videoCount, int audioCount) {
+        Matcher matcher = AGNES25_OFFICIAL_REF.matcher(prompt);
+        StringBuffer rewritten = new StringBuffer();
+        while (matcher.find()) {
+            String kind = matcher.group(1);
+            String normalizedKind = "video".equalsIgnoreCase(kind) ? "Video"
+                    : "audio".equalsIgnoreCase(kind) ? "Audio" : "Picture";
+            int max = "Video".equals(normalizedKind) ? videoCount
+                    : "Audio".equals(normalizedKind) ? audioCount : imageCount;
+            int index = parseIndex(matcher.group(2));
+            String replacement = index >= 1 && index <= max
+                    ? "<" + normalizedKind + " " + index + ">"
+                    : normalizedKind + " " + matcher.group(2);
+            matcher.appendReplacement(rewritten, Matcher.quoteReplacement(replacement));
+        }
+        matcher.appendTail(rewritten);
+        return rewritten.toString();
+    }
+
+    private static String rewriteWan3ChineseRefs(String prompt, int imageCount,
+                                                  int videoCount, int audioCount) {
+        Matcher matcher = WAN3_CHINESE_INDEX_REF.matcher(prompt);
+        StringBuffer rewritten = new StringBuffer();
+        while (matcher.find()) {
+            String kind = matcher.group(1);
+            int index = parseIndex(matcher.group(2));
+            int max = "视频".equals(kind) ? videoCount : "音频".equals(kind) ? audioCount : imageCount;
+            String label = "视频".equals(kind) ? "视频" : "音频".equals(kind) ? "音频" : "图";
+            String replacement = index >= 1 && index <= max ? label + index : label + matcher.group(2);
+            matcher.appendReplacement(rewritten, Matcher.quoteReplacement(replacement));
+        }
+        matcher.appendTail(rewritten);
+        return rewritten.toString();
+    }
+
+    /**
+     * 索引媒体协议清洗：保留实际下发范围内的 {@code @imageN/@videoN/@audioN}，越界降级。
+     */
+    public static String sanitizeForIndexedMedia(String prompt, int dispatchedImageCount,
+                                                 int dispatchedVideoCount, int dispatchedAudioCount) {
         if (StrUtil.isBlank(prompt)) {
             return prompt;
         }
@@ -201,11 +352,20 @@ public final class ReferencePromptSanitizer {
                                                    int dispatchedImageCount,
                                                    int dispatchedVideoCount,
                                                    int dispatchedAudioCount) {
+        sanitizeInPlaceForIndexedMedia(request, dispatchedImageCount,
+                dispatchedVideoCount, dispatchedAudioCount);
+    }
+
+    /** 原地执行中性索引媒体清洗。 */
+    public static void sanitizeInPlaceForIndexedMedia(MediaVideoGenerateRequest request,
+                                                       int dispatchedImageCount,
+                                                       int dispatchedVideoCount,
+                                                       int dispatchedAudioCount) {
         if (request == null) {
             return;
         }
         String original = request.getPrompt();
-        String cleaned = sanitizeForSeedance(original, dispatchedImageCount,
+        String cleaned = sanitizeForIndexedMedia(original, dispatchedImageCount,
                 dispatchedVideoCount, dispatchedAudioCount);
         if (!StrUtil.equals(original, cleaned)) {
             request.setPrompt(cleaned);

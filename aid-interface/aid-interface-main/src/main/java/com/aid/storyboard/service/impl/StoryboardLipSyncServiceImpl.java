@@ -46,6 +46,10 @@ import com.aid.common.aid.oss.util.MediaUrlResolver;
 import com.aid.common.core.redis.RedisCache;
 import com.aid.common.error.TaskErrorPresentation;
 import com.aid.common.exception.ServiceException;
+import com.aid.billing.dto.BillingCalcResult;
+import com.aid.billing.service.BillingPreHoldCalculationService;
+import com.aid.billing.service.BillingQuoteAssembler;
+import com.aid.billing.vo.BillingQuoteVO;
 import com.aid.common.utils.DateUtils;
 import com.aid.domain.vo.AiModelConfigVo;
 import com.aid.enums.CreationStepEnum;
@@ -53,14 +57,21 @@ import com.aid.enums.GenTypeEnum;
 import com.aid.media.constants.MinimaxTtsConstants;
 import com.aid.media.dto.MediaTaskResponse;
 import com.aid.media.dto.MediaVideoGenerateRequest;
+import com.aid.media.dto.PreparedMediaBillingInput;
 import com.aid.media.enums.MediaTaskStatus;
 import com.aid.media.enums.MediaType;
 import com.aid.media.provider.MinimaxProviderDetector;
 import com.aid.media.service.AudioSilencePaddingService;
 import com.aid.media.service.IMediaGenerationService;
+import com.aid.media.service.MediaBillingQuotePreparer;
 import com.aid.media.util.WavAudioSupport;
 import com.aid.notify.wechat.service.IWechatNotifyService;
 import com.aid.rps.dto.AssetExtractTaskVO;
+import com.aid.rps.queue.BatchTaskLogicalType;
+import com.aid.rps.queue.BatchParentSubmissionGuard;
+import com.aid.rps.queue.BatchTaskExecutionRejectedException;
+import com.aid.rps.queue.BatchTaskSlotReservation;
+import com.aid.rps.queue.BatchTaskSlotService;
 import com.aid.rps.resolver.StoryboardAudioReferenceResolver;
 import com.aid.rps.resolver.StoryboardAudioReferenceResolver.DialogueSegment;
 import com.aid.rps.resolver.StoryboardImageReferenceResolver;
@@ -108,6 +119,7 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
     private static final String TASK_STATUS_SUCCEEDED = "SUCCEEDED";
     private static final String TASK_STATUS_FAILED = "FAILED";
     private static final String TASK_STATUS_PARTIAL_FAILED = "PARTIAL_FAILED";
+    private static final String TASK_STATUS_CANCELLED = "CANCELLED";
 
     /** 编排父任务不直接计费：以 SUCCESS + 0 金额明确闭合，真实费用由 TTS/视频子任务承担。 */
     private static final String BILLING_STATUS_SUCCESS = "SUCCESS";
@@ -272,6 +284,15 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
     @Resource
     private IMediaGenerationService mediaGenerationService;
 
+    @Resource
+    private MediaBillingQuotePreparer mediaBillingQuotePreparer;
+
+    @Resource
+    private BillingPreHoldCalculationService billingPreHoldCalculationService;
+
+    @Resource
+    private BillingQuoteAssembler billingQuoteAssembler;
+
     /** 音频补静音服务：驱动音频短于源视频时补齐到源视频时长 */
     @Resource
     private AudioSilencePaddingService audioSilencePaddingService;
@@ -283,6 +304,12 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
     /** 任务执行租约登记/心跳（僵尸回收按租约判活，PROCESSING 期间必须持有租约） */
     @Resource
     private IAssetExtractService assetExtractService;
+
+    @Resource
+    private BatchTaskSlotService batchTaskSlotService;
+
+    @Resource
+    private BatchParentSubmissionGuard batchParentSubmissionGuard;
 
     /** 通用线程池：承载单个与批量对口型的异步执行 */
     @Resource
@@ -377,41 +404,148 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
     }
 
     @Override
-    public AssetExtractTaskVO lipSync(LipSyncRequest request, Long userId) {
-        // 前置快校验（零 I/O）：兜底音色老入参必须成对，前端乱传直接拒绝
+    public BillingQuoteVO quoteLipSync(LipSyncRequest request, Long userId) {
+        return quoteLipSyncPlan("STORYBOARD_LIP_SYNC",
+                prepareSingleLipSyncBillingPlan(request, userId), userId);
+    }
+
+    @Override
+    public BillingQuoteVO quoteBatchLipSync(StoryboardLipSyncBatchRequest request, Long userId) {
+        return quoteLipSyncPlan("STORYBOARD_LIP_SYNC_BATCH",
+                prepareBatchLipSyncBillingPlan(request, userId), userId);
+    }
+
+    private BillingQuoteVO quoteLipSyncPlan(String quoteType, LipSyncBillingPlan plan, Long userId) {
+        List<BillingQuoteVO> items = new ArrayList<>();
+        for (AidStoryboard storyboard : plan.targets()) {
+            Long boundVoice = plan.voiceByStoryboardId().get(storyboard.getId());
+            items.add(storyboardWorkbenchService.quoteAudio(
+                    buildLipSyncAudioRequest(storyboard, boundVoice, plan.tts()), userId));
+            items.add(quoteLipSyncVideo(storyboard,
+                    plan.sourceVideoByStoryboardId().get(storyboard.getId()),
+                    plan.lipSyncModel(), userId));
+        }
+        return billingQuoteAssembler.aggregate(quoteType, items);
+    }
+
+    private BillingQuoteVO quoteLipSyncVideo(AidStoryboard storyboard, AidGenRecord videoRecord,
+                                               AidAiModel lipSyncModel, Long userId) {
+        MediaVideoGenerateRequest request = new MediaVideoGenerateRequest();
+        request.setUserId(userId);
+        request.setProjectId(storyboard.getProjectId());
+        request.setEpisodeId(storyboard.getEpisodeId());
+        request.setModelName(lipSyncModel.getModelCode());
+        request.setPrompt(LIP_SYNC_TASK_PROMPT);
+        request.setDurationSeconds(resolveLipSyncDurationSeconds(videoRecord, null));
+        Map<String, Object> options = new LinkedHashMap<>();
+        options.put(OPTIONS_KEY_VIDEO_URL, mediaUrlResolver.toFullUrl(videoRecord.getFileUrl()));
+        // 报价阶段驱动音频尚未生成；仅用于能力 presence 校验，不触发下载或上游调用。
+        options.put(OPTIONS_KEY_AUDIO_URL, "quote://pending-audio");
+        request.setOptions(options);
+
+        PreparedMediaBillingInput prepared = mediaBillingQuotePreparer.prepareVideoBilling(request);
+        BillingCalcResult result = billingPreHoldCalculationService.calculate(
+                prepared.modelConfig(), prepared.billingInput());
+        if (result == null || !result.isMatched()) {
+            throw new ServiceException(result == null ? "计费规则缺失" : result.getErrorMessage());
+        }
+        BillingQuoteVO quote = billingQuoteAssembler.single(
+                "STORYBOARD_LIP_SYNC_VIDEO", prepared.modelConfig(), result, 1);
+        if (!Boolean.TRUE.equals(quote.getIsFree())) {
+            quote.setEstimated(Boolean.TRUE);
+            quote.setDetermined(Boolean.FALSE);
+            quote.setDisplayText("预扣约 " + quote.getPreHoldAmount().stripTrailingZeros().toPlainString()
+                    + " Credits");
+        }
+        return quote;
+    }
+
+    /** 正式单对口型和报价共用的只读目标、音色、源视频及模型计划。 */
+    private LipSyncBillingPlan prepareSingleLipSyncBillingPlan(LipSyncRequest request, Long userId) {
+        if (request == null || userId == null) {
+            throw new ServiceException("参数错误");
+        }
         assertFallbackVoicePaired(request.getVoiceLibraryId(), request.getVoiceModelId(), request.getTimbreCode());
         AidStoryboard storyboard = getStoryboardWithOwnerCheck(request.getStoryboardId(), userId);
-        // 步骤校验：对口型需要步骤6已解锁
         creationStepService.checkStepUnlocked(storyboard.getProjectId(), storyboard.getEpisodeId(), userId,
                 CreationStepEnum.AUDIO.getValue());
-
-        // 台词校验：对口型的驱动音频来自台词现场 TTS，无可朗读台词直接拒绝
-        String sanitized = DialogueTextSanitizer.sanitize(storyboard.getDialogueText());
-        if (StrUtil.isBlank(sanitized)) {
-            log.info("对口型分镜无可朗读台词, storyboardId={}", storyboard.getId());
+        if (StrUtil.isBlank(DialogueTextSanitizer.sanitize(storyboard.getDialogueText()))) {
             throw new ServiceException("暂无台词");
         }
-
-        // 分镜视频（final_video_id 指向的配音前原视频）：存在、归属、文件、时长齐全
         AidGenRecord videoRecord = loadStoryboardVideo(storyboard, userId);
-
-        List<AidStoryboard> targets = Collections.singletonList(storyboard);
+        List<AidStoryboard> targets = List.of(storyboard);
         LipSyncTtsParams tts = toTtsParams(request);
-
-        // 音色解析：台词角色绑定音色优先 → 请求兜底音色 → 双空拒绝
-        Map<Long, Long> voiceByStoryboardId = resolveVoiceBindings(targets,
+        Map<Long, Long> voices = resolveVoiceBindings(targets,
                 storyboard.getProjectId(), storyboard.getEpisodeId(), userId);
-        if (!voiceByStoryboardId.containsKey(storyboard.getId()) && !tts.hasFallbackVoice()) {
-            log.info("对口型分镜未绑定音色且无兜底音色, storyboardId={}", storyboard.getId());
+        if (!voices.containsKey(storyboard.getId()) && !tts.hasFallbackVoice()) {
             throw new ServiceException("请先绑定音色");
         }
-        // 音色可用性与 MiniMax 文本上限：与批量同口径，建任务之前拦截
-        validateVoicesUsable(voiceByStoryboardId, tts.voiceLibraryId(), tts.voiceModelId());
+        validateVoicesUsable(voices, tts.voiceLibraryId(), tts.voiceModelId());
         validateSingleSpeaker(storyboard);
-        validateMinimaxTextLimit(targets, voiceByStoryboardId, tts.voiceLibraryId(), tts.voiceModelId());
+        validateMinimaxTextLimit(targets, voices, tts.voiceLibraryId(), tts.voiceModelId());
+        return new LipSyncBillingPlan(targets, Map.copyOf(voices),
+                Map.of(storyboard.getId(), videoRecord), tts, resolveLipSyncModel());
+    }
 
-        // 对口型模型前置解析：未配置时在建任务之前拒绝，避免白扣配音费用
-        AidAiModel lipSyncModel = resolveLipSyncModel();
+    /** 正式批量对口型和报价共用的只读目标、音色、源视频及模型计划。 */
+    private LipSyncBillingPlan prepareBatchLipSyncBillingPlan(
+            StoryboardLipSyncBatchRequest request, Long userId) {
+        if (request == null || request.getProjectId() == null
+                || request.getEpisodeId() == null || userId == null) {
+            throw new ServiceException("参数错误");
+        }
+        Long projectId = request.getProjectId();
+        Long episodeId = request.getEpisodeId();
+        assertFallbackVoicePaired(request.getVoiceLibraryId(), request.getVoiceModelId(), request.getTimbreCode());
+        creationStepService.checkStepUnlocked(projectId, episodeId, userId, CreationStepEnum.AUDIO.getValue());
+        List<AidStoryboard> targets = loadDialogueStoryboards(
+                projectId, episodeId, request.getStoryboardIds(), userId);
+        if (CollectionUtil.isEmpty(targets)) {
+            throw new ServiceException("无可对口型分镜");
+        }
+        if (!Boolean.TRUE.equals(request.getOverwrite())) {
+            Set<Long> completed = loadLipSyncedStoryboardIds(targets, userId);
+            targets = targets.stream().filter(item -> !completed.contains(item.getId())).toList();
+            if (targets.isEmpty()) {
+                throw new ServiceException("已全部对口型");
+            }
+        }
+        if (targets.size() > MAX_BATCH_SIZE) {
+            throw new ServiceException("批量过多");
+        }
+        Map<Long, AidGenRecord> videos = loadAndValidateFinalVideos(targets, userId);
+        Map<Long, Long> voices = resolveVoiceBindings(targets, projectId, episodeId, userId);
+        LipSyncTtsParams tts = toTtsParams(request);
+        boolean hasFallback = tts.hasFallbackVoice();
+        boolean missingVoice = targets.stream().map(AidStoryboard::getId)
+                .anyMatch(id -> !voices.containsKey(id));
+        if (!hasFallback && missingVoice) {
+            throw new ServiceException("请先绑定音色");
+        }
+        validateVoicesUsable(voices, tts.voiceLibraryId(), tts.voiceModelId());
+        targets.forEach(this::validateSingleSpeaker);
+        validateMinimaxTextLimit(targets, voices, tts.voiceLibraryId(), tts.voiceModelId());
+        return new LipSyncBillingPlan(List.copyOf(targets), Map.copyOf(voices),
+                Map.copyOf(videos), tts, resolveLipSyncModel());
+    }
+
+    private record LipSyncBillingPlan(
+            List<AidStoryboard> targets,
+            Map<Long, Long> voiceByStoryboardId,
+            Map<Long, AidGenRecord> sourceVideoByStoryboardId,
+            LipSyncTtsParams tts,
+            AidAiModel lipSyncModel) {
+    }
+
+    @Override
+    public AssetExtractTaskVO lipSync(LipSyncRequest request, Long userId) {
+        LipSyncBillingPlan plan = prepareSingleLipSyncBillingPlan(request, userId);
+        AidStoryboard storyboard = plan.targets().get(0);
+        AidGenRecord videoRecord = plan.sourceVideoByStoryboardId().get(storyboard.getId());
+        List<AidStoryboard> targets = plan.targets();
+        LipSyncTtsParams tts = plan.tts();
+        Map<Long, Long> voiceByStoryboardId = plan.voiceByStoryboardId();
+        AidAiModel lipSyncModel = plan.lipSyncModel();
 
         // 分镜级进行中标记：占位失败说明该分镜已有在跑的对口型任务，幂等返回其 taskId 供前端重连 SSE
         String pendingHolder = RUNNING_HOLDER_PENDING_PREFIX + IdUtil.fastSimpleUUID();
@@ -439,7 +573,8 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
 
             // 创建父任务（SSE 锚点）；配音与对口型的计费随各自统一任务冻结/结算，父级不另设扣费
             taskId = createParentTask(LipSyncMode.SINGLE, storyboard.getProjectId(), storyboard.getEpisodeId(),
-                    userId, lipSyncModel, targets, tts, false, voiceByStoryboardId, sourceVideoByStoryboardId);
+                    userId, lipSyncModel, targets, tts, false, voiceByStoryboardId,
+                    sourceVideoByStoryboardId, null);
             // 标记改由父任务持有：重复受理时可据此幂等重连
             bindStoryboardRunningToTask(storyboard.getId(), taskId);
 
@@ -519,7 +654,30 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
         if (tryMarkStoryboardRunning(storyboardId, holder)) {
             return true;
         }
-        return Objects.equals(holder, getStoryboardRunningHolder(storyboardId));
+        String currentHolder = getStoryboardRunningHolder(storyboardId);
+        if (Objects.equals(holder, currentHolder)) {
+            return true;
+        }
+        if (StrUtil.isBlank(currentHolder) || !currentHolder.startsWith(RUNNING_HOLDER_TASK_PREFIX)) {
+            return false;
+        }
+        Long holderTaskId;
+        try {
+            holderTaskId = Long.valueOf(currentHolder.substring(RUNNING_HOLDER_TASK_PREFIX.length()));
+        } catch (NumberFormatException ex) {
+            return false;
+        }
+        AidExtractTask holderTask = extractTaskService.getOne(Wrappers.<AidExtractTask>lambdaQuery()
+                .select(AidExtractTask::getId, AidExtractTask::getStatus)
+                .eq(AidExtractTask::getId, holderTaskId)
+                .eq(AidExtractTask::getDelFlag, DEL_FLAG_NORMAL)
+                .last("LIMIT 1"), false);
+        if (holderTask != null && (TASK_STATUS_PENDING.equals(holderTask.getStatus())
+                || TASK_STATUS_PROCESSING.equals(holderTask.getStatus()))) {
+            return false;
+        }
+        releaseStoryboardRunningByHolder(storyboardId, currentHolder);
+        return tryMarkStoryboardRunning(storyboardId, holder);
     }
 
     /** 读取分镜级标记的当前持有者标识；无标记或 Redis 异常返回 null。 */
@@ -644,72 +802,22 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
         if (Objects.nonNull(active)) {
             log.info("批量对口型重连活跃任务: taskId={}, projectId={}, episodeId={}",
                     active.getId(), projectId, episodeId);
-            return AssetExtractTaskVO.builder()
-                    .taskId(active.getId())
-                    .status(active.getStatus())
-                    .totalCount(active.getTotalCount())
-                    .build();
+            throw new ServiceException("任务执行中，请先停止");
         }
 
-        // 加载目标分镜：仅「有台词」的分镜（清洗后非空）
-        List<AidStoryboard> targets = loadDialogueStoryboards(projectId, episodeId,
-                request.getStoryboardIds(), userId);
-        if (CollectionUtil.isEmpty(targets)) {
-            log.info("批量对口型无可处理分镜, projectId={}, episodeId={}", projectId, episodeId);
-            throw new ServiceException("无可对口型分镜");
-        }
-
-        // overwrite=false：已有对口型产物（sync_video_url 非空）的分镜跳过；true=重做（只新增不覆盖）
-        if (!Boolean.TRUE.equals(request.getOverwrite())) {
-            Set<Long> lipSyncedIds = loadLipSyncedStoryboardIds(targets, userId);
-            targets = targets.stream()
-                    .filter(s -> !lipSyncedIds.contains(s.getId()))
-                    .collect(Collectors.toList());
-            if (CollectionUtil.isEmpty(targets)) {
-                log.info("批量对口型全部分镜已完成(overwrite=false), projectId={}, episodeId={}",
-                        projectId, episodeId);
-                throw new ServiceException("已全部对口型");
-            }
-        }
-        if (targets.size() > MAX_BATCH_SIZE) {
-            log.info("批量对口型超上限, size={}, max={}", targets.size(), MAX_BATCH_SIZE);
-            throw new ServiceException("批量过多");
-        }
-
-        // 前置校验分镜视频（对口型源视频，恒取原视频轨）：存在、归属本人、文件已生成、时长已回填
-        Map<Long, AidGenRecord> finalVideoByStoryboardId = loadAndValidateFinalVideos(targets, userId);
-
-        // 逐分镜解析音色：角色绑定优先 → 请求兜底；双空整批拒绝（前置校验，不产生任务记录）
-        Map<Long, Long> voiceByStoryboardId = resolveVoiceBindings(targets, projectId, episodeId, userId);
-        boolean hasFallback = Objects.nonNull(request.getVoiceLibraryId())
-                || (Objects.nonNull(request.getVoiceModelId()) && StrUtil.isNotBlank(request.getTimbreCode()));
-        List<Long> unresolved = targets.stream()
-                .map(AidStoryboard::getId)
-                .filter(id -> !voiceByStoryboardId.containsKey(id))
-                .collect(Collectors.toList());
-        if (!hasFallback && CollectionUtil.isNotEmpty(unresolved)) {
-            log.info("批量对口型存在未绑定音色的分镜, projectId={}, episodeId={}, unresolved={}",
-                    projectId, episodeId, unresolved);
-            throw new ServiceException("请先绑定音色");
-        }
-
-        // 前置校验本批音色可用性（建任务之前）：绑定音色 + 兜底音色须启用未删未下架、所属模型启用
-        LipSyncTtsParams tts = toTtsParams(request);
-        validateVoicesUsable(voiceByStoryboardId, tts.voiceLibraryId(), tts.voiceModelId());
-
-        for (AidStoryboard target : targets) {
-            validateSingleSpeaker(target);
-        }
-        // MiniMax 音色单条文本上限：与单个同口径，超限整批拒绝
-        validateMinimaxTextLimit(targets, voiceByStoryboardId, tts.voiceLibraryId(), tts.voiceModelId());
-
-        // 对口型模型前置解析：未配置整批拒绝；父任务 model_code 记对口型模型编码
-        AidAiModel lipSyncModel = resolveLipSyncModel();
+        LipSyncBillingPlan plan = prepareBatchLipSyncBillingPlan(request, userId);
+        List<AidStoryboard> targets = plan.targets();
+        Map<Long, AidGenRecord> finalVideoByStoryboardId = plan.sourceVideoByStoryboardId();
+        Map<Long, Long> voiceByStoryboardId = plan.voiceByStoryboardId();
+        LipSyncTtsParams tts = plan.tts();
+        AidAiModel lipSyncModel = plan.lipSyncModel();
+        BatchTaskSlotReservation slotReservation = batchTaskSlotService.acquireTaskSlots(
+                projectId, episodeId, List.of(BatchTaskLogicalType.STORYBOARD_LIP_SYNC_GENERATE));
 
         // 创建父任务（SSE / 微信推送锚点）；配音与对口型的计费随各自统一任务逐条冻结/结算，父级不另设扣费
         Long taskId = createParentTask(LipSyncMode.BATCH, projectId, episodeId, userId, lipSyncModel,
                 targets, tts, Boolean.TRUE.equals(request.getOverwrite()),
-                voiceByStoryboardId, finalVideoByStoryboardId);
+                voiceByStoryboardId, finalVideoByStoryboardId, slotReservation);
 
         List<AidStoryboard> finalTargets = targets;
         try {
@@ -749,28 +857,35 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
     private Long createParentTask(LipSyncMode mode, Long projectId, Long episodeId, Long userId,
                                   AidAiModel lipSyncModel, List<AidStoryboard> targets, LipSyncTtsParams tts,
                                   boolean overwrite, Map<Long, Long> voiceByStoryboardId,
-                                  Map<Long, AidGenRecord> sourceVideoByStoryboardId) {
+                                  Map<Long, AidGenRecord> sourceVideoByStoryboardId,
+                                  BatchTaskSlotReservation slotReservation) {
         AidExtractTask task = new AidExtractTask();
-        task.setProjectId(projectId);
-        task.setEpisodeId(episodeId);
-        task.setUserId(userId);
-        task.setTaskType(mode.taskType());
-        task.setStatus(TASK_STATUS_PENDING);
-        task.setModelCode(lipSyncModel.getModelCode());
-        task.setTotalCount(targets.size());
-        task.setBillingStatus(BILLING_STATUS_SUCCESS);
-        task.setFrozenAmount(java.math.BigDecimal.ZERO);
-        task.setActualCost(java.math.BigDecimal.ZERO);
-        task.setInputSnapshot(buildInputSnapshot(projectId, episodeId, targets, tts, overwrite,
-                voiceByStoryboardId, sourceVideoByStoryboardId));
-        task.setResultData(serializeItems(buildInitialItems(
-                targets, tts, voiceByStoryboardId, sourceVideoByStoryboardId)));
-        task.setDelFlag(DEL_FLAG_NORMAL);
-        task.setCreateTime(DateUtils.getNowDate());
-        task.setCreateBy(String.valueOf(userId));
-        task.setUpdateTime(DateUtils.getNowDate());
-        task.setUpdateBy(String.valueOf(userId));
-        extractTaskService.save(task);
+        try {
+            task.setProjectId(projectId);
+            task.setEpisodeId(episodeId);
+            task.setUserId(userId);
+            task.setTaskType(mode.taskType());
+            task.setStatus(TASK_STATUS_PENDING);
+            task.setBillingTraceId(java.util.UUID.randomUUID().toString().replace("-", ""));
+            task.setModelCode(lipSyncModel.getModelCode());
+            task.setTotalCount(targets.size());
+            task.setBillingStatus(BILLING_STATUS_SUCCESS);
+            task.setFrozenAmount(java.math.BigDecimal.ZERO);
+            task.setActualCost(java.math.BigDecimal.ZERO);
+            task.setInputSnapshot(buildInputSnapshot(projectId, episodeId, targets, tts, overwrite,
+                    voiceByStoryboardId, sourceVideoByStoryboardId, slotReservation));
+            task.setResultData(serializeItems(buildInitialItems(
+                    targets, tts, voiceByStoryboardId, sourceVideoByStoryboardId)));
+            task.setDelFlag(DEL_FLAG_NORMAL);
+            task.setCreateTime(DateUtils.getNowDate());
+            task.setCreateBy(String.valueOf(userId));
+            task.setUpdateTime(DateUtils.getNowDate());
+            task.setUpdateBy(String.valueOf(userId));
+            extractTaskService.save(task);
+        } catch (RuntimeException ex) {
+            batchTaskSlotService.release(slotReservation);
+            throw ex;
+        }
         return task.getId();
     }
 
@@ -822,6 +937,9 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
         try {
             // 先把全部明细持久化，再提交任何子任务，保证同步 Provider 在调用栈内发事件时也能恢复上下文。
             for (int i = 0; i < total; i++) {
+                if (mode == LipSyncMode.BATCH && cancelBatchParentIfRequested(taskId)) {
+                    return;
+                }
                 AidStoryboard storyboard = targets.get(i);
                 ItemContext ctx = new ItemContext();
                 ctx.storyboardId = storyboard.getId();
@@ -839,6 +957,9 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
                     assertNoRunningLipSync(storyboard.getId(), userId);
                     ctx.workflowStage = WORKFLOW_DUB_SUBMITTING;
                 } catch (Exception e) {
+                    if (mode == LipSyncMode.BATCH && cancelBatchParentIfRequested(taskId)) {
+                        return;
+                    }
                     String rawReason = e instanceof ServiceException serviceException
                             ? StrUtil.blankToDefault(serviceException.getDetailMessage(), serviceException.getMessage())
                             : e.getMessage();
@@ -853,6 +974,9 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
 
             // 逐条提交 TTS；同一用户的统一计费锁仍按现有机制串行，媒体任务本身可异步执行。
             for (int i = 0; i < total; i++) {
+                if (mode == LipSyncMode.BATCH && cancelBatchParentIfRequested(taskId)) {
+                    return;
+                }
                 ItemContext ctx = items.get(i);
                 if (ctx.finished()) {
                     releaseStoryboardRunningByHolder(ctx.storyboardId, RUNNING_HOLDER_TASK_PREFIX + taskId);
@@ -869,6 +993,9 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
                         onChildMediaTaskChanged(audioRecord.getTtsMediaTaskId());
                     }
                 } catch (Exception e) {
+                    if (mode == LipSyncMode.BATCH && cancelBatchParentIfRequested(taskId)) {
+                        return;
+                    }
                     String rawReason = e instanceof ServiceException serviceException
                             ? StrUtil.blankToDefault(serviceException.getDetailMessage(), serviceException.getMessage())
                             : e.getMessage();
@@ -929,6 +1056,72 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
     }
 
     /**
+     * 批量父任务取消收口。批量取消接口对 PROCESSING 任务先写 cancel flag，
+     * 本地提交线程、媒体终态事件和重启对账都在继续创建下游视频前调用本方法。
+     * 已经被上游受理的媒体子任务仍由统一调度追到真实终态；父任务取消后事件不会再推进业务产物。
+     */
+    private boolean cancelBatchParentIfRequested(Long taskId) {
+        AidExtractTask current = loadWorkflowParent(taskId);
+        if (Objects.isNull(current)
+                || !Objects.equals(TASK_TYPE_LIP_SYNC_BATCH, current.getTaskType())) {
+            return false;
+        }
+        if (Objects.equals(TASK_STATUS_CANCELLED, current.getStatus())) {
+            releaseCancelledRunningMarks(current);
+            batchTaskSlotService.releaseForTask(
+                    extractTaskService.selectAidExtractTaskById(taskId));
+            return true;
+        }
+        if (!assetExtractService.isTaskCancelled(taskId)) {
+            return false;
+        }
+        return batchParentSubmissionGuard.execute(taskId, () -> {
+            AidExtractTask lockedTask = loadWorkflowParent(taskId);
+            if (Objects.isNull(lockedTask)
+                    || !Objects.equals(TASK_TYPE_LIP_SYNC_BATCH, lockedTask.getTaskType())) {
+                return false;
+            }
+            boolean cancelled = Objects.equals(TASK_STATUS_CANCELLED, lockedTask.getStatus());
+            boolean updated = false;
+            if (!cancelled && assetExtractService.isTaskCancelled(taskId)) {
+                updated = extractTaskService.update(Wrappers.<AidExtractTask>lambdaUpdate()
+                    .eq(AidExtractTask::getId, taskId)
+                    .in(AidExtractTask::getStatus, TASK_STATUS_PENDING, TASK_STATUS_PROCESSING)
+                    .set(AidExtractTask::getStatus, TASK_STATUS_CANCELLED)
+                    .set(AidExtractTask::getErrorMessage, "用户取消")
+                    .set(AidExtractTask::getUpdateTime, DateUtils.getNowDate())
+                    .set(AidExtractTask::getUpdateBy, "system"));
+                lockedTask = loadWorkflowParent(taskId);
+                cancelled = Objects.nonNull(lockedTask)
+                        && Objects.equals(TASK_STATUS_CANCELLED, lockedTask.getStatus());
+            }
+            if (!cancelled) {
+                return false;
+            }
+            releaseCancelledRunningMarks(lockedTask);
+            batchTaskSlotService.releaseForTask(
+                    extractTaskService.selectAidExtractTaskById(taskId));
+            if (updated) {
+                try {
+                    sseManager.sendCancelled(taskId, "用户取消");
+                } catch (Exception ex) {
+                    log.warn("对口型取消 SSE 发送异常, taskId={}, msg={}", taskId, ex.getMessage());
+                }
+            }
+            return true;
+        });
+    }
+
+    private void releaseCancelledRunningMarks(AidExtractTask task) {
+        for (ItemContext item : parseItems(task.getResultData())) {
+            if (Objects.nonNull(item.storyboardId)) {
+                releaseStoryboardRunningByHolder(item.storyboardId,
+                        RUNNING_HOLDER_TASK_PREFIX + task.getId());
+            }
+        }
+    }
+
+    /**
      * 台词现场 TTS 配音：复用单分镜配音链路（统一任务 + 统一计费），提交后立即返回业务记录。
      * 音频终态和 OSS 就绪由公共媒体事件推进，不在业务线程内轮询等待。
      * 台词原文直传，generateAudio 入口统一做台词标记清洗（剥 [角色_形象]：/@音频N/竖线等，仅保留可朗读正文）。
@@ -942,6 +1135,28 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
     private AidAudioRecord submitDubForLipSync(Long parentTaskId, AidStoryboard storyboard,
                                                Long boundVoiceLibraryId,
                                                LipSyncTtsParams tts, Long userId) {
+        GenerateAudioRequest single = buildLipSyncAudioRequest(storyboard, boundVoiceLibraryId, tts);
+        String executionTraceId = requireLipSubmissionTrace(parentTaskId);
+        AudioTaskVO vo = batchParentSubmissionGuard.executeManagedTask(parentTaskId, executionTraceId, () -> {
+            requireLipSubmissionActive(parentTaskId);
+            return storyboardWorkbenchService.generateAudioForParent(
+                    single, userId, parentTaskId, executionTraceId);
+        });
+        if (Objects.isNull(vo) || Objects.isNull(vo.getId())) {
+            log.error("对口型 TTS 无返回, storyboardId={}", storyboard.getId());
+            throw new ServiceException("配音失败");
+        }
+        AidAudioRecord record = aidAudioRecordService.getById(vo.getId());
+        if (Objects.isNull(record)) {
+            log.error("对口型 TTS 业务记录缺失, storyboardId={}, audioRecordId={}", storyboard.getId(), vo.getId());
+            throw new ServiceException("配音失败");
+        }
+        return record;
+    }
+
+    /** 正式对口型 TTS 子任务和报价共用的请求映射。 */
+    private GenerateAudioRequest buildLipSyncAudioRequest(
+            AidStoryboard storyboard, Long boundVoiceLibraryId, LipSyncTtsParams tts) {
         GenerateAudioRequest single = new GenerateAudioRequest();
         single.setStoryboardId(storyboard.getId());
         single.setTtsText(storyboard.getDialogueText());
@@ -961,17 +1176,7 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
         single.setPitch(tts.pitch());
         // 驱动音频固定 wav：对口型成片长度跟随音频，短于源视频时需在提交前补静音对齐，wav 是可无损追加静音的容器
         single.setAudioFormat(WavAudioSupport.FORMAT_WAV);
-        AudioTaskVO vo = storyboardWorkbenchService.generateAudioForParent(single, userId, parentTaskId);
-        if (Objects.isNull(vo) || Objects.isNull(vo.getId())) {
-            log.error("对口型 TTS 无返回, storyboardId={}", storyboard.getId());
-            throw new ServiceException("配音失败");
-        }
-        AidAudioRecord record = aidAudioRecordService.getById(vo.getId());
-        if (Objects.isNull(record)) {
-            log.error("对口型 TTS 业务记录缺失, storyboardId={}, audioRecordId={}", storyboard.getId(), vo.getId());
-            throw new ServiceException("配音失败");
-        }
-        return record;
+        return single;
     }
 
     /**
@@ -998,6 +1203,8 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
         Map<String, Object> options = new LinkedHashMap<>();
         options.put(OPTIONS_KEY_VIDEO_URL, videoUrl);
         options.put(OPTIONS_KEY_AUDIO_URL, driving.url());
+        String executionTraceId = requireLipSubmissionTrace(parentTaskId);
+        options.put("parentExecutionTraceId", executionTraceId);
         mediaReq.setOptions(options);
         // 业务任务关联：LipSyncEventListener 按 biz_task_type + biz_task_id 回填结果
         mediaReq.setBizTaskId(audioRecord.getId());
@@ -1006,7 +1213,10 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
 
         MediaTaskResponse mediaResp;
         try {
-            mediaResp = mediaGenerationService.generateVideo(mediaReq);
+            mediaResp = batchParentSubmissionGuard.executeManagedTask(parentTaskId, executionTraceId, () -> {
+                requireLipSubmissionActive(parentTaskId);
+                return mediaGenerationService.generateVideo(mediaReq);
+            });
         } catch (ServiceException se) {
             // 业务短文案（余额不足/并发超限等）原样透出
             throw se;
@@ -1016,16 +1226,19 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
         }
 
         // 回写业务记录：标记已开启对口型 + 关联统一任务ID；成功结果由事件监听回填
-        audioRecord.setEnableLipSync(LIP_SYNC_ENABLED);
-        audioRecord.setSyncMediaTaskId(mediaResp.getTaskId());
-        if (MediaTaskStatus.SUCCEEDED.name().equals(mediaResp.getStatus())
-                && StrUtil.isNotBlank(mediaResp.getOssUrl())) {
-            // 同步成功（幂等命中历史成功任务等场景）：直接回填对口型视频 URL
-            audioRecord.setSyncVideoUrl(mediaResp.getOssUrl());
-        }
-        audioRecord.setUpdateTime(DateUtils.getNowDate());
-        audioRecord.setUpdateBy(String.valueOf(userId));
-        aidAudioRecordService.updateById(audioRecord);
+        batchParentSubmissionGuard.executeManagedBusinessCommit(parentTaskId, executionTraceId, () -> {
+            audioRecord.setEnableLipSync(LIP_SYNC_ENABLED);
+            audioRecord.setSyncMediaTaskId(mediaResp.getTaskId());
+            if (MediaTaskStatus.SUCCEEDED.name().equals(mediaResp.getStatus())
+                    && StrUtil.isNotBlank(mediaResp.getOssUrl())) {
+                // 同步成功（幂等命中历史成功任务等场景）：直接回填对口型视频 URL
+                audioRecord.setSyncVideoUrl(mediaResp.getOssUrl());
+            }
+            audioRecord.setUpdateTime(DateUtils.getNowDate());
+            audioRecord.setUpdateBy(String.valueOf(userId));
+            aidAudioRecordService.updateById(audioRecord);
+            return null;
+        });
         return mediaResp.getTaskId();
     }
 
@@ -1042,13 +1255,32 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
                         AidMediaTask::getMediaType, AidMediaTask::getBizTaskId,
                         AidMediaTask::getBizTaskType, AidMediaTask::getStatus,
                         AidMediaTask::getOssUrl, AidMediaTask::getModelName,
-                        AidMediaTask::getErrorMessage)
+                        AidMediaTask::getErrorMessage, AidMediaTask::getRequestJson)
                 .eq(AidMediaTask::getId, mediaTaskId)
                 .last("LIMIT 1"), false);
         if (Objects.isNull(mediaTask) || Objects.isNull(mediaTask.getParentTaskId())) {
             return;
         }
+        String executionTraceId = extractParentExecutionTrace(mediaTask);
+        try {
+            batchParentSubmissionGuard.executeManagedBusinessCommit(
+                    mediaTask.getParentTaskId(), executionTraceId, () -> {
+                        handleChildMediaTaskChanged(mediaTask);
+                        return null;
+                    });
+        } catch (BatchTaskExecutionRejectedException rejected) {
+            log.info("对口型媒体事件执行周期已变化，跳过业务回写: mediaTaskId={}, parentTaskId={}",
+                    mediaTaskId, mediaTask.getParentTaskId());
+        }
+    }
+
+    private void handleChildMediaTaskChanged(AidMediaTask mediaTask) {
         AidExtractTask parent = loadWorkflowParent(mediaTask.getParentTaskId());
+        if (Objects.nonNull(parent)
+                && Objects.equals(TASK_TYPE_LIP_SYNC_BATCH, parent.getTaskType())
+                && cancelBatchParentIfRequested(parent.getId())) {
+            return;
+        }
         if (!isActiveLipSyncParent(parent)) {
             return;
         }
@@ -1060,6 +1292,20 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
         if (Objects.equals(MediaType.VIDEO.name(), mediaTask.getMediaType())
                 && Objects.equals(BIZ_TASK_TYPE_LIP_SYNC, mediaTask.getBizTaskType())) {
             advanceVideoTask(parent, mediaTask);
+        }
+    }
+
+    private String extractParentExecutionTrace(AidMediaTask mediaTask) {
+        if (Objects.isNull(mediaTask) || StrUtil.isBlank(mediaTask.getRequestJson())) {
+            return null;
+        }
+        try {
+            JSONObject request = JSON.parseObject(mediaTask.getRequestJson());
+            JSONObject options = request.getJSONObject("options");
+            return Objects.isNull(options) ? null : options.getString("parentExecutionTraceId");
+        } catch (Exception ex) {
+            log.warn("对口型媒体事件解析父执行周期失败: mediaTaskId={}", mediaTask.getId());
+            return null;
         }
     }
 
@@ -1148,6 +1394,10 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
         if (!submitVideo) {
             return;
         }
+        if (Objects.equals(TASK_TYPE_LIP_SYNC_BATCH, parent.getTaskType())
+                && cancelBatchParentIfRequested(parent.getId())) {
+            return;
+        }
         submitVideoChild(parent, audioRecord);
     }
 
@@ -1155,6 +1405,11 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
     private void submitVideoChild(AidExtractTask parent, AidAudioRecord audioRecord) {
         try {
             AidExtractTask currentParent = loadWorkflowParent(parent.getId());
+            if (Objects.nonNull(currentParent)
+                    && Objects.equals(TASK_TYPE_LIP_SYNC_BATCH, currentParent.getTaskType())
+                    && cancelBatchParentIfRequested(currentParent.getId())) {
+                return;
+            }
             if (!isActiveLipSyncParent(currentParent)) {
                 return;
             }
@@ -1177,6 +1432,10 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
                 }
                 audioRecord = latest;
             }
+            if (Objects.equals(TASK_TYPE_LIP_SYNC_BATCH, parent.getTaskType())
+                    && cancelBatchParentIfRequested(parent.getId())) {
+                return;
+            }
             AidAiModel model = new AidAiModel();
             model.setModelCode(parent.getModelCode());
             Long videoTaskId = submitLipSyncTask(parent.getId(), storyboard, sourceVideo,
@@ -1184,6 +1443,9 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
             recordVideoSubmission(parent.getId(), audioRecord.getStoryboardId(), videoTaskId);
             onChildMediaTaskChanged(videoTaskId);
         } catch (Exception ex) {
+            if (cancelBatchParentIfRequested(parent.getId())) {
+                return;
+            }
             String rawReason = ex instanceof ServiceException serviceException
                     ? StrUtil.blankToDefault(serviceException.getDetailMessage(), serviceException.getMessage())
                     : ex.getMessage();
@@ -1280,6 +1542,11 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
     @Override
     public void reconcileParentTask(Long parentTaskId) {
         AidExtractTask parent = loadWorkflowParent(parentTaskId);
+        if (Objects.nonNull(parent)
+                && Objects.equals(TASK_TYPE_LIP_SYNC_BATCH, parent.getTaskType())
+                && cancelBatchParentIfRequested(parentTaskId)) {
+            return;
+        }
         if (!isActiveLipSyncParent(parent)) {
             return;
         }
@@ -1357,6 +1624,14 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
     }
 
     private void recordAudioSubmission(Long taskId, Long storyboardId, AidAudioRecord audioRecord) {
+        String executionTraceId = requireLipSubmissionTrace(taskId);
+        batchParentSubmissionGuard.executeManagedBusinessCommit(taskId, executionTraceId, () -> {
+            recordAudioSubmissionGuarded(taskId, storyboardId, audioRecord);
+            return null;
+        });
+    }
+
+    private void recordAudioSubmissionGuarded(Long taskId, Long storyboardId, AidAudioRecord audioRecord) {
         RLock lock = acquireWorkflowLock(taskId);
         try {
             AidExtractTask parent = loadWorkflowParent(taskId);
@@ -1382,6 +1657,14 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
     }
 
     private void recordVideoSubmission(Long taskId, Long storyboardId, Long mediaTaskId) {
+        String executionTraceId = requireLipSubmissionTrace(taskId);
+        batchParentSubmissionGuard.executeManagedBusinessCommit(taskId, executionTraceId, () -> {
+            recordVideoSubmissionGuarded(taskId, storyboardId, mediaTaskId);
+            return null;
+        });
+    }
+
+    private void recordVideoSubmissionGuarded(Long taskId, Long storyboardId, Long mediaTaskId) {
         RLock lock = acquireWorkflowLock(taskId);
         try {
             AidExtractTask parent = loadWorkflowParent(taskId);
@@ -1401,6 +1684,14 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
     }
 
     private void markItemSucceeded(Long taskId, Long storyboardId, Long mediaTaskId, AidGenRecord record) {
+        String executionTraceId = requireLipSubmissionTrace(taskId);
+        batchParentSubmissionGuard.executeManagedBusinessCommit(taskId, executionTraceId, () -> {
+            markItemSucceededGuarded(taskId, storyboardId, mediaTaskId, record);
+            return null;
+        });
+    }
+
+    private void markItemSucceededGuarded(Long taskId, Long storyboardId, Long mediaTaskId, AidGenRecord record) {
         RLock lock = acquireWorkflowLock(taskId);
         try {
             AidExtractTask parent = loadWorkflowParent(taskId);
@@ -1426,6 +1717,14 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
     }
 
     private void markItemFailed(Long taskId, Long storyboardId, String errorMessage) {
+        String executionTraceId = requireLipSubmissionTrace(taskId);
+        batchParentSubmissionGuard.executeManagedBusinessCommit(taskId, executionTraceId, () -> {
+            markItemFailedGuarded(taskId, storyboardId, errorMessage);
+            return null;
+        });
+    }
+
+    private void markItemFailedGuarded(Long taskId, Long storyboardId, String errorMessage) {
         RLock lock = acquireWorkflowLock(taskId);
         try {
             AidExtractTask parent = loadWorkflowParent(taskId);
@@ -1454,6 +1753,14 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
 
     /** 全部明细终态后 CAS 收口父任务；只有首次 CAS 成功者发送终态通知。 */
     private void finalizeParentIfComplete(Long taskId) {
+        String executionTraceId = requireLipSubmissionTrace(taskId);
+        batchParentSubmissionGuard.executeManagedBusinessCommit(taskId, executionTraceId, () -> {
+            finalizeParentIfCompleteGuarded(taskId);
+            return null;
+        });
+    }
+
+    private void finalizeParentIfCompleteGuarded(Long taskId) {
         List<ItemContext> terminalItems;
         String finalStatus;
         String errorMessage = null;
@@ -1494,6 +1801,7 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
             if (!updated) {
                 return;
             }
+            batchTaskSlotService.releaseForTask(extractTaskService.selectAidExtractTaskById(taskId));
         } finally {
             releaseWorkflowLock(lock);
         }
@@ -1610,6 +1918,26 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
                         || Objects.equals(TASK_TYPE_LIP_SYNC_BATCH, parent.getTaskType()))
                 && (Objects.equals(TASK_STATUS_PENDING, parent.getStatus())
                         || Objects.equals(TASK_STATUS_PROCESSING, parent.getStatus()));
+    }
+
+    private void requireLipSubmissionActive(Long parentTaskId) {
+        AidExtractTask parent = loadWorkflowParent(parentTaskId);
+        if (Objects.nonNull(parent)
+                && Objects.equals(TASK_TYPE_LIP_SYNC_BATCH, parent.getTaskType())
+                && cancelBatchParentIfRequested(parentTaskId)) {
+            throw new ServiceException("用户取消");
+        }
+        if (!isActiveLipSyncParent(loadWorkflowParent(parentTaskId))) {
+            throw new ServiceException("用户取消");
+        }
+    }
+
+    private String requireLipSubmissionTrace(Long parentTaskId) {
+        AidExtractTask parent = loadWorkflowParent(parentTaskId);
+        if (Objects.isNull(parent) || StrUtil.isBlank(parent.getBillingTraceId())) {
+            throw new ServiceException("任务已停止");
+        }
+        return parent.getBillingTraceId();
     }
 
     private ItemContext loadItem(Long taskId, Long storyboardId) {
@@ -2335,20 +2663,24 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
 
     /** 父任务置 FAILED（仅非终态可置，避免覆盖已写入的终态）。 */
     private void failTask(Long taskId, String errorMessage) {
-        extractTaskService.update(Wrappers.<AidExtractTask>lambdaUpdate()
+        boolean updated = extractTaskService.update(Wrappers.<AidExtractTask>lambdaUpdate()
                 .eq(AidExtractTask::getId, taskId)
                 .in(AidExtractTask::getStatus, TASK_STATUS_PENDING, TASK_STATUS_PROCESSING)
                 .set(AidExtractTask::getStatus, TASK_STATUS_FAILED)
                 .set(AidExtractTask::getErrorMessage, errorMessage)
                 .set(AidExtractTask::getUpdateTime, DateUtils.getNowDate())
                 .set(AidExtractTask::getUpdateBy, "system"));
+        if (updated) {
+            batchTaskSlotService.releaseForTask(extractTaskService.selectAidExtractTaskById(taskId));
+        }
     }
 
     /** 构建输入快照JSON（排查依据，含逐分镜音色与源视频记录ID；单个与批量共用）。 */
     private String buildInputSnapshot(Long projectId, Long episodeId, List<AidStoryboard> targets,
                                       LipSyncTtsParams tts, boolean overwrite,
                                       Map<Long, Long> voiceByStoryboardId,
-                                      Map<Long, AidGenRecord> sourceVideoByStoryboardId) {
+                                      Map<Long, AidGenRecord> sourceVideoByStoryboardId,
+                                      BatchTaskSlotReservation slotReservation) {
         Map<String, Object> snapshot = new LinkedHashMap<>();
         snapshot.put("projectId", projectId);
         snapshot.put("episodeId", episodeId);
@@ -2362,6 +2694,7 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
             sourceVideoIds.put(s.getId(), Objects.isNull(record) ? null : record.getId());
         }
         snapshot.put("sourceVideoRecordIds", sourceVideoIds);
+        batchTaskSlotService.attachSnapshotMetadata(snapshot, slotReservation);
         try {
             return OBJECT_MAPPER.writeValueAsString(snapshot);
         } catch (Exception e) {
@@ -2405,17 +2738,21 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
             log.warn("批量对口型 resultData 序列化失败, taskId={}", taskId, e);
             return;
         }
-        LambdaUpdateWrapper<AidExtractTask> update = Wrappers.lambdaUpdate();
-        update.eq(AidExtractTask::getId, taskId);
-        // 任何进度/终态回写都只允许命中非终态，禁止迟到事件把已失败/取消任务复活。
-        update.in(AidExtractTask::getStatus, TASK_STATUS_PENDING, TASK_STATUS_PROCESSING);
-        update.set(AidExtractTask::getResultData, json);
-        if (!TASK_STATUS_PROCESSING.equals(status)) {
-            update.set(AidExtractTask::getStatus, status);
-            update.set(AidExtractTask::getErrorMessage, errorMessage);
-        }
-        update.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
-        update.set(AidExtractTask::getUpdateBy, "system");
-        extractTaskService.update(update);
+        String executionTraceId = requireLipSubmissionTrace(taskId);
+        batchParentSubmissionGuard.executeManagedBusinessCommit(taskId, executionTraceId, () -> {
+            LambdaUpdateWrapper<AidExtractTask> update = Wrappers.lambdaUpdate();
+            update.eq(AidExtractTask::getId, taskId);
+            // 任何进度/终态回写都只允许命中非终态，禁止迟到事件把已失败/取消任务复活。
+            update.in(AidExtractTask::getStatus, TASK_STATUS_PENDING, TASK_STATUS_PROCESSING);
+            update.set(AidExtractTask::getResultData, json);
+            if (!TASK_STATUS_PROCESSING.equals(status)) {
+                update.set(AidExtractTask::getStatus, status);
+                update.set(AidExtractTask::getErrorMessage, errorMessage);
+            }
+            update.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
+            update.set(AidExtractTask::getUpdateBy, "system");
+            extractTaskService.update(update);
+            return null;
+        });
     }
 }

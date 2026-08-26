@@ -2,6 +2,7 @@ package com.aid.rps.service;
 
 import com.aid.rps.dto.AssetExtractTaskVO;
 import com.aid.rps.dto.FormMultiViewImageGenerateRequest;
+import com.aid.billing.vo.BillingQuoteVO;
 
 /**
  * 多机位形态生图 Service：围绕已有 form 参考图按机位提示词生成只改机位、不改主体的新图。
@@ -18,4 +19,7 @@ public interface IFormMultiViewImageService
      * @return 任务VO（taskId + PENDING 状态）
      */
     AssetExtractTaskVO generateMultiViewImage(FormMultiViewImageGenerateRequest request, Long userId);
+
+    /** 无任务、无锁、无远程图片探测地报价同一形态机位图请求。 */
+    BillingQuoteVO quoteMultiViewImage(FormMultiViewImageGenerateRequest request, Long userId);
 }

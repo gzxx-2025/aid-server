@@ -11,6 +11,9 @@ import java.util.Map;
 @Data
 public class BillingSku {
 
+    /** SKU 级计费口径；为空时兼容回退 billing_rule_json 顶层 meterType */
+    private String meterType;
+
     /** SKU编码，唯一标识 */
     private String skuCode;
 
@@ -31,7 +34,7 @@ public class BillingSku {
     /** 官方原价（元；图片单张价 / 视频整包价等） */
     private BigDecimal price;
 
-    /** 官方每秒原价（元/秒），仅 PER_SECOND 使用；null时降级到 price / maxDuration */
+    /** 官方每秒原价（元/秒），仅 PER_SECOND 使用；只对未声明 SKU meterType 的旧规则保留反推兼容 */
     private BigDecimal pricePerSecond;
 
     /** 官方每字符原价（元/字符），仅 PER_CHAR 使用；null时降级到 price */

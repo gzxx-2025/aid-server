@@ -14,6 +14,7 @@ import com.aid.aid.domain.AidAudioRecord;
 import com.aid.aid.domain.AidComicEpisode;
 import com.aid.aid.domain.AidComicProject;
 import com.aid.aid.domain.AidEpisodeEditor;
+import com.aid.aid.domain.AidExtractTask;
 import com.aid.aid.domain.AidGenRecord;
 import com.aid.aid.domain.media.AidMediaTask;
 import com.aid.aid.mapper.AidAudioRecordMapper;
@@ -22,13 +23,18 @@ import com.aid.aid.mapper.AidGenRecordMapper;
 import com.aid.aid.mapper.AidMediaTaskMapper;
 import com.aid.aid.service.IAidComicEpisodeService;
 import com.aid.aid.service.IAidComicProjectService;
+import com.aid.aid.service.IAidExtractTaskService;
 import com.aid.compose.ComposeConstants;
+import com.aid.compose.service.ComposeBatchSlotCoordinator;
 import com.aid.enums.EpisodeStatusEnum;
 import com.aid.enums.ProjectStatusEnum;
 import com.aid.media.enums.MediaTaskStatus;
 import com.aid.media.event.MediaTaskOssPersistedEvent;
+import com.aid.rps.queue.BatchParentSubmissionGuard;
+import com.aid.rps.queue.BatchTaskExecutionRejectedException;
 
 import cn.hutool.core.util.StrUtil;
+import jakarta.annotation.Resource;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -65,6 +71,16 @@ public class ComposeResultListener {
 
     /** 剧集服务（成片导出成功后剧集状态联动为「完成未审核(2)」可提审） */
     private final IAidComicEpisodeService aidComicEpisodeService;
+
+    /** 批量业务父任务服务（取消后的迟到合成回写隔离） */
+    @Resource
+    private IAidExtractTaskService aidExtractTaskService;
+
+    @Resource
+    private ComposeBatchSlotCoordinator composeBatchSlotCoordinator;
+
+    @Resource
+    private BatchParentSubmissionGuard batchParentSubmissionGuard;
 
     @EventListener
     @Order(300)
@@ -175,6 +191,7 @@ public class ComposeResultListener {
                 task.getId(), task.getCallbackRecordId(), slot);
         // 成片已生成：项目/剧集状态从草稿/制作中联动为「完成(2)」可提审（条件更新，审核流程中的状态不受影响）
         markAuditableAfterExport(task.getCallbackRecordId());
+        composeBatchSlotCoordinator.releaseExport(editor.getId(), String.valueOf(task.getId()));
     }
 
     /**
@@ -272,6 +289,42 @@ public class ComposeResultListener {
      * @param task COMPOSE 任务
      */
     private void writeGenRecord(AidMediaTask task) {
+        if (StrUtil.startWith(task.getComposeBatchId(), "cb_")) {
+            batchParentSubmissionGuard.execute("voiceover:" + task.getComposeBatchId(), () -> {
+                writeGenRecordGuarded(task);
+                return null;
+            });
+            return;
+        }
+        if (Objects.nonNull(task.getParentTaskId())) {
+            String executionTraceId = extractParentExecutionTrace(task);
+            try {
+                batchParentSubmissionGuard.executeManagedBusinessCommit(
+                        task.getParentTaskId(), executionTraceId, () -> {
+                            writeGenRecordGuarded(task);
+                            return null;
+                        });
+            } catch (BatchTaskExecutionRejectedException rejected) {
+                log.info("COMPOSE 父任务执行周期已变化，跳过业务回写: taskId={}, parentTaskId={}",
+                        task.getId(), task.getParentTaskId());
+            }
+            return;
+        }
+        writeGenRecordGuarded(task);
+    }
+
+    private void writeGenRecordGuarded(AidMediaTask task) {
+        if (isCancelledStoryboardAudioParent(task.getParentTaskId())) {
+            log.info("COMPOSE 已取消批量配音成片回写已忽略, taskId={}, parentTaskId={}",
+                    task.getId(), task.getParentTaskId());
+            return;
+        }
+        if (isCancelledVoiceoverBatch(task.getComposeBatchId())) {
+            log.info("COMPOSE 已取消一键配音成片回写已忽略, taskId={}, batchId={}",
+                    task.getId(), task.getComposeBatchId());
+            composeBatchSlotCoordinator.releaseVoiceover(task.getComposeBatchId());
+            return;
+        }
         // 幂等：OSS 持久化事件可能多次发布（轮询终态 + OSS 定时补偿），按 providerTaskId + genType 去重，避免重复插入成片记录
         if (StrUtil.isNotBlank(task.getProviderTaskId())) {
             Long existed = aidGenRecordMapper.selectCount(new LambdaQueryWrapper<AidGenRecord>()
@@ -281,6 +334,7 @@ public class ComposeResultListener {
             if (Objects.nonNull(existed) && existed > 0) {
                 log.info("COMPOSE 接口1 成片已回写,跳过重复插入, taskId={}, providerTaskId={}",
                         task.getId(), task.getProviderTaskId());
+                composeBatchSlotCoordinator.releaseVoiceover(task.getComposeBatchId());
                 return;
             }
         }
@@ -315,6 +369,45 @@ public class ComposeResultListener {
         aidGenRecordMapper.insert(record);
         log.info("COMPOSE 接口1 成片回写完成, taskId={}, genRecordId={}, batchId={}",
                 task.getId(), record.getId(), task.getComposeBatchId());
+        composeBatchSlotCoordinator.releaseVoiceover(task.getComposeBatchId());
+    }
+
+    private String extractParentExecutionTrace(AidMediaTask task) {
+        if (Objects.isNull(task) || StrUtil.isBlank(task.getRequestJson())) {
+            return null;
+        }
+        try {
+            return com.alibaba.fastjson2.JSON.parseObject(task.getRequestJson())
+                    .getString("parentExecutionTraceId");
+        } catch (Exception ex) {
+            log.warn("COMPOSE 解析父执行周期失败: taskId={}", task.getId());
+            return null;
+        }
+    }
+
+    private boolean isCancelledVoiceoverBatch(String composeBatchId) {
+        if (StrUtil.isBlank(composeBatchId)) {
+            return false;
+        }
+        Long cancelled = aidAudioRecordMapper.selectCount(new LambdaQueryWrapper<AidAudioRecord>()
+                .eq(AidAudioRecord::getComposeBatchId, composeBatchId)
+                .eq(AidAudioRecord::getStatus, MediaTaskStatus.FAILED.name())
+                .eq(AidAudioRecord::getErrorMessage, "用户取消")
+                .eq(AidAudioRecord::getDelFlag, DEL_FLAG_NORMAL));
+        return cancelled != null && cancelled > 0;
+    }
+
+    private boolean isCancelledStoryboardAudioParent(Long parentTaskId) {
+        if (Objects.isNull(parentTaskId)) {
+            return false;
+        }
+        AidExtractTask parent = aidExtractTaskService.selectAidExtractTaskById(parentTaskId);
+        if (Objects.isNull(parent)
+                || !"storyboard_audio_generate".equals(parent.getTaskType())) {
+            return false;
+        }
+        return "CANCELLED".equals(parent.getStatus())
+                || ("FAILED".equals(parent.getStatus()) && "用户取消".equals(parent.getErrorMessage()));
     }
 
     /**

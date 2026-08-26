@@ -2,6 +2,7 @@ package com.aid.storyboard.service;
 
 import com.aid.rps.dto.AssetExtractTaskVO;
 import com.aid.storyboard.dto.StoryboardAudioBatchRequest;
+import com.aid.billing.vo.BillingQuoteVO;
 
 /**
  * 分镜批量配音服务：逐分镜配音并合成配音视频（genType=compose）后自动设为使用中，仅做父任务编排。
@@ -18,4 +19,7 @@ public interface IStoryboardAudioBatchService {
      * @return 父任务受理结果（taskId + PENDING，前端订阅任务 SSE 获取进度与逐分镜结果）
      */
     AssetExtractTaskVO batchGenerateAudio(StoryboardAudioBatchRequest request, Long userId);
+
+    /** 复用批量配音目标与音色计划的只读 TTS 聚合报价。 */
+    BillingQuoteVO quoteBatchAudio(StoryboardAudioBatchRequest request, Long userId);
 }

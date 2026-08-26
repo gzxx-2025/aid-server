@@ -10,7 +10,9 @@ import java.util.regex.Pattern;
 import org.springframework.stereotype.Component;
 
 import com.aid.common.exception.ServiceException;
+import com.aid.domain.vo.AiModelConfigVo;
 import com.aid.media.constants.DashscopeConstants;
+import com.aid.media.provider.ModelCodeResolver;
 import com.aid.storyboard.video.AbstractVideoReferenceStrategy;
 import com.aid.storyboard.video.ResolvedReference;
 import com.aid.storyboard.video.VideoReferenceContext;
@@ -33,7 +35,8 @@ public class DashscopeVideoReferenceStrategy extends AbstractVideoReferenceStrat
     public boolean supportsProviderCode(String providerCode)
     {
         return providerCode != null
-                && DashscopeConstants.PROVIDER_CODE.equalsIgnoreCase(providerCode.trim());
+                && (DashscopeConstants.PROVIDER_CODE.equalsIgnoreCase(providerCode.trim())
+                || DashscopeConstants.PROVIDER_CODE_WAN3.equalsIgnoreCase(providerCode.trim()));
     }
 
     @Override
@@ -41,6 +44,10 @@ public class DashscopeVideoReferenceStrategy extends AbstractVideoReferenceStrat
     {
         // HappyHorse 参考生视频：消费多图参考（input.media[reference_image]），保留「图片N」标号（Provider 转 [Image N]）。
         String modelCode = ctx.getModelConfig() == null ? null : ctx.getModelConfig().getModelCode();
+        if (isWan3(ctx.getModelConfig()))
+        {
+            return assembleWan3(ctx);
+        }
         if (modelCode != null
                 && modelCode.toLowerCase().startsWith(DashscopeConstants.MODEL_HAPPYHORSE_PREFIX))
         {
@@ -65,6 +72,30 @@ public class DashscopeVideoReferenceStrategy extends AbstractVideoReferenceStrat
                     ctx.getReferences().size(), modelCode);
         }
         return VideoReferencePlan.of(finalPrompt, urls, firstFrame);
+    }
+
+    /** Wan3.0 参考场景最多装配10张图，不再退化为单首帧。 */
+    private VideoReferencePlan assembleWan3(VideoReferenceContext ctx)
+    {
+        int max = Math.min(Math.max(ctx.getMaxReferenceImages(), 0),
+                DashscopeConstants.WAN3_MAX_REFERENCE_IMAGES);
+        List<ResolvedReference> picked = takeRefs(ctx.getReferences(), max);
+        List<String> urls = picked.stream().map(ResolvedReference::getUrl).toList();
+        String finalPrompt = composePrompt(remapPromptForPicked(ctx.getVideoPrompt(), picked),
+                picked.isEmpty() ? null : buildReferenceLegend(picked), ctx.getUserInputText());
+        return VideoReferencePlan.of(finalPrompt, urls, null);
+    }
+
+    private boolean isWan3(AiModelConfigVo modelConfig)
+    {
+        String model = ModelCodeResolver.resolveUpstreamModel(modelConfig, null);
+        if (StrUtil.isBlank(model))
+        {
+            return false;
+        }
+        String normalized = model.trim();
+        return DashscopeConstants.MODEL_WAN3.equalsIgnoreCase(normalized)
+                || DashscopeConstants.MODEL_WAN3_PRIME.equalsIgnoreCase(normalized);
     }
 
     /**

@@ -40,6 +40,8 @@ import com.aid.domain.vo.AiModelConfigVo;
 import com.aid.media.dto.MediaImageGenerateRequest;
 import com.aid.media.dto.MediaTaskResponse;
 import com.aid.media.service.IMediaGenerationService;
+import com.aid.media.service.MediaBillingQuoteService;
+import com.aid.billing.vo.BillingQuoteVO;
 import com.aid.media.util.ModelCapabilityResolver;
 import com.aid.rps.dto.AssetExtractTaskVO;
 import com.aid.rps.service.IAssetExtractService;
@@ -122,6 +124,9 @@ public class StoryboardImageUpscaleServiceImpl implements IStoryboardImageUpscal
 
     @Autowired
     private IMediaGenerationService mediaGenerationService;
+
+    @Autowired
+    private MediaBillingQuoteService mediaBillingQuoteService;
 
     @Autowired
     private AgentDefaultParamsApplier agentDefaultParamsApplier;
@@ -215,6 +220,29 @@ public class StoryboardImageUpscaleServiceImpl implements IStoryboardImageUpscal
             releaseLockSafely(lockKey, lockToken);
             throw e;
         }
+    }
+
+    @Override
+    public BillingQuoteVO quoteUpscaleImage(StoryboardImageUpscaleRequest request, Long userId)
+    {
+        if (userId == null || userId <= 0 || request == null
+                || request.getGenRecordId() == null)
+        {
+            throw new RuntimeException("参数异常");
+        }
+        if (StrUtil.isBlank(request.getModelCode()))
+        {
+            throw new RuntimeException("模型不能空");
+        }
+        AidGenRecord record = loadAndCheckRecord(request.getGenRecordId(), userId);
+        AidStoryboard storyboard = loadAndCheckStoryboard(record.getStoryboardId(), userId);
+        AidAiModel model = validateModelInPool(request.getModelCode());
+        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(model.getModelCode());
+        String resolution = ModelCapabilityResolver.resolveSize(modelConfig, request.getResolution());
+        MediaImageGenerateRequest mediaRequest = buildUpscaleMediaRequest(userId, storyboard,
+                model.getModelCode(), mediaUrlResolver.toFullUrl(record.getFileUrl()), resolution, null);
+        return mediaBillingQuoteService.quoteImage(
+                "STORYBOARD_IMAGE_UPSCALE", mediaRequest, 1);
     }
 
     /**
@@ -566,6 +594,16 @@ public class StoryboardImageUpscaleServiceImpl implements IStoryboardImageUpscal
     private String generateUpscaledImage(Long taskId, Long userId, AidStoryboard storyboard,
                                           String modelCode, String referenceUrl, String resolution)
     {
+        MediaImageGenerateRequest imageRequest = buildUpscaleMediaRequest(
+                userId, storyboard, modelCode, referenceUrl, resolution, taskId);
+        MediaTaskResponse imageResponse = mediaGenerationService.generateImage(imageRequest);
+        return resolveSingleImageUrl(taskId, imageResponse);
+    }
+
+    private MediaImageGenerateRequest buildUpscaleMediaRequest(Long userId,
+            AidStoryboard storyboard, String modelCode, String referenceUrl,
+            String resolution, Long bizTaskId)
+    {
         MediaImageGenerateRequest imageRequest = new MediaImageGenerateRequest();
         imageRequest.setModelName(modelCode);
         imageRequest.setUserId(userId);
@@ -583,7 +621,7 @@ public class StoryboardImageUpscaleServiceImpl implements IStoryboardImageUpscal
         options.put("force_single", true);
         imageRequest.setOptions(options);
 
-        imageRequest.setBizTaskId(taskId);
+        imageRequest.setBizTaskId(bizTaskId);
         imageRequest.setBizTaskType(TASK_TYPE_STORYBOARD_IMAGE_UPSCALE);
 
         AiModelConfigVo defaultModelConfig = aiModelConfigService.selectByModelCode(modelCode);
@@ -595,8 +633,7 @@ public class StoryboardImageUpscaleServiceImpl implements IStoryboardImageUpscal
         AgentModelDefault agentModel = new AgentModelDefault(modelCode);
         agentDefaultParamsApplier.applyToImage(agentModel, imageRequest, defaultModelConfig);
 
-        MediaTaskResponse imageResponse = mediaGenerationService.generateImage(imageRequest);
-        return resolveSingleImageUrl(taskId, imageResponse);
+        return imageRequest;
     }
 
     private static final class TaskCancelledException extends RuntimeException

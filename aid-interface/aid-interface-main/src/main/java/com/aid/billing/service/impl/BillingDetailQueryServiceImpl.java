@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -29,6 +30,7 @@ import com.aid.billing.vo.BillingDetailGroupVO;
 import com.aid.billing.vo.BillingRuleItemVO;
 import com.aid.billing.vo.InputPricingVO;
 import com.aid.billing.vo.ModelBillingDetailVO;
+import com.aid.billing.util.BillingSettlementPolicy;
 
 import cn.hutool.core.collection.CollectionUtil;
 import cn.hutool.core.util.StrUtil;
@@ -74,6 +76,8 @@ public class BillingDetailQueryServiceImpl implements IBillingDetailQueryService
     private static final String METER_SKU_PACKAGE = "SKU_PACKAGE";
     private static final String METER_PER_CHAR = "PER_CHAR";
     private static final String METER_FIXED = "FIXED";
+    private static final String METER_MIXED = "MIXED";
+    private static final String METER_INVALID = "INVALID";
 
     /** 计费模式常量 */
     private static final String BILLING_MODE_SKU = "SKU";
@@ -202,6 +206,10 @@ public class BillingDetailQueryServiceImpl implements IBillingDetailQueryService
     @Override
     public BigDecimal displayCostCredits(AidAiModel model, BigDecimal globalFactor)
     {
+        if (Boolean.TRUE.equals(model.getIsFree()))
+        {
+            return BigDecimal.ZERO;
+        }
         // 折算倍率 = 模型基础倍率 × 单模型倍率（口径与 buildModelDetail 完全一致）
         BigDecimal modelMultiplier = resolvePositive(model.getBillingMultiplier());
         BigDecimal priceMultiplier = modelMultiplier.multiply(resolvePositive(globalFactor));
@@ -234,7 +242,8 @@ public class BillingDetailQueryServiceImpl implements IBillingDetailQueryService
 
         // 折算倍率 = 单模型倍率 × 模型基础倍率
         BigDecimal modelMultiplier = resolvePositive(model.getBillingMultiplier());
-        BigDecimal priceMultiplier = modelMultiplier.multiply(globalFactor);
+        BigDecimal priceMultiplier = Boolean.TRUE.equals(model.getIsFree())
+                ? BigDecimal.ZERO : modelMultiplier.multiply(globalFactor);
 
         // SKU 模式且有规则 JSON：按 meterType 渲染多档位；否则按 FIXED 单价渲染
         boolean isSku = Objects.equals(BILLING_MODE_SKU, model.getBillingMode())
@@ -244,14 +253,15 @@ public class BillingDetailQueryServiceImpl implements IBillingDetailQueryService
             BillingRule rule = parseRuleSafely(model);
             if (Objects.nonNull(rule))
             {
-                String meterType = StrUtil.isNotBlank(rule.getMeterType())
+                String fallbackMeterType = StrUtil.isNotBlank(rule.getMeterType())
                         ? rule.getMeterType().toUpperCase()
                         : inferMeterType(model.getModelType());
+                String meterType = resolveModelMeterType(rule, fallbackMeterType);
                 vo.setMeterType(meterType);
                 vo.setMeterTypeName(resolveMeterTypeName(meterType));
                 vo.setBillingDesc(resolveBillingDesc(meterType, rule));
                 vo.setColumns(buildColumns(meterType, rule));
-                vo.setRules(buildSkuRules(rule, meterType, priceMultiplier));
+                vo.setRules(buildSkuRules(rule, fallbackMeterType, priceMultiplier));
                 // 输入媒体计费说明（图片/视频输入是否支持、单价、上限）
                 vo.setInputPricing(buildInputPricingVo(model, rule, priceMultiplier));
                 return vo;
@@ -386,6 +396,9 @@ public class BillingDetailQueryServiceImpl implements IBillingDetailQueryService
         BigDecimal unit = display(model.getCostCredits(), priceMultiplier);
         BillingRuleItemVO item = new BillingRuleItemVO();
         item.setSkuName("固定单价");
+        item.setMeterType(METER_FIXED);
+        item.setMeterTypeName(resolveMeterTypeName(METER_FIXED));
+        fillUnitAndEstimate(item, METER_FIXED, null, model.getModelType());
         item.setUnitPrice(unit);
         List<BillingRuleItemVO> rules = new ArrayList<>();
         rules.add(item);
@@ -395,7 +408,8 @@ public class BillingDetailQueryServiceImpl implements IBillingDetailQueryService
     /**
      * 渲染 SKU 多档位规则：按 priority 升序、仅取启用档位，命中条件与价格结构化拆分。
      */
-    private List<BillingRuleItemVO> buildSkuRules(BillingRule rule, String meterType, BigDecimal priceMultiplier)
+    private List<BillingRuleItemVO> buildSkuRules(BillingRule rule, String fallbackMeterType,
+                                                   BigDecimal priceMultiplier)
     {
         List<BillingRuleItemVO> rules = new ArrayList<>();
         if (CollectionUtil.isEmpty(rule.getSkus()))
@@ -413,6 +427,12 @@ public class BillingDetailQueryServiceImpl implements IBillingDetailQueryService
             BillingRuleItemVO item = new BillingRuleItemVO();
             item.setSkuCode(sku.getSkuCode());
             item.setSkuName(sku.getSkuName());
+            String meterType = resolveSkuMeterType(sku, fallbackMeterType);
+            item.setMeterType(meterType);
+            item.setMeterTypeName(resolveMeterTypeName(meterType));
+            item.setMatchConditions(CollectionUtil.isEmpty(sku.getMatch())
+                    ? new LinkedHashMap<>() : new LinkedHashMap<>(sku.getMatch()));
+            fillUnitAndEstimate(item, meterType, rule, null);
             // 命中条件结构化拆分（按需出现）
             fillCondition(item, sku.getMatch());
             fillSkuPrice(item, sku, meterType, priceMultiplier);
@@ -421,6 +441,48 @@ public class BillingDetailQueryServiceImpl implements IBillingDetailQueryService
             rules.add(item);
         }
         return rules;
+    }
+
+    /** 补齐统一单位及确定性；按秒任务会按上游实际时长结算，因此属于预估。 */
+    private void fillUnitAndEstimate(BillingRuleItemVO item, String meterType,
+                                     BillingRule rule, String modelType)
+    {
+        switch (meterType)
+        {
+            case METER_TOKEN ->
+            {
+                item.setUnit("TOKEN");
+                item.setUnitName("Token");
+                item.setEstimated(Boolean.TRUE);
+            }
+            case METER_PER_IMAGE ->
+            {
+                item.setUnit("IMAGE");
+                item.setUnitName("张");
+                item.setEstimated(Boolean.FALSE);
+            }
+            case METER_PER_SECOND ->
+            {
+                item.setUnit("SECOND");
+                item.setUnitName("秒");
+                item.setEstimated(BillingSettlementPolicy.isEstimated(
+                        meterType, BILLING_MODE_SKU, JSONUtil.toJsonStr(rule)));
+            }
+            case METER_PER_CHAR ->
+            {
+                item.setUnit("CHAR");
+                item.setUnitName("字符");
+                item.setEstimated(Boolean.FALSE);
+            }
+            default ->
+            {
+                boolean fixedImage = Objects.equals(METER_FIXED, meterType)
+                        && Objects.equals(MODEL_TYPE_IMAGE, modelType);
+                item.setUnit(fixedImage ? "IMAGE" : "CALL");
+                item.setUnitName(fixedImage ? "张" : "次");
+                item.setEstimated(Boolean.FALSE);
+            }
+        }
     }
 
     /**
@@ -472,8 +534,9 @@ public class BillingDetailQueryServiceImpl implements IBillingDetailQueryService
             case METER_PER_IMAGE -> item.setUnitPrice(display(sku.getPrice(), priceMultiplier));
             case METER_PER_SECOND ->
             {
-                // 优先每秒单价；缺失时用整包价 / durationMax 反推（与计费器口径一致）
-                item.setPricePerSecond(display(resolvePerSecondRaw(sku), priceMultiplier));
+                // 仅缺少 SKU meterType 的旧规则允许用整包价 / durationMax 反推；显式口径必须有同单位价格。
+                item.setPricePerSecond(display(resolvePerSecondRaw(sku,
+                        StrUtil.isBlank(sku.getMeterType())), priceMultiplier));
             }
             case METER_SKU_PACKAGE -> item.setPackagePrice(display(sku.getPrice(), priceMultiplier));
             case METER_PER_CHAR -> item.setUnitPrice(display(sku.getPricePerChar(), priceMultiplier));
@@ -505,11 +568,15 @@ public class BillingDetailQueryServiceImpl implements IBillingDetailQueryService
     /**
      * 解析每秒原始单价：优先 sku.pricePerSecond，缺失时用 price / durationMax 反推。
      */
-    private BigDecimal resolvePerSecondRaw(BillingSku sku)
+    private BigDecimal resolvePerSecondRaw(BillingSku sku, boolean allowLegacyFallback)
     {
         if (Objects.nonNull(sku.getPricePerSecond()) && sku.getPricePerSecond().compareTo(BigDecimal.ZERO) > 0)
         {
             return sku.getPricePerSecond();
+        }
+        if (!allowLegacyFallback)
+        {
+            return null;
         }
         BigDecimal total = Objects.isNull(sku.getPrice()) ? BigDecimal.ZERO : sku.getPrice();
         int maxDur = Objects.isNull(matchIntOrNull(sku.getMatch(), "durationMax")) ? 0
@@ -525,6 +592,35 @@ public class BillingDetailQueryServiceImpl implements IBillingDetailQueryService
     {
         List<BillingColumnVO> cols = new ArrayList<>();
         cols.add(new BillingColumnVO("skuName", "档位", null, "text"));
+        if (Objects.equals(METER_MIXED, meterType))
+        {
+            cols.add(new BillingColumnVO("meterTypeName", "计费方式", null, "text"));
+            Map<String, BillingColumnVO> mixedColumns = new LinkedHashMap<>();
+            if (CollectionUtil.isNotEmpty(rule.getSkus()))
+            {
+                String fallback = StrUtil.isNotBlank(rule.getMeterType())
+                        ? rule.getMeterType().toUpperCase() : METER_FIXED;
+                rule.getSkus().stream()
+                        .filter(Objects::nonNull)
+                        .filter(BillingSku::isEnabled)
+                        .map(sku -> resolveSkuMeterType(sku, fallback))
+                        .forEach(type -> meterColumns(type).forEach(column ->
+                                mixedColumns.putIfAbsent(column.getKey(), column)));
+            }
+            cols.addAll(mixedColumns.values());
+        }
+        else
+        {
+            cols.addAll(meterColumns(meterType));
+        }
+        appendInputPricingColumns(cols, rule);
+        return cols;
+    }
+
+    /** 按单一计费口径构建价格与条件列。 */
+    private List<BillingColumnVO> meterColumns(String meterType)
+    {
+        List<BillingColumnVO> cols = new ArrayList<>();
         switch (meterType)
         {
             case METER_TOKEN ->
@@ -557,6 +653,12 @@ public class BillingDetailQueryServiceImpl implements IBillingDetailQueryService
             case METER_PER_CHAR -> cols.add(new BillingColumnVO("unitPrice", "每字符单价", CREDIT_UNIT, "number"));
             default -> cols.add(new BillingColumnVO("unitPrice", "单价", CREDIT_UNIT, "number"));
         }
+        return cols;
+    }
+
+    /** 规则或 SKU 配置输入媒体价格时追加公共输入价列。 */
+    private void appendInputPricingColumns(List<BillingColumnVO> cols, BillingRule rule)
+    {
         // 输入媒体计费列（仅规则或任一 SKU 配置了对应输入价时出现，避免无关模型多空列）
         if (hasInputPricing(rule, true))
         {
@@ -567,7 +669,6 @@ public class BillingDetailQueryServiceImpl implements IBillingDetailQueryService
         {
             cols.add(new BillingColumnVO("inputVideoPricePerSecond", "输入视频单价", CREDIT_UNIT + "/秒", "number"));
         }
-        return cols;
     }
 
     /**
@@ -636,6 +737,8 @@ public class BillingDetailQueryServiceImpl implements IBillingDetailQueryService
             case METER_PER_SECOND -> "按秒计费";
             case METER_SKU_PACKAGE -> "按套餐计费";
             case METER_PER_CHAR -> "按字符计费";
+            case METER_MIXED -> "按档位混合计费";
+            case METER_INVALID -> "计费配置错误";
             default -> "固定单价";
         };
     }
@@ -648,6 +751,10 @@ public class BillingDetailQueryServiceImpl implements IBillingDetailQueryService
         {
             return "总费用由输出费用与适用的输入媒体费用组成，具体按下方场景和档位计算";
         }
+        if (Objects.equals(METER_MIXED, meterType))
+        {
+            return "不同分辨率档位可按次或按秒计费，以每条档位标注的计费方式为准";
+        }
         return switch (meterType)
         {
             case METER_TOKEN -> "按输入 / 输出 Token 用量计费，根据输入窗口命中对应档位单价结算";
@@ -655,6 +762,7 @@ public class BillingDetailQueryServiceImpl implements IBillingDetailQueryService
             case METER_PER_SECOND -> "按生成时长（秒）× 对应分辨率档位的每秒单价计费";
             case METER_SKU_PACKAGE -> "按分辨率 + 时长匹配套餐整包价计费";
             case METER_PER_CHAR -> "按输入文本字符数 × 每字符单价计费";
+            case METER_INVALID -> "计费配置错误，请联系管理员检查档位计费口径";
             default -> "固定单价，每次生成按下方价格扣费";
         };
     }
@@ -675,6 +783,47 @@ public class BillingDetailQueryServiceImpl implements IBillingDetailQueryService
             return METER_SKU_PACKAGE;
         }
         return METER_FIXED;
+    }
+
+    /** 模型顶层展示口径：所有启用 SKU 的实际口径一致则返回该口径，否则返回 MIXED。 */
+    private String resolveModelMeterType(BillingRule rule, String fallbackMeterType)
+    {
+        if (Objects.isNull(rule) || CollectionUtil.isEmpty(rule.getSkus()))
+        {
+            return fallbackMeterType;
+        }
+        List<String> meterTypes = rule.getSkus().stream()
+                .filter(Objects::nonNull)
+                .filter(BillingSku::isEnabled)
+                .map(sku -> resolveSkuMeterType(sku, fallbackMeterType))
+                .distinct()
+                .toList();
+        if (meterTypes.size() > 1)
+        {
+            return METER_MIXED;
+        }
+        return meterTypes.isEmpty() ? fallbackMeterType : meterTypes.get(0);
+    }
+
+    /** SKU 级口径优先；仅缺失时兼容模型级口径，显式非法值必须暴露为配置错误。 */
+    private String resolveSkuMeterType(BillingSku sku, String fallbackMeterType)
+    {
+        String configured = Objects.nonNull(sku) && StrUtil.isNotBlank(sku.getMeterType())
+                ? sku.getMeterType().trim().toUpperCase() : null;
+        if (configured != null)
+        {
+            return isSupportedMeterType(configured) ? configured : METER_INVALID;
+        }
+        return isSupportedMeterType(fallbackMeterType) ? fallbackMeterType : METER_INVALID;
+    }
+
+    private boolean isSupportedMeterType(String meterType)
+    {
+        return Objects.equals(METER_TOKEN, meterType)
+                || Objects.equals(METER_PER_IMAGE, meterType)
+                || Objects.equals(METER_PER_SECOND, meterType)
+                || Objects.equals(METER_SKU_PACKAGE, meterType)
+                || Objects.equals(METER_PER_CHAR, meterType);
     }
 
     /** 安全解析 billing_rule_json 为 BillingRule，失败返回 null（仅记录日志，不阻断查询） */

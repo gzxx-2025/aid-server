@@ -3,6 +3,7 @@ package com.aid.storyboard.service;
 import com.aid.rps.dto.AssetExtractTaskVO;
 import com.aid.storyboard.dto.LipSyncRequest;
 import com.aid.storyboard.dto.StoryboardLipSyncBatchRequest;
+import com.aid.billing.vo.BillingQuoteVO;
 
 /**
  * 分镜对口型服务：台词现场 TTS 配音后与分镜视频一并提交对口型模型（单个 + 批量）。
@@ -28,6 +29,12 @@ public interface IStoryboardLipSyncService {
      * @return 父任务VO（taskId + 状态 + 总数）
      */
     AssetExtractTaskVO batchLipSync(StoryboardLipSyncBatchRequest request, Long userId);
+
+    /** 单分镜 TTS + 对口型视频复合只读报价。 */
+    BillingQuoteVO quoteLipSync(LipSyncRequest request, Long userId);
+
+    /** 批量 TTS + 对口型视频复合只读报价。 */
+    BillingQuoteVO quoteBatchLipSync(StoryboardLipSyncBatchRequest request, Long userId);
 
     /** 媒体子任务状态/OSS 结果变化后的内部编排推进入口。 */
     void onChildMediaTaskChanged(Long mediaTaskId);

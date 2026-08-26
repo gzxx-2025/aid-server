@@ -25,11 +25,13 @@ import com.aid.common.error.ErrorNormalizer;
 import com.aid.common.error.RefundStatusMapper;
 import com.aid.common.error.TaskErrorResult;
 import com.aid.common.error.TaskSuccessValidator;
+import com.aid.common.constant.HttpConstants;
 import com.aid.common.exception.ServiceException;
 import com.aid.common.oss.entity.UploadResult;
 import com.aid.common.oss.factory.OssFactory;
 import com.aid.common.satoken.utils.LoginHelper;
 import com.aid.domain.vo.AiModelConfigVo;
+import com.aid.media.constants.ConfigurableAsyncMediaConstants;
 import com.aid.media.constants.DashscopeConstants;
 import com.aid.media.constants.KlingConstants;
 import com.aid.media.constants.MinimaxH3Constants;
@@ -41,12 +43,14 @@ import com.aid.media.dto.MediaBatchGenerateRequest;
 import com.aid.media.dto.MediaBatchGenerateResponse;
 import com.aid.media.dto.MediaBatchProgressRequest;
 import com.aid.media.dto.MediaBatchProgressResponse;
+import com.aid.media.dto.MediaAudioGenerateRequest;
 import com.aid.media.dto.MediaImageGenerateRequest;
 import com.aid.media.dto.MediaTaskListItem;
 import com.aid.media.dto.MediaTaskListRequest;
 import com.aid.media.dto.MediaTaskResponse;
 import com.aid.media.dto.MediaTextGenerateRequest;
 import com.aid.media.dto.MediaVideoGenerateRequest;
+import com.aid.media.dto.PreparedMediaBillingInput;
 import com.aid.media.enums.MediaBillingStatus;
 import com.aid.media.enums.MediaTaskStatus;
 import com.aid.media.enums.MediaType;
@@ -62,9 +66,13 @@ import com.aid.media.provider.TextProviderClient;
 import com.aid.media.provider.TextOutputLimitResolver;
 import com.aid.media.provider.TextStreamCallbacks;
 import com.aid.media.provider.VideoProviderClient;
+import com.aid.media.provider.impl.ConfigurableAsyncVideoProviderClient;
 import com.aid.media.provider.impl.MpsVideoProviderClient;
 import com.aid.media.provider.impl.VolcengineVideoProviderClient;
+import com.aid.media.provider.impl.Wan3VideoRequestBuilder;
+import com.aid.media.provider.impl.AgnesVideo25RequestBuilder;
 import com.aid.media.service.IMediaGenerationService;
+import com.aid.media.service.MediaBillingQuotePreparer;
 import com.aid.media.service.MediaTextStreamSink;
 import com.aid.media.service.TaskDispatchService;
 import com.aid.media.service.TaskCompletionService;
@@ -74,6 +82,8 @@ import com.aid.media.event.MediaTaskOssPersistedEvent;
 import com.aid.media.util.MediaTaskPayloadSanitizer;
 import com.aid.media.util.ModelCapabilityValidator;
 import com.aid.media.util.ModelCapabilityResolver;
+import com.aid.media.util.ModelInputCapabilityValidator;
+import com.aid.media.util.ReferenceMediaRequestNormalizer;
 import com.aid.media.util.VideoDurationProber;
 import com.aid.rps.service.IExtractBillingService;
 import com.aid.rps.service.impl.TextTaskExecutionRejectedException;
@@ -97,6 +107,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.net.URI;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -105,7 +116,7 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class MediaGenerationServiceImpl implements IMediaGenerationService {
+public class MediaGenerationServiceImpl implements IMediaGenerationService, MediaBillingQuotePreparer {
 
     // 默认图片模型名称：与首期默认协议一致，可在 aid_ai_model 覆盖。
     private static final String DEFAULT_IMAGE_MODEL = DashscopeConstants.PROTOCOL_IMAGE;
@@ -126,6 +137,8 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService {
     private static final int OSS_COMPENSATION_READY_GAP_SECONDS = 60;
     // provider 远程调用慢调用 WARN 阈值（毫秒）：超过则单独 WARN，便于一眼定位 390s 这类慢上游。
     private static final long SLOW_SUBMIT_WARN_MS = 60_000L;
+    /** 上游产物下载最多允许的受控重定向次数。 */
+    private static final int ORIGIN_DOWNLOAD_MAX_REDIRECTS = 3;
     // 秒→毫秒换算：产物时长在任务表按秒存储，解析结果需向上取整到秒。
     private static final int MILLIS_PER_SECOND = 1000;
     // 正式 TTS 任务允许的音频格式；业务入口和统一任务入口双重校验，禁止非法值进入预冻结。
@@ -207,21 +220,156 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService {
     }
 
     @Override
-    public MediaTaskResponse generateImage(MediaImageGenerateRequest request) {
+    public PreparedMediaBillingInput prepareImageBilling(MediaImageGenerateRequest request)
+    {
+        if (request == null)
+        {
+            throw new ServiceException("请求不能为空");
+        }
         validatePrompt(request.getPrompt());
+        AiModelConfigVo modelConfig = resolveModel(request.getModelName(), MediaType.IMAGE);
+        ModelCapabilityValidator.validatePrompt(modelConfig, request.getPrompt());
+        ImageProviderClient imageClient = resolveImageClient(request.getModelName(), modelConfig);
+        ModelInputCapabilityValidator.validateRawImageInputs(modelConfig, request);
+        ReferenceMediaRequestNormalizer.normalize(modelConfig, request,
+                imageClient.fallbackMaxReferenceImages(modelConfig));
+        ModelInputCapabilityValidator.normalizeAndValidateImage(modelConfig, request);
+        validateMinReferenceImages(modelConfig, countImageRequestReferenceImages(request));
+        ModelCapabilityValidator.normalizeImageAspectRatio(modelConfig, request);
+        ModelCapabilityValidator.validateImage(modelConfig, request);
+        BillingInput billingInput = BillingInputExtractor.fromImageRequest(
+                request, modelConfig.getModelCode(), modelConfig.getMaxOutputCount());
+        return new PreparedMediaBillingInput(modelConfig, billingInput);
+    }
+
+    @Override
+    public PreparedMediaBillingInput preparePlannedImageBilling(MediaImageGenerateRequest request)
+    {
+        if (request == null)
+        {
+            throw new ServiceException("请求不能为空");
+        }
+        AiModelConfigVo modelConfig = resolveModel(request.getModelName(), MediaType.IMAGE);
+        ImageProviderClient imageClient = resolveImageClient(request.getModelName(), modelConfig);
+        ModelInputCapabilityValidator.validateRawImageInputs(modelConfig, request);
+        ReferenceMediaRequestNormalizer.normalize(modelConfig, request,
+                imageClient.fallbackMaxReferenceImages(modelConfig));
+        ModelCapabilityValidator.normalizeImageAspectRatio(modelConfig, request);
+        ModelCapabilityValidator.validateImage(modelConfig, request);
+        BillingInput billingInput = BillingInputExtractor.fromImageRequest(
+                request, modelConfig.getModelCode(), modelConfig.getMaxOutputCount());
+        return new PreparedMediaBillingInput(modelConfig, billingInput);
+    }
+
+    @Override
+    public PreparedMediaBillingInput prepareVideoBilling(MediaVideoGenerateRequest request)
+    {
+        if (request == null)
+        {
+            throw new ServiceException("请求不能为空");
+        }
+        validatePrompt(request.getPrompt());
+        AiModelConfigVo modelConfig = resolveModel(request.getModelName(), MediaType.VIDEO);
+        ModelCapabilityValidator.validatePrompt(modelConfig, request.getPrompt());
+        validateVideoProviderContract(modelConfig, request);
+        ModelInputCapabilityValidator.validateRawVideoInputs(modelConfig, request);
+        Wan3VideoRequestBuilder.validateRawInputs(modelConfig, request);
+        AgnesVideo25RequestBuilder.validateRawInputs(modelConfig, request);
+        VideoProviderClient videoClient = resolveVideoClient(request.getModelName(), modelConfig);
+        ReferenceMediaRequestNormalizer.normalize(modelConfig, request,
+                videoClient.fallbackMaxReferenceImages(modelConfig),
+                videoClient.fallbackMaxReferenceVideos(modelConfig));
+        validateVideoRequestReferenceInputs(modelConfig, request);
+        if (ModelCapabilityResolver.isVideoAspectRatioFollowInput(modelConfig)
+                && StrUtil.isBlank(request.getAspectRatio()))
+        {
+            request.setAspectRatio(ModelCapabilityResolver.resolveVideoAspectRatio(modelConfig, null));
+        }
+        ModelCapabilityValidator.normalizeVideoAspectRatio(modelConfig, request);
+        if (!isLipSyncRequest(request))
+        {
+            ModelCapabilityValidator.validateVideo(modelConfig, request.getDurationSeconds(),
+                    request.getAspectRatio(), request.getOptions());
+        }
+        ModelCapabilityValidator.normalizeAndValidateVideoAudio(modelConfig, request);
+        ModelCapabilityValidator.normalizeAndValidateReferenceAudios(modelConfig, request);
+        ModelInputCapabilityValidator.validateVideo(modelConfig, request);
+        validateVideoProviderContract(modelConfig, request);
+        return new PreparedMediaBillingInput(modelConfig,
+                BillingInputExtractor.fromVideoRequest(request));
+    }
+
+    @Override
+    public PreparedMediaBillingInput preparePlannedVideoBilling(MediaVideoGenerateRequest request)
+    {
+        if (request == null)
+        {
+            throw new ServiceException("请求不能为空");
+        }
+        AiModelConfigVo modelConfig = resolveModel(request.getModelName(), MediaType.VIDEO);
+        validateVideoProviderContract(modelConfig, request);
+        ModelInputCapabilityValidator.validateRawVideoInputs(modelConfig, request);
+        Wan3VideoRequestBuilder.validateRawInputs(modelConfig, request);
+        AgnesVideo25RequestBuilder.validateRawInputs(modelConfig, request);
+        VideoProviderClient videoClient = resolveVideoClient(request.getModelName(), modelConfig);
+        ReferenceMediaRequestNormalizer.normalize(modelConfig, request,
+                videoClient.fallbackMaxReferenceImages(modelConfig),
+                videoClient.fallbackMaxReferenceVideos(modelConfig));
+        validateVideoRequestReferenceInputs(modelConfig, request);
+        if (ModelCapabilityResolver.isVideoAspectRatioFollowInput(modelConfig)
+                && StrUtil.isBlank(request.getAspectRatio()))
+        {
+            request.setAspectRatio(ModelCapabilityResolver.resolveVideoAspectRatio(modelConfig, null));
+        }
+        ModelCapabilityValidator.normalizeVideoAspectRatio(modelConfig, request);
+        if (!isLipSyncRequest(request))
+        {
+            ModelCapabilityValidator.validateVideo(modelConfig, request.getDurationSeconds(),
+                    request.getAspectRatio(), request.getOptions());
+        }
+        ModelCapabilityValidator.normalizeAndValidateVideoAudio(modelConfig, request);
+        ModelCapabilityValidator.normalizeAndValidateReferenceAudios(modelConfig, request);
+        Wan3VideoRequestBuilder.validateFullRequest(modelConfig, request);
+        AgnesVideo25RequestBuilder.validateFullRequest(modelConfig, request);
+        return new PreparedMediaBillingInput(modelConfig,
+                BillingInputExtractor.fromVideoRequest(request));
+    }
+
+    @Override
+    public PreparedMediaBillingInput prepareTextBilling(MediaTextGenerateRequest request)
+    {
+        validateTextRequest(request);
+        AiModelConfigVo modelConfig = resolveModel(request.getModelName(), MediaType.TEXT);
+        TextOutputLimitResolver.normalize(request, modelConfig);
+        return new PreparedMediaBillingInput(modelConfig,
+                BillingInputExtractor.fromTextRequest(request));
+    }
+
+    @Override
+    public PreparedMediaBillingInput prepareAudioBilling(MediaAudioGenerateRequest request)
+    {
+        if (Objects.isNull(request) || StringUtils.isBlank(request.getTtsText()))
+        {
+            throw new ServiceException("配音文本不能为空");
+        }
+        if (StringUtils.isBlank(request.getVoiceCode()))
+        {
+            throw new ServiceException("音色不可用");
+        }
+        validateAudioParameters(request);
+        AiModelConfigVo modelConfig = resolveModel(request.getModelName(), MediaType.AUDIO);
+        return new PreparedMediaBillingInput(modelConfig,
+                BillingInputExtractor.fromAudioRequest(request));
+    }
+
+    @Override
+    public MediaTaskResponse generateImage(MediaImageGenerateRequest request) {
         //      SecurityContext 会丢失，仅靠 getCurrentUserIdSafe() 会取到 null，
         //      导致 task.userId 为空、预冻结/结算/退款全部被跳过造成漏扣费。
         //      业务调用方显式 setUserId 时优先采用，否则回退到登录上下文（保留同步接口行为）。
         Long effectiveUserId = request.getUserId() != null ? request.getUserId() : getCurrentUserIdSafe();
-        AiModelConfigVo modelConfig = resolveModel(request.getModelName(), MediaType.IMAGE);
-        // 前置校验：必须带图的模型（capability_json.minReferenceImages>=1）在建任务/扣费前拦截缺图请求
-        validateMinReferenceImages(modelConfig, countImageRequestReferenceImages(request));
-        // 画面比例统一归一（全链路收口）：模型未声明比例能力时先剔除比例参数，
-        // 避免业务链路无差别下发后被厂商在提交阶段硬拒绝（比例是可选偏好，不升级为用户可见失败）
-        ModelCapabilityValidator.normalizeImageAspectRatio(modelConfig, request);
-        // 能力参数统一校验（全链路收口）：清晰度/画面比例须命中模型 capability_json 白名单，
-        // 不合法参数在建任务/扣费前拦截，防止直达厂商后调用失败
-        ModelCapabilityValidator.validateImage(modelConfig, request);
+        PreparedMediaBillingInput preparedBilling = prepareImageBilling(request);
+        AiModelConfigVo modelConfig = preparedBilling.modelConfig();
         // 文件内容只能通过对象存储 URL 传递，抢占并发与扣费前先阻止 Base64/data URI 落库。
         String requestJson = MediaTaskPayloadSanitizer.serializeRequest(request);
         String requestHash = buildRequestHash(MediaType.IMAGE.name(), request, effectiveUserId);
@@ -278,10 +426,7 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService {
                 // 先落库，避免外部成功但本地无任务记录。
                 aidMediaTaskMapper.insert(task);
                 // 预冻结计费（登录用户生效）：透传最终 modelCode 与 max_output_count，硬编码仅兜底。
-                BillingInput billingInput = BillingInputExtractor.fromImageRequest(
-                        request, task.getModelName(),
-                        modelConfig == null ? null : modelConfig.getMaxOutputCount());
-                billingFacadeService.prepareBilling(task, modelConfig, billingInput);
+                billingFacadeService.prepareBilling(task, modelConfig, preparedBilling.billingInput());
                 // 预冻结成功后立即回写 FROZEN，确保 settleBilling/refundBilling 的 CAS 条件能命中 DB 状态。
                 updateTaskWithPayloadArchive(task);
             });
@@ -308,33 +453,12 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService {
 
     @Override
     public MediaTaskResponse generateVideo(MediaVideoGenerateRequest request) {
-        validatePrompt(request.getPrompt());
         //      SecurityContext 会丢失，仅靠 getCurrentUserIdSafe() 会取到 null，
         //      导致 task.userId 为空、预冻结/结算/退款全部被跳过造成漏扣费。
         //      业务调用方显式 setUserId 时优先采用，否则回退到登录上下文（保留同步接口行为）。
         Long effectiveUserId = request.getUserId() != null ? request.getUserId() : getCurrentUserIdSafe();
-        AiModelConfigVo modelConfig = resolveModel(request.getModelName(), MediaType.VIDEO);
-        // 前置校验：可灵按实际 scenario 与最终派发字段校验，其它 Provider 保持通用参考图下限口径。
-        validateVideoRequestReferenceInputs(modelConfig, request);
-        if (ModelCapabilityResolver.isVideoAspectRatioFollowInput(modelConfig)
-                && StrUtil.isBlank(request.getAspectRatio())) {
-            request.setAspectRatio(ModelCapabilityResolver.resolveVideoAspectRatio(modelConfig, null));
-        }
-        // 画面比例统一归一（全链路收口）：与图片侧同一口径，模型未声明比例能力时剔除比例参数
-        ModelCapabilityValidator.normalizeVideoAspectRatio(modelConfig, request);
-        // 能力参数统一校验（全链路收口）：清晰度/画面比例/时长须命中模型 capability_json 白名单。
-        // 对口型请求（options 带 video_url+audio_url 契约键）除外：其时长/画幅由源视频与配音推导而来，
-        // 不是用户可选参数，durationOptions 白名单对其无意义
-        if (!isLipSyncRequest(request)) {
-            ModelCapabilityValidator.validateVideo(modelConfig, request.getDurationSeconds(),
-                    request.getAspectRatio(), request.getOptions());
-        }
-        // 音画同出：options.generate_audio 与顶层 audio 归一，并按 capability.supportsAudio 门禁
-        ModelCapabilityValidator.normalizeAndValidateVideoAudio(modelConfig, request);
-        // 参考音频必须在建任务与预冻结前完成统一能力、格式及时长归一，归一结果随 request_json 落库。
-        ModelCapabilityValidator.normalizeAndValidateReferenceAudios(modelConfig, request);
-        // Provider 完整契约必须在 requestJson、抢并发、任务落库和预冻结之前验证。
-        validateVideoProviderContract(modelConfig, request);
+        PreparedMediaBillingInput preparedBilling = prepareVideoBilling(request);
+        AiModelConfigVo modelConfig = preparedBilling.modelConfig();
         // 文件内容只能通过对象存储 URL 传递，抢占并发与扣费前先阻止 Base64/data URI 落库。
         String requestJson = MediaTaskPayloadSanitizer.serializeRequest(request);
         String requestHash = buildRequestHash(MediaType.VIDEO.name(), request, effectiveUserId);
@@ -385,8 +509,7 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService {
         try {
             requiresNewTxTemplate.executeWithoutResult(s -> {
                 aidMediaTaskMapper.insert(task);
-                BillingInput billingInput = BillingInputExtractor.fromVideoRequest(request);
-                billingFacadeService.prepareBilling(task, modelConfig, billingInput);
+                billingFacadeService.prepareBilling(task, modelConfig, preparedBilling.billingInput());
                 // 预冻结成功后回写 FROZEN，确保 settle/refund 的 CAS 条件能命中 DB 状态。
                 updateTaskWithPayloadArchive(task);
             });
@@ -409,19 +532,13 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService {
 
     @Override
     public MediaTaskResponse generateAudio(com.aid.media.dto.MediaAudioGenerateRequest request) {
-        if (Objects.isNull(request) || StringUtils.isBlank(request.getTtsText())) {
-            throw new ServiceException("配音文本不能为空");
-        }
-        if (StringUtils.isBlank(request.getVoiceCode())) {
-            throw new ServiceException("音色不可用");
-        }
-        validateAudioParameters(request);
+        PreparedMediaBillingInput preparedBilling = prepareAudioBilling(request);
 
         // 正式任务只接受文本与业务参数，禁止把音频 Base64 放入扩展字段后写库。
         String requestJson = MediaTaskPayloadSanitizer.serializeRequest(request);
         Long effectiveUserId = request.getUserId() != null ? request.getUserId() : getCurrentUserIdSafe();
 
-        AiModelConfigVo modelConfig = resolveModel(request.getModelName(), MediaType.AUDIO);
+        AiModelConfigVo modelConfig = preparedBilling.modelConfig();
 
         String requestHash = buildRequestHash(MediaType.AUDIO.name(), request, effectiveUserId);
         AidMediaTask existing = findRecentTaskByHash(requestHash);
@@ -458,8 +575,7 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService {
         try {
             requiresNewTxTemplate.executeWithoutResult(s -> {
                 aidMediaTaskMapper.insert(task);
-                BillingInput billingInput = BillingInputExtractor.fromAudioRequest(request);
-                billingFacadeService.prepareBilling(task, modelConfig, billingInput);
+                billingFacadeService.prepareBilling(task, modelConfig, preparedBilling.billingInput());
                 updateTaskWithPayloadArchive(task);
             });
         } catch (Exception freezeEx) {
@@ -606,11 +722,10 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService {
 
     @Override
     public MediaTaskResponse generateText(MediaTextGenerateRequest request) {
-        validateTextRequest(request);
         //      限流、幂等、入库、释放全部用同一个值，避免 anonymous 与真实 userId 错乱。
         Long effectiveUserId = request.getUserId() != null ? request.getUserId() : getCurrentUserIdSafe();
-        AiModelConfigVo modelConfig = resolveModel(request.getModelName(), MediaType.TEXT);
-        TextOutputLimitResolver.normalize(request, modelConfig);
+        PreparedMediaBillingInput preparedBilling = prepareTextBilling(request);
+        AiModelConfigVo modelConfig = preparedBilling.modelConfig();
         String requestJson = MediaTaskPayloadSanitizer.serializeRequest(request);
         String requestHash = buildRequestHash(MediaType.TEXT.name(), request, effectiveUserId);
         AidMediaTask existing = StrUtil.isNotBlank(request.getCallId())
@@ -655,8 +770,7 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService {
                 }
                 aidMediaTaskMapper.insert(task);
                 if (!exempt) {
-                    BillingInput billingInput = BillingInputExtractor.fromTextRequest(request);
-                    billingFacadeService.prepareBilling(task, modelConfig, billingInput);
+                    billingFacadeService.prepareBilling(task, modelConfig, preparedBilling.billingInput());
                 }
                 updateTaskWithPayloadArchive(task);
             });
@@ -1916,6 +2030,7 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService {
         final int connTimeoutMs = 30_000;
         final int readTimeoutMs = 60_000;
         final long[] backoffMs = {0L, 1500L, 3000L};
+        AiModelConfigVo modelConfig = resolveTaskModelConfig(task);
         Exception lastEx = null;
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             if (backoffMs[attempt - 1] > 0L) {
@@ -1926,29 +2041,165 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService {
                     throw new RuntimeException("下载重试被中断", ie);
                 }
             }
-            try (HttpResponse response = HttpRequest.get(task.getOriginUrl())
-                    .setConnectionTimeout(connTimeoutMs)
-                    .setReadTimeout(readTimeoutMs)
-                    .execute()) {
-                if (!response.isOk()) {
-                    throw new RuntimeException("下载非 2xx 状态码: " + response.getStatus());
-                }
-                byte[] bytes = response.bodyBytes();
-                if (bytes == null || bytes.length == 0) {
-                    throw new RuntimeException("下载字节为空");
-                }
+            try {
+                byte[] bytes = downloadOriginBytesFollowingRedirects(
+                        task.getOriginUrl(), modelConfig, task.getId(), task.getModelName(),
+                        connTimeoutMs, readTimeoutMs);
                 if (attempt > 1) {
                     log.info("origin 下载重试成功, taskId={}, attempt={}, size={}", task.getId(), attempt, bytes.length);
                 }
                 return bytes;
             } catch (Exception ex) {
                 lastEx = ex;
-                log.warn("origin 下载失败, taskId={}, attempt={}/{}, originUrl={}, err={}",
-                        task.getId(), attempt, maxAttempts, task.getOriginUrl(), ex.getMessage());
+                log.warn("origin 下载失败, taskId={}, attempt={}/{}, errorType={}",
+                        task.getId(), attempt, maxAttempts, ex.getClass().getSimpleName());
             }
         }
         // 全部重试失败：抛出最后一次异常给上层 catch 处理
         throw new RuntimeException("origin 下载重试 " + maxAttempts + " 次均失败", lastEx);
+    }
+
+    /**
+     * 受控下载产物：最多跟随三次重定向；只有与模型网关同源的请求才携带模型凭证。
+     */
+    static byte[] downloadOriginBytesFollowingRedirects(String originUrl, AiModelConfigVo modelConfig,
+                                                        Long taskId, String modelCode,
+                                                        int connectionTimeoutMs, int readTimeoutMs) {
+        String currentUrl = requireHttpUrl(originUrl);
+        Set<String> visited = new HashSet<>();
+        int redirectCount = 0;
+        boolean initialRequest = true;
+        while (true) {
+            if (!visited.add(currentUrl)) {
+                throw new ServiceException("产物重定向循环");
+            }
+            HttpRequest request = buildOriginDownloadRequest(
+                    currentUrl, modelConfig, taskId, modelCode, initialRequest);
+            try (HttpResponse response = request
+                    .setConnectionTimeout(connectionTimeoutMs)
+                    .setReadTimeout(readTimeoutMs)
+                    .setFollowRedirects(false)
+                    .execute()) {
+                int status = response.getStatus();
+                if (isRedirectStatus(status)) {
+                    if (redirectCount >= ORIGIN_DOWNLOAD_MAX_REDIRECTS) {
+                        throw new ServiceException("产物重定向过多");
+                    }
+                    String location = response.header("Location");
+                    if (StringUtils.isBlank(location)) {
+                        throw new ServiceException("产物重定向无地址");
+                    }
+                    currentUrl = resolveRedirectUrl(currentUrl, location);
+                    redirectCount++;
+                    initialRequest = false;
+                    continue;
+                }
+                if (!response.isOk()) {
+                    throw new RuntimeException("下载非 2xx 状态码: " + status);
+                }
+                byte[] bytes = response.bodyBytes();
+                if (bytes == null || bytes.length == 0) {
+                    throw new RuntimeException("下载字节为空");
+                }
+                return bytes;
+            }
+        }
+    }
+
+    private static HttpRequest buildOriginDownloadRequest(String originUrl, AiModelConfigVo modelConfig,
+                                                           Long taskId, String modelCode,
+                                                           boolean initialRequest) {
+        String safeUrl = requireHttpUrl(originUrl);
+        HttpRequest request = HttpRequest.get(safeUrl);
+        if (!resultDownloadRequiresAuth(modelConfig)) {
+            return request;
+        }
+        if (modelConfig == null || StringUtils.isBlank(modelConfig.getApiKey())) {
+            log.error("鉴权产物下载缺少模型凭证, taskId={}, modelCode={}",
+                    taskId, modelCode);
+            throw new ServiceException("产物下载配置异常");
+        }
+        boolean sameGatewayOrigin = sameOrigin(safeUrl, modelConfig.getBaseUrl());
+        if (initialRequest && !sameGatewayOrigin) {
+            log.error("鉴权产物下载拒绝跨源携密, taskId={}, modelCode={}", taskId, modelCode);
+            throw new ServiceException("产物地址不可信");
+        }
+        if (!sameGatewayOrigin) {
+            return request;
+        }
+        String authHeader = StringUtils.defaultIfBlank(
+                modelConfig.getAuthHeader(), HttpConstants.HEADER_AUTHORIZATION);
+        String authPrefix = modelConfig.getAuthPrefix() == null
+                ? HttpConstants.AUTH_BEARER_PREFIX : modelConfig.getAuthPrefix();
+        return request.header(authHeader, authPrefix + modelConfig.getApiKey(), true);
+    }
+
+    private static boolean isRedirectStatus(int status) {
+        return status == 301 || status == 302 || status == 303 || status == 307 || status == 308;
+    }
+
+    private static String resolveRedirectUrl(String currentUrl, String location) {
+        try {
+            URI resolved = URI.create(currentUrl).resolve(location.trim());
+            return requireHttpUrl(resolved.toString());
+        } catch (IllegalArgumentException ex) {
+            throw new ServiceException("产物重定向无效");
+        }
+    }
+
+    private static String requireHttpUrl(String value) {
+        if (StringUtils.isBlank(value)) {
+            throw new ServiceException("产物地址无效");
+        }
+        try {
+            URI uri = URI.create(value.trim());
+            String scheme = uri.getScheme();
+            if (!("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme))
+                    || StringUtils.isBlank(uri.getHost())) {
+                throw new ServiceException("产物地址无效");
+            }
+            return uri.toString();
+        } catch (IllegalArgumentException ex) {
+            throw new ServiceException("产物地址无效");
+        }
+    }
+
+    private static boolean resultDownloadRequiresAuth(AiModelConfigVo modelConfig) {
+        if (modelConfig == null) {
+            return false;
+        }
+        com.fasterxml.jackson.databind.JsonNode capability =
+                ModelCapabilityResolver.parseCapability(modelConfig.getCapabilityJson());
+        return capability != null && capability.path(
+                ConfigurableAsyncMediaConstants.CAPABILITY_RESULT_DOWNLOAD_REQUIRES_AUTH).asBoolean(false);
+    }
+
+    private static boolean sameOrigin(String firstUrl, String secondUrl) {
+        if (StringUtils.isAnyBlank(firstUrl, secondUrl)) {
+            return false;
+        }
+        try {
+            URI first = URI.create(firstUrl.trim());
+            URI second = URI.create(secondUrl.trim());
+            String firstScheme = first.getScheme();
+            String secondScheme = second.getScheme();
+            if (!("http".equalsIgnoreCase(firstScheme) || "https".equalsIgnoreCase(firstScheme))
+                    || !("http".equalsIgnoreCase(secondScheme) || "https".equalsIgnoreCase(secondScheme))) {
+                return false;
+            }
+            return StringUtils.equalsIgnoreCase(firstScheme, secondScheme)
+                    && StringUtils.equalsIgnoreCase(first.getHost(), second.getHost())
+                    && effectivePort(first) == effectivePort(second);
+        } catch (IllegalArgumentException ex) {
+            return false;
+        }
+    }
+
+    private static int effectivePort(URI uri) {
+        if (uri.getPort() >= 0) {
+            return uri.getPort();
+        }
+        return "https".equalsIgnoreCase(uri.getScheme()) ? 443 : 80;
     }
 
     /**
@@ -2314,11 +2565,6 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService {
     }
 
     /**
-     * 参考图数量下限前置校验：capability_json.minReferenceImages（0/缺省=不要求）。
-     * 必须带图的模型（图生图 / 图生视频 / 首尾帧等）在建任务、扣费之前就拦截缺图请求，
-     * 避免任务提交到上游后才被 FieldLacking 拒掉，白白经历冻结-失败-退款一轮。
-     */
-    /**
      * 判断是否对口型提交：options 同时携带源视频与驱动音频契约键。
      * 对口型的时长/画幅由素材推导，不参与能力白名单校验。
      *
@@ -2426,6 +2672,20 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService {
             if (modelConfig != null
                 && VolcengineConstants.PROTOCOL_SEEDANCE_VIDEO.equalsIgnoreCase(StrUtil.trim(modelConfig.getProtocol()))) {
                 VolcengineVideoProviderClient.validateFullRequest(modelConfig, request);
+                return;
+            }
+            if (modelConfig != null
+                && ConfigurableAsyncMediaConstants.PROTOCOL_VIDEO.equalsIgnoreCase(
+                        StrUtil.trim(modelConfig.getProtocol()))) {
+                ConfigurableAsyncVideoProviderClient.validateFullRequest(modelConfig, request);
+                return;
+            }
+            if (Wan3VideoRequestBuilder.supportsModel(modelConfig)) {
+                Wan3VideoRequestBuilder.validateFullRequest(modelConfig, request);
+                return;
+            }
+            if (AgnesVideo25RequestBuilder.supportsModel(modelConfig)) {
+                AgnesVideo25RequestBuilder.validateFullRequest(modelConfig, request);
             }
         } finally {
             if (followInput) {
@@ -2853,6 +3113,12 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService {
             }
             validatePrompt(imgReq.getPrompt());
             AiModelConfigVo modelConfig = resolveModel(imgReq.getModelName(), MediaType.IMAGE);
+            ModelCapabilityValidator.validatePrompt(modelConfig, imgReq.getPrompt());
+            ImageProviderClient imageClient = resolveImageClient(imgReq.getModelName(), modelConfig);
+            ModelInputCapabilityValidator.validateRawImageInputs(modelConfig, imgReq);
+            ReferenceMediaRequestNormalizer.normalize(modelConfig, imgReq,
+                    imageClient.fallbackMaxReferenceImages(modelConfig));
+            ModelInputCapabilityValidator.normalizeAndValidateImage(modelConfig, imgReq);
             validateMinReferenceImages(modelConfig, countImageRequestReferenceImages(imgReq));
             // 批量与单条图片生成共用同一能力归一化和场景校验，禁止两条入口出现不同结果。
             ModelCapabilityValidator.normalizeImageAspectRatio(modelConfig, imgReq);
@@ -2893,6 +3159,15 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService {
             }
             validatePrompt(vidReq.getPrompt());
             AiModelConfigVo modelConfig = resolveModel(vidReq.getModelName(), MediaType.VIDEO);
+            ModelCapabilityValidator.validatePrompt(modelConfig, vidReq.getPrompt());
+            validateVideoProviderContract(modelConfig, vidReq);
+            ModelInputCapabilityValidator.validateRawVideoInputs(modelConfig, vidReq);
+            Wan3VideoRequestBuilder.validateRawInputs(modelConfig, vidReq);
+            AgnesVideo25RequestBuilder.validateRawInputs(modelConfig, vidReq);
+            VideoProviderClient videoClient = resolveVideoClient(vidReq.getModelName(), modelConfig);
+            ReferenceMediaRequestNormalizer.normalize(modelConfig, vidReq,
+                    videoClient.fallbackMaxReferenceImages(modelConfig),
+                    videoClient.fallbackMaxReferenceVideos(modelConfig));
             validateVideoRequestReferenceInputs(modelConfig, vidReq);
             if (ModelCapabilityResolver.isVideoAspectRatioFollowInput(modelConfig)
                     && StrUtil.isBlank(vidReq.getAspectRatio())) {
@@ -2906,6 +3181,7 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService {
             }
             ModelCapabilityValidator.normalizeAndValidateVideoAudio(modelConfig, vidReq);
             ModelCapabilityValidator.normalizeAndValidateReferenceAudios(modelConfig, vidReq);
+            ModelInputCapabilityValidator.validateVideo(modelConfig, vidReq);
             validateVideoProviderContract(modelConfig, vidReq);
             VideoProviderClient client = resolveVideoClient(vidReq.getModelName(), modelConfig);
             AidMediaTask task = new AidMediaTask();

@@ -11,6 +11,7 @@ import com.aid.auth.service.AuthService;
 import com.aid.common.annotation.Anonymous;
 import com.aid.common.captcha.annotation.CaptchaRequired;
 import com.aid.common.core.domain.AjaxResult;
+import com.aid.common.satoken.utils.LoginHelper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.annotation.Resource;
@@ -53,11 +54,12 @@ public class AuthController {
      *
      * @return 公开配置聚合对象（详见 {@link com.aid.auth.domain.vo.PublicConfigVO}）
      */
-    @Operation(summary = "查询C端公开配置", description = "聚合行为验证码状态、短信/邮箱验证码策略、平台品牌图片、加密/支付/上传、营销活动等，前端首屏一次拉取")
+    @Operation(summary = "查询C端公开配置",
+            description = "未登录时仅返回平台级公开配置；登录后保持完整配置，并追加当前用户微信通知状态")
     @Anonymous
     @PostMapping("/public-config")
     public AjaxResult publicConfig() {
-        return AjaxResult.success(authService.getPublicConfig());
+        return AjaxResult.success(authService.getPublicConfig(LoginHelper.getUserId()));
     }
 
     /**

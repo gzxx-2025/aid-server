@@ -42,6 +42,8 @@ import com.aid.common.utils.uuid.IdUtils;
 import com.aid.common.core.service.TokenService;
 import com.aid.core.service.ISysUserService;
 import com.aid.notify.wechat.service.IWechatNotifyConfigService;
+import com.aid.notify.wechat.service.IWechatNotifyService;
+import com.aid.notify.wechat.vo.WechatNotifyPreferenceVO;
 import com.aid.notify.wechat.vo.WechatNotifyPublicVO;
 import com.aid.promotion.service.IInviteService;
 import com.aid.promotion.service.IPromotionConfigService;
@@ -146,6 +148,10 @@ public class AuthService {
     /** 微信公众号模板消息推送配置，聚合到 publicConfig 返回给 C 端 */
     @Resource
     private IWechatNotifyConfigService wechatNotifyConfigService;
+
+    /** 当前用户微信通知偏好；仅登录后的 publicConfig 个性化响应使用。 */
+    @Resource
+    private IWechatNotifyService wechatNotifyService;
 
     /** 营销活动配置：注册送积分 / 邀请激励，聚合到 publicConfig 供登录注册页展示 */
     @Resource
@@ -322,17 +328,53 @@ public class AuthService {
         inviteService.validateForRegistration(inviteCode);
     }
 
-    /** publicConfig Redis 缓存 key（全局共享，不区分用户/IP）。结构变更时更换键名避免旧缓存。 */
+    /** publicConfig 平台配置 Redis 缓存 key（全局共享，不缓存登录用户个人状态）。 */
     private static final String PUBLIC_CONFIG_CACHE_KEY = "auth:public_config:login_channels";
 
     /** publicConfig 缓存 TTL（秒）：30s 是 aid_config 改完到全局生效的最大延迟，业务可接受。 */
     private static final int PUBLIC_CONFIG_CACHE_TTL_SECONDS = 30;
 
     /**
-     * 一次性返回前端首屏所需的全部公开配置（行为验证码、短信/邮箱策略、平台品牌、加密/支付/上传、营销活动等），
+     * 返回首屏配置：未登录只返回平台级配置，登录后在不减少任何原字段的前提下，
+     * 实时追加当前用户的微信绑定、个人开关和基础可推送状态。
+     * 用户状态不写入全局 Redis 缓存，避免跨用户串用。
+     */
+    public PublicConfigVO getPublicConfig(Long userId) {
+        PublicConfigVO publicConfig = getPublicConfig();
+        if (Objects.isNull(userId) || userId <= 0) {
+            return publicConfig;
+        }
+        try {
+            WechatNotifyPreferenceVO preference = wechatNotifyService.getPreference(userId);
+            WechatNotifyPublicVO official = publicConfig.getWechatNotify();
+            Boolean systemEnabled = Objects.nonNull(official)
+                    ? official.getEnabled() : preference.getSystemEnabled();
+            boolean systemReady = Boolean.TRUE.equals(wechatNotifyConfigService.getStatus().getReady());
+            WechatNotifyPublicVO personalized = WechatNotifyPublicVO.builder()
+                    .enabled(systemEnabled)
+                    .balanceReminderThreshold(Objects.nonNull(official)
+                            ? official.getBalanceReminderThreshold() : preference.getBalanceReminderThreshold())
+                    .rules(Objects.nonNull(official) ? official.getRules() : preference.getRules())
+                    .userEnabled(preference.getUserEnabled())
+                    .wechatBound(preference.getWechatBound())
+                    .pushAvailable(systemReady
+                            && Boolean.TRUE.equals(preference.getUserEnabled())
+                            && Boolean.TRUE.equals(preference.getWechatBound()))
+                    .build();
+            return publicConfig.toBuilder().wechatNotify(personalized).build();
+        } catch (Exception e) {
+            log.warn("publicConfig 当前用户微信状态读取失败，保留平台配置: userId={}, err={}",
+                    userId, e.getMessage());
+            return publicConfig;
+        }
+    }
+
+    /**
+     * 一次性构建前端首屏所需的全部平台级公开配置（行为验证码、短信/邮箱策略、平台品牌、
+     * 微信通知总开关、加密/支付/上传、营销活动等），
      * 减少首屏多次匿名请求的往返；服务端 Redis 缓存 {@value #PUBLIC_CONFIG_CACHE_TTL_SECONDS}s，
      * aid_config / 行为验证码状态变更后最多 30s 内生效。
-     * 缓存内容为不含密钥/会话的纯公开配置，跨用户共享读，无隐私泄露风险。
+     * 本方法及缓存内容不含用户 ID、用户微信绑定状态、用户通知开关或其它会话信息。
      */
     public PublicConfigVO getPublicConfig() {
         try {

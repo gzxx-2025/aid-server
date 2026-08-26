@@ -134,6 +134,15 @@ public class JimengImageProviderClient implements ImageProviderClient {
         return JimengConstants.PROTOCOL_IMAGE;
     }
 
+    @Override
+    public Integer fallbackMaxReferenceImages(AiModelConfigVo modelConfig) {
+        String modelCode = modelConfig == null ? null : modelConfig.getModelCode();
+        return JimengConstants.MODEL_CODE_ULTRA.equalsIgnoreCase(modelCode)
+                ? JimengConstants.MAX_REF_IMAGES_ULTRA
+                : (JimengConstants.MODEL_CODE_V46.equalsIgnoreCase(modelCode)
+                ? JimengConstants.MAX_REF_IMAGES_V46 : JimengConstants.MAX_REF_IMAGES_V40);
+    }
+
     /** 提交瞬时失败最大尝试次数（含首次）：覆盖即梦网关 504 抖动 / 50430 并发超限的有限退避重试 */
     private static final int JIMENG_SUBMIT_MAX_ATTEMPTS = 3;
     /** 提交重试退避基数（毫秒）：第 n 次重试 sleep = base × n（2s、4s…） */

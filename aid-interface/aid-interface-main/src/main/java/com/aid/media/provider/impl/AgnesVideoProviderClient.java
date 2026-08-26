@@ -29,11 +29,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
-/**
- * Agnes 视频生成 Provider：支持 agnes-video-v2.0（文生视频 / 图生视频 / 多图视频 / 关键帧动画）。
- *
- * @author 视觉AID
- */
+/** Agnes 视频异步生成与状态查询实现。 */
 @Slf4j
 @Component
 public class AgnesVideoProviderClient implements VideoProviderClient {
@@ -79,10 +75,6 @@ public class AgnesVideoProviderClient implements VideoProviderClient {
     }
     @Override
     public ProviderSubmitResult submit(AiModelConfigVo modelConfig, MediaVideoGenerateRequest request) {
-        // 参考图上限只认模型 capability（本 Provider 不另设默认上限）；Agnes 视频不下发参考音频，
-        // 正文里的 @音频N 必然悬空，按 0 条统一文字降级
-        ReferencePromptSanitizer.sanitizeInPlace(request,
-                ReferenceImageLimiter.resolveMax(modelConfig, 0), 0);
         String apiKey = modelConfig != null ? modelConfig.getApiKey() : null;
         if (StringUtils.isBlank(apiKey)) {
             log.error("Agnes 视频提交失败: apiKey 为空, modelCode={}",
@@ -90,21 +82,27 @@ public class AgnesVideoProviderClient implements VideoProviderClient {
             return ProviderSubmitResult.builder().rawResponse(AgnesConstants.ERROR_API_KEY_EMPTY).build();
         }
 
-        Integer reqDuration = request == null ? null : request.getDurationSeconds();
-        if (reqDuration != null && reqDuration > 0 && reqDuration < MIN_DURATION_SECONDS) {
-            log.error("Agnes 视频时长不足: requestedSeconds={}, minSeconds={}, modelCode={}",
-                    reqDuration, MIN_DURATION_SECONDS,
-                    modelConfig == null ? null : modelConfig.getModelCode());
-            throw new ServiceException("时长过短");
-        }
-
         String model = resolveEffectiveModel(modelConfig, request);
         String submitUrl = buildApiUrl(modelConfig.getBaseUrl(), modelConfig.getApiSuffix());
-
-        Map<String, Object> body = buildSubmitBody(model, request);
+        Map<String, Object> body;
+        if (AgnesVideo25RequestBuilder.supportsModelName(model)) {
+            body = AgnesVideo25RequestBuilder.buildSubmissionBody(model, modelConfig, request);
+        } else {
+            // 2.0 不下发参考音频，悬空音频占位必须降级为普通文字。
+            ReferencePromptSanitizer.sanitizeInPlace(request,
+                    ReferenceImageLimiter.resolveMax(modelConfig, 0), 0);
+            Integer reqDuration = request == null ? null : request.getDurationSeconds();
+            if (reqDuration != null && reqDuration > 0 && reqDuration < MIN_DURATION_SECONDS) {
+                log.error("Agnes 视频时长不足: requestedSeconds={}, minSeconds={}, modelCode={}",
+                        reqDuration, MIN_DURATION_SECONDS,
+                        modelConfig == null ? null : modelConfig.getModelCode());
+                throw new ServiceException("时长过短");
+            }
+            body = buildSubmitBody(model, request);
+        }
         String json = JSONUtil.toJsonStr(body);
-        log.info("Agnes 视频提交, url={}, model={}, numFrames={}, frameRate={}", submitUrl, model,
-                body.get(AgnesConstants.JSON_NUM_FRAMES), body.get(AgnesConstants.JSON_FRAME_RATE));
+        log.info("Agnes 视频提交, url={}, model={}, mode={}, seconds={}", submitUrl, model,
+                body.get(AgnesConstants.JSON_MODE), body.get("seconds"));
 
         String raw = doPost(submitUrl, apiKey, modelConfig.getAuthHeader(), modelConfig.getAuthPrefix(), json);
         JsonNode root = ProviderResponseHelper.readTree(raw);
@@ -129,7 +127,8 @@ public class AgnesVideoProviderClient implements VideoProviderClient {
         String taskId = ProviderResponseHelper.readText(root,
                 "video_id", "data.video_id",
                 "task_id", "id", "data.task_id", "data.id");
-        String directUrl = ProviderResponseHelper.readText(root, "video_url", "data.video_url");
+        String directUrl = ProviderResponseHelper.readText(root,
+                "video_url", "data.video_url", "metadata.url");
         if (StringUtils.isBlank(taskId) && StringUtils.isBlank(directUrl)) {
             // 既无任务 ID 也无直出 URL：提交失败，透传错误
             String error = ProviderResponseHelper.readText(root, "error.message", "message", "error");
@@ -148,6 +147,8 @@ public class AgnesVideoProviderClient implements VideoProviderClient {
         // 状态查询限速闸门：调度中心批量轮询时把相邻查询强制拉开间隔，避免触发上游短窗限流(429)
         acquireQuerySlot(providerTaskId);
         String queryUrl = buildTaskUrl(modelConfig.getBaseUrl(), modelConfig.getTaskQuerySuffix(), providerTaskId);
+        queryUrl = AgnesVideo25RequestBuilder.appendModelName(queryUrl,
+                ModelCodeResolver.resolveUpstreamModel(modelConfig, null));
         String raw = doGet(queryUrl, modelConfig.getApiKey(), modelConfig.getAuthHeader(), modelConfig.getAuthPrefix());
         JsonNode root = ProviderResponseHelper.readTree(raw);
         if (root == null) {
@@ -180,6 +181,7 @@ public class AgnesVideoProviderClient implements VideoProviderClient {
                 "video_url",
                 "data.video_url",
                 "output.video_url",
+                "metadata.url",
                 "data.url",
                 "url");
         if (StringUtils.isBlank(videoUrl)) {
@@ -546,7 +548,8 @@ public class AgnesVideoProviderClient implements VideoProviderClient {
      * 解析 Agnes seconds（字符串如 "10.0"），向上取整为秒数；无则返回 null。
      */
     private Integer parseSeconds(JsonNode root) {
-        String seconds = ProviderResponseHelper.readText(root, "seconds", "data.seconds");
+        String seconds = ProviderResponseHelper.readText(root,
+                "seconds", "data.seconds", "metadata.seconds");
         if (StringUtils.isBlank(seconds)) {
             return null;
         }

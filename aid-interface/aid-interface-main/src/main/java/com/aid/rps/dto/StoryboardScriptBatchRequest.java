@@ -3,6 +3,7 @@ package com.aid.rps.dto;
 import java.util.List;
 
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 /**
@@ -22,6 +23,7 @@ public class StoryboardScriptBatchRequest
     private Long episodeId;
 
     /** 可选：要生成分镜脚本的场景ID列表，不传则跑该剧集下所有场景 */
+    @Size(max = 100, message = "批量过多")
     private List<Long> sceneIds;
 
     /** 智能体编码。 */

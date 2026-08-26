@@ -63,6 +63,7 @@ import com.aid.compose.dto.timeline.TimelineSegment;
 import com.aid.compose.dto.timeline.TimelineSubtitleItem;
 import com.aid.compose.enums.SubtitleRecognitionStatus;
 import com.aid.compose.service.ComposeBatchStore;
+import com.aid.compose.service.ComposeBatchSlotCoordinator;
 import com.aid.compose.service.CoreComposeService;
 import com.aid.compose.service.ExportSubtitleAlignmentService;
 import com.aid.compose.service.StoryboardVideoSelectionResolver;
@@ -83,6 +84,8 @@ import com.aid.media.enums.MediaTaskStatus;
 import com.aid.media.event.MediaTaskOssPersistedEvent;
 import com.aid.media.provider.MinimaxProviderDetector;
 import com.aid.media.service.IMediaGenerationService;
+import com.aid.rps.queue.BatchParentSubmissionGuard;
+import com.aid.rps.queue.BatchTaskSlotReservation;
 import com.aid.service.IAiModelConfigService;
 import com.aid.step.service.ICreationStepService;
 import com.aid.voice.util.DialogueSubtitleFormatter;
@@ -196,6 +199,12 @@ public class VideoComposeServiceImpl implements VideoComposeService {
     /** 合成批次 Redis 暂存/并发控制 */
     private final ComposeBatchStore composeBatchStore;
 
+    /** 跨入口批量配音/导出逻辑槽协调器。 */
+    private final ComposeBatchSlotCoordinator composeBatchSlotCoordinator;
+
+    /** 串行化停止与真实供应商同步受理。 */
+    private final BatchParentSubmissionGuard batchParentSubmissionGuard;
+
     /** 媒体 URL 解析器：DB 相对路径 → 完整可访问 URL（喂 MPS 需完整 URL） */
     private final MediaUrlResolver mediaUrlResolver;
 
@@ -301,6 +310,18 @@ public class VideoComposeServiceImpl implements VideoComposeService {
         VoiceoverScope scope = resolveVoiceoverScope(request, storyboardIds, genRecords);
         creationStepService.checkStepUnlocked(scope.projectId(), scope.episodeId(), userId,
                 CreationStepEnum.AUDIO.getValue());
+        BatchTaskSlotReservation slotReservation = composeBatchSlotCoordinator.acquireVoiceover(
+                scope.projectId(), scope.episodeId(), composeBatchId);
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCompletion(int status) {
+                    if (status != TransactionSynchronization.STATUS_COMMITTED) {
+                        composeBatchSlotCoordinator.abortVoiceover(composeBatchId, slotReservation);
+                    }
+                }
+            });
+        }
 
         for (int i = 0; i < storyboardIds.size(); i++) {
             AidGenRecord genRecord = genRecords.get(i);
@@ -516,34 +537,48 @@ public class VideoComposeServiceImpl implements VideoComposeService {
         // 受理锁：同一剪辑记录的导出受理串行化，堵住并发双击在「防重查库→置合成中」窗口期的重复冻结
         if (!composeBatchStore.tryExportLock(editor.getId())) {
             log.info("接口2 导出受理锁竞争失败, episodeEditorId={}, userId={}", editor.getId(), userId);
-            // 多开窗口或重复点击命中锁时，若首个请求已落下运行态，按同一任务幂等返回。
-            // 锁存在但运行态尚未落库的极短窗口仍返回友好提示，不能伪造一个数据库尚不存在的任务。
+            // 多开窗口或重复点击命中锁时，若首个请求已落下运行态，拒绝并提示先停止。
+            // 锁存在但运行态尚未落库的极短窗口同样返回友好提示。
             AidEpisodeEditor currentEditor = reloadEditorInLock(editor.getId());
             EpisodeExportResult inFlight = resolveInFlightExport(currentEditor);
             if (Objects.nonNull(inFlight)) {
-                return inFlight;
+                throw new ServiceException("任务执行中，请先停止");
             }
-            throw new ServiceException("合成中请稍候");
+            throw new ServiceException("任务执行中，请先停止");
         }
+        BatchTaskSlotReservation exportReservation = null;
+        boolean keepExportReservation = false;
         try {
             // 锁内重读剪辑记录：锁外快照可能已被上一个并发受理改为「合成中」，防重与复用判定必须基于最新状态
             AidEpisodeEditor freshEditor = reloadEditorInLock(editor.getId());
             EpisodeExportResult inFlight = resolveInFlightExport(freshEditor);
             if (Objects.nonNull(inFlight)) {
-                return inFlight;
+                throw new ServiceException("任务执行中，请先停止");
             }
             // 必须在视频同步、工程 show=false 清洗等就地修改前记录前端整批来源，防止清洗后误判为全空。
             boolean clientGroupBatchHasSubtitle = hasAnyGroupSubtitle(request.getGroups());
             // 系统分镜段以服务端当前选中记录为权威源，换片后即使前端仍持有旧工程快照也不会导出旧视频。
-            // 只对真正的新受理执行素材同步；幂等命中不重复做业务读取与素材探测。
+            // 运行中请求已在上方拒绝，只有真正的新受理才执行素材同步与素材探测。
             Map<Long, AidGenRecord> selectedVideos = synchronizeExportGroupVideos(
                     request.getGroups(), freshEditor, userId);
             // 冗余配音归一化：段视频为配音视频（compose，声音已合进画面）时自动忽略该组配音 MP3，
             // 防止成片同一段叠两层人声；发生在指纹计算之前，等价请求可命中成片复用
             normalizeComposeGroupAudio(request.getGroups(), userId,
                     freshEditor.getProjectId(), freshEditor.getEpisodeId());
-            return doExportEpisode(request, freshEditor, userId, selectedVideos, clientGroupBatchHasSubtitle);
+            // 耗时素材同步/探测完成后再占逻辑槽，随后立即进入 mark COMPOSING + owner 绑定，
+            // 避免 provisional 窗口超过僵尸宽限期。
+            exportReservation = composeBatchSlotCoordinator.acquireExport(
+                    freshEditor.getProjectId(), freshEditor.getEpisodeId());
+            EpisodeExportResult result = doExportEpisode(
+                    request, freshEditor, userId, selectedVideos, clientGroupBatchHasSubtitle,
+                    exportReservation);
+            keepExportReservation = Objects.equals(
+                    ComposeConstants.EXPORT_STATUS_COMPOSING, result.getExportStatus());
+            return result;
         } finally {
+            if (Objects.nonNull(exportReservation) && !keepExportReservation) {
+                composeBatchSlotCoordinator.abortExport(editor.getId(), exportReservation);
+            }
             composeBatchStore.unlockExport(editor.getId());
         }
     }
@@ -588,7 +623,8 @@ public class VideoComposeServiceImpl implements VideoComposeService {
      */
     private EpisodeExportResult doExportEpisode(EpisodeExportRequest request, AidEpisodeEditor editor, Long userId,
                                                 Map<Long, AidGenRecord> selectedVideos,
-                                                boolean clientGroupBatchHasSubtitle) {
+                                                boolean clientGroupBatchHasSubtitle,
+                                                BatchTaskSlotReservation exportReservation) {
         // 字幕收口：分组未携带字幕时回落工程时间轴中该段的台词。
         // 必须发生在指纹计算之前——指纹含字幕，回落结果参与复用判定才不会命中「无字幕」的旧成片
         TimelineSubtitleContext subtitleContext = applyTimelineSubtitles(request, editor, selectedVideos);
@@ -625,13 +661,19 @@ public class VideoComposeServiceImpl implements VideoComposeService {
             exportRunToken = markExportComposing(request, editor, userId);
             String activeRunToken = exportRunToken;
             try {
+                composeBatchSlotCoordinator.bindExport(editor.getId(), exportReservation);
                 exportSubtitleAlignmentService.align(request.getGroups(), subtitleContext.matchedSegments(),
                         selectedVideos,
                         (completed, total) -> updateSubtitleProgress(
                                 editor.getId(), activeRunToken, completed, total),
                         () -> checkpointGeneratedTimeline(request, subtitleContext.timeline(),
                                 editor.getId(), activeRunToken, userId),
-                        () -> updateExportHeartbeat(editor.getId(), activeRunToken));
+                        () -> updateExportHeartbeat(editor.getId(), activeRunToken),
+                        providerCall -> batchParentSubmissionGuard.execute(exportSubmissionScope(editor.getId()), () ->
+                        {
+                            requireExportSubmissionActive(editor.getId(), activeRunToken);
+                            return providerCall.get();
+                        }));
             } catch (Exception alignmentEx) {
                 writeAcceptFailed(editor.getId(), activeRunToken, resolveShortError(alignmentEx));
                 throw alignmentEx;
@@ -670,8 +712,16 @@ public class VideoComposeServiceImpl implements VideoComposeService {
         ComposeCommand command;
         ComposeSubmitResult submitResult;
         try {
+            if (!exportStarted) {
+                composeBatchSlotCoordinator.bindExport(editor.getId(), exportReservation);
+            }
             command = buildExportCommand(request, editor, userId);
-            submitResult = coreComposeService.compose(command);
+            String activeRunToken = exportRunToken;
+            submitResult = batchParentSubmissionGuard.execute(exportSubmissionScope(editor.getId()), () ->
+            {
+                requireExportSubmissionActive(editor.getId(), activeRunToken);
+                return coreComposeService.compose(command);
+            });
         } catch (Exception composeEx) {
             // 受理失败补偿：把刚置的「合成中」落为失败终态（条件更新，不覆盖并发终态），
             // 同步把失败原因回写 errorMsg，进度轮询与本次响应口径一致
@@ -693,6 +743,7 @@ public class VideoComposeServiceImpl implements VideoComposeService {
         if (linked != 1) {
             log.error("接口2 合成任务绑定失败, episodeEditorId={}, mediaTaskId={}, runToken={}",
                     editor.getId(), submitResult.getMediaTaskId(), exportRunToken);
+            writeAcceptFailed(editor.getId(), exportRunToken, "导出状态失效");
             throw new ServiceException("导出状态失效");
         }
 
@@ -876,10 +927,12 @@ public class VideoComposeServiceImpl implements VideoComposeService {
             failUpdate.eq(AidEpisodeEditor::getExportStatus, ComposeConstants.EXPORT_STATUS_COMPOSING);
             failUpdate.eq(AidEpisodeEditor::getExportTaskId, runToken);
             failUpdate.set(AidEpisodeEditor::getExportStatus, ComposeConstants.EXPORT_STATUS_FAILED);
-            failUpdate.set(AidEpisodeEditor::getExportTaskId, null);
             failUpdate.set(AidEpisodeEditor::getErrorMsg, errorMsg);
             failUpdate.set(AidEpisodeEditor::getUpdateTime, new Date());
-            aidEpisodeEditorMapper.update(null, failUpdate);
+            int updated = aidEpisodeEditorMapper.update(null, failUpdate);
+            if (updated == 1) {
+                composeBatchSlotCoordinator.releaseExport(episodeEditorId, runToken);
+            }
         } catch (Exception writeEx) {
             log.error("接口2 受理失败补偿回写异常, episodeEditorId={}", episodeEditorId, writeEx);
         }
@@ -1075,10 +1128,12 @@ public class VideoComposeServiceImpl implements VideoComposeService {
                         ComposeConstants.EXPORT_STATUS_COMPOSING);
                 interruptedUpdate.eq(AidEpisodeEditor::getExportTaskId, editor.getExportTaskId());
                 interruptedUpdate.set(AidEpisodeEditor::getExportStatus, ComposeConstants.EXPORT_STATUS_FAILED);
-                interruptedUpdate.set(AidEpisodeEditor::getExportTaskId, null);
                 interruptedUpdate.set(AidEpisodeEditor::getErrorMsg, "导出已中断");
                 interruptedUpdate.set(AidEpisodeEditor::getUpdateTime, new Date());
-                aidEpisodeEditorMapper.update(null, interruptedUpdate);
+                int updated = aidEpisodeEditorMapper.update(null, interruptedUpdate);
+                if (updated == 1) {
+                    composeBatchSlotCoordinator.releaseExport(editor.getId(), editor.getExportTaskId());
+                }
                 AidEpisodeEditor refreshed = aidEpisodeEditorMapper.selectOne(wrapper);
                 log.info("接口2 同步受理卡单已自愈, episodeEditorId={}", editor.getId());
                 return Objects.nonNull(refreshed) ? refreshed : editor;
@@ -1107,11 +1162,15 @@ public class VideoComposeServiceImpl implements VideoComposeService {
                 LambdaUpdateWrapper<AidEpisodeEditor> failUpdate = new LambdaUpdateWrapper<>();
                 failUpdate.eq(AidEpisodeEditor::getId, editor.getId());
                 failUpdate.eq(AidEpisodeEditor::getExportStatus, ComposeConstants.EXPORT_STATUS_COMPOSING);
+                failUpdate.eq(AidEpisodeEditor::getExportTaskId, String.valueOf(task.getId()));
                 failUpdate.set(AidEpisodeEditor::getExportStatus, ComposeConstants.EXPORT_STATUS_FAILED);
                 failUpdate.set(AidEpisodeEditor::getErrorMsg,
                         StrUtil.blankToDefault(task.getErrorMessage(), "合成失败"));
                 failUpdate.set(AidEpisodeEditor::getUpdateTime, new Date());
-                aidEpisodeEditorMapper.update(null, failUpdate);
+                int updated = aidEpisodeEditorMapper.update(null, failUpdate);
+                if (updated == 1) {
+                    composeBatchSlotCoordinator.releaseExport(editor.getId(), String.valueOf(task.getId()));
+                }
                 log.info("接口2 导出卡单自愈为失败终态, episodeEditorId={}, taskId={}", editor.getId(), task.getId());
             } else {
                 // 任务仍在跑：无需自愈
@@ -1844,19 +1903,19 @@ public class VideoComposeServiceImpl implements VideoComposeService {
                         .last("LIMIT 1"));
     }
 
-    /** 「合成中但无正式任务ID」的受理在途保护窗（毫秒）：窗内复用上一请求，超窗允许卡单自愈 */
+    /** 「合成中但无正式任务ID」的受理保护窗：窗内识别为运行中并拒绝，超窗允许卡单自愈。 */
     private static final long EXPORT_ACCEPTING_GRACE_MS = 10L * 60L * 1000L;
 
     /**
-     * 幂等解析正在受理或尚未完成业务回写的导出。
+     * 识别正在受理或尚未完成业务回写的导出，供调用方拒绝重复请求。
      * <p>
-     * 同步字幕阶段使用临时受理令牌，保护窗内直接返回运行态；正式媒体任务只要仍存在，
-     * 无论处于排队、上游处理还是刚进入终态但剪辑记录尚未回写，均返回原任务。
-     * 前端随后查询导出状态接口，终态遗漏由该接口的自愈逻辑统一收口，避免重复合成与重复扣费。
+     * 同步字幕阶段使用临时受理令牌，保护窗内识别为运行中；正式媒体任务只要仍存在，
+     * 无论处于排队、上游处理还是刚进入终态但剪辑记录尚未回写，均视为运行中。
+     * 调用方统一提示先停止；终态遗漏由状态查询接口的自愈逻辑收口。
      * 临时令牌超窗或正式任务不存在时视为状态残留，返回 {@code null} 放行重新受理。
      *
      * @param editor 剪辑记录
-     * @return 原导出任务受理结果；当前没有可复用任务时返回 null
+     * @return 运行中标记；当前没有运行中任务时返回 null
      */
     private EpisodeExportResult resolveInFlightExport(AidEpisodeEditor editor) {
         if (!Objects.equals(editor.getExportStatus(), ComposeConstants.EXPORT_STATUS_COMPOSING)) {
@@ -1865,7 +1924,7 @@ public class VideoComposeServiceImpl implements VideoComposeService {
         String taskIdStr = editor.getExportTaskId();
         if (StrUtil.isBlank(taskIdStr) || !NumberUtil.isLong(taskIdStr)) {
             // 「合成中但无任务ID」= 上一请求仍在受理窗口（素材探测/预冻结中，耗时可能超过受理锁 TTL）。
-            // 保护窗内幂等返回（防受理锁过期后并发双任务双冻结）；超窗视为受理崩溃残留，放行重新导出。
+            // 保护窗内识别为运行中并由调用方拒绝；超窗视为受理崩溃残留，放行重新导出。
             Date updateTime = editor.getUpdateTime();
             if (Objects.nonNull(updateTime)
                     && System.currentTimeMillis() - updateTime.getTime() < EXPORT_ACCEPTING_GRACE_MS) {
@@ -1895,7 +1954,7 @@ public class VideoComposeServiceImpl implements VideoComposeService {
         return buildInFlightExportResult(editor, String.valueOf(task.getId()));
     }
 
-    /** 组装重复受理的统一返回，临时受理令牌不向前端暴露。 */
+    /** 组装内部运行中标记供调用方拒绝，临时受理令牌不向前端暴露。 */
     private EpisodeExportResult buildInFlightExportResult(AidEpisodeEditor editor, String exportTaskId) {
         EpisodeExportResult result = new EpisodeExportResult();
         result.setEpisodeEditorId(editor.getId());
@@ -1971,17 +2030,20 @@ public class VideoComposeServiceImpl implements VideoComposeService {
         // 自愈发生后重读记录，避免前端因事件丢失永远收到 VOICING
         if (selfHealStuckVoiceover(audioRecords, userId)) {
             audioRecords = listComposeBatchAudioRecords(batchId, userId);
+            composeBatchSlotCoordinator.releaseVoiceover(batchId);
         }
 
         int total = audioRecords.size();
         int succeeded = 0;
         int failed = 0;
+        boolean cancelled = false;
         String firstAudioError = null;
         for (AidAudioRecord ar : audioRecords) {
             if (MediaTaskStatus.SUCCEEDED.name().equals(ar.getStatus())) {
                 succeeded++;
             } else if (MediaTaskStatus.FAILED.name().equals(ar.getStatus())) {
                 failed++;
+                cancelled = cancelled || "用户取消".equals(ar.getErrorMessage());
                 if (StrUtil.isBlank(firstAudioError) && StrUtil.isNotBlank(ar.getErrorMessage())) {
                     firstAudioError = ar.getErrorMessage();
                 }
@@ -2004,7 +2066,16 @@ public class VideoComposeServiceImpl implements VideoComposeService {
                         .orderByDesc(AidMediaTask::getId)
                         .last("LIMIT 1"));
 
-        if (Objects.nonNull(composeTask)) {
+        if (cancelled) {
+            // aid_audio_record 是取消真源；Redis marker 过期/重启后仍永久忽略迟到成功媒体结果。
+            result.setStatus(COMPOSE_STATUS_FAILED);
+            result.setErrorMessage("用户取消");
+            composeBatchSlotCoordinator.releaseVoiceover(batchId);
+        } else if (composeBatchStore.isFailed(batchId)) {
+            // 用户取消/配音失败优先于迟到的媒体任务状态，禁止已取消批次再次显示为合成中或成功。
+            result.setStatus(COMPOSE_STATUS_FAILED);
+            result.setErrorMessage(StrUtil.isNotBlank(firstAudioError) ? firstAudioError : "合成失败");
+        } else if (Objects.nonNull(composeTask)) {
             if (MediaTaskStatus.SUCCEEDED.name().equals(composeTask.getStatus())
                     && StrUtil.isNotBlank(composeTask.getOssUrl())) {
                 // 合成成功且成片地址就绪：回传成片地址（相对路径，出参 @MediaUrl 自动拼域名）与时长
@@ -2022,6 +2093,7 @@ public class VideoComposeServiceImpl implements VideoComposeService {
             // 配音失败，或配音已齐但合成触发阶段异常被标记失败（此时不会再产生合成任务）
             result.setStatus(COMPOSE_STATUS_FAILED);
             result.setErrorMessage(StrUtil.isNotBlank(firstAudioError) ? firstAudioError : "合成失败");
+            composeBatchSlotCoordinator.releaseVoiceover(batchId);
         } else if (succeeded == total) {
             // 配音已齐、合成任务尚未落库：正常为事件链触发中的极短窗口；
             // 若触发事件丢失（服务重启等）则重发判齐事件自愈，仍无法触发时按失败收口
@@ -2037,6 +2109,167 @@ public class VideoComposeServiceImpl implements VideoComposeService {
             result.setStatus(COMPOSE_STATUS_VOICING);
         }
         return result;
+    }
+
+    /** 合成落任务和冻结前确认本次导出尚未被用户停止。 */
+    private void requireExportSubmissionActive(Long episodeEditorId, String runToken) {
+        LambdaUpdateWrapper<AidEpisodeEditor> checkpoint = Wrappers.lambdaUpdate();
+        checkpoint.eq(AidEpisodeEditor::getId, episodeEditorId);
+        checkpoint.eq(AidEpisodeEditor::getExportStatus, ComposeConstants.EXPORT_STATUS_COMPOSING);
+        checkpoint.eq(AidEpisodeEditor::getExportTaskId, runToken);
+        checkpoint.set(AidEpisodeEditor::getUpdateTime, new Date());
+        if (aidEpisodeEditorMapper.update(null, checkpoint) != 1) {
+            log.info("接口2 导出提交检查点失效, episodeEditorId={}, runToken={}", episodeEditorId, runToken);
+            throw new ServiceException("任务已停止");
+        }
+    }
+
+    private String voiceoverSubmissionScope(String batchId) {
+        return "voiceover:" + batchId;
+    }
+
+    private String exportSubmissionScope(Long episodeEditorId) {
+        return "export:" + episodeEditorId;
+    }
+
+    @Override
+    public void cancelVoiceover(ComposeStatusRequest request) {
+        if (Objects.isNull(request) || StrUtil.isBlank(request.getComposeBatchId())) {
+            throw new ServiceException("参数有误");
+        }
+        String batchId = request.getComposeBatchId().trim();
+        Long userId = SecurityUtils.getUserId();
+        List<AidAudioRecord> records = aidAudioRecordMapper.selectList(
+                Wrappers.<AidAudioRecord>lambdaQuery()
+                        .select(AidAudioRecord::getId, AidAudioRecord::getStatus)
+                        .eq(AidAudioRecord::getComposeBatchId, batchId)
+                        .eq(AidAudioRecord::getUserId, userId)
+                        .eq(AidAudioRecord::getDelFlag, DEL_FLAG_NORMAL));
+        if (CollectionUtil.isEmpty(records)) {
+            throw new ServiceException("批次不存在");
+        }
+        batchParentSubmissionGuard.execute(voiceoverSubmissionScope(batchId), () -> {
+            List<AidAudioRecord> lockedRecords = aidAudioRecordMapper.selectList(
+                    Wrappers.<AidAudioRecord>lambdaQuery()
+                            .select(AidAudioRecord::getId, AidAudioRecord::getStatus,
+                                    AidAudioRecord::getErrorMessage)
+                            .eq(AidAudioRecord::getComposeBatchId, batchId)
+                            .eq(AidAudioRecord::getUserId, userId)
+                            .eq(AidAudioRecord::getDelFlag, DEL_FLAG_NORMAL));
+            if (CollectionUtil.isEmpty(lockedRecords)) {
+                throw new ServiceException("批次不存在");
+            }
+            AidMediaTask composeTask = aidMediaTaskMapper.selectOne(
+                    Wrappers.<AidMediaTask>lambdaQuery()
+                            .select(AidMediaTask::getId, AidMediaTask::getStatus, AidMediaTask::getOssUrl)
+                            .eq(AidMediaTask::getComposeBatchId, batchId)
+                            .eq(AidMediaTask::getUserId, userId)
+                            .eq(AidMediaTask::getMediaType, ComposeConstants.MEDIA_TYPE_COMPOSE)
+                            .orderByDesc(AidMediaTask::getId)
+                            .last("LIMIT 1"));
+            boolean persistedFailed = lockedRecords.stream().anyMatch(record ->
+                    MediaTaskStatus.FAILED.name().equals(record.getStatus()));
+            if (persistedFailed
+                    || (Objects.nonNull(composeTask)
+                            && (MediaTaskStatus.FAILED.name().equals(composeTask.getStatus())
+                                    || (MediaTaskStatus.SUCCEEDED.name().equals(composeTask.getStatus())
+                                            && StrUtil.isNotBlank(composeTask.getOssUrl()))))) {
+                throw new ServiceException("任务已停止");
+            }
+
+            // 与合成触发共用批次锁：停止成功后监听器无法再创建或冻结合成媒体任务。
+            // 已经由供应商受理的 aid_media_task 不伪造终态，仍由统一调度按真实结果结算。
+            LambdaUpdateWrapper<AidAudioRecord> cancelUpdate = Wrappers.lambdaUpdate();
+            cancelUpdate.eq(AidAudioRecord::getComposeBatchId, batchId);
+            cancelUpdate.eq(AidAudioRecord::getUserId, userId);
+            cancelUpdate.eq(AidAudioRecord::getDelFlag, DEL_FLAG_NORMAL);
+            cancelUpdate.and(wrapper -> wrapper.isNull(AidAudioRecord::getStatus)
+                    .or().ne(AidAudioRecord::getStatus, MediaTaskStatus.FAILED.name()));
+            cancelUpdate.set(AidAudioRecord::getStatus, MediaTaskStatus.FAILED.name());
+            cancelUpdate.set(AidAudioRecord::getErrorMessage, "用户取消");
+            cancelUpdate.set(AidAudioRecord::getUpdateTime, new Date());
+            cancelUpdate.set(AidAudioRecord::getUpdateBy, String.valueOf(userId));
+            aidAudioRecordMapper.update(null, cancelUpdate);
+            List<AidAudioRecord> cancelledRecords = aidAudioRecordMapper.selectList(
+                    Wrappers.<AidAudioRecord>lambdaQuery()
+                            .select(AidAudioRecord::getId)
+                            .eq(AidAudioRecord::getComposeBatchId, batchId)
+                            .eq(AidAudioRecord::getUserId, userId)
+                            .eq(AidAudioRecord::getStatus, MediaTaskStatus.FAILED.name())
+                            .eq(AidAudioRecord::getErrorMessage, "用户取消")
+                            .eq(AidAudioRecord::getDelFlag, DEL_FLAG_NORMAL)
+                            .last("LIMIT 1"));
+            if (CollectionUtil.isEmpty(cancelledRecords)) {
+                log.error("接口1 一键配音取消持久化失败, batchId={}, userId={}", batchId, userId);
+                throw new ServiceException("任务繁忙，请稍后");
+            }
+            try {
+                composeBatchStore.markFailed(batchId);
+                composeBatchStore.clearContext(batchId);
+            } catch (Exception markerEx) {
+                // aid_audio_record 已是持久取消真源；Redis 只负责即时加速，失败不能伪报取消未成功。
+                log.warn("接口1 一键配音取消缓存清理异常, batchId={}, err={}",
+                        batchId, markerEx.getMessage());
+            }
+            composeBatchSlotCoordinator.releaseVoiceover(batchId);
+            log.info("接口1 一键配音已取消, batchId={}, userId={}", batchId, userId);
+            return Boolean.TRUE;
+        });
+    }
+
+    @Override
+    public void cancelExport(EpisodeExportStatusRequest request) {
+        if (Objects.isNull(request) || (Objects.isNull(request.getEpisodeEditorId())
+                && (Objects.isNull(request.getProjectId()) || Objects.isNull(request.getEpisodeId())))) {
+            throw new ServiceException("参数有误");
+        }
+        Long userId = SecurityUtils.getUserId();
+        LambdaQueryWrapper<AidEpisodeEditor> query = Wrappers.lambdaQuery();
+        query.select(AidEpisodeEditor::getId, AidEpisodeEditor::getExportStatus,
+                AidEpisodeEditor::getExportTaskId);
+        query.eq(AidEpisodeEditor::getUserId, userId);
+        query.eq(AidEpisodeEditor::getDelFlag, DEL_FLAG_NORMAL);
+        if (Objects.nonNull(request.getEpisodeEditorId())) {
+            query.eq(AidEpisodeEditor::getId, request.getEpisodeEditorId());
+        } else {
+            query.eq(AidEpisodeEditor::getProjectId, request.getProjectId());
+            query.eq(AidEpisodeEditor::getEpisodeId, request.getEpisodeId());
+        }
+        query.orderByDesc(AidEpisodeEditor::getId).last("LIMIT 1");
+        AidEpisodeEditor editor = aidEpisodeEditorMapper.selectOne(query);
+        if (Objects.isNull(editor)) {
+            throw new ServiceException("记录不存在");
+        }
+        batchParentSubmissionGuard.execute(exportSubmissionScope(editor.getId()), () -> {
+            AidEpisodeEditor lockedEditor = aidEpisodeEditorMapper.selectOne(
+                    Wrappers.<AidEpisodeEditor>lambdaQuery()
+                            .select(AidEpisodeEditor::getId, AidEpisodeEditor::getExportStatus,
+                                    AidEpisodeEditor::getExportTaskId)
+                            .eq(AidEpisodeEditor::getId, editor.getId())
+                            .eq(AidEpisodeEditor::getUserId, userId)
+                            .eq(AidEpisodeEditor::getDelFlag, DEL_FLAG_NORMAL)
+                            .last("LIMIT 1"));
+            if (Objects.isNull(lockedEditor)) {
+                throw new ServiceException("记录不存在");
+            }
+            LambdaUpdateWrapper<AidEpisodeEditor> cancel = Wrappers.lambdaUpdate();
+            cancel.eq(AidEpisodeEditor::getId, lockedEditor.getId());
+            cancel.eq(AidEpisodeEditor::getUserId, userId);
+            cancel.eq(AidEpisodeEditor::getExportStatus, ComposeConstants.EXPORT_STATUS_COMPOSING);
+            cancel.set(AidEpisodeEditor::getExportStatus, ComposeConstants.EXPORT_STATUS_FAILED);
+            // 保留 exportTaskId：已受理媒体任务继续真实终态，迟到回写因 exportStatus 非 COMPOSING 被幂等忽略。
+            cancel.set(AidEpisodeEditor::getErrorMsg, "用户取消");
+            cancel.set(AidEpisodeEditor::getUpdateTime, new Date());
+            cancel.set(AidEpisodeEditor::getUpdateBy, String.valueOf(userId));
+            if (aidEpisodeEditorMapper.update(null, cancel) != 1) {
+                throw new ServiceException("任务已停止");
+            }
+            composeBatchSlotCoordinator.releaseExport(
+                    lockedEditor.getId(), lockedEditor.getExportTaskId());
+            log.info("接口2 导出已取消, episodeEditorId={}, taskId={}",
+                    lockedEditor.getId(), lockedEditor.getExportTaskId());
+            return Boolean.TRUE;
+        });
     }
 
     /**
@@ -2176,8 +2409,8 @@ public class VideoComposeServiceImpl implements VideoComposeService {
 
     /**
      * 合成未触发自愈：本批配音已全部成功但合成任务迟迟未落库。
-     * 未标记已触发 → 重发最后一条成功配音的 OSS 持久化事件，驱动 ComposeAudioReadyListener 重新判齐触发（幂等）；
-     * 已标记触发但任务缺失且静默超 {@value #VOICEOVER_STUCK_MS} 毫秒 → 触发链路断裂（进程崩溃），标记批次失败收口。
+     * 静默超 {@value #VOICEOVER_STUCK_MS} 毫秒后重发最后一条成功配音的 OSS 持久化事件，
+     * 由监听器在 watchdog guard 内按持久化 COMPOSE 任务幂等触发。
      * 自愈属兜底增强，异常不阻断进度查询。
      *
      * @param batchId      合成批次号
@@ -2199,23 +2432,19 @@ public class VideoComposeServiceImpl implements VideoComposeService {
                 // 正常触发窗口内：等待事件链完成，不做自愈
                 return;
             }
-            if (!composeBatchStore.isTriggered(batchId)) {
-                if (Objects.nonNull(lastRecord.getTtsMediaTaskId())) {
-                    // 触发事件丢失：重发最后一条配音的 OSS 持久化事件驱动重新判齐（监听器幂等）
-                    applicationEventPublisher.publishEvent(new MediaTaskOssPersistedEvent(
-                            this, lastRecord.getTtsMediaTaskId(), userId));
-                    log.info("接口1 合成未触发自愈(重发判齐事件), batchId={}, mediaTaskId={}",
-                            batchId, lastRecord.getTtsMediaTaskId());
-                } else {
-                    // 无任务关联无法重发判齐事件（异常历史数据）：标记失败收口，避免永久 COMPOSING
-                    composeBatchStore.markFailed(batchId);
-                    log.error("接口1 合成未触发且无任务关联,自愈为失败, batchId={}", batchId);
-                }
+            if (Objects.nonNull(lastRecord.getTtsMediaTaskId())) {
+                // Redis triggered 仅作加速；持久 COMPOSE 任务才是幂等真源，标记丢失或残留均重发事件自愈。
+                applicationEventPublisher.publishEvent(new MediaTaskOssPersistedEvent(
+                        this, lastRecord.getTtsMediaTaskId(), userId));
+                log.info("接口1 合成未触发自愈(重发判齐事件), batchId={}, mediaTaskId={}",
+                        batchId, lastRecord.getTtsMediaTaskId());
                 return;
             }
-            // 已标记触发但静默超时仍无合成任务：触发后进程崩溃等极端场景，标记失败收口避免永久 COMPOSING
+            // 无任务关联无法重发判齐事件（异常历史数据）：持久化失败后再写 Redis 加速标记。
+            persistVoiceoverBatchFailed(batchId, "合成失败");
             composeBatchStore.markFailed(batchId);
-            log.error("接口1 合成触发链路断裂自愈为失败, batchId={}", batchId);
+            composeBatchSlotCoordinator.releaseVoiceover(batchId);
+            log.error("接口1 合成未触发且无任务关联,自愈为失败, batchId={}", batchId);
         } catch (Exception ex) {
             log.error("接口1 合成未触发自愈异常, batchId={}", batchId, ex);
         }
@@ -2339,8 +2568,11 @@ public class VideoComposeServiceImpl implements VideoComposeService {
      * @param voice       该段实际音色及默认音频参数
      * @param userId      用户ID
      */
-    private void dispatchVoiceover(AidAudioRecord audioRecord, String ttsText,
-                                   ResolvedSegmentVoice voice, Long userId) {
+    private boolean dispatchVoiceover(AidAudioRecord audioRecord, String ttsText,
+                                      ResolvedSegmentVoice voice, Long userId) {
+        if (composeBatchStore.isFailed(audioRecord.getComposeBatchId())) {
+            return false;
+        }
         MediaAudioGenerateRequest mediaReq = new MediaAudioGenerateRequest();
         mediaReq.setUserId(userId);
         mediaReq.setProjectId(audioRecord.getProjectId());
@@ -2355,19 +2587,47 @@ public class VideoComposeServiceImpl implements VideoComposeService {
         mediaReq.setBizTaskId(audioRecord.getId());
         mediaReq.setBizTaskType(ComposeConstants.BIZ_TASK_TYPE_AUDIO_RECORD);
         try {
-            mediaGenerationService.generateAudio(mediaReq);
+            return Boolean.TRUE.equals(batchParentSubmissionGuard.execute(
+                    voiceoverSubmissionScope(audioRecord.getComposeBatchId()), () -> {
+                        if (!isVoiceoverSubmissionActive(audioRecord, userId)) {
+                            return Boolean.FALSE;
+                        }
+                        mediaGenerationService.generateAudio(mediaReq);
+                        return Boolean.TRUE;
+                    }));
         } catch (Exception ex) {
             // 异步派发失败：仅标记本条 FAILED（不抛异常，避免误伤同批其它段）；
             // 冻结积分由 generateAudio 内部失败路径自行退回，无跨段泄漏
             log.error("接口1 配音提交失败, audioRecordId={}", audioRecord.getId(), ex);
             LambdaUpdateWrapper<AidAudioRecord> update = new LambdaUpdateWrapper<>();
             update.eq(AidAudioRecord::getId, audioRecord.getId());
+            update.eq(AidAudioRecord::getStatus, MediaTaskStatus.PROCESSING.name());
             update.set(AidAudioRecord::getStatus, MediaTaskStatus.FAILED.name());
             update.set(AidAudioRecord::getErrorMessage, "配音失败");
             update.set(AidAudioRecord::getUpdateBy, String.valueOf(userId));
             update.set(AidAudioRecord::getUpdateTime, new Date());
             aidAudioRecordMapper.update(null, update);
+            composeBatchStore.markFailed(audioRecord.getComposeBatchId());
+            composeBatchSlotCoordinator.releaseVoiceover(audioRecord.getComposeBatchId());
+            return false;
         }
+    }
+
+    /** submission guard 内持久复核本条一键配音仍可提交。 */
+    private boolean isVoiceoverSubmissionActive(AidAudioRecord audioRecord, Long userId) {
+        if (Objects.isNull(audioRecord) || Objects.isNull(audioRecord.getId())
+                || StrUtil.isBlank(audioRecord.getComposeBatchId())
+                || composeBatchStore.isFailed(audioRecord.getComposeBatchId())) {
+            return false;
+        }
+        Long active = aidAudioRecordMapper.selectCount(
+                Wrappers.<AidAudioRecord>lambdaQuery()
+                        .eq(AidAudioRecord::getId, audioRecord.getId())
+                        .eq(AidAudioRecord::getComposeBatchId, audioRecord.getComposeBatchId())
+                        .eq(AidAudioRecord::getUserId, userId)
+                        .eq(AidAudioRecord::getStatus, MediaTaskStatus.PROCESSING.name())
+                        .eq(AidAudioRecord::getDelFlag, DEL_FLAG_NORMAL));
+        return Objects.nonNull(active) && active == 1L;
     }
 
     /**
@@ -2385,10 +2645,18 @@ public class VideoComposeServiceImpl implements VideoComposeService {
             return;
         }
         // 提交后统一派发的动作：整批提交一个后台任务、任务内逐条串行发起；
-        // 单条失败由 dispatchVoiceover 内部落 FAILED（不抛出），不影响后续段
+        // 任一提交失败后整批已不再合成，仅收口尚未派发的业务记录，不伪造已受理媒体任务终态。
         Runnable dispatchSequentially = () -> {
-            for (VoiceoverDispatchJob job : jobs) {
-                dispatchVoiceover(job.audioRecord, job.ttsText, job.voice, userId);
+            for (int index = 0; index < jobs.size(); index++) {
+                VoiceoverDispatchJob job = jobs.get(index);
+                if (composeBatchStore.isFailed(job.audioRecord.getComposeBatchId())) {
+                    closeUndispatchedVoiceovers(jobs.subList(index, jobs.size()), userId);
+                    break;
+                }
+                if (!dispatchVoiceover(job.audioRecord, job.ttsText, job.voice, userId)) {
+                    closeUndispatchedVoiceovers(jobs.subList(index + 1, jobs.size()), userId);
+                    break;
+                }
             }
         };
         Runnable dispatchAll = () -> {
@@ -2435,9 +2703,39 @@ public class VideoComposeServiceImpl implements VideoComposeService {
             update.set(AidAudioRecord::getUpdateBy, String.valueOf(userId));
             update.set(AidAudioRecord::getUpdateTime, new Date());
             aidAudioRecordMapper.update(null, update);
+            String batchId = jobs.get(0).audioRecord.getComposeBatchId();
+            composeBatchStore.markFailed(batchId);
+            composeBatchSlotCoordinator.releaseVoiceover(batchId);
         } catch (Exception ex) {
             log.error("接口1 配音派发拒绝收口失败, audioRecordIds={}", audioRecordIds, ex);
         }
+    }
+
+    private void closeUndispatchedVoiceovers(List<VoiceoverDispatchJob> jobs, Long userId) {
+        List<Long> audioRecordIds = jobs.stream()
+                .map(job -> job.audioRecord.getId())
+                .filter(Objects::nonNull)
+                .toList();
+        if (CollectionUtil.isEmpty(audioRecordIds)) {
+            return;
+        }
+        LambdaUpdateWrapper<AidAudioRecord> update = Wrappers.lambdaUpdate();
+        update.in(AidAudioRecord::getId, audioRecordIds);
+        update.eq(AidAudioRecord::getStatus, MediaTaskStatus.PROCESSING.name());
+        update.set(AidAudioRecord::getStatus, MediaTaskStatus.FAILED.name());
+        update.set(AidAudioRecord::getErrorMessage, "提交失败");
+        update.set(AidAudioRecord::getUpdateBy, String.valueOf(userId));
+        update.set(AidAudioRecord::getUpdateTime, new Date());
+        aidAudioRecordMapper.update(null, update);
+    }
+
+    private void persistVoiceoverBatchFailed(String batchId, String errorMessage) {
+        LambdaUpdateWrapper<AidAudioRecord> update = Wrappers.lambdaUpdate();
+        update.eq(AidAudioRecord::getComposeBatchId, batchId);
+        update.set(AidAudioRecord::getStatus, MediaTaskStatus.FAILED.name());
+        update.set(AidAudioRecord::getErrorMessage, errorMessage);
+        update.set(AidAudioRecord::getUpdateTime, new Date());
+        aidAudioRecordMapper.update(null, update);
     }
 
     /**

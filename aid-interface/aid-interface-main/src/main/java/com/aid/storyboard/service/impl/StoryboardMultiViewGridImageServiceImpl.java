@@ -38,6 +38,8 @@ import com.aid.domain.vo.AiModelConfigVo;
 import com.aid.media.dto.MediaImageGenerateRequest;
 import com.aid.media.dto.MediaTaskResponse;
 import com.aid.media.service.IMediaGenerationService;
+import com.aid.media.service.MediaBillingQuoteService;
+import com.aid.billing.vo.BillingQuoteVO;
 import com.aid.media.util.ModelCapabilityResolver;
 import com.aid.rps.helper.AssetExtractHelper;
 import com.aid.rps.service.IAssetExtractService;
@@ -140,6 +142,9 @@ public class StoryboardMultiViewGridImageServiceImpl implements IStoryboardMulti
     @Autowired
     private IMediaGenerationService mediaGenerationService;
 
+    @Autowired
+    private MediaBillingQuoteService mediaBillingQuoteService;
+
     /** 媒体URL统一解析器：本站校验 + 相对路径拼完整URL */
     @Autowired
     private MediaUrlResolver mediaUrlResolver;
@@ -172,7 +177,7 @@ public class StoryboardMultiViewGridImageServiceImpl implements IStoryboardMulti
             StoryboardMultiViewGridImageGenerateRequest request, Long userId)
     {
         validateUserId(userId);
-        validateBasicRequest(request, userId);
+        validateBasicRequest(request, userId, true);
 
         int angleCount = request.getAngles().size();
         boolean isGrid = angleCount == 9;
@@ -229,6 +234,40 @@ public class StoryboardMultiViewGridImageServiceImpl implements IStoryboardMulti
         }
     }
 
+    @Override
+    public BillingQuoteVO quoteMultiViewGridImage(
+            StoryboardMultiViewGridImageGenerateRequest request, Long userId)
+    {
+        validateUserId(userId);
+        validateBasicRequest(request, userId, false);
+        boolean grid = request.getAngles().size() == 9;
+        String funcCode = grid ? FUNC_CODE_IMAGE_MULTI_GRID : FUNC_CODE_IMAGE_MULTI_VIEW;
+        String agentCode = grid ? AGENT_CODE_MULTI_CAMERA_GRID : AGENT_CODE_MULTI_CAMERA;
+        String taskType = grid
+                ? TASK_TYPE_STORYBOARD_MULTI_GRID_IMAGE : TASK_TYPE_STORYBOARD_MULTI_VIEW_IMAGE;
+        String quoteType = grid
+                ? "STORYBOARD_MULTI_GRID_IMAGE" : "STORYBOARD_MULTI_VIEW_IMAGE";
+        AidStoryboard storyboard = loadAndCheckStoryboard(request.getStoryboardId(), userId);
+        AidAiModel model = validateModelInPool(request.getModelCode(), funcCode);
+        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(model.getModelCode());
+        if (modelConfig == null)
+        {
+            throw new RuntimeException("模型无效");
+        }
+        String aspectRatio = ModelCapabilityResolver.resolveAspectRatio(
+                modelConfig, request.getAspectRatio());
+        String anglesBlock = grid ? buildAnglesBlock(request.getAngles()) : null;
+        String anglePrompt = grid ? null : StrUtil.trimToEmpty(request.getAngles().get(0));
+        String finalPrompt = grid
+                ? buildGridPrompt(anglesBlock, aspectRatio, agentCode, funcCode)
+                : buildSinglePrompt(anglePrompt, aspectRatio, agentCode, funcCode);
+        MediaImageGenerateRequest mediaRequest = buildMediaRequest(userId, storyboard,
+                model.getModelCode(), finalPrompt,
+                mediaUrlResolver.toFullUrl(request.getImageUrl()), aspectRatio,
+                anglesBlock, anglePrompt, grid, null, taskType);
+        return mediaBillingQuoteService.quoteImage(quoteType, mediaRequest, 1);
+    }
+
     /**
      * CAS 释放防重锁：token 一致才删除，锁已过期被新任务持有时不误删。
      *
@@ -258,7 +297,8 @@ public class StoryboardMultiViewGridImageServiceImpl implements IStoryboardMulti
         }
     }
 
-    private void validateBasicRequest(StoryboardMultiViewGridImageGenerateRequest request, Long userId)
+    private void validateBasicRequest(StoryboardMultiViewGridImageGenerateRequest request,
+            Long userId, boolean validateRemoteImage)
     {
         if (Objects.isNull(request))
         {
@@ -285,7 +325,7 @@ public class StoryboardMultiViewGridImageServiceImpl implements IStoryboardMulti
         }
         // 相对路径拼完整URL后再做远程可达性 + Content-Type 校验
         String fullUrl = mediaUrlResolver.toFullUrl(url);
-        if (!ImageUrlValidator.isValidRemoteImageUrl(fullUrl))
+        if (validateRemoteImage && !ImageUrlValidator.isValidRemoteImageUrl(fullUrl))
         {
             log.info("分镜机位生图参考图非法: storyboardId={}, userId={}, url={}",
                     request.getStoryboardId(), userId, fullUrl);
@@ -746,6 +786,18 @@ public class StoryboardMultiViewGridImageServiceImpl implements IStoryboardMulti
                                         String aspectRatio, String anglesBlock, String anglePrompt,
                                         boolean isGrid, String taskType)
     {
+        MediaImageGenerateRequest imageRequest = buildMediaRequest(userId, storyboard,
+                modelCode, finalPrompt, referenceImageUrl, aspectRatio, anglesBlock,
+                anglePrompt, isGrid, taskId, taskType);
+        MediaTaskResponse imageResponse = mediaGenerationService.generateImage(imageRequest);
+        return resolveImageUrl(taskId, imageResponse);
+    }
+
+    private MediaImageGenerateRequest buildMediaRequest(Long userId, AidStoryboard storyboard,
+            String modelCode, String finalPrompt, String referenceImageUrl,
+            String aspectRatio, String anglesBlock, String anglePrompt,
+            boolean isGrid, Long bizTaskId, String bizTaskType)
+    {
         MediaImageGenerateRequest imageRequest = new MediaImageGenerateRequest();
         imageRequest.setModelName(modelCode);
         imageRequest.setUserId(userId);
@@ -763,8 +815,8 @@ public class StoryboardMultiViewGridImageServiceImpl implements IStoryboardMulti
         }
         imageRequest.setOptions(options);
         imageRequest.setExpectedImageCount(1);
-        imageRequest.setBizTaskId(taskId);
-        imageRequest.setBizTaskType(taskType);
+        imageRequest.setBizTaskId(bizTaskId);
+        imageRequest.setBizTaskType(bizTaskType);
 
         AiModelConfigVo defaultModelConfig = aiModelConfigService.selectByModelCode(modelCode);
         if (Objects.isNull(defaultModelConfig))
@@ -780,8 +832,7 @@ public class StoryboardMultiViewGridImageServiceImpl implements IStoryboardMulti
         AgentModelDefault agentModel = new AgentModelDefault(modelCode);
         agentDefaultParamsApplier.applyToImage(agentModel, imageRequest, defaultModelConfig);
 
-        MediaTaskResponse imageResponse = mediaGenerationService.generateImage(imageRequest);
-        return resolveImageUrl(taskId, imageResponse);
+        return imageRequest;
     }
 
     private static final class TaskCancelledException extends RuntimeException

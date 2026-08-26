@@ -47,6 +47,8 @@ import com.aid.domain.vo.AiModelConfigVo;
 import com.aid.media.dto.MediaImageGenerateRequest;
 import com.aid.media.dto.MediaTaskResponse;
 import com.aid.media.service.IMediaGenerationService;
+import com.aid.media.service.MediaBillingQuoteService;
+import com.aid.billing.vo.BillingQuoteVO;
 import com.aid.media.util.ModelCapabilityResolver;
 import com.aid.model.vo.CapabilityVO;
 import com.aid.rps.dto.AssetExtractTaskVO;
@@ -176,6 +178,9 @@ public class FormEditChatImageServiceImpl implements IFormEditChatImageService
     @Autowired
     private IMediaGenerationService mediaGenerationService;
 
+    @Autowired
+    private MediaBillingQuoteService mediaBillingQuoteService;
+
     /** 媒体URL统一解析器：本站校验 + 相对路径拼完整URL */
     @Autowired
     private MediaUrlResolver mediaUrlResolver;
@@ -215,7 +220,7 @@ public class FormEditChatImageServiceImpl implements IFormEditChatImageService
     @Override
     public AssetExtractTaskVO generateEditChatImage(FormEditChatImageGenerateRequest request, Long userId)
     {
-        validateBasicRequest(request, userId);
+        validateBasicRequest(request, userId, true);
 
         EditChatContext ctx = loadAndValidateOwnership(request.getFormId(), userId);
 
@@ -307,6 +312,28 @@ public class FormEditChatImageServiceImpl implements IFormEditChatImageService
             safeReleaseLock(lockKey, lockToken);
             throw e;
         }
+    }
+
+    @Override
+    public BillingQuoteVO quoteEditChatImage(FormEditChatImageGenerateRequest request, Long userId)
+    {
+        validateBasicRequest(request, userId, false);
+        EditChatContext ctx = loadAndValidateOwnership(request.getFormId(), userId);
+        AidAiModel model = validateEditChatModel(request.getModelCode());
+        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(model.getModelCode());
+        if (modelConfig == null)
+        {
+            throw new RuntimeException("模型无效");
+        }
+        validateModelCapability(modelConfig, request, userId);
+        List<String> references = mediaUrlResolver.toFullUrls(request.referenceImagesAsList());
+        String finalPrompt = buildFinalPrompt(
+                request.getPrompt(), request.getAspectRatio(), references);
+        MediaImageGenerateRequest mediaRequest = buildMediaRequest(userId, ctx.form,
+                model.getModelCode(), finalPrompt, references,
+                request.getAspectRatio(), request.getSize(), null);
+        return mediaBillingQuoteService.quoteImage(
+                "FORM_EDIT_CHAT_IMAGE", mediaRequest, request.getImageCount());
     }
 
     /** 构造锁值：uuid|epochMillis；释放走 CAS，僵尸判定靠时间戳 */
@@ -653,7 +680,8 @@ public class FormEditChatImageServiceImpl implements IFormEditChatImageService
      * 基础入参校验：参考图非必填（0~4 张），传时逐张做远程合法性校验；
      * 原始 prompt / modelCode / 比例 / 清晰度 / 张数非空。
      */
-    private void validateBasicRequest(FormEditChatImageGenerateRequest request, Long userId)
+    private void validateBasicRequest(FormEditChatImageGenerateRequest request,
+            Long userId, boolean validateRemoteImage)
     {
         if (Objects.isNull(request))
         {
@@ -693,7 +721,8 @@ public class FormEditChatImageServiceImpl implements IFormEditChatImageService
                 throw new RuntimeException("图片无效");
             }
             // 相对路径拼完整URL后再做远程可达性 + Content-Type 校验
-            if (!ImageUrlValidator.isValidRemoteImageUrl(mediaUrlResolver.toFullUrl(trimmed)))
+            if (validateRemoteImage
+                    && !ImageUrlValidator.isValidRemoteImageUrl(mediaUrlResolver.toFullUrl(trimmed)))
             {
                 log.info("形态图片创作参考图校验失败: scene=form_edit_chat, genMode={}, formId={}, userId={}, imageUrl={}",
                         genMode, request.getFormId(), userId, trimmed);
@@ -1345,6 +1374,18 @@ public class FormEditChatImageServiceImpl implements IFormEditChatImageService
                                         List<String> referenceImages, String aspectRatio,
                                         String size, int indexFrom1, int totalCount)
     {
+        MediaImageGenerateRequest imageRequest = buildMediaRequest(userId, form, modelCode,
+                finalPrompt, referenceImages, aspectRatio, size,
+                taskId * 100L + indexFrom1);
+        MediaTaskResponse imageResponse = mediaGenerationService.generateImage(imageRequest);
+        return resolveSingleImageUrl(taskId, imageResponse);
+    }
+
+    private MediaImageGenerateRequest buildMediaRequest(Long userId,
+            AidRolePropSceneForm form, String modelCode, String finalPrompt,
+            List<String> referenceImages, String aspectRatio, String size,
+            Long bizTaskId)
+    {
         MediaImageGenerateRequest imageRequest = new MediaImageGenerateRequest();
         imageRequest.setModelName(modelCode);
         imageRequest.setUserId(userId);
@@ -1373,7 +1414,7 @@ public class FormEditChatImageServiceImpl implements IFormEditChatImageService
         // 业务任务关联：bizTaskType 保持稳定（= form_edit_chat）以便媒体任务审计 / 汇总统一；
         // bizTaskId 按 "父 taskId * 100 + indexFrom1" 编码差异化，保证 N 次调用的 requestHash 天然不同，
         // 避免同 prompt / 同参考图 / 同参数被媒体层幂等复用合并。父 taskId 可通过 bizTaskId/100 反推。
-        imageRequest.setBizTaskId(taskId * 100L + indexFrom1);
+        imageRequest.setBizTaskId(bizTaskId);
         imageRequest.setBizTaskType(TASK_TYPE_FORM_EDIT_CHAT);
 
         AiModelConfigVo defaultModelConfig = aiModelConfigService.selectByModelCode(modelCode);
@@ -1386,8 +1427,7 @@ public class FormEditChatImageServiceImpl implements IFormEditChatImageService
         AgentModelDefault agentModel = new AgentModelDefault(modelCode);
         agentDefaultParamsApplier.applyToImage(agentModel, imageRequest, defaultModelConfig);
 
-        MediaTaskResponse imageResponse = mediaGenerationService.generateImage(imageRequest);
-        return resolveSingleImageUrl(taskId, imageResponse);
+        return imageRequest;
     }
 
     /**
