@@ -10,13 +10,15 @@ export AID_DATA_ROOT="${TMP_ROOT}/data/aid"
 export AID_JAVA_PROFILE_FILE="${TMP_ROOT}/profile.d/aid-java.sh"
 # shellcheck source=../aid.sh
 source "${ROOT_DIR}/deploy/aid.sh"
+unset AID_JDK_DOWNLOAD_URL AID_MANUAL_JDK_DOWNLOAD_URL
 
 [[ "${NGINX_VERSION}" == "1.30.4" ]] || { echo 'FAIL: manual Nginx version drifted' >&2; exit 1; }
 [[ "${MYSQL_VERSION}" == "5.7.44" ]] || { echo 'FAIL: manual MySQL version drifted' >&2; exit 1; }
 [[ "${REDIS_VERSION}" == "8.0.5" ]] || { echo 'FAIL: manual Redis version drifted' >&2; exit 1; }
-[[ "${MANUAL_JDK_VERSION}" == "17.0.8" ]] || { echo 'FAIL: manual JDK version drifted' >&2; exit 1; }
-[[ "${JDK_VERSION}" == "17.0.20" && "${JAVA_RUNTIME_IMAGE}" == "aid/openjdk:17.0.20-ffmpeg8.1.2-font2.004" ]] \
-  || { echo 'FAIL: Docker JDK baseline must remain unchanged' >&2; exit 1; }
+[[ "${MANUAL_JDK_VERSION}" == "17.0.8" && "${JDK_VERSION}" == "17.0.8" ]] \
+  || { echo 'FAIL: Docker and manual JDK versions must both be 17.0.8' >&2; exit 1; }
+[[ "${JAVA_RUNTIME_IMAGE}" == "aid/openjdk:17.0.8-ffmpeg8.1.2-font2.004" ]] \
+  || { echo 'FAIL: Docker JDK image tag drifted' >&2; exit 1; }
 [[ "${FFMPEG_RUNTIME_VERSION}" == "8.1.2" && "${FFMPEG_MIN_VERSION}" == "5.1" ]] \
   || { echo 'FAIL: FFmpeg fixed runtime baseline drifted' >&2; exit 1; }
 [[ "${FFMPEG_RUNTIME_MIRROR_TAG}" == "v1.0.0-beta.6" ]] \
@@ -45,8 +47,15 @@ configure_ffmpeg_runtime_paths
 [[ "$(ffmpeg_runtime_checksum amd64)" == '7ea38eeee6b391a10ff01d72b75a303db125b0e5ed26cb0d8a2704445f59f0da' \
    && "$(ffmpeg_runtime_checksum arm64)" == 'd75b8a5dbafda1e819775af556df312e84902a47e84addbbcd91891a5c606951' ]] \
   || { echo 'FAIL: FFmpeg architecture checksum drifted' >&2; exit 1; }
-grep -Fq 'image: aid/openjdk:17.0.20-ffmpeg8.1.2-font2.004' "${ROOT_DIR}/deploy/docker/docker-compose.yml" \
+grep -Fq 'image: aid/openjdk:17.0.8-ffmpeg8.1.2-font2.004' "${ROOT_DIR}/deploy/docker/docker-compose.yml" \
   || { echo 'FAIL: Compose FFmpeg image tag drifted' >&2; exit 1; }
+grep -Fq 'JDK_VERSION="17.0.8"' "${ROOT_DIR}/deploy/build-release-from-source.sh" \
+  || { echo 'FAIL: source builder JDK version drifted' >&2; exit 1; }
+grep -Fq 'JDK_BT_MIRROR_NODES="https://download-cdn1.bt.cn' "${ROOT_DIR}/deploy/build-release-from-source.sh" \
+  || { echo 'FAIL: source builder must prefer the fixed AID domestic JDK mirror' >&2; exit 1; }
+grep -Fq 'https://download.oracle.com/java/17/archive/jdk-${JDK_VERSION}_linux-${jdk_oracle_arch}_bin.tar.gz' \
+  "${ROOT_DIR}/deploy/build-release-from-source.sh" \
+  || { echo 'FAIL: source builder lacks the Oracle JDK fallback' >&2; exit 1; }
 grep -Fq 'AID_FFMPEG_PATH: /opt/aid-ffmpeg/current/ffmpeg' "${ROOT_DIR}/deploy/docker/docker-compose.yml" \
   || { echo 'FAIL: Compose FFmpeg path drifted' >&2; exit 1; }
 grep -Fq 'AID_FFPROBE_PATH: /opt/aid-ffmpeg/current/ffprobe' "${ROOT_DIR}/deploy/docker/docker-compose.yml" \
@@ -87,6 +96,11 @@ select_redis_build_compiler >/dev/null \
   || { echo 'FAIL: Redis compiler environment was not activated' >&2; exit 1; }
 
 mkdir -p "${TMP_ROOT}/fixture/jdk/bin"
+cat > "${TMP_ROOT}/fixture/jdk/release" <<'EOF'
+JAVA_VERSION="17.0.8"
+OS_ARCH="x86_64"
+OS_NAME="Linux"
+EOF
 cat > "${TMP_ROOT}/fixture/jdk/bin/java" <<'EOF'
 #!/usr/bin/env bash
 echo 'java version "17.0.8" 2023-07-18 LTS' >&2
@@ -99,13 +113,22 @@ chmod +x "${TMP_ROOT}/fixture/jdk/bin/java" "${TMP_ROOT}/fixture/jdk/bin/javac"
 tar -czf "${TMP_ROOT}/jdk-17.0.8.tar.gz" -C "${TMP_ROOT}/fixture" jdk
 
 DOWNLOAD_COUNT=0
+DOWNLOAD_URLS=()
 require_download_tools() { :; }
 bt_artifact_urls() { printf '%s\n' 'https://download.bt.cn/src/jdk/x64/jdk-17.0.8.tar.gz'; }
 sha256_file() { printf '%s\n' '74b528a33bb2dfa02b4d74a0d66c9aff52e4f52924ce23a62d7f9eb1a6744657'; }
 try_download() {
+  DOWNLOAD_URLS+=("$1")
   cp "${TMP_ROOT}/jdk-17.0.8.tar.gz" "$2"
   DOWNLOAD_COUNT=$((DOWNLOAD_COUNT + 1))
 }
+
+prepare_exact_jdk >/dev/null
+[[ -x "${JDK_HOME}/bin/java" ]] || { echo 'FAIL: Docker/source-build JDK was not installed' >&2; exit 1; }
+[[ "${DOWNLOAD_URLS[0]}" == 'https://download.bt.cn/src/jdk/x64/jdk-17.0.8.tar.gz' ]] \
+  || { echo 'FAIL: Docker/source-build JDK did not try the domestic mirror first' >&2; exit 1; }
+prepare_exact_jdk >/dev/null
+[[ "${DOWNLOAD_COUNT}" == "1" ]] || { echo 'FAIL: matching Docker/source-build JDK must skip repeated download' >&2; exit 1; }
 
 prepare_manual_jdk >/dev/null
 [[ -x "${JDK_HOME}/bin/java" ]] || { echo 'FAIL: managed JDK was not installed' >&2; exit 1; }
@@ -117,6 +140,6 @@ grep -Fq 'export PATH="${JAVA_HOME}/bin:${PATH}"' "${JAVA_PROFILE_FILE}" \
   || { echo 'FAIL: persistent PATH was not written safely' >&2; exit 1; }
 
 prepare_manual_jdk >/dev/null
-[[ "${DOWNLOAD_COUNT}" == "1" ]] || { echo 'FAIL: matching JDK must skip repeated download' >&2; exit 1; }
+[[ "${DOWNLOAD_COUNT}" == "1" ]] || { echo 'FAIL: matching manual JDK must reuse the verified shared archive' >&2; exit 1; }
 
 echo 'manual runtime version tests passed'

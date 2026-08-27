@@ -330,10 +330,9 @@ NGINX_BIN=""
 NGINX_SERVICE=""
 NGINX_SITE_DIR=""
 NGINX_MANAGED_SERVICE="aid-nginx.service"
-JDK_VERSION="17.0.20"
-JDK_BUILD="8"
+JDK_VERSION="17.0.8"
 JDK_HOME=""
-MANUAL_JDK_VERSION="17.0.8"
+MANUAL_JDK_VERSION="${JDK_VERSION}"
 JAVA_PROFILE_FILE="${AID_JAVA_PROFILE_FILE:-/etc/profile.d/aid-java.sh}"
 NODE_VERSION="22.22.0"
 NODE_HOME=""
@@ -372,7 +371,7 @@ BT_MIRROR_NODES_CN="https://dg2.bt.cn https://download-cdn1.bt.cn https://downlo
 BT_MIRROR_NODES_GLOBAL="https://cf1-node.aapanel.com https://jp1-node.bt.cn https://na1-node.bt.cn https://download.bt.cn https://dg2.bt.cn https://download-cdn1.bt.cn https://ctcc1-node.bt.cn https://ctcc2-node.bt.cn https://hk1-node.bt.cn https://cmcc1-node.bt.cn"
 BT_MIRROR_ORDER=""
 BT_MIRRORS_RESOLVED=0
-JAVA_RUNTIME_IMAGE="aid/openjdk:17.0.20-ffmpeg${FFMPEG_RUNTIME_VERSION}-font2.004"
+JAVA_RUNTIME_IMAGE="aid/openjdk:17.0.8-ffmpeg${FFMPEG_RUNTIME_VERSION}-font2.004"
 DEFAULT_ADMIN_ENTRY_CODE=""
 OS_PACKAGE_INDEX_READY=0
 
@@ -3962,8 +3961,6 @@ jdk_home_metadata_matches() { # jdk_home_metadata_matches <JDK目录> <x64|aarch
   [[ -d "${home}" && ! -L "${home}" && -x "${home}/bin/java" && -f "${releaseFile}" ]] \
     || return 1
   grep -Fxq "JAVA_VERSION=\"${JDK_VERSION}\"" "${releaseFile}" \
-    && grep -Fxq 'IMPLEMENTOR="Eclipse Adoptium"' "${releaseFile}" \
-    && grep -Fxq "IMPLEMENTOR_VERSION=\"Temurin-${JDK_VERSION}+${JDK_BUILD}\"" "${releaseFile}" \
     && grep -Fxq "OS_ARCH=\"${expectedOsArch}\"" "${releaseFile}" \
     && grep -Fxq 'OS_NAME="Linux"' "${releaseFile}"
 }
@@ -3976,28 +3973,33 @@ jdk_runtime_matches() { # jdk_runtime_matches <JDK目录>
   fi
   output="${output//$'\r'/}"
   firstLine="${output%%$'\n'*}"
-  [[ "${firstLine}" == "openjdk version \"${JDK_VERSION}\""* ]]
+  [[ "${firstLine}" == "java version \"${JDK_VERSION}\""* ]]
 }
 
 prepare_exact_jdk() {
-  local arch checksum name cacheDir archive officialUrl cnUrl downloaded="no" url tmp installMode
+  local arch btArch oracleArch checksum name cacheDir archive actual downloaded="no" url tmp installMode
+  local -a urls=()
   case "$(uname -m)" in
     x86_64|amd64)
       arch=x64
-      checksum=be7668bc030d578b83d6d5ef9221d6d6729bbbca8cf94a7d52e16ac68b5a5a35 ;;
+      btArch=x64
+      oracleArch=x64
+      checksum=74b528a33bb2dfa02b4d74a0d66c9aff52e4f52924ce23a62d7f9eb1a6744657 ;;
     aarch64|arm64)
       arch=aarch64
-      checksum=d143936f473a4cb24e3b0e247d6d0775769d55ec9775c339540e753059a8d77a ;;
-    *) die "OpenJDK ${JDK_VERSION} 暂不支持当前架构: $(uname -m)" ;;
+      btArch=arm
+      oracleArch=aarch64
+      checksum=cd24d7b21ec0791c5a77dfe0d9d7836c5b1a8b4b75db7d33d253d07caa243117 ;;
+    *) die "Oracle JDK ${JDK_VERSION} 暂不支持当前架构: $(uname -m)" ;;
   esac
-  name="OpenJDK17U-jdk_${arch}_linux_hotspot_${JDK_VERSION}_${JDK_BUILD}.tar.gz"
+  name="jdk-${JDK_VERSION}.tar.gz"
   cacheDir="${DATA_ROOT}/build-cache/toolchains"
-  archive="${cacheDir}/${name}"
-  JDK_HOME="${cacheDir}/temurin-${JDK_VERSION}-${arch}"
+  archive="${cacheDir}/oracle-jdk-${JDK_VERSION}-${arch}.tar.gz"
+  JDK_HOME="${cacheDir}/oracle-jdk-${JDK_VERSION}-${arch}"
   # Docker 控制面可能运行在 Alpine/musl 中，不能在这里直接执行 glibc JDK。
-  # 固定归档先由 SHA256 与 release 元数据确认，真实执行能力在 Debian 目标镜像内复检。
+  # Oracle 固定归档先由 SHA256 与 release 元数据确认，真实执行能力在 Debian 目标镜像内复检。
   if jdk_home_metadata_matches "${JDK_HOME}" "${arch}"; then
-    ok "Temurin OpenJDK ${JDK_VERSION} 固定运行时元数据已匹配，跳过下载: ${JDK_HOME}"
+    ok "Oracle JDK ${JDK_VERSION} 固定运行时元数据已匹配，跳过下载: ${JDK_HOME}"
     return 0
   fi
   require_download_tools
@@ -4005,59 +4007,53 @@ prepare_exact_jdk() {
   if [[ -f "${archive}" ]]; then
     actual="$(sha256_file "${archive}" || true)"
     if [[ "${actual}" != "${checksum}" ]]; then
-      warn "OpenJDK 缓存校验失败，将重新下载: ${archive}"
+      warn "Oracle JDK 缓存校验失败，将重新下载: ${archive}"
       rm -f -- "${archive}"
     fi
   fi
   if [[ ! -f "${archive}" ]]; then
     installMode="${AID_DEPENDENCY_INSTALL_MODE:-auto}"
     [[ "${installMode}" == "auto" ]] \
-      || die "缺少 Temurin OpenJDK ${JDK_VERSION}；请放入 ${archive}，或把 DEPENDENCY_INSTALL_MODE 改为 auto"
-    resolve_dependency_region
-    officialUrl="https://github.com/adoptium/temurin17-binaries/releases/download/jdk-${JDK_VERSION}%2B${JDK_BUILD}/${name}"
-    cnUrl="https://mirrors.tuna.tsinghua.edu.cn/Adoptium/17/jdk/${arch}/linux/${name}"
-    local -a urls=()
-    [[ -z "${AID_JDK_DOWNLOAD_URL:-}" ]] || urls+=("${AID_JDK_DOWNLOAD_URL}")
-    if [[ "${RESOLVED_DEPENDENCY_REGION}" == "cn" ]]; then
-      urls+=("${cnUrl}" "${officialUrl}")
-    else
-      urls+=("${officialUrl}" "${cnUrl}")
-    fi
-    mapfile -t urls < <(rank_download_urls "OpenJDK" "${urls[@]}")
+      || die "缺少 Oracle JDK ${JDK_VERSION}；请放入 ${archive}，或把 DEPENDENCY_INSTALL_MODE 改为 auto"
+    mapfile -t urls < <(
+      [[ -z "${AID_JDK_DOWNLOAD_URL:-}" ]] || printf '%s\n' "${AID_JDK_DOWNLOAD_URL}"
+      bt_artifact_urls "src/jdk/${btArch}/${name}"
+      printf '%s\n' "https://download.oracle.com/java/17/archive/jdk-${JDK_VERSION}_linux-${oracleArch}_bin.tar.gz"
+    )
     for url in "${urls[@]}"; do
-      if try_download "${url}" "${archive}" "Temurin OpenJDK ${JDK_VERSION}（${arch}）" sha256 "${checksum}"; then
+      [[ -n "${url}" ]] || continue
+      if try_download "${url}" "${archive}" "Oracle JDK ${JDK_VERSION}（${arch}）" sha256 "${checksum}"; then
         actual="$(sha256_file "${archive}" || true)"
         if [[ "${actual}" == "${checksum}" ]]; then
           downloaded=yes
           break
         fi
-        warn "OpenJDK 下载文件 SHA256 不匹配，拒绝使用并尝试备用地址"
+        warn "Oracle JDK 下载文件 SHA256 不匹配，拒绝使用并尝试备用地址"
         rm -f -- "${archive}"
       else
-        warn "OpenJDK 当前下载地址不可用，尝试备用地址"
+        warn "JDK 当前节点不可用或摘要不匹配，切换下一个 AID 镜像/Oracle 节点"
       fi
     done
     [[ "${downloaded}" == "yes" ]] \
-      || die "Temurin OpenJDK ${JDK_VERSION} 下载失败；国内镜像和官方地址均不可用"
+      || die "Oracle JDK ${JDK_VERSION} 下载失败或固定 SHA256 校验不通过"
   fi
   tmp="${JDK_HOME}.tmp.$$"
   rm -rf -- "${tmp}"
   mkdir -p "${tmp}"
   if ! tar -xzf "${archive}" -C "${tmp}" --strip-components=1; then
     rm -rf -- "${tmp}"
-    die "OpenJDK 压缩包解压失败"
+    die "Oracle JDK 压缩包解压失败"
   fi
   if ! jdk_home_metadata_matches "${tmp}" "${arch}"; then
     rm -rf -- "${tmp}"
-    die "OpenJDK ${JDK_VERSION} 固定归档元数据或架构不匹配"
+    die "Oracle JDK ${JDK_VERSION} 固定归档元数据或架构不匹配"
   fi
   rm -rf -- "${JDK_HOME}"
-  mv "${tmp}" "${JDK_HOME}" || die "OpenJDK 安装目录就位失败"
-  ok "Temurin OpenJDK ${JDK_VERSION} 已通过官方 SHA256 校验: ${JDK_HOME}"
+  mv "${tmp}" "${JDK_HOME}" || die "Oracle JDK 安装目录就位失败"
+  ok "Oracle JDK ${JDK_VERSION} 已通过 Oracle 固定 SHA256 校验: ${JDK_HOME}"
 }
 
-# 非 Docker 部署使用 AID 国内镜像节点提供的 Oracle JDK 17.0.8 归档；Docker 构建和运行镜像
-# 继续使用上面的 Temurin 17.0.20，避免改变已经发布的容器运行时基线。
+# 非 Docker 部署与 Docker 构建/运行统一使用 Oracle JDK 17.0.8。
 prepare_manual_jdk() {
   local machineArch btArch oracleArch checksum name cacheDir archive actual downloaded=no url tmp installMode
   local systemJava systemJdkHome=""
@@ -4364,7 +4360,7 @@ docker_jdk_runtime_matches() { # docker_jdk_runtime_matches <镜像>
   fi
   output="${output//$'\r'/}"
   firstLine="${output%%$'\n'*}"
-  [[ "${firstLine}" == "openjdk version \"${JDK_VERSION}\""* ]]
+  [[ "${firstLine}" == "java version \"${JDK_VERSION}\""* ]]
 }
 
 prepare_jdk_runtime_image() {
@@ -4382,17 +4378,17 @@ prepare_jdk_runtime_image() {
           "${FFMPEG_RUNTIME_VERSION}" \
         && docker run --rm "${JAVA_RUNTIME_IMAGE}" \
           "${AID_FONT_ROOT}/check-font.sh" validate; then
-      ok "OpenJDK ${JDK_VERSION}、AID FFmpeg ${FFMPEG_RUNTIME_VERSION} 与中文字体运行镜像已存在，跳过构建: ${JAVA_RUNTIME_IMAGE}"
+      ok "Oracle JDK ${JDK_VERSION}、AID FFmpeg ${FFMPEG_RUNTIME_VERSION} 与中文字体运行镜像已存在，跳过构建: ${JAVA_RUNTIME_IMAGE}"
       return 0
     fi
     warn "现有 Java 运行镜像的 JDK、FFmpeg 或中文字体能力不完整，将按固定运行时重建"
   fi
-  ensure_docker_image "${baseImage}" "OpenJDK运行基础"
+  ensure_docker_image "${baseImage}" "Oracle JDK运行基础"
   context="$(mktemp -d "${DATA_ROOT}/build-cache/toolchains/.runtime-image.XXXXXX")" \
     || die "无法创建 Java/FFmpeg 镜像构建目录"
   mkdir -p "${context}/java" "${context}/ffmpeg"
   cp -a "${JDK_HOME}/." "${context}/java/" \
-    || { rm -rf -- "${context}"; die "复制 OpenJDK 运行时失败"; }
+    || { rm -rf -- "${context}"; die "复制 Oracle JDK 运行时失败"; }
   cp -a "${FFMPEG_RUNTIME_HOME}/." "${context}/ffmpeg/" \
     || { rm -rf -- "${context}"; die "复制 AID FFmpeg 运行时失败"; }
   fontManager="${context}/prepare-cjk-font.sh"
@@ -4402,12 +4398,12 @@ prepare_jdk_runtime_image() {
 FROM ${baseImage}
 ARG AID_CJK_FONT_TENCENT_URL=
 ARG AID_CJK_FONT_ALIYUN_URL=
-ENV JAVA_HOME=/opt/java/openjdk
+ENV JAVA_HOME=/opt/java/jdk
 ENV AID_FFMPEG_HOME=${imageRuntime}
 ENV AID_FFMPEG_PATH=${FFMPEG_RUNTIME_ROOT}/current/ffmpeg
 ENV AID_FFPROBE_PATH=${FFMPEG_RUNTIME_ROOT}/current/ffprobe
-ENV PATH=/opt/java/openjdk/bin:${FFMPEG_RUNTIME_ROOT}/current:\${PATH}
-COPY java/ /opt/java/openjdk/
+ENV PATH=/opt/java/jdk/bin:${FFMPEG_RUNTIME_ROOT}/current:\${PATH}
+COPY java/ /opt/java/jdk/
 COPY ffmpeg/ ${imageRuntime}/
 COPY prepare-cjk-font.sh /tmp/prepare-cjk-font.sh
 RUN set -eu; \
@@ -4464,18 +4460,18 @@ EOF
   if command -v ionice >/dev/null 2>&1; then
     runtimeBuildCommand=(ionice -c 2 -n 7 "${runtimeBuildCommand[@]}")
   fi
-  log "构建 OpenJDK ${JDK_VERSION} + AID FFmpeg ${FFMPEG_RUNTIME_VERSION} + 中文字体固定运行镜像: ${JAVA_RUNTIME_IMAGE}"
+  log "构建 Oracle JDK ${JDK_VERSION} + AID FFmpeg ${FFMPEG_RUNTIME_VERSION} + 中文字体固定运行镜像: ${JAVA_RUNTIME_IMAGE}"
   log "运行镜像构建资源上限：CPU ${runtimeCpuMilli}m，物理内存 ${runtimeMemoryMb}MiB，额外 Swap ${runtimeSwapMb}MiB，低 I/O 优先级"
   if ! "${runtimeBuildCommand[@]}" \
       --build-arg "AID_CJK_FONT_TENCENT_URL=${AID_CJK_FONT_TENCENT_URL:-}" \
       --build-arg "AID_CJK_FONT_ALIYUN_URL=${AID_CJK_FONT_ALIYUN_URL:-}" \
       --pull=false --tag "${JAVA_RUNTIME_IMAGE}" --file "${dockerfile}" "${context}"; then
     rm -rf -- "${context}"
-    die "OpenJDK ${JDK_VERSION}、FFmpeg ${FFMPEG_RUNTIME_VERSION} 与中文字体运行镜像构建失败"
+    die "Oracle JDK ${JDK_VERSION}、FFmpeg ${FFMPEG_RUNTIME_VERSION} 与中文字体运行镜像构建失败"
   fi
   rm -rf -- "${context}"
   docker_jdk_runtime_matches "${JAVA_RUNTIME_IMAGE}" \
-    || die "OpenJDK运行镜像版本校验失败"
+    || die "Oracle JDK运行镜像版本校验失败"
   docker run --rm "${JAVA_RUNTIME_IMAGE}" \
     "${imageRuntime}/check-runtime.sh" "${imageRuntime}/ffmpeg" "${imageRuntime}/ffprobe" /tmp \
     "${FFMPEG_MIN_VERSION}" "${FFMPEG_REQUIRED_ENCODERS}" "${FFMPEG_REQUIRED_FILTERS}" \
@@ -4483,7 +4479,7 @@ EOF
     || die "FFmpeg运行镜像校验失败"
   docker run --rm "${JAVA_RUNTIME_IMAGE}" "${AID_FONT_ROOT}/check-font.sh" validate \
     || die "中文字体运行镜像校验失败"
-  ok "OpenJDK ${JDK_VERSION}、AID FFmpeg ${FFMPEG_RUNTIME_VERSION} 与中文字体运行镜像已就绪"
+  ok "Oracle JDK ${JDK_VERSION}、AID FFmpeg ${FFMPEG_RUNTIME_VERSION} 与中文字体运行镜像已就绪"
 }
 
 # 读取发布工具生成的格式化 JSON 直属字符串字段。顶层缩进 2 格，beta 直属字段缩进 4 格。

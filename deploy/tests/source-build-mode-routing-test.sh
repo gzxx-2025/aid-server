@@ -12,12 +12,11 @@ source "${ROOT_DIR}/deploy/aid.sh"
 
 # Alpine/musl 控制容器不能直接执行 glibc JDK。固定归档元数据必须可独立校验，
 # 同时禁止把错误文本路径中的版本号误当成成功的 java -version 输出。
-fakeJdk="${TMP_ROOT}/temurin-17.0.20-x64"
+fakeJdk="${TMP_ROOT}/oracle-jdk-17.0.8-x64"
 mkdir -p "${fakeJdk}/bin"
 cat > "${fakeJdk}/release" <<'EOF'
-IMPLEMENTOR="Eclipse Adoptium"
-IMPLEMENTOR_VERSION="Temurin-17.0.20+8"
-JAVA_VERSION="17.0.20"
+IMPLEMENTOR="Oracle Corporation"
+JAVA_VERSION="17.0.8"
 OS_ARCH="x86_64"
 OS_NAME="Linux"
 EOF
@@ -158,7 +157,7 @@ grep -Fq 'build_with_docker' "${builder_file}" \
   || { echo 'FAIL: source builder did not guard all Git Docker fallbacks' >&2; exit 1; }
 grep -Fq 'ensure_docker_image "$GIT_IMAGE"' "${builder_file}" \
   || { echo 'FAIL: docker source builder does not unconditionally prepare its Git image' >&2; exit 1; }
-grep -Fq 'instant_stage_gate '\''OpenJDK/FFmpeg/中文字体运行镜像'\''' "${builder_file}" \
+grep -Fq 'instant_stage_gate '\''Oracle JDK/FFmpeg/中文字体运行镜像'\''' "${builder_file}" \
   || { echo 'FAIL: runtime-image build is missing an independent resource gate' >&2; exit 1; }
 grep -Fq 'apply_realtime_stage_budget package' "${builder_file}" \
   || { echo 'FAIL: runtime-image build does not calculate a real-time safe budget' >&2; exit 1; }

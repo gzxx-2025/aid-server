@@ -99,8 +99,8 @@ services:
       retries: 10
 
   aid-server:
-    # 由 aid.sh 使用已校验的 Temurin OpenJDK 17.0.20 压缩包在本机生成，禁止浮动版本。
-    image: aid/openjdk:17.0.20-ffmpeg8.1.2-font2.004
+    # 由 aid.sh 使用已校验的 Oracle JDK 17.0.8 压缩包在本机生成，禁止浮动版本。
+    image: aid/openjdk:17.0.8-ffmpeg8.1.2-font2.004
     pull_policy: never
     container_name: aid-server
     labels:
@@ -162,7 +162,7 @@ services:
       # 与升级器的文件通信目录（写任务/读健康与日志），容器内外同路径，后台默认配置零修改
       - /var/lib/aid-updater:/var/lib/aid-updater
     healthcheck:
-      # 固定 OpenJDK 运行镜像无 curl，用 bash 内建 /dev/tcp 探测端口
+      # 固定 JDK 运行镜像无 curl，用 bash 内建 /dev/tcp 探测端口
       test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/8080' 2>/dev/null || exit 1"]
       interval: 15s
       timeout: 5s

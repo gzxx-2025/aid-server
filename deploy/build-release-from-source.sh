@@ -55,12 +55,12 @@ IMAGE_MANIFEST_PROBE_TIMEOUT_SECONDS="${AID_IMAGE_MANIFEST_PROBE_TIMEOUT_SECONDS
 DOWNLOAD_TIMEOUT_SECONDS="${AID_DOWNLOAD_TIMEOUT_SECONDS:-0}"
 DOWNLOAD_MIN_SPEED_BYTES="${AID_DOWNLOAD_MIN_SPEED_BYTES:-1024}"
 DOWNLOAD_LOW_SPEED_SECONDS="${AID_DOWNLOAD_LOW_SPEED_SECONDS:-30}"
-JDK_VERSION="17.0.20"
-JDK_BUILD="8"
+JDK_VERSION="17.0.8"
 JDK_HOME=""
+JDK_BT_MIRROR_NODES="https://download-cdn1.bt.cn https://download.bt.cn https://dg2.bt.cn"
 FFMPEG_RUNTIME_VERSION="8.1.2"
 AID_CJK_FONT_VERSION="noto-sans-sc-2.004"
-JAVA_RUNTIME_IMAGE="aid/openjdk:17.0.20-ffmpeg${FFMPEG_RUNTIME_VERSION}-font2.004"
+JAVA_RUNTIME_IMAGE="aid/openjdk:17.0.8-ffmpeg${FFMPEG_RUNTIME_VERSION}-font2.004"
 MANIFEST_PUBLIC_KEY="${AID_MANIFEST_PUBLIC_KEY:-9Ez/VMofgjCU0CNmE6Jq8LKLNyfDQqbbvNTTGV5BYrk=}"
 SCRIPT_NAME="$(basename "$0")"
 SCRIPT_HOME="$(dirname "$0")"
@@ -1426,7 +1426,7 @@ usage() {
   AID_DEPENDENCY_REGION       依赖线路：auto、cn 或 global；auto 按服务器公网出口地区选择
   AID_DOCKER_MIRRORS          Docker Hub 国内镜像前缀，逗号分隔；自动测速排序
   AID_DOCKER_CN_MIRROR        兼容旧版单镜像设置（新配置优先使用 AID_DOCKER_MIRRORS）
-  AID_JDK_DOWNLOAD_URL        覆盖 Temurin OpenJDK 17.0.20 下载地址
+  AID_JDK_DOWNLOAD_URL        覆盖 Oracle JDK 17.0.8 下载地址
   AID_DOWNLOAD_TIMEOUT_SECONDS 下载总时长上限；默认0不限，正整数（如1500）启用硬超时
   AID_*_IMAGE                 覆盖 Docker 构建镜像
   AID_BUILD_RESERVE_PERCENT   构建前及构建中系统资源保留比例，默认15
@@ -1961,7 +1961,7 @@ download_file() {
       [ ! -s "$part" ] || warn "下载中断，断点文件已保留: $part"; return 1;
     }
   else
-    die '下载 OpenJDK 需要 curl 或 wget'
+    die '下载 Oracle JDK 需要 curl 或 wget'
   fi
   [ -s "$part" ] || { rm -f "$part"; return 1; }
   if [ -n "$expected_checksum" ] \
@@ -1985,8 +1985,6 @@ jdk_home_metadata_matches() { # jdk_home_metadata_matches <JDK目录> <x64|aarch
   [ -d "$jdk_meta_home" ] && [ ! -L "$jdk_meta_home" ] \
     && [ -x "$jdk_meta_home/bin/java" ] && [ -f "$jdk_meta_release" ] \
     && grep -Fxq "JAVA_VERSION=\"$JDK_VERSION\"" "$jdk_meta_release" \
-    && grep -Fxq 'IMPLEMENTOR="Eclipse Adoptium"' "$jdk_meta_release" \
-    && grep -Fxq "IMPLEMENTOR_VERSION=\"Temurin-$JDK_VERSION+$JDK_BUILD\"" "$jdk_meta_release" \
     && grep -Fxq "OS_ARCH=\"$jdk_meta_os_arch\"" "$jdk_meta_release" \
     && grep -Fxq 'OS_NAME="Linux"' "$jdk_meta_release"
 }
@@ -1999,7 +1997,7 @@ jdk_runtime_matches() { # jdk_runtime_matches <JDK目录>
   jdk_runtime_first="${jdk_runtime_output%%
 *}"
   case "$jdk_runtime_first" in
-    "openjdk version \"$JDK_VERSION\""*) return 0 ;;
+    "java version \"$JDK_VERSION\""*) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -2008,93 +2006,100 @@ prepare_exact_jdk() {
   case "$(uname -m)" in
     x86_64|amd64)
       jdk_arch=x64
-      jdk_checksum=be7668bc030d578b83d6d5ef9221d6d6729bbbca8cf94a7d52e16ac68b5a5a35 ;;
+      jdk_bt_arch=x64
+      jdk_oracle_arch=x64
+      jdk_checksum=74b528a33bb2dfa02b4d74a0d66c9aff52e4f52924ce23a62d7f9eb1a6744657 ;;
     aarch64|arm64)
       jdk_arch=aarch64
-      jdk_checksum=d143936f473a4cb24e3b0e247d6d0775769d55ec9775c339540e753059a8d77a ;;
-    *) die "OpenJDK $JDK_VERSION 暂不支持当前架构: $(uname -m)" ;;
+      jdk_bt_arch=arm
+      jdk_oracle_arch=aarch64
+      jdk_checksum=cd24d7b21ec0791c5a77dfe0d9d7836c5b1a8b4b75db7d33d253d07caa243117 ;;
+    *) die "Oracle JDK $JDK_VERSION 暂不支持当前架构: $(uname -m)" ;;
   esac
-  jdk_name="OpenJDK17U-jdk_${jdk_arch}_linux_hotspot_${JDK_VERSION}_${JDK_BUILD}.tar.gz"
+  jdk_name="jdk-${JDK_VERSION}.tar.gz"
   jdk_cache_dir="$CACHE_DIR/toolchains"
-  jdk_archive="$jdk_cache_dir/$jdk_name"
-  JDK_HOME="$jdk_cache_dir/temurin-${JDK_VERSION}-${jdk_arch}"
+  jdk_archive="$jdk_cache_dir/oracle-jdk-${JDK_VERSION}-${jdk_arch}.tar.gz"
+  JDK_HOME="$jdk_cache_dir/oracle-jdk-${JDK_VERSION}-${jdk_arch}"
   if jdk_home_metadata_matches "$JDK_HOME" "$jdk_arch" \
       && { [ "$USE_DOCKER" = yes ] || jdk_runtime_matches "$JDK_HOME"; }; then
-    log "Temurin OpenJDK $JDK_VERSION 已存在，跳过下载: $JDK_HOME"
+    log "Oracle JDK $JDK_VERSION 已存在，跳过下载: $JDK_HOME"
     return 0
   fi
   mkdir -p "$jdk_cache_dir"
   if [ -f "$jdk_archive" ]; then
     actual_checksum="$(sha256sum "$jdk_archive" | awk '{print $1}')"
     if [ "$actual_checksum" != "$jdk_checksum" ]; then
-      warn "OpenJDK 缓存校验失败，将重新下载: $jdk_archive"
+      warn "Oracle JDK 缓存校验失败，将重新下载: $jdk_archive"
       rm -f "$jdk_archive"
     fi
   fi
   if [ ! -f "$jdk_archive" ]; then
-    official_url="https://github.com/adoptium/temurin17-binaries/releases/download/jdk-${JDK_VERSION}%2B${JDK_BUILD}/$jdk_name"
-    cn_url="https://mirrors.tuna.tsinghua.edu.cn/Adoptium/17/jdk/${jdk_arch}/linux/$jdk_name"
+    official_url="https://download.oracle.com/java/17/archive/jdk-${JDK_VERSION}_linux-${jdk_oracle_arch}_bin.tar.gz"
+    jdk_urls=""
     if [ -n "${AID_JDK_DOWNLOAD_URL:-}" ]; then
-      jdk_urls="${AID_JDK_DOWNLOAD_URL}
-$cn_url
-$official_url"
-    elif [ "$RESOLVED_DEPENDENCY_REGION" = cn ]; then
-      jdk_urls="$cn_url
-$official_url"
-    else
-      jdk_urls="$official_url
-$cn_url"
+      jdk_urls="${AID_JDK_DOWNLOAD_URL}"
     fi
+    for jdk_mirror in $JDK_BT_MIRROR_NODES; do
+      jdk_candidate="$jdk_mirror/src/jdk/$jdk_bt_arch/$jdk_name"
+      if [ -n "$jdk_urls" ]; then
+        jdk_urls="$jdk_urls
+$jdk_candidate"
+      else
+        jdk_urls="$jdk_candidate"
+      fi
+    done
+    jdk_urls="$jdk_urls
+$official_url"
     downloaded=no
     old_ifs="$IFS"; IFS='
 '
     for jdk_url in $jdk_urls; do
       [ -n "$jdk_url" ] || continue
-      log "下载 Temurin OpenJDK $JDK_VERSION（$jdk_arch）: $jdk_url"
+      log "下载 Oracle JDK $JDK_VERSION（$jdk_arch）: $jdk_url"
       if download_file "$jdk_url" "$jdk_archive" "$jdk_checksum"; then
         actual_checksum="$(sha256sum "$jdk_archive" | awk '{print $1}')"
         if [ "$actual_checksum" = "$jdk_checksum" ]; then
           downloaded=yes
           break
         fi
-        warn "OpenJDK 下载文件 SHA256 不匹配，拒绝使用并尝试备用地址"
+        warn "Oracle JDK 下载文件 SHA256 不匹配，拒绝使用并尝试备用地址"
         rm -f "$jdk_archive"
       else
-        warn 'OpenJDK 当前下载地址不可用，尝试备用地址'
+        warn 'JDK 当前节点不可用或摘要不匹配，切换下一个 AID 镜像/Oracle 节点'
       fi
     done
     IFS="$old_ifs"
-    [ "$downloaded" = yes ] || die "Temurin OpenJDK $JDK_VERSION 下载失败；国内镜像和官方地址均不可用"
+    [ "$downloaded" = yes ] || die "Oracle JDK $JDK_VERSION 下载失败或固定 SHA256 校验不通过"
   fi
   jdk_tmp="$JDK_HOME.tmp.$$"
   rm -rf -- "$jdk_tmp"
   mkdir -p "$jdk_tmp"
   if ! tar -xzf "$jdk_archive" -C "$jdk_tmp" --strip-components=1; then
     rm -rf -- "$jdk_tmp"
-    die 'OpenJDK 压缩包解压失败'
+    die 'Oracle JDK 压缩包解压失败'
   fi
   if ! jdk_home_metadata_matches "$jdk_tmp" "$jdk_arch" \
       || { [ "$USE_DOCKER" != yes ] && ! jdk_runtime_matches "$jdk_tmp"; }; then
     rm -rf -- "$jdk_tmp"
-    die "OpenJDK $JDK_VERSION 固定归档元数据、架构或运行能力不匹配"
+    die "Oracle JDK $JDK_VERSION 固定归档元数据、架构或运行能力不匹配"
   fi
   rm -rf -- "$JDK_HOME"
   mv "$jdk_tmp" "$JDK_HOME"
-  log "Temurin OpenJDK $JDK_VERSION 已校验并就绪: $JDK_HOME"
+  log "Oracle JDK $JDK_VERSION 已校验并就绪: $JDK_HOME"
 }
 
 prepare_jdk_runtime_image() {
   [ "$USE_DOCKER" = yes ] || return 0
-  instant_stage_gate 'OpenJDK/FFmpeg/中文字体运行镜像'
+  instant_stage_gate 'Oracle JDK/FFmpeg/中文字体运行镜像'
   load_stage_profile package
-  apply_realtime_stage_budget package 'OpenJDK/FFmpeg/中文字体运行镜像'
+  apply_realtime_stage_budget package 'Oracle JDK/FFmpeg/中文字体运行镜像'
   runtime_manager="$SERVER_DIR/deploy/aid.sh"
   if [ ! -f "$runtime_manager" ] && [ -n "${AID_MANAGER_SCRIPT:-}" ]; then
     runtime_manager="$AID_MANAGER_SCRIPT"
   fi
   [ -f "$runtime_manager" ] || die '缺少 AID FFmpeg 与中文字体统一运行时管理脚本'
   command -v bash >/dev/null 2>&1 || die '构建固定 Java/FFmpeg/中文字体运行镜像需要 Bash'
-  log "通过 AID 统一校验链准备 OpenJDK $JDK_VERSION + FFmpeg $FFMPEG_RUNTIME_VERSION + 中文字体 $AID_CJK_FONT_VERSION 运行镜像"
+  log "通过 AID 统一校验链准备 Oracle JDK $JDK_VERSION + FFmpeg $FFMPEG_RUNTIME_VERSION + 中文字体 $AID_CJK_FONT_VERSION 运行镜像"
   AID_SH_LIBRARY_MODE=1 \
     AID_DATA_ROOT="$DATA_ROOT" \
     AID_DEPENDENCY_INSTALL_MODE="${AID_DEPENDENCY_INSTALL_MODE:-auto}" \
@@ -2103,7 +2108,7 @@ prepare_jdk_runtime_image() {
     AID_RUNTIME_BUILD_SWAP_MB="$STAGE_SWAP_MAX_MB" \
     AID_MANAGER_SCRIPT="$runtime_manager" \
     bash -c 'source "$1"; prepare_jdk_runtime_image' aid-runtime "$runtime_manager" \
-    || die 'OpenJDK、AID FFmpeg与中文字体固定运行镜像准备失败'
+    || die 'Oracle JDK、AID FFmpeg与中文字体固定运行镜像准备失败'
   docker image inspect "$JAVA_RUNTIME_IMAGE" >/dev/null 2>&1 \
     || die "统一运行时脚本未生成预期镜像: $JAVA_RUNTIME_IMAGE"
 }
@@ -2125,12 +2130,13 @@ prepare_build_images() {
 docker_maven_build() {
   settings_file="$1"
   run_docker_stage maven '服务端Maven' --user "$uid_gid" \
+    -e "AID_JDK_VERSION=$JDK_VERSION" \
     -v "$SERVER_DIR:/workspace" -v "$CACHE_DIR/m2:/cache/m2" \
     -v "$settings_file:/tmp/settings.xml:ro" \
     -v "$JDK_HOME:/opt/aid-jdk:ro" -w /workspace "$MAVEN_IMAGE" sh -lc \
     'export JAVA_HOME=/opt/aid-jdk; export PATH="$JAVA_HOME/bin:$PATH"; \
-     java -version 2>&1 | head -n 1 | grep -F "17.0.20" >/dev/null \
-       || { echo "[失败] Maven未使用OpenJDK 17.0.20" >&2; exit 1; }; \
+     java -version 2>&1 | head -n 1 | grep -F "$AID_JDK_VERSION" >/dev/null \
+       || { echo "[失败] Maven未使用固定 Oracle JDK $AID_JDK_VERSION" >&2; exit 1; }; \
      exec mvn --batch-mode --no-transfer-progress -s /tmp/settings.xml -Dmaven.repo.local=/cache/m2 clean package -DskipTests'
 }
 
@@ -2221,7 +2227,7 @@ detect_current_updater_arch() {
 
 build_with_docker() {
   uid_gid="$(id -u):$(id -g)"
-  log "[构建][服务端][开始] Temurin OpenJDK $JDK_VERSION + Maven，国内主源: $MAVEN_MIRROR_URL"
+  log "[构建][服务端][开始] Oracle JDK $JDK_VERSION + Maven，国内主源: $MAVEN_MIRROR_URL"
   if ! docker_maven_build "$WORK_DIR/maven-settings.xml"; then
     warn "Maven 从首选仓库构建失败，切换备用仓库: $MAVEN_MIRROR_FALLBACK_URL"
     docker_maven_build "$WORK_DIR/maven-settings-fallback.xml"
@@ -2247,7 +2253,7 @@ build_with_docker() {
 
 build_with_host() {
   require_local_build_tools
-  log "[构建][服务端][开始] 隔离 Temurin OpenJDK $JDK_VERSION + Maven，国内主源: $MAVEN_MIRROR_URL"
+  log "[构建][服务端][开始] 隔离 Oracle JDK $JDK_VERSION + Maven，国内主源: $MAVEN_MIRROR_URL"
   if ! run_host_stage maven '服务端Maven' "$SERVER_DIR" env "JAVA_HOME=$JDK_HOME" "PATH=$JDK_HOME/bin:$PATH" \
       mvn --batch-mode --no-transfer-progress -s "$WORK_DIR/maven-settings.xml" \
       -Dmaven.repo.local="$CACHE_DIR/m2" clean package -DskipTests; then

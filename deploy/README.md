@@ -185,7 +185,7 @@ MySQL 首次启动自动创建 `aid_test` 库并导入 `sql/` 初始化脚本（
 
 源码构建按部署方式强制隔离，不以“服务器上是否恰好安装 Docker”自动判断：Docker 部署与 Docker 升级固定传入 `AID_SOURCE_BUILD_MODE=docker`，只使用容器完成三端构建；手动 systemd 部署与升级固定传入 `AID_SOURCE_BUILD_MODE=host`，只使用宿主机的 Git、JDK、Node.js、Maven 和 Go，**不会探测、拉取或调用 Docker**。该变量由官方 `aid.sh` 和在线升级器自动设置，管理员无需手工配置；`auto` 仅保留给直接运行构建器的开发调试场景。
 
-Docker 构建固定使用 Node.js 22.22.0；后台管理端和 Web 用户端还必须在各自 `package.json` 的 `packageManager` 中固定完整 npm 版本，当前均为 npm 10.9.4。发布机与服务器源码构建都会通过引导 npm 执行项目声明的精确版本并运行 `npm ci`；后台管理端执行 `npm run build`，Web 用户端执行 `npm run generate` 生成静态站点，不依赖宿主机或 Node 镜像碰巧携带的 npm 版本。`package-lock.json` 与 `package.json` 不一致时会明确阻止发布。Java 构建与运行固定使用 Eclipse Temurin OpenJDK 17.0.20+8。JDK 按宿主机架构自动选择 x64 或 AArch64 压缩包，下载后核对 Adoptium 官方 SHA-256，不修改宿主机默认 Java。构建镜像与依赖缓存在 `/data/aid/build-cache`，后续升级会直接复用。
+Docker 构建固定使用 Node.js 22.22.0；后台管理端和 Web 用户端还必须在各自 `package.json` 的 `packageManager` 中固定完整 npm 版本，当前均为 npm 10.9.4。发布机与服务器源码构建都会通过引导 npm 执行项目声明的精确版本并运行 `npm ci`；后台管理端执行 `npm run build`，Web 用户端执行 `npm run generate` 生成静态站点，不依赖宿主机或 Node 镜像碰巧携带的 npm 版本。`package-lock.json` 与 `package.json` 不一致时会明确阻止发布。Docker 与手动 systemd 的 Java 构建和运行统一固定为 Oracle JDK 17.0.8。JDK 按宿主机架构自动选择 x64 或 AArch64 压缩包，默认优先使用 AID 国内依赖节点，失败后回退 Oracle 官方归档；所有来源都必须通过 Oracle 官方固定 SHA-256，不修改宿主机默认 Java。构建镜像与依赖缓存在 `/data/aid/build-cache`，后续升级会直接复用。
 
 `DEPENDENCY_REGION=auto` 会在目标服务器运行时按公网出口地区自动选择下载线路，地区服务不可用时再按网络可达性判断：国内依赖优先使用国内镜像，国际线路优先使用上游官方地址。Maven 在两种线路下均固定优先使用阿里云公共仓库，失败时自动用原始 Maven Central 重新构建；可通过 `AID_MAVEN_MIRROR_URL` 与 `AID_MAVEN_FALLBACK_URL` 分别覆盖。其他首选线路失败也会自动回退，且可明确设置为 `cn` 或 `global`。
 
@@ -244,7 +244,7 @@ if command -v curl >/dev/null 2>&1; then curl -fL --retry 3 -o aid-install.sh ht
 
 脚本会先从版本标签源码构建本地包，再从本地包提取部署套件，并由 `.env.example` 自动生成正式配置；内置 MySQL 的 root/业务密码留空时生成 12 位字母数字随机值，JWT 密钥仍生成 48 位随机值。单文件首次部署的配置真源是 `/data/aid/config/docker.env`，完成后脚本也会明确打印实际路径。默认采用内置 MySQL + Redis、关闭 RocketMQ 与 HTTPS 的保守组合。需要改端口、HTTPS、外部 MySQL/Redis 或 RocketMQ 时，编辑实际配置文件后执行 `sudo aid restart` 生效。
 
-Docker 模式不会要求宿主机另装 Git、JDK、Node、Go、FFmpeg、Nginx 或 Redis：Node.js 22.22.0 与 Maven/Go 使用一次性隔离构建容器；OpenJDK 17.0.20、AID 自管 FFmpeg 8.1.2 与经过中文字形验证的字体共同生成标签为 `aid/openjdk:17.0.20-ffmpeg8.1.2-font2.004` 的本地固定运行镜像。复用镜像前会重新检查 Java、FFmpeg、FFprobe、编码器、滤镜、最小合成、中文字符集与 `drawtext`，任一能力不符都会重建。HTTP Nginx 为运行容器；MySQL、Redis、RocketMQ 与 HTTPS 由 `COMPOSE_PROFILES` 决定是否启动对应容器。宿主机只需要 Docker Engine 24+ 与 Compose v2；缺失时经管理员确认可由脚本安装。
+Docker 模式不会要求宿主机另装 Git、JDK、Node、Go、FFmpeg、Nginx 或 Redis：Node.js 22.22.0 与 Maven/Go 使用一次性隔离构建容器；Oracle JDK 17.0.8、AID 自管 FFmpeg 8.1.2 与经过中文字形验证的字体共同生成标签为 `aid/openjdk:17.0.8-ffmpeg8.1.2-font2.004` 的本地固定运行镜像。复用镜像前会重新检查 Java、FFmpeg、FFprobe、编码器、滤镜、最小合成、中文字符集与 `drawtext`，任一能力不符都会重建。HTTP Nginx 为运行容器；MySQL、Redis、RocketMQ 与 HTTPS 由 `COMPOSE_PROFILES` 决定是否启动对应容器。宿主机只需要 Docker Engine 24+ 与 Compose v2；缺失时经管理员确认可由脚本安装。
 
 依赖处理由正式配置中的 `DEPENDENCY_INSTALL_MODE` 控制：
 
