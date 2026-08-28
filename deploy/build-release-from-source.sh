@@ -2527,8 +2527,10 @@ assemble_package() {
   [ "$has_sql" = true ] || rmdir "$STAGING_DIR/sql"
 
   server_commit="$(repo_commit "$SERVER_DIR")"
-  admin_commit="$(repo_commit "$ADMIN_DIR")"
-  web_commit="$(repo_commit "$WEB_DIR")"
+  # 三端来自同一个统一源码标签。Docker 只挂载前端子目录时看不到仓库根目录的 .git，
+  # 因此统一复用根仓提交，避免对子目录执行独立的 Git 探测。
+  admin_commit="$server_commit"
+  web_commit="$server_commit"
   channel=stable
   case "$VERSION" in *-*) channel=beta ;; esac
   cat > "$STAGING_DIR/build-info.json" <<EOF

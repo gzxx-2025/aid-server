@@ -255,6 +255,16 @@ grep -Eq 'host_npm_build "\$WEB_DIR" .* generate$' "${builder_file}" \
   || { echo 'FAIL: host Web build must run npm generate' >&2; exit 1; }
 [[ "$(grep -Ec 'go build -buildvcs=false .*aid-updater/internal/manifest\.trustedPublicKey=' "${builder_file}")" -eq 2 ]] \
   || { echo 'FAIL: Docker and host updater builds must disable Go VCS probing with -buildvcs=false' >&2; exit 1; }
+[[ "$(grep -Fc 'server_commit="$(repo_commit "$SERVER_DIR")"' "${builder_file}")" -eq 1 ]] \
+  || { echo 'FAIL: unified source metadata must resolve the repository commit once from its root' >&2; exit 1; }
+grep -Fq 'admin_commit="$server_commit"' "${builder_file}" \
+  || { echo 'FAIL: admin metadata must reuse the unified repository commit' >&2; exit 1; }
+grep -Fq 'web_commit="$server_commit"' "${builder_file}" \
+  || { echo 'FAIL: Web metadata must reuse the unified repository commit' >&2; exit 1; }
+if grep -Fq 'repo_commit "$ADMIN_DIR"' "${builder_file}" || grep -Fq 'repo_commit "$WEB_DIR"' "${builder_file}"; then
+  echo 'FAIL: nested frontend directories must not be mounted as standalone Git repositories' >&2
+  exit 1
+fi
 grep -Fq 'set -- -e LANG=C.UTF-8 -e LC_ALL=C.UTF-8 "$@"' "${builder_file}" \
   || { echo 'FAIL: Docker source-build stages must use a UTF-8 locale' >&2; exit 1; }
 [[ "$(grep -Fc 'set -- env LANG=C.UTF-8 LC_ALL=C.UTF-8' "${builder_file}")" -ge 4 ]] \
