@@ -1,0 +1,229 @@
+/* Tailwind/PostCSS component styles for edit-storyboard-image-modal. */
+
+
+.edit-storyboard-image-modal .storyboard-config-footer .generate-btn {
+  margin: 0;
+  height: 46px;
+  border-radius: 8px !important;
+  font-size: 16px;
+  box-shadow: 0 8px 20px rgba(37, 99, 235, 0.35);
+  border: none !important;
+  outline: none !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+.edit-storyboard-image-modal .storyboard-config-footer .generate-btn img {
+  width: 18px;
+  height: 18px;
+}
+
+.edit-storyboard-image-modal .storyboard-config-footer .generate-btn:hover,
+.edit-storyboard-image-modal .storyboard-config-footer .generate-btn:focus,
+.edit-storyboard-image-modal .storyboard-config-footer .generate-btn:active {
+  border: none !important;
+  outline: none !important;
+  filter: brightness(1.06);
+  box-shadow: 0 8px 20px rgba(37, 99, 235, 0.35) !important;
+}
+
+.edit-storyboard-image-modal .storyboard-config-body {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0 2px 2px;
+  min-height: 0;
+}
+
+.edit-storyboard-image-modal .storyboard-config-body .storyboard-left {
+  padding: 0;
+  gap: 0;
+  min-height: 0;
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.edit-storyboard-image-modal .storyboard-config-body .storyboard-left .storyboard-generate-panel {
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+/* 由外层 storyboard-config-below-tabs 滚动；面板按内容增高，避免内部 height:100% 裁切底部按钮 */
+.edit-storyboard-image-modal .storyboard-config-below-tabs .storyboard-generate-panel {
+  height: auto !important;
+  max-height: none !important;
+  overflow: visible !important;
+}
+
+.edit-storyboard-image-modal .storyboard-config-below-tabs .storyboard-generate-panel.use-param-modal {
+  height: 100% !important;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden !important;
+}
+
+.edit-storyboard-image-modal .storyboard-config-below-tabs .storyboard-generate-panel.is-compact-height {
+  overflow-y: visible !important;
+}
+
+@media (max-height: 900px) {
+  .edit-storyboard-image-modal .storyboard-stage-config {
+    padding: 8px 8px 8px;
+  }
+  .edit-storyboard-image-modal .config-tabs--three {
+    margin-bottom: 8px;
+  }
+  .edit-storyboard-image-modal .config-tabs--three .config-tab {
+    height: 28px;
+    font-size: 13px;
+  }
+}
+.edit-storyboard-image-modal .tab-placeholder {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(188, 205, 228, 0.55);
+  font-size: 0.875rem;
+}
+
+.edit-storyboard-image-modal .dialogue-tab {
+  width: 100%;
+  min-height: 0;
+}
+
+.edit-storyboard-image-modal .dialogue-tab .dialogue-draw-panel {
+  height: 100%;
+}
+
+.edit-storyboard-image-modal .dialogue-upload-strip {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  min-height: 64px;
+  padding: 10px;
+  border-radius: 12px;
+  background: #121212;
+}
+
+.edit-storyboard-image-modal .dialogue-upload-thumb {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 2px solid rgba(128, 154, 188, 0.28);
+  background: rgba(8, 12, 20, 0.9);
+  flex-shrink: 0;
+}
+
+.edit-storyboard-image-modal .dialogue-upload-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.edit-storyboard-image-modal .dialogue-upload-thumb__remove {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 77, 79, 0.95);
+  color: #fff;
+  cursor: pointer;
+  font-size: 10px;
+  line-height: 1;
+  opacity: 0;
+  transform: scale(0.9);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  z-index: 2;
+}
+
+.edit-storyboard-image-modal .dialogue-upload-thumb:hover .dialogue-upload-thumb__remove {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.edit-storyboard-image-modal .dialogue-upload-thumb--adder {
+  border: 1px dashed rgba(188, 205, 228, 0.6);
+  background: transparent;
+  color: rgba(225, 239, 255, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.edit-storyboard-image-modal .dialogue-upload-thumb--adder:hover {
+  border-color: rgba(74, 231, 253, 0.85);
+  color: rgb(74, 231, 253);
+}
+
+.edit-storyboard-image-modal .dialogue-upload-empty-hint {
+  margin-left: 4px;
+  color: rgba(188, 205, 228, 0.62);
+  font-size: 12px;
+}
+
+.edit-storyboard-image-modal .dialogue-instruction {
+  border-radius: 12px;
+}
+
+.edit-storyboard-image-modal .dialogue-instruction .rich-text-editor__host {
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+/* 主舞台容器（与 EditSceneImageModal 右侧面板一致：占满头部以下区域） */
+.edit-storyboard-image-modal .right-panel.storyboard-right-panel {
+  width: 100%;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: transparent;
+  overflow: hidden;
+  min-width: 0;
+  min-height: 0;
+}
+
+.edit-storyboard-image-modal .right-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid rgba(128, 154, 188, 0.22);
+  flex-shrink: 0;
+  background: rgba(17, 22, 33, 0.85);
+}
+
+/* 左右面板切换分镜 Tab 时的独立骨架屏 */
+.edit-storyboard-image-modal .panel-skeleton {
+  flex: 1;
+  overflow: auto;
+  padding: 1rem 1.25rem;
+  min-height: 200px;
+  background: transparent;
+}
+
+.edit-storyboard-image-modal .panel-skeleton .ant-skeleton-content .ant-skeleton-title,
+.edit-storyboard-image-modal .panel-skeleton .ant-skeleton-content .ant-skeleton-paragraph > li {
+  background: linear-gradient(90deg, #2b2b2b 20%, #444444 50%, #2b2b2b 80%) !important;
+  background-size: 300% 100% !important;
+  animation: storyboard-skeleton-shimmer 1.4s linear infinite !important;
+}
+
+.edit-storyboard-image-modal .left-panel-skeleton {
+  border-bottom: none;
+}

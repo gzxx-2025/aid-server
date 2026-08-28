@@ -1,0 +1,150 @@
+/* Tailwind/PostCSS component styles for ProjectGenConfigModal. */
+
+
+html.app-shell-create .project-gen-config-modal-wrap .pgc-select--param.ant-select:not(.ant-select-disabled):hover .ant-select-selector,
+html.app-shell-create .project-gen-config-modal .pgc-select--param.ant-select:not(.ant-select-disabled):hover .ant-select-selector,
+html.app-shell-create .project-gen-config-modal-wrap .pgc-select--param.ant-select-focused:not(.ant-select-disabled):not(.ant-select-customize-input) .ant-select-selector,
+html.app-shell-create .project-gen-config-modal .pgc-select--param.ant-select-focused:not(.ant-select-disabled):not(.ant-select-customize-input) .ant-select-selector,
+html.app-shell-create .project-gen-config-modal-wrap .pgc-select--param.ant-select-open .ant-select-selector,
+html.app-shell-create .project-gen-config-modal .pgc-select--param.ant-select-open .ant-select-selector {
+  background: #1e2028 !important;
+  background-color: #1e2028 !important;
+  border-color: #4a5560 !important;
+  box-shadow: none !important;
+}
+
+html.app-shell-create .project-gen-config-modal-wrap .pgc-select--param.ant-select-disabled .ant-select-selector,
+html.app-shell-create .project-gen-config-modal .pgc-select--param.ant-select-disabled .ant-select-selector {
+  background: #1e2028 !important;
+  background-color: #1e2028 !important;
+  border-color: #30363d !important;
+  opacity: 0.65;
+}
+
+.project-gen-config-modal .pgc-footer {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding: 1rem 0 1.25rem;
+}
+
+.project-gen-config-modal .pgc-btn-cancel {
+  min-width: 96px;
+  height: 40px;
+  border-radius: 6px !important;
+  border: 1px solid rgba(74, 231, 253, 0.3) !important;
+  background: #0d1018 !important;
+}
+
+.project-gen-config-modal .pgc-btn-save {
+  min-width: 96px;
+  height: 40px;
+  border-radius: 6px !important;
+  border: none !important;
+  background: linear-gradient(270deg, #0e59fa 0%, #00abd8 100%) !important;
+}
+
+@media (max-width: 900px) {
+  .project-gen-config-modal .import-tab-bar__inner {
+    padding: 6px 8px;
+  }
+
+  .project-gen-config-modal .import-tab-bar__inner .import-tab-inner {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .project-gen-config-modal .import-tab {
+    padding: 0.25rem 0.75rem;
+    font-size: 13px;
+  }
+
+  .project-gen-config-modal .pgc-scene-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .project-gen-config-modal .pgc-scene-label {
+    min-height: auto;
+    padding: 0.625rem 0.75rem;
+  }
+
+  .project-gen-config-modal .pgc-scene-config {
+    padding-top: 0.75rem;
+  }
+
+  .project-gen-config-modal .pgc-scene-config--image .pgc-config-head-row,
+  .project-gen-config-modal .pgc-scene-config--image .pgc-config-row {
+    grid-template-columns: 1fr;
+  }
+
+  .project-gen-config-modal .pgc-scene-config--image .pgc-config-head--param {
+    display: none;
+  }
+
+  .project-gen-config-modal .pgc-agent-model-card {
+    grid-template-columns: 1fr;
+  }
+
+  .project-gen-config-modal .pgc-agent-model-card__sep {
+    display: none;
+  }
+
+  .project-gen-config-modal .pgc-agent-model-card__model {
+    padding-left: 0;
+  }
+
+  html.app-shell-create .project-gen-config-modal-wrap .pgc-select--param.ant-select .ant-select-selector,
+  html.app-shell-create .project-gen-config-modal .pgc-select--param.ant-select .ant-select-selector {
+    height: 44px !important;
+    min-height: 44px !important;
+  }
+}
+
+/* ===== 原全局 \3c style>（非 scoped）块：原样保留 ===== */
+
+html.app-shell-create .ant-modal-wrap.project-gen-config-modal-wrap .ant-modal-container,
+html.app-shell-create .ant-modal.project-gen-config-modal .ant-modal-container {
+  display: flex;
+  flex-direction: column;
+  height: min(740px, calc(100dvh - 48px)) !important;
+  max-height: calc(100dvh - 48px) !important;
+  overflow: hidden;
+  padding: 20px 24px !important;
+}
+
+html.app-shell-create .ant-modal-wrap.project-gen-config-modal-wrap .ant-modal-content,
+html.app-shell-create .ant-modal.project-gen-config-modal .ant-modal-content {
+  display: flex;
+  flex-direction: column;
+  height: 100% !important;
+  max-height: 100% !important;
+  overflow: hidden;
+}
+
+html.app-shell-create .ant-modal-wrap.project-gen-config-modal-wrap .ant-modal-body,
+html.app-shell-create .ant-modal.project-gen-config-modal .ant-modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.pgc-select-popup.ant-select-dropdown {
+  background: #111621 !important;
+  border: 1px solid rgba(74, 231, 253, 0.28) !important;
+}
+
+.pgc-select-popup .ant-select-item {
+  color: #e6edf3 !important;
+}
+
+.pgc-select-popup .ant-select-item-option-selected:not(.ant-select-item-option-disabled) {
+  background: rgba(74, 231, 253, 0.2) !important;
+  color: #4ae7fd !important;
+}
+
+.pgc-select-popup .ant-select-item-option-active:not(.ant-select-item-option-disabled) {
+  background: rgba(74, 231, 253, 0.12) !important;
+}

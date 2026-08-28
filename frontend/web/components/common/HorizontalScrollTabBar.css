@@ -1,0 +1,60 @@
+.h-scroll-tab-bar {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  gap: 4px;
+}
+
+.h-scroll-tab-bar__viewport {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-behavior: smooth;
+  scrollbar-width: none;
+}
+
+.h-scroll-tab-bar__viewport::-webkit-scrollbar {
+  display: none;
+}
+
+.h-scroll-tab-bar__track {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  width: max-content;
+  flex-shrink: 0;
+}
+
+.h-scroll-tab-bar__track > * {
+  flex-shrink: 0;
+}
+
+.h-scroll-tab-bar__arrow {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  color: #d9e6f2;
+  background: rgba(74, 231, 253, 0.12);
+  cursor: pointer;
+  transition:
+    color 0.2s ease,
+    background 0.2s ease;
+}
+
+.h-scroll-tab-bar__arrow:hover {
+  color: #4ae7fd;
+  background: rgba(74, 231, 253, 0.22);
+}
+
+.h-scroll-tab-bar__suffix {
+  flex-shrink: 0;
+  margin-left: 8px;
+}

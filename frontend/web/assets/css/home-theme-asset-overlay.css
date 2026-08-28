@@ -1,0 +1,228 @@
+/* Tailwind/PostCSS component styles for home-theme. */
+
+
+.home-theme-page .asset-card:hover .asset-overlay {
+  opacity: 1;
+}
+
+.home-theme-page .use-btn {
+  padding: 10px 32px;
+  background: var(--home-grad);
+  color: #fff;
+  border: none;
+  border-radius: var(--home-radius-btn);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.home-theme-page .use-btn:hover {
+  filter: brightness(1.1);
+}
+
+.home-theme-page .asset-info {
+  padding: 16px;
+}
+
+.home-theme-page .asset-name {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: #fff;
+}
+
+.home-theme-page .asset-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.home-theme-page .asset-type {
+  font-size: 12px;
+  color: var(--home-cyan);
+  font-weight: 500;
+  background: rgba(14, 89, 250, 0.2);
+  padding: 4px 10px;
+  border-radius: 4px;
+}
+
+.home-theme-page .visibility-badge {
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 4px;
+}
+
+.home-theme-page .visibility-badge.public {
+  background: rgba(16, 185, 129, 0.2);
+  color: #10b981;
+}
+
+.home-theme-page .visibility-badge.private {
+  background: rgba(156, 163, 175, 0.2);
+  color: #9ca3af;
+}
+
+.home-theme-page .asset-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 12px;
+  border-top: 1px solid var(--home-border-subtle);
+}
+
+.home-theme-page .upload-time {
+  font-size: 12px;
+  color: var(--home-muted);
+}
+
+.home-theme-page .asset-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* 登录页 */
+.login-theme-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  background: var(--home-bg-gradient);
+  background-color: var(--home-bg-solid);
+}
+
+.login-theme-container {
+  width: 100%;
+  max-width: 1100px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  background: var(--home-surface);
+  border-radius: var(--radius-2xl, 2rem);
+  overflow: hidden;
+  box-shadow: var(--shadow-2xl, 0 25px 50px -12px rgba(0, 0, 0, 0.35));
+  border: 1px solid var(--home-border-subtle);
+}
+
+.login-theme-left {
+  background: linear-gradient(160deg, rgba(14, 89, 250, 0.35) 0%, rgba(0, 23, 49, 0.95) 100%);
+  padding: 3rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  position: relative;
+  overflow: hidden;
+}
+
+.login-theme-left .logo-section {
+  position: relative;
+  z-index: 1;
+}
+
+.login-theme-logo-title {
+  color: #fff;
+  font-size: 2.5rem;
+  font-weight: 800;
+  margin-bottom: 0.5rem;
+}
+
+.login-theme-logo-sub {
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 1.125rem;
+}
+
+.login-theme-right {
+  padding: 3rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 14, 22, 0.98);
+}
+
+.login-theme-form-wrap {
+  width: 100%;
+  max-width: 400px;
+}
+
+.login-theme-form-title {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 0.5rem;
+}
+
+.login-theme-form-sub {
+  color: var(--home-muted);
+  margin-bottom: 2rem;
+}
+
+.login-theme-form .ant-form-item-label > label {
+  color: var(--home-text) !important;
+}
+
+.login-theme-form .ant-input,
+.login-theme-form .ant-input-password {
+  background: rgba(18, 22, 30, 0.85) !important;
+  border-color: var(--home-border-input) !important;
+  color: #fff !important;
+}
+
+.login-theme-form .ant-input::placeholder,
+.login-theme-form .ant-input-password input::placeholder {
+  color: var(--home-muted) !important;
+}
+
+.login-theme-divider {
+  display: flex;
+  align-items: center;
+  margin: 1.5rem 0;
+  color: var(--home-muted);
+}
+
+.login-theme-divider::before,
+.login-theme-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--home-border-subtle);
+}
+
+.login-theme-divider span {
+  padding: 0 1rem;
+}
+
+.login-theme-social .ant-btn {
+  height: 48px;
+  background: rgba(18, 22, 30, 0.6) !important;
+  border: 1px solid var(--home-border-input) !important;
+  color: var(--home-text) !important;
+}
+
+.login-theme-social .ant-btn:hover {
+  border-color: var(--home-cyan) !important;
+  color: var(--home-cyan) !important;
+}
+
+.login-theme-switch {
+  text-align: center;
+  color: var(--home-muted);
+}
+
+.login-theme-switch a {
+  color: var(--home-cyan);
+  font-weight: 600;
+  cursor: pointer;
+  margin-left: 0.25rem;
+}
+
+.login-theme-form {
+  margin-top: 1.5rem;
+}
+
+.login-theme-form .submit-btn.ant-btn {
+  height: 48px;
+  font-size: 1rem;
+  font-weight: 600;
+}

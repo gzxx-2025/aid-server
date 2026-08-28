@@ -1,0 +1,121 @@
+.hero-card-reveal {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: inherit;
+  background: #121212;
+}
+
+.hero-card-reveal__cover {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+}
+
+.hero-card-reveal__cover .hero-card-reveal__shimmer,
+.hero-card-reveal__skel-media {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.hero-card-reveal__cover .hero-card-reveal__thumb {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  user-select: none;
+  pointer-events: none;
+}
+
+.hero-card-reveal__skel-media {
+  overflow: hidden;
+  background: linear-gradient(135deg, #141820 0%, #1a2230 48%, #12161e 100%);
+}
+
+.hero-card-reveal__skel-shimmer {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.03) 38%,
+    rgba(255, 255, 255, 0.1) 50%,
+    rgba(255, 255, 255, 0.03) 62%,
+    transparent 100%
+  );
+  background-size: 220% 100%;
+  animation: hero-card-skel-shimmer 1.6s ease-in-out infinite;
+}
+
+@keyframes hero-card-skel-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-card-reveal__skel-shimmer {
+    animation: none;
+    opacity: 0.35;
+  }
+}
+
+.hero-card-reveal__shade {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  background: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0) 42%,
+    rgba(0, 0, 0, 0.28) 68%,
+    rgba(0, 0, 0, 0.82) 100%
+  );
+  pointer-events: none;
+}
+
+.hero-card-reveal__title {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+  margin: 0;
+  padding: 10px 8px 8px;
+  font-family: 'PingFang SC';
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.35;
+  letter-spacing: 0.01em;
+  color: rgba(255, 255, 255, 0.96);
+  text-align: center;
+  pointer-events: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hero-card-reveal__title-skel {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  z-index: 5;
+  width: 42%;
+  height: 10px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.14);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+@media (max-width: 768px) {
+  .hero-card-reveal__title {
+    padding: 8px 6px 6px;
+    font-size: 10px;
+  }
+}

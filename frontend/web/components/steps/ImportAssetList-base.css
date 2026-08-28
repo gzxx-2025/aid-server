@@ -1,0 +1,137 @@
+/* Tailwind/PostCSS component styles for ImportAssetList. */
+
+
+/* 与 ImportScriptModal / StoryboardScriptModal 同高同宽策略 */
+.import-asset-preview-modal-shell {
+  color: #e6edf3;
+  height: 698px;
+  max-height: calc(100vh - 80px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+  background: #191a1d;
+}
+
+.import-asset-preview-modal-header {
+  flex-shrink: 0;
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 16px;
+}
+
+.import-asset-preview-modal-title {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #e6edf3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.import-asset-preview-modal-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: rgba(142, 151, 165, 1);
+  cursor: pointer;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.import-asset-preview-modal-close:hover {
+  color: #4ae7fd;
+}
+
+.import-asset-preview-modal-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0 16px 16px;
+}
+
+.import-asset-preview-modal__loading {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #8e97a5;
+}
+
+.import-asset-preview-modal__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  color: #e6edf3;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.import-asset-preview-modal__plain {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  color: #d9e6f2;
+}
+
+.import-asset-preview-modal__img {
+  max-width: 100%;
+  border-radius: 6px;
+  display: block;
+}
+
+.import-asset-preview-modal__video,
+.import-asset-preview-modal__audio {
+  width: 100%;
+  max-width: 100%;
+  border-radius: 6px;
+  display: block;
+}
+
+.import-asset-preview-modal__empty {
+  color: #8e97a5;
+  text-align: center;
+  padding: 2rem 0;
+}
+
+.import-asset-preview-modal__rich {
+  color: #e6edf3;
+}
+
+.import-asset-preview-modal__rich p {
+  margin: 0 0 0.75em;
+}
+
+/* Modal teleport 到 body：隐藏 Ant 默认头，高度由内层 shell 控制 */
+.ant-modal-wrap.import-asset-preview-modal-wrap .ant-modal.import-asset-preview-modal .ant-modal-content {
+  padding: 0 !important;
+  overflow: hidden;
+  border-radius: 12px;
+  background: #191a1d;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+}
+
+.ant-modal-wrap.import-asset-preview-modal-wrap .ant-modal.import-asset-preview-modal .ant-modal-header {
+  display: none !important;
+}
+
+.ant-modal-wrap.import-asset-preview-modal-wrap .ant-modal.import-asset-preview-modal .ant-modal-body {
+  padding: 0 !important;
+  background: #191a1d;
+}

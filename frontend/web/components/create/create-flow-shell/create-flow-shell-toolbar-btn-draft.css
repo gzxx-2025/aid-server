@@ -1,0 +1,228 @@
+/* Tailwind/PostCSS component styles for create-flow-shell. */
+
+
+.create-page .toolbar-right .toolbar-btn-draft {
+  background: none !important;
+  border-color: rgba(74, 231, 253, 0.35) !important;
+  color: #e6edf3 !important;
+  /* loading 与文案同一行，避免块级子元素导致换行 */
+  display: inline-flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  justify-content: center;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.create-page .toolbar-right .toolbar-btn-draft .text-gradient {
+  display: inline;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+
+.create-page .toolbar-right .toolbar-btn-draft .ant-btn-loading-icon {
+  display: inline-flex !important;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.create-page .back-btn {
+  background: none;
+  border: none;
+  color: var(--home-muted, #8e97a5);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 20px;
+  border-radius: var(--radius-md);
+  transition: all 0.15s ease;
+}
+
+.create-page .back-btn:hover {
+  background: rgba(74, 231, 253, 0.08);
+  color: #fff;
+}
+
+.create-page .toolbar .toolbar-left .title-input {
+  width: 100% !important;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #fff !important;
+  background: none !important;
+}
+
+.create-page .title-input::placeholder {
+  color: var(--home-muted, #8e97a5) !important;
+}
+
+.create-page .toolbar-right {
+  display: flex;
+  gap: 14px;
+}
+
+.create-page .toolbar-right button {
+  font-size: 14px;
+  height: 32px;
+  padding: 0 12px;
+}
+
+.create-page .toolbar--series-upload {
+  min-height: 48px;
+  padding: 0 20px 0 16px;
+  flex-shrink: 0;
+}
+
+.create-page .toolbar--series-episode-list {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* 剧集管理：压缩标题栏与列表内容间距 */
+.create-page--series-upload .preview_bg_box {
+  margin-top: 0;
+  margin-bottom: 8px;
+}
+
+.create-page--series-upload .preview-panel {
+  margin-bottom: 8px;
+}
+
+.create-page .toolbar-left--wrap {
+  flex: 1;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.create-page .toolbar-left--wrap .toolbar-title-block {
+  flex: 0 1 auto;
+  width: auto;
+}
+
+.create-page .toolbar-series-episode-count {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--home-muted, #8e97a5);
+  white-space: nowrap;
+}
+
+/* 主布局：左侧栏（与首页共用 home-new-sidebar.css）+ 右侧主工作区 */
+.create-page .main-layout {
+  display: flex;
+  align-items: stretch;
+  flex: 1 1 auto;
+  overflow: hidden;
+  min-height: 0;
+  height: 100%;
+  position: relative;
+  z-index: 1;
+}
+
+.create-page .create-main__embed-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 0.5rem 1rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.create-page .create-main__embed-scroll > .home-new-sub-page {
+  flex: 1 0 auto;
+  min-height: 0;
+}
+
+.create-page .create-main__flow-stack {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  padding-right: 24px;
+  position: relative;
+}
+
+/* 流程页右侧：流程 / 我的作品 / 资产库 切换过渡 */
+.create-page .create-main-switch-enter-active,
+.create-page .create-main-switch-leave-active {
+  transition:
+    opacity 0.2s ease,
+    transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.create-page .create-main-switch-enter-from {
+  opacity: 0;
+  transform: translateY(12px);
+}
+
+.create-page .create-main-switch-leave-to {
+  opacity: 0;
+  transform: translateY(-10px);
+}
+
+/* —— 右侧主区：横向流程 + 内容区 —— */
+.create-page .create-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.create-page .create-main__transition-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.create-page .create-workflow {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  position: relative;
+  z-index: 1;
+  margin-bottom: 10px;
+}
+
+.create-page .create-workflow__scroll {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0;
+  /* 步骤标题不压缩时，窄视口可横向滚动，避免「项…」截断 */
+  overflow-x: auto;
+  overflow-y: hidden;
+  min-width: 0;
+  flex: 1;
+  padding: 4px 24px;
+  scrollbar-width: thin;
+  position: relative;
+  isolation: isolate;
+  z-index: 2;
+  border: none;
+  border-radius: 8px 8px 0 0;
+  /* 叠在页面渐变上：高透明 + 强模糊，避免「描边框」感 */
+  background: linear-gradient(
+    145deg,
+    rgba(255, 255, 255, 0.05) 0%,
+    rgba(255, 255, 255, 0.05) 42%,
+    rgba(255, 255, 255, 0.05) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.1),
+    0 12px 40px rgba(0, 0, 0, 0.22),
+    0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+/* 顶部柔和高光层，模拟 iOS 玻璃折射 */

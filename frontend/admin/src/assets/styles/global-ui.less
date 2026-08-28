@@ -1,0 +1,248 @@
+@import './variables.less';
+
+/* ============================================================
+ * 全局统一 UI 规范（大厂后台标准）
+ * 1. 表格：统一表头/行高/hover/固定列，全站一致
+ * 2. 按钮：主按钮统一品牌渐变，危险/次要按钮保持语义色
+ * 3. 弹窗/抽屉：统一圆角与头尾分隔
+ * 4. 通用模式：页面标题、表单分区标题、统计卡、代码文本
+ * ========================================================== */
+
+/* ---------------- 1. 表格统一 ---------------- */
+.ant-table-wrapper {
+  .ant-table {
+    border-radius: 10px;
+    background: #ffffff;
+  }
+
+  .ant-table-thead > tr > th {
+    background: #f8fafc !important;
+    color: @text-color-primary !important;
+    font-weight: 600 !important;
+    font-size: 13px;
+    border-bottom: 1px solid rgba(15, 23, 42, 0.06) !important;
+
+    &::before {
+      display: none !important;
+    }
+  }
+
+  .ant-table-tbody > tr > td {
+    background: #ffffff;
+    border-bottom: 1px solid rgba(15, 23, 42, 0.04) !important;
+    font-size: 13.5px;
+    transition: background 0.2s ease;
+  }
+
+  /* hover 行使用不透明纯色，确保固定列（操作列）也保持同色 */
+  .ant-table-tbody > tr:hover > td,
+  .ant-table-tbody > tr.ant-table-row-hover > td,
+  .ant-table-tbody > tr > td.ant-table-cell-row-hover {
+    background: #f1f5fd !important;
+  }
+
+  /* 固定列显式设置为白色，避免透明导致底下内容穿透 */
+  .ant-table-cell-fix-left,
+  .ant-table-cell-fix-right {
+    background: #ffffff !important;
+  }
+  .ant-table-thead > tr > th.ant-table-cell-fix-left,
+  .ant-table-thead > tr > th.ant-table-cell-fix-right {
+    background: #f8fafc !important;
+  }
+  .ant-table-tbody > tr:hover > td.ant-table-cell-fix-left,
+  .ant-table-tbody > tr:hover > td.ant-table-cell-fix-right,
+  .ant-table-tbody > tr.ant-table-row-hover > td.ant-table-cell-fix-left,
+  .ant-table-tbody > tr.ant-table-row-hover > td.ant-table-cell-fix-right {
+    background: #f1f5fd !important;
+  }
+
+  /* 操作列 link 按钮间距收紧、字号统一 */
+  .ant-table-tbody .ant-btn-link {
+    font-size: 13px;
+  }
+}
+
+/* ---------------- 2. 主按钮统一品牌渐变 ---------------- */
+.ant-btn-primary:not(.ant-btn-background-ghost):not(.ant-btn-dangerous):not(:disabled) {
+  background: linear-gradient(135deg, @primary-color 0%, #6366f1 100%);
+  border: none;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
+  font-weight: 500;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(37, 99, 235, 0.3);
+    background: linear-gradient(135deg, #3b82f6 0%, #818cf8 100%) !important;
+  }
+
+  &:active {
+    transform: translateY(0);
+  }
+}
+
+/* ---------------- 3. 抽屉统一样式 ---------------- */
+.ant-drawer-content {
+  border-radius: 16px 0 0 16px;
+  overflow: hidden;
+}
+.ant-drawer-header {
+  border-bottom: 1px solid rgba(15, 23, 42, 0.05) !important;
+  padding: 16px 24px !important;
+}
+.ant-drawer-title {
+  font-size: 16px !important;
+  font-weight: 600 !important;
+}
+
+/* ---------------- 4. 通用模式类 ---------------- */
+
+/* 页面标题区：标题 + 描述 + 右侧操作 */
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 18px;
+  gap: 16px;
+  flex-wrap: wrap;
+
+  &__title {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 600;
+    color: @text-color-primary;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+
+    .anticon {
+      color: @primary-color;
+    }
+  }
+
+  &__desc {
+    color: #94a3b8;
+    font-size: 13px;
+    margin-top: 4px;
+  }
+}
+
+/* 表单/卡片分区标题：左侧品牌色竖条 + 标题 + 可选说明 */
+.form-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 20px 0 14px;
+  font-size: 14px;
+  font-weight: 600;
+  color: @text-color-primary;
+
+  &::before {
+    content: '';
+    width: 4px;
+    height: 14px;
+    border-radius: 2px;
+    background: linear-gradient(180deg, @primary-color 0%, #6366f1 100%);
+  }
+
+  &:first-child {
+    margin-top: 0;
+  }
+
+  &__desc {
+    font-size: 12px;
+    font-weight: 400;
+    color: #94a3b8;
+  }
+}
+
+/* 统计卡：统一浅色渐变底 + 语义色图标 */
+.stat-card {
+  border-radius: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.05);
+  background: #ffffff;
+  padding: 16px 18px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+
+  &:hover {
+    box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06);
+  }
+
+  &__icon {
+    width: 42px;
+    height: 42px;
+    border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    flex-shrink: 0;
+  }
+
+  &__meta {
+    min-width: 0;
+  }
+
+  &__label {
+    font-size: 12.5px;
+    color: @text-color-secondary;
+    white-space: nowrap;
+  }
+
+  &__value {
+    font-size: 22px;
+    font-weight: 700;
+    color: @text-color-primary;
+    line-height: 1.3;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* 行内代码/编码文本：统一浅灰底 */
+.code-text {
+  background: #f1f5f9;
+  color: #475569;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: Consolas, Menlo, Monaco, 'Courier New', monospace;
+}
+
+/* 只读 JSON / 配置预览块：统一浅色底，区别于可编辑区 */
+.readonly-preview {
+  background: #f8fafc;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 12px;
+  font-family: Consolas, Menlo, Monaco, 'Courier New', monospace;
+  line-height: 1.7;
+  color: #475569;
+  max-height: 200px;
+  overflow: auto;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 辅助说明文字：统一灰色小号 */
+.help-text {
+  font-size: 12px;
+  color: #94a3b8;
+  line-height: 1.7;
+}
+
+/* 空态容器：统一虚线框 */
+.empty-box {
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  padding: 20px 12px;
+  text-align: center;
+  background: #f8fafc;
+  color: #94a3b8;
+  font-size: 13px;
+}

@@ -1,0 +1,228 @@
+/* Tailwind/PostCSS component styles for storyboard-step-shared. */
+
+
+.storyboard-step .storyboard-block-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.storyboard-step .storyboard-block-card.has-image .storyboard-block-card-header {
+  position: relative;
+  z-index: 3;
+  min-height: 36px;
+  padding: 8px 4px;
+  margin-bottom: 0;
+  gap: 0.75rem;
+  background: transparent;
+  border-bottom: 1px solid rgba(74, 231, 253, 0.3);
+  border-radius: 8px 8px 0 0;
+  box-sizing: border-box;
+}
+
+.storyboard-step .storyboard-block-card-header .storyboard-block-image-title {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--home-text, #e6edf3);
+}
+
+.storyboard-step .storyboard-block-card.has-image .storyboard-video-preview-wrap {
+  border-radius: 0 0 8px 8px;
+}
+
+.storyboard-step .storyboard-card .dubbing-video-area--card {
+  width: 100%;
+  min-height: var(--storyboard-card-media-min-height);
+  max-height: none;
+  height: auto;
+  aspect-ratio: 16 / 9;
+}
+
+/* 分镜列表参考图多图预览弹窗（全屏一屏） */
+.image-gallery-preview-modal-wrap .image-gallery-preview-modal__stage-wrap {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: 0.5rem;
+  flex: 1 1 0;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.image-gallery-preview-modal-wrap .image-gallery-preview-modal__stage-wrap .image-preview-viewer {
+  flex: 1;
+  min-width: 0;
+}
+
+.image-gallery-preview-modal-wrap .image-gallery-preview-modal__nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 2rem;
+  height: 2rem;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 2;
+}
+
+.image-gallery-preview-modal-wrap .image-gallery-preview-modal__nav:hover {
+  background: rgba(74, 231, 253, 0.35);
+}
+
+.image-gallery-preview-modal-wrap .image-gallery-preview-modal__nav--prev {
+  left: 0.5rem;
+}
+
+.image-gallery-preview-modal-wrap .image-gallery-preview-modal__nav--next {
+  right: 0.5rem;
+}
+
+.image-gallery-preview-modal-wrap .image-gallery-preview-modal__counter {
+  text-align: center;
+  color: var(--home-muted, #8e97a5);
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
+
+/* 单图 / 多图画廊 / 视频预览：强制铺满一屏（含被挂上的 app-confirm-wrap） */
+.ant-modal-wrap.image-preview-modal-wrap,
+.ant-modal-wrap.image-gallery-preview-modal-wrap,
+.ant-modal-wrap.video-preview-modal-wrap,
+.ant-modal-wrap.app-confirm-wrap.image-preview-modal-wrap,
+.ant-modal-wrap.app-confirm-wrap.image-gallery-preview-modal-wrap,
+.ant-modal-wrap.app-confirm-wrap.video-preview-modal-wrap {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100% !important;
+  max-height: 100% !important;
+  overflow: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.ant-modal-wrap.image-preview-modal-wrap .ant-modal,
+.ant-modal-wrap.image-gallery-preview-modal-wrap .ant-modal,
+.ant-modal-wrap.video-preview-modal-wrap .ant-modal,
+.ant-modal-wrap.app-confirm-wrap.image-preview-modal-wrap .ant-modal,
+.ant-modal-wrap.app-confirm-wrap.image-gallery-preview-modal-wrap .ant-modal,
+.ant-modal-wrap.app-confirm-wrap.video-preview-modal-wrap .ant-modal {
+  position: absolute !important;
+  inset: 0 !important;
+  top: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  left: 0 !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  height: 100% !important;
+  max-height: 100% !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  box-sizing: border-box !important;
+}
+
+.ant-modal-wrap.image-preview-modal-wrap .ant-modal-content,
+.ant-modal-wrap.image-preview-modal-wrap .ant-modal-container,
+.ant-modal-wrap.image-gallery-preview-modal-wrap .ant-modal-content,
+.ant-modal-wrap.image-gallery-preview-modal-wrap .ant-modal-container,
+.ant-modal-wrap.video-preview-modal-wrap .ant-modal-content,
+.ant-modal-wrap.video-preview-modal-wrap .ant-modal-container,
+.ant-modal-wrap.app-confirm-wrap.image-preview-modal-wrap .ant-modal.app-confirm-modal .ant-modal-content,
+.ant-modal-wrap.app-confirm-wrap.image-preview-modal-wrap .ant-modal.app-confirm-modal .ant-modal-container,
+.ant-modal-wrap.app-confirm-wrap.image-gallery-preview-modal-wrap .ant-modal.app-confirm-modal .ant-modal-content,
+.ant-modal-wrap.app-confirm-wrap.image-gallery-preview-modal-wrap .ant-modal.app-confirm-modal .ant-modal-container,
+.ant-modal-wrap.app-confirm-wrap.video-preview-modal-wrap .ant-modal.app-confirm-modal .ant-modal-content,
+.ant-modal-wrap.app-confirm-wrap.video-preview-modal-wrap .ant-modal.app-confirm-modal .ant-modal-container {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100% !important;
+  max-height: 100% !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  box-sizing: border-box !important;
+  padding: 0 !important;
+}
+
+.ant-modal-wrap.image-preview-modal-wrap .ant-modal-body,
+.ant-modal-wrap.image-gallery-preview-modal-wrap .ant-modal-body,
+.ant-modal-wrap.video-preview-modal-wrap .ant-modal-body,
+.ant-modal-wrap.app-confirm-wrap.image-preview-modal-wrap .ant-modal-body,
+.ant-modal-wrap.app-confirm-wrap.image-gallery-preview-modal-wrap .ant-modal-body,
+.ant-modal-wrap.app-confirm-wrap.video-preview-modal-wrap .ant-modal-body {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-height: none !important;
+  padding: 12px 48px 12px 16px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+  box-sizing: border-box !important;
+}
+
+/* 右上角关闭图标（替代底部「关闭」按钮） */
+.image-preview-modal-wrap .ant-modal-close,
+.image-gallery-preview-modal-wrap .ant-modal-close,
+.video-preview-modal-wrap .ant-modal-close {
+  top: 10px !important;
+  inset-inline-end: 12px !important;
+  width: 2.5rem !important;
+  height: 2.5rem !important;
+  z-index: 20 !important;
+  color: #e6edf3 !important;
+}
+
+.image-preview-modal-wrap .ant-modal-close:hover,
+.image-gallery-preview-modal-wrap .ant-modal-close:hover,
+.video-preview-modal-wrap .ant-modal-close:hover {
+  color: #4ae7fd !important;
+  background: rgba(74, 231, 253, 0.12) !important;
+  border-radius: 8px;
+}
+
+.image-preview-modal-wrap .ant-modal-close-x,
+.image-gallery-preview-modal-wrap .ant-modal-close-x,
+.video-preview-modal-wrap .ant-modal-close-x {
+  width: 2.5rem !important;
+  height: 2.5rem !important;
+  line-height: 2.5rem !important;
+  font-size: 1.25rem !important;
+}
+
+.image-preview-modal-wrap .ant-modal-confirm-body-wrapper,
+.image-gallery-preview-modal-wrap .ant-modal-confirm-body-wrapper,
+.video-preview-modal-wrap .ant-modal-confirm-body-wrapper {
+  flex: 1 1 0 !important;
+  min-height: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+}

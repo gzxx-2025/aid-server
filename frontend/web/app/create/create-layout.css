@@ -1,0 +1,7 @@
+/* 原 layouts/create.vue 全局样式：创作流程锁定视口高度，滚动发生在 preview-content / 步骤内部。
+   Next 无 #__nuxt 包装层，body 直接承载页面根节点。 */
+html.layout-create-flow,
+html.layout-create-flow body {
+  height: 100%;
+  overflow: hidden;
+}

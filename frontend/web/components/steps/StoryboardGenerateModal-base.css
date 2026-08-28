@@ -1,0 +1,229 @@
+/* Tailwind/PostCSS component styles for StoryboardGenerateModal. */
+.storyboard-generate-modal .ant-modal-header {
+  padding-bottom: 0.25rem;
+}
+
+.storyboard-generate-modal .ant-modal-footer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+/* 分镜脚本：Figma 1100 弹窗（与提取/创作流深色壳一致） */
+.storyboard-generate-modal.storyboard-generate-modal--figma .ant-modal-content {
+  padding: 0 !important;
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid rgba(74, 231, 253, 0.45);
+  background: #191a1d;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+}
+
+.storyboard-generate-modal.storyboard-generate-modal--figma .ant-modal-header {
+  margin: 0;
+  padding: 1.25rem 1.5rem 0.75rem;
+  border-bottom: none !important;
+  background: #191a1d;
+}
+
+.storyboard-generate-modal.storyboard-generate-modal--figma .ant-modal-title {
+  width: 100%;
+}
+
+.storyboard-generate-modal.storyboard-generate-modal--figma .modal-title-watermark__bg {
+  opacity: 0.2;
+}
+
+.storyboard-generate-modal.storyboard-generate-modal--figma .ant-modal-close {
+  top: 1rem;
+  inset-inline-end: 1rem;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.storyboard-generate-modal.storyboard-generate-modal--figma .ant-modal-close:hover {
+  color: #4ae7fd;
+}
+
+.storyboard-generate-modal.storyboard-generate-modal--figma .ant-modal-body {
+  padding: 0 !important;
+  background: #191a1d;
+}
+
+.storyboard-generate-modal .modal-header {
+  padding-right: 0.5rem;
+}
+
+.storyboard-generate-modal .modal-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--home-text, #e6edf3);
+  display: block;
+}
+
+.storyboard-generate-modal .modal-subtitle {
+  font-size: 0.8125rem;
+  color: var(--home-muted, #8e97a5);
+  margin: 0.25rem 0 0;
+}
+
+.storyboard-generate-modal .modal-body {
+  padding: 0.5rem 0 1rem;
+}
+
+.storyboard-generate-modal .form-section {
+  margin-bottom: 1.25rem;
+}
+
+.storyboard-generate-modal .form-section:last-child {
+  margin-bottom: 0;
+}
+
+.storyboard-generate-modal .form-label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--home-text, #e6edf3);
+  margin-bottom: 0.5rem;
+}
+
+.storyboard-generate-modal .agent-card {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-lg);
+  background: var(--create-surface-canvas);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.storyboard-generate-modal .agent-card:hover {
+  border-color: var(--accent-400, #4ae7fd);
+  background: rgba(74, 231, 253, 0.08);
+}
+
+.storyboard-generate-modal .agent-icon {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--create-surface-panel);
+  border-radius: var(--radius-md);
+  color: var(--home-muted, #8e97a5);
+  font-size: 1.25rem;
+}
+
+.storyboard-generate-modal .agent-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.storyboard-generate-modal .agent-name {
+  font-weight: 600;
+  color: var(--home-text, #e6edf3);
+  margin-bottom: 0.25rem;
+}
+
+.storyboard-generate-modal .agent-desc {
+  font-size: 0.8125rem;
+  color: var(--home-muted, #8e97a5);
+  line-height: 1.4;
+}
+
+.storyboard-generate-modal .agent-arrow {
+  color: var(--home-muted, #8e97a5);
+  font-size: 0.75rem;
+}
+
+.storyboard-generate-modal .shot-density-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.storyboard-generate-modal .shot-density-card {
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-lg);
+  background: var(--create-surface-canvas);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.storyboard-generate-modal .shot-density-card:hover {
+  border-color: var(--accent-400, #4ae7fd);
+  background: rgba(74, 231, 253, 0.08);
+}
+
+.storyboard-generate-modal .shot-density-card.active {
+  border-color: var(--accent-500, #4ae7fd);
+  background: rgba(74, 231, 253, 0.14);
+  box-shadow: 0 0 0 1px rgba(74, 231, 253, 0.22);
+}
+
+.storyboard-generate-modal .shot-density-name {
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+  color: var(--home-text, #e6edf3);
+}
+
+.storyboard-generate-modal .shot-density-desc {
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  color: var(--home-muted, #8e97a5);
+}
+
+.storyboard-generate-modal .shot-density-card.active .shot-density-name,
+.storyboard-generate-modal .shot-density-card.active .shot-density-desc {
+  color: var(--home-text, #e6edf3);
+}
+
+.storyboard-generate-modal .shot-density-card.active .shot-density-desc {
+  color: var(--home-muted, #a8b4c4);
+  opacity: 1;
+}
+
+/* 分镜视频：生视频模型 */
+.storyboard-generate-modal .video-model-options {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+}
+
+.storyboard-generate-modal .video-model-card {
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-lg);
+  background: var(--create-surface-canvas);
+  cursor: pointer;
+  transition: all 0.2s;
+  position: relative;
+}
+
+.storyboard-generate-modal .video-model-card:hover {
+  border-color: var(--accent-400, #4ae7fd);
+  background: rgba(74, 231, 253, 0.08);
+}
+
+.storyboard-generate-modal .video-model-card.active {
+  border-color: var(--accent-500, #4ae7fd);
+  background: rgba(74, 231, 253, 0.14);
+  box-shadow: 0 0 0 1px rgba(74, 231, 253, 0.28);
+}
+
+.storyboard-generate-modal .video-model-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.35rem;
+}
+
+.storyboard-generate-modal .video-model-tag {
+  font-size: 0.6875rem;
+  color: var(--accent-400, #7ef0ff);
+  background: rgba(74, 231, 253, 0.12);
+  padding: 0.1rem 0.35rem;
+  border-radius: var(--radius-sm);
+}

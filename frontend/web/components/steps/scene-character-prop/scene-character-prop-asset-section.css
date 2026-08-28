@@ -1,0 +1,236 @@
+/* Tailwind/PostCSS component styles for scene-character-prop. */
+
+
+.create-step-scp .asset-section {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.create-step-scp .asset-section--bootstrap-pending {
+  position: relative;
+}
+
+.create-step-scp .scp-asset-bootstrap-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  text-align: center;
+  background: rgba(8, 14, 26, 0.97);
+  backdrop-filter: blur(6px);
+  border-radius: var(--radius-m, 10px);
+  pointer-events: auto;
+}
+
+.create-step-scp .scp-asset-bootstrap-mask__icon {
+  font-size: 28px;
+  color: var(--home-accent, #4ae7fd);
+}
+
+.create-step-scp .scp-asset-bootstrap-mask__text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.create-step-scp .asset-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.create-step-scp .asset-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--home-text, #e6edf3);
+}
+
+/* 场景 / 角色 / 道具 — 空数据展示（对齐创作页深蓝青主题） */
+.create-step-scp .scp-asset-empty {
+  position: relative;
+  flex: 1;
+  align-self: stretch;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  min-height: 0;
+  padding: 2.5rem 1.5rem;
+  border-radius: var(--radius-m);
+  overflow: hidden;
+  border: 1px dashed rgba(74, 231, 253, 0.3);
+}
+
+.create-step-scp .scp-asset-empty--character {
+  box-shadow: inset 0 1px 0 rgba(74, 231, 253, 0.06);
+}
+
+.create-step-scp .scp-asset-empty--prop {
+  box-shadow: inset 0 1px 0 rgba(74, 231, 253, 0.06);
+}
+
+.create-step-scp .scp-asset-empty__grid {
+  position: absolute;
+  inset: 0;
+  opacity: 0.4;
+  /*background-image: */
+  /*  linear-gradient(rgba(74, 231, 253, 0.05) 1px, transparent 1px), */
+  /*  linear-gradient(90deg, rgba(74, 231, 253, 0.05) 1px, transparent 1px); */
+  background-size: 22px 22px;
+  mask-image: radial-gradient(ellipse 70% 65% at 50% 45%, #000 20%, transparent 72%);
+  pointer-events: none;
+}
+
+.create-step-scp .scp-asset-empty__icon-wrap {
+  position: relative;
+  z-index: 1;
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 1.25rem;
+}
+
+.create-step-scp .tips {
+  color: #8e97a5;
+  margin-bottom: 12px;
+}
+
+.create-step-scp .scp-asset-empty__icon {
+  font-size: 2.35rem;
+  color: #4ae7fd;
+}
+
+.create-step-scp .scp-asset-empty__title {
+  position: relative;
+  z-index: 1;
+  margin: 0 0 0.65rem;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--home-text, #e6edf3);
+  letter-spacing: 0.02em;
+}
+
+.create-step-scp .scp-asset-empty__desc {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+  max-width: 520px;
+  font-size: 0.9375rem;
+  line-height: 1.65;
+  color: var(--home-muted, #8e97a5);
+}
+
+.create-step-scp .scp-asset-empty__hint {
+  position: relative;
+  z-index: 1;
+  margin-top: 1.35rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius-full);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: rgba(74, 231, 253, 0.88);
+  background: rgba(74, 231, 253, 0.08);
+  border: 1px solid rgba(74, 231, 253, 0.2);
+  max-width: min(100%, 480px);
+  text-align: left;
+}
+
+.create-step-scp .scp-asset-empty__hint-ico {
+  flex-shrink: 0;
+  font-size: 0.95rem;
+  color: #4ae7fd;
+}
+
+.create-step-scp .chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.create-step-scp .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid rgba(74, 231, 253, 0.2);
+  border-radius: var(--radius-full);
+  background: rgba(18, 22, 30, 0.85);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.create-step-scp .chip-text {
+  color: var(--home-text, #e6edf3);
+  font-weight: 600;
+}
+
+.create-step-scp .chip-remove {
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  border: 1px solid rgba(74, 231, 253, 0.22);
+  background: rgba(6, 10, 18, 0.6);
+  color: var(--home-muted, #8e97a5);
+  cursor: pointer;
+  transition: all var(--transition-base);
+  line-height: 18px;
+}
+
+.create-step-scp .chip-remove:hover {
+  border-color: rgba(74, 231, 253, 0.5);
+  color: var(--home-cyan, #4ae7fd);
+  background: rgba(14, 89, 250, 0.15);
+}
+
+/* 提取中状态：撑满 .scp-content，标题/按钮/动画作为一组整体居中 */
+.create-step-scp .extracting-view {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  align-self: stretch;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  gap: 1rem;
+  box-sizing: border-box;
+}
+
+.create-step-scp .extracting-title {
+  flex: none;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--home-text, #e6edf3);
+  text-align: center;
+  max-width: min(560px, 92vw);
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.create-step-scp .extracting-subtitle {
+  margin-top: -0.5rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  color: rgba(255, 255, 255, 0.72);
+  text-align: center;
+  max-width: 520px;
+}

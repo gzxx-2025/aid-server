@@ -1,0 +1,117 @@
+/* Tailwind/PostCSS component styles for SceneSettingModal. */
+
+
+.setting-warm-tip {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(74, 231, 253, 0.45);
+  background: rgba(74, 231, 253, 0.1);
+  color: #4ae7fd;
+  font-size: 13px;
+  line-height: 1.55;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding: 12px 0;
+  flex-shrink: 0;
+}
+
+.setting-save-disabled-tooltip {
+  display: inline-flex;
+}
+
+.drawer-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.empty-history {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem 0;
+  color: var(--gray-500);
+}
+
+.empty-icon {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+  opacity: 0.3;
+}
+
+/* 通用类名（history-list / history-item）以 Drawer 根类 .scene-setting-history-drawer 前缀还原原 scoped 隔离（历史抽屉 portal 到 body，不在 setting-modal-shell 内），
+   防止与场景图/分镜编辑弹窗（edit-scene-image-stage.css）的同名历史缩略图类互相覆盖。 */
+.scene-setting-history-drawer .history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.scene-setting-history-drawer .history-item {
+  padding: 1rem;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.scene-setting-history-drawer .history-item:hover {
+  border-color: var(--accent-400, #4ae7fd);
+  background: rgba(74, 231, 253, 0.08);
+}
+
+.scene-setting-history-drawer .history-item.active {
+  border-color: var(--accent-500, #4ae7fd);
+  background: rgba(74, 231, 253, 0.14);
+}
+
+.history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.history-title {
+  font-weight: 600;
+  color: var(--home-text, #e6edf3);
+}
+
+.history-time {
+  font-size: 0.875rem;
+  color: var(--home-muted, #8e97a5);
+}
+
+.history-preview {
+  font-size: 0.875rem;
+  color: var(--home-muted, #8e97a5);
+  margin-bottom: 0.75rem;
+  line-height: 1.5;
+}
+
+.history-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+/* Modal teleport 到 body：仅隐藏 Ant 默认头，高度由内层 setting-modal-shell 控制 */
+.ant-modal-wrap.scene-setting-modal-wrap .ant-modal.scene-setting-modal .ant-modal-content {
+  padding: 0 !important;
+  overflow: hidden;
+}
+
+.ant-modal-wrap.scene-setting-modal-wrap .ant-modal.scene-setting-modal .ant-modal-header {
+  display: none !important;
+}
+
+.ant-modal-wrap.scene-setting-modal-wrap .ant-modal.scene-setting-modal .ant-modal-body {
+  padding: 0 !important;
+}

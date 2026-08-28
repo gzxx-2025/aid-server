@@ -1,0 +1,201 @@
+/* Tailwind/PostCSS component styles for glass-effects. */
+
+
+.home-new-index .home-new-actions .btn-secondary {
+  background: rgba(18, 18, 18, 0.55);
+  backdrop-filter: var(--glass-blur-sm) var(--glass-saturate);
+  -webkit-backdrop-filter: var(--glass-blur-sm) var(--glass-saturate);
+  box-shadow: var(--glass-highlight);
+  transition:
+    border-color var(--glass-transition),
+    background var(--glass-transition),
+    transform var(--glass-transition);
+}
+
+.home-new-index .home-new-actions .btn-secondary:hover {
+  background: rgba(18, 18, 18, 0.72);
+  transform: translateY(-1px);
+}
+
+/* ---------------------------------------------------------------------------
+   4. 案例广场 / 作品库卡片
+   --------------------------------------------------------------------------- */
+.home-new-index .work-card {
+  background: rgba(22, 26, 36, 0.52);
+  backdrop-filter: var(--glass-blur-sm) var(--glass-saturate);
+  -webkit-backdrop-filter: var(--glass-blur-sm) var(--glass-saturate);
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: var(--glass-highlight);
+}
+
+.home-new-index .work-card--gallery:hover {
+  background: rgba(22, 26, 36, 0.68);
+  box-shadow:
+    var(--glass-highlight),
+    0 12px 32px rgba(0, 0, 0, 0.35),
+    0 0 0 1px rgba(74, 231, 253, 0.18);
+}
+
+.works-lib-card {
+  background: rgba(18, 18, 18, 0.5) !important;
+  backdrop-filter: var(--glass-blur-sm) var(--glass-saturate);
+  -webkit-backdrop-filter: var(--glass-blur-sm) var(--glass-saturate);
+  border-color: rgba(74, 231, 253, 0.15) !important;
+  box-shadow: var(--glass-highlight);
+}
+
+.works-lib-card:hover {
+  background: rgba(18, 18, 18, 0.62) !important;
+  border-color: rgba(74, 231, 253, 0.28) !important;
+  box-shadow:
+    var(--glass-highlight),
+    0 8px 28px rgba(0, 0, 0, 0.28);
+}
+
+.works-lib-add-card {
+  background: rgba(18, 18, 18, 0.45) !important;
+  backdrop-filter: var(--glass-blur-sm) var(--glass-saturate);
+  -webkit-backdrop-filter: var(--glass-blur-sm) var(--glass-saturate);
+  border-color: rgba(74, 231, 253, 0.2) !important;
+  box-shadow: var(--glass-highlight);
+}
+
+.works-lib-add-card:hover:not(:disabled) {
+  background: rgba(18, 18, 18, 0.58) !important;
+  border-color: rgba(74, 231, 253, 0.45) !important;
+}
+
+.works-lib-stat-card {
+  background: rgba(18, 22, 30, 0.5) !important;
+  backdrop-filter: var(--glass-blur-sm) var(--glass-saturate);
+  -webkit-backdrop-filter: var(--glass-blur-sm) var(--glass-saturate);
+  border-color: rgba(74, 231, 253, 0.18) !important;
+  box-shadow: var(--glass-highlight);
+}
+
+/* 我的作品 / 资产库：筛选 Tab 条 + 搜索框 */
+.works-lib-type-tabs {
+  background: rgba(29, 64, 77, 0.45) !important;
+  backdrop-filter: var(--glass-blur-xs) var(--glass-saturate);
+  -webkit-backdrop-filter: var(--glass-blur-xs) var(--glass-saturate);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: var(--glass-highlight);
+}
+
+.works-lib-type-tabs__btn.is-active {
+  box-shadow: 0 2px 12px rgba(74, 231, 253, 0.35);
+}
+
+.works-lib-search {
+  background: rgba(8, 12, 20, 0.45) !important;
+  backdrop-filter: var(--glass-blur-sm) var(--glass-saturate);
+  -webkit-backdrop-filter: var(--glass-blur-sm) var(--glass-saturate);
+  border-color: rgba(74, 231, 253, 0.2) !important;
+  box-shadow: var(--glass-highlight);
+}
+
+.works-lib-search:focus-within {
+  border-color: rgba(74, 231, 253, 0.38) !important;
+  box-shadow:
+    var(--glass-highlight),
+    0 0 0 3px rgba(74, 231, 253, 0.1);
+}
+
+/* 资产库 Tab（带图标） */
+.assets-library-figma .works-lib-type-tabs__btn.is-active {
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.works-lib-card__cover-btn {
+  background: rgba(18, 18, 18, 0.65) !important;
+  backdrop-filter: var(--glass-blur-sm) var(--glass-saturate) !important;
+  -webkit-backdrop-filter: var(--glass-blur-sm) var(--glass-saturate) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* ---------------------------------------------------------------------------
+   5. 用户菜单下拉（scoped 组件，需 !important 覆盖）
+   --------------------------------------------------------------------------- */
+.user-menu-dropdown {
+  background: rgba(17, 22, 33, 0.78) !important;
+  backdrop-filter: var(--glass-blur) var(--glass-saturate) !important;
+  -webkit-backdrop-filter: var(--glass-blur) var(--glass-saturate) !important;
+  border: 1px solid var(--glass-border);
+  box-shadow:
+    var(--glass-shadow),
+    var(--glass-highlight) !important;
+}
+
+.user-menu-dropdown__item:hover {
+  background: rgba(32, 36, 52, 0.65) !important;
+  backdrop-filter: var(--glass-blur-xs);
+  -webkit-backdrop-filter: var(--glass-blur-xs);
+}
+
+.user-menu-dropdown__item--danger:hover {
+  background: rgba(32, 36, 52, 0.65) !important;
+}
+
+.user-menu-dropdown-pop-enter-active,
+.user-menu-dropdown-pop-leave-active {
+  transition:
+    opacity 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.28s cubic-bezier(0.22, 1, 0.36, 1) !important;
+}
+
+.user-menu-dropdown-pop-enter-from,
+.user-menu-dropdown-pop-leave-to {
+  transform: translateY(-100%) translateX(-8px) scale(0.96) !important;
+}
+
+/* ---------------------------------------------------------------------------
+   6. 创作流程：步骤顶栏 + 预览区顶栏（scoped 组件）
+   --------------------------------------------------------------------------- */
+.create-workflow__scroll {
+  background: rgba(32, 36, 52, 0.55) !important;
+  backdrop-filter: var(--glass-blur-sm) var(--glass-saturate) !important;
+  -webkit-backdrop-filter: var(--glass-blur-sm) var(--glass-saturate) !important;
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-highlight);
+}
+
+.flow-step-pill--active {
+  backdrop-filter: var(--glass-blur-xs) var(--glass-saturate);
+  -webkit-backdrop-filter: var(--glass-blur-xs) var(--glass-saturate);
+  box-shadow:
+    0 0 0 1px rgba(74, 231, 253, 0.15),
+    0 8px 24px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+}
+
+.preview-header {
+  background: rgba(12, 16, 24, 0.55) !important;
+  backdrop-filter: var(--glass-blur-sm) var(--glass-saturate) !important;
+  -webkit-backdrop-filter: var(--glass-blur-sm) var(--glass-saturate) !important;
+  border-bottom-color: rgba(74, 231, 253, 0.08) !important;
+  box-shadow: var(--glass-highlight);
+}
+
+.preview_bg_box {
+  background: rgba(17, 22, 33, 0.85) !important;
+  backdrop-filter: var(--glass-blur-xs) var(--glass-saturate);
+  -webkit-backdrop-filter: var(--glass-blur-xs) var(--glass-saturate);
+  border: 1px solid var(--glass-border);
+}
+
+/* ---------------------------------------------------------------------------
+   7. 路由切换遮罩内卡片
+   --------------------------------------------------------------------------- */
+.route-overlay__inner {
+  background: rgba(10, 14, 20, 0.62);
+  backdrop-filter: var(--glass-blur) var(--glass-saturate);
+  -webkit-backdrop-filter: var(--glass-blur) var(--glass-saturate);
+  box-shadow:
+    0 22px 70px rgba(0, 0, 0, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+
+/* ---------------------------------------------------------------------------
+   无障碍：减少动效时关闭模糊与过渡增强
+   --------------------------------------------------------------------------- */

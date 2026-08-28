@@ -1,0 +1,228 @@
+/* Tailwind/PostCSS component styles for BatchGenerateAssetModal. */
+/* 原 BatchGenerateAssetModal.vue \3c style scoped>：:deep() 展开；
+   原 scoped 数据属性隔离改为 .batch-generate-asset-wrap / .batch-generate-asset-modal 前缀模拟，选择器主体原样 */
+.batch-generate-asset-modal .ant-modal-content {
+  padding: 0 !important;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #181a23;
+  border: 1px solid rgba(74, 231, 253, 0.22);
+}
+
+.batch-generate-asset-modal .ant-modal-header {
+  display: none;
+}
+
+.batch-generate-asset-modal .ant-modal-body {
+  padding: 0 !important;
+}
+
+.batch-generate-asset-wrap .bgam {
+  color: #e6edf3;
+  height: min(698px, calc(100dvh - 80px));
+  max-height: min(698px, calc(100dvh - 80px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.batch-generate-asset-wrap .bgam-header {
+  flex-shrink: 0;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.batch-generate-asset-wrap .bgam-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: rgba(142, 151, 165, 1);
+  cursor: pointer;
+  font-size: 24px;
+  flex-shrink: 0;
+}
+
+.batch-generate-asset-wrap .bgam-close:hover {
+  color: #4ae7fd;
+}
+
+.batch-generate-asset-wrap .bgam-title-wrap {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.batch-generate-asset-wrap .bgam-title {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1;
+  font-weight: 600;
+  color: #fff;
+}
+
+.batch-generate-asset-wrap .bgam-subtitle {
+  margin: 0;
+  font-size: 12px;
+  color: #8e97a5;
+}
+
+.batch-generate-asset-wrap .bgam-toolbar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 16px 14px 0;
+}
+
+.batch-generate-asset-wrap .bgam-check-icon {
+  width: 24px;
+  height: 24px;
+  display: block;
+  object-fit: contain;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
+.batch-generate-asset-wrap .bgam-select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  user-select: none;
+  color: inherit;
+}
+
+.batch-generate-asset-wrap .bgam-select-all-text {
+  font-size: 14px;
+  color: #fff;
+}
+
+.batch-generate-asset-wrap .bgam-pending {
+  font-size: 14px;
+  color: #4ae7fd;
+}
+
+.batch-generate-asset-wrap .bgam-pending--muted {
+  color: #dce6f2;
+}
+
+.batch-generate-asset-wrap .bgam-body {
+  flex: 1;
+  min-height: 0;
+  padding: 0 16px 12px 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.batch-generate-asset-wrap .bgam-list-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 240px;
+  font-size: 14px;
+  color: #8b95a8;
+}
+
+.batch-generate-asset-wrap .bgam-body::-webkit-scrollbar {
+  display: none;
+}
+
+.batch-generate-asset-wrap .bgam-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.batch-generate-asset-wrap .bgam-grid .ant-tooltip {
+  display: contents;
+}
+
+.batch-generate-asset-wrap .bgam-card {
+  position: relative;
+  border: 1px solid rgba(74, 231, 253, 0.3);
+  border-radius: 6px;
+  background: #121621;
+  overflow: hidden;
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    opacity 0.2s ease;
+}
+
+.batch-generate-asset-wrap .bgam-card:hover:not(.bgam-card--disabled):not(.bgam-card--selected) {
+  border-color: rgba(74, 231, 253, 0.5);
+}
+
+.batch-generate-asset-wrap .bgam-card--disabled {
+  cursor: not-allowed;
+  opacity: 0.85;
+}
+
+.batch-generate-asset-wrap .bgam-card-media {
+  position: relative;
+  height: 168px;
+  background: #101522;
+  overflow: hidden;
+}
+
+.batch-generate-asset-wrap .bgam-card-media .shimmer-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.batch-generate-asset-wrap .bgam-card-img,
+.batch-generate-asset-wrap .bgam-card-media .bgam-card-img,
+.batch-generate-asset-wrap .bgam-card-media video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.batch-generate-asset-wrap .bgam-card-empty {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 14px;
+  padding: 8px;
+  text-align: center;
+}
+
+.batch-generate-asset-wrap .bgam-card-empty__icon {
+  opacity: 0.75;
+}
+
+.batch-generate-asset-wrap .bgam-card-select {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 24px;
+  height: 24px;
+  display: block;
+  object-fit: contain;
+  pointer-events: none;
+  z-index: 2;
+}

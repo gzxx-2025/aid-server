@@ -1,0 +1,70 @@
+.billing-quote-hint {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: 6px;
+  color: #b8d8e5;
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.billing-quote-hint__dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #4ae7fd;
+  box-shadow: 0 0 8px rgba(74, 231, 253, 0.45);
+}
+
+.billing-quote-hint__sku {
+  max-width: 160px;
+  overflow: hidden;
+  color: rgba(142, 151, 165, 0.95);
+  text-overflow: ellipsis;
+}
+
+.billing-quote-hint.is-loading,
+.billing-quote-hint.is-unavailable,
+.billing-quote-hint.is-idle {
+  color: rgba(142, 151, 165, 0.95);
+}
+
+.billing-quote-hint.is-free {
+  color: #78e6af;
+}
+
+.billing-quote-hint.is-free .billing-quote-hint__dot {
+  background: #50d99b;
+  box-shadow: 0 0 8px rgba(80, 217, 155, 0.4);
+}
+
+.billing-quote-hint--submit {
+  display: flex;
+  margin: 0 2px 7px;
+}
+
+.billing-quote-rule-preview {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  min-width: 0;
+  margin: 0 2px 5px;
+  padding: 5px 8px;
+  border: 1px solid rgba(74, 231, 253, 0.12);
+  border-radius: 7px;
+  background: rgba(10, 18, 30, 0.42);
+}
+
+.billing-quote-rule-preview__label {
+  color: rgba(184, 216, 229, 0.92);
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.billing-quote-rule-preview .model-billing-rules {
+  margin-top: 0;
+}

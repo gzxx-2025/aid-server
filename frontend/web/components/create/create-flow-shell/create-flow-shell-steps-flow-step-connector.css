@@ -1,0 +1,249 @@
+/* Tailwind/PostCSS component styles for create-flow-shell-steps. */
+
+.create-page .flow-step-connector {
+  align-self: center;
+  width: 10px;
+  height: 28px;
+  margin: 2px 0;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.create-page .flow-step-connector--skeleton {
+  background: rgba(74, 231, 253, 0.08);
+}
+
+.create-page .flow-step-pill--skeleton {
+  cursor: default;
+  pointer-events: none;
+  gap: 0.625rem;
+}
+
+.create-page .skeleton-icon {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  background: rgba(74, 231, 253, 0.12);
+  flex-shrink: 0;
+}
+
+.create-page .skeleton-line-flow-title {
+  height: 12px;
+  width: 72%;
+  border-radius: 4px;
+}
+
+.create-page .preview_bg_box {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+  z-index: 1;
+  background: #111621;
+  border: none;
+  border-radius: 8px;
+  margin: 10px 12px;
+}
+
+.create-page .preview-audit-failure {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  flex: 0 0 auto;
+  margin: 10px 12px 0;
+  padding: 9px 12px;
+  border: 1px solid rgba(255, 105, 105, 0.42);
+  border-radius: 8px;
+  background: rgba(255, 105, 105, 0.1);
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.create-page .preview-audit-failure__title {
+  flex: 0 0 auto;
+  color: #ff8585;
+  font-weight: 600;
+}
+
+.create-page .preview-audit-failure__reason {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.create-page .preview-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  height: auto;
+  margin: 0 12px 12px;
+  overflow: hidden;
+  border-radius: 8px;
+}
+
+.create-page .preview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid rgba(74, 231, 253, 0.1);
+  background: rgba(12, 16, 24, 0.6);
+}
+
+.create-page .preview-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #fff;
+  margin: 0;
+}
+
+.create-page .preview-actions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.create-page .preview-content {
+  position: relative;
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  color: var(--home-text, #e6edf3);
+}
+
+.create-page .create-step-swap-placeholder {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 1.5rem;
+  background: rgba(6, 10, 18, 0.78);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  pointer-events: auto;
+  cursor: progress;
+}
+
+.create-page .create-step-swap-placeholder__ico {
+  font-size: 1.75rem;
+  color: var(--home-accent, #4ae7fd);
+}
+
+.create-page .create-step-swap-placeholder__spinner {
+  width: 30px;
+  height: 30px;
+  border: 2px solid rgba(74, 231, 253, 0.18);
+  border-top-color: var(--home-accent, #4ae7fd);
+  border-radius: 50%;
+  box-shadow: 0 0 18px rgba(74, 231, 253, 0.16);
+  animation: create-step-loading-spin 0.72s linear infinite;
+}
+
+@keyframes create-step-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .create-page .create-step-swap-placeholder__spinner {
+    animation-duration: 1.5s;
+  }
+}
+
+.create-page .create-step-swap-placeholder__text {
+  font-size: 0.9rem;
+  color: var(--home-muted, #8e97a5);
+}
+
+.create-page .preview-content.step-global-setting {
+  padding: 0;
+  overflow: hidden;
+}
+
+.create-page .preview-content.step-story-script {
+  padding: 0;
+  overflow-y: auto;
+}
+
+.create-page .preview-content.step-series-script-upload {
+  padding: 0;
+}
+
+.create-page .preview-content.step-series-episode-list {
+  padding: 0;
+}
+
+.create-page .preview-content .storyboard-step {
+  /* 让内容根据列表高度自然撑开，交由 preview-content 滚动 */
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
+}
+
+.create-page .preview-content:has(.storyboard-cards) {
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* 场景/角色/道具步：外层不滚动，由 SceneCharacterProp 内 .scp-content 承担滚动，顶栏与标题固定 */
+.create-page .preview-content.step-preview {
+  padding: 0;
+  overflow: hidden;
+}
+
+.create-page .preview-content.step-preview .video-preview-step {
+  flex: 1;
+  height: 100%;
+  min-height: 0;
+}
+
+.create-page .preview-content.step-scene-character {
+  overflow: hidden;
+}
+
+.create-page .preview-content.step-scene-character .create-step-scp {
+  flex: 1;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.create-page .preview-content.step-scene-character .empty-asset-view,
+.create-page .preview-content.step-scene-character .extracting-view {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.create-page .step-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  width: 100%;
+  overflow: visible;
+}
+
+.create-page .global-setting-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 1.25rem;
+  padding: 2rem 1.5rem;
+  min-height: 280px;
+}

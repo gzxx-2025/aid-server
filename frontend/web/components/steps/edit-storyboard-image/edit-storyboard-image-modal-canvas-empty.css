@@ -1,0 +1,223 @@
+/* Tailwind/PostCSS component styles for edit-storyboard-image-modal. */
+
+
+.edit-storyboard-image-modal .storyboard-stage-canvas .canvas-empty {
+  color: rgba(225, 239, 255, 0.55);
+  font-size: 14px;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.edit-storyboard-image-modal .storyboard-stage-canvas .canvas-generating {
+  flex-direction: column;
+  gap: 12px;
+}
+
+.edit-storyboard-image-modal .storyboard-stage-canvas .canvas-generating__text {
+  margin: 0;
+  color: rgba(225, 239, 255, 0.72);
+  font-size: 14px;
+}
+
+.edit-storyboard-image-modal .storyboard-canvas-meta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.75rem;
+  margin: 0 auto;
+  padding: 0;
+  width: 492px;
+  max-width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+.edit-storyboard-image-modal .storyboard-canvas-meta-left {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  min-width: 0;
+  flex: 1;
+  font-size: 12px;
+  overflow: hidden;
+}
+
+.edit-storyboard-image-modal .storyboard-canvas-meta-title {
+  font-weight: 600;
+  color: rgba(225, 239, 255, 0.95);
+  cursor: pointer;
+  min-width: 0;
+  flex: 1 1 auto;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.edit-storyboard-image-modal .storyboard-meta-title-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.edit-storyboard-image-modal .storyboard-canvas-meta-left .image-source,
+.edit-storyboard-image-modal .storyboard-canvas-meta-left .image-date {
+  flex-shrink: 0;
+  max-width: 30%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.edit-storyboard-image-modal .storyboard-meta-more {
+  color: rgba(225, 239, 255, 0.75) !important;
+  flex-shrink: 0;
+}
+
+.edit-storyboard-image-modal .storyboard-toolbar-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.edit-storyboard-image-modal .storyboard-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+}
+
+.edit-storyboard-image-modal .toolbar-aux-btn {
+  color: rgba(225, 239, 255, 0.88) !important;
+  font-size: 12px;
+  height: 28px;
+  padding: 0 8px;
+}
+
+.edit-storyboard-image-modal .toolbar-aux-btn:hover {
+  color: #4ae7fd !important;
+  background: rgba(74, 231, 253, 0.08) !important;
+}
+
+.edit-storyboard-image-modal .toolbar-aux-btn--primary {
+  color: #4ae7fd !important;
+}
+
+.edit-storyboard-image-modal .storyboard-stage-config {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  padding: 12px 12px 12px;
+}
+
+.edit-storyboard-image-modal .config-tabs {
+  display: flex;
+  width: 70%;
+  justify-content: center;
+  border-radius: 8px;
+  background: rgb(35, 67, 74);
+  margin-bottom: 18px;
+  margin-left: auto;
+  margin-right: auto;
+  flex-shrink: 0;
+}
+
+.edit-storyboard-image-modal .config-tab {
+  flex: 1;
+  height: 32px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(225, 239, 255, 0.7);
+  font-size: 14px;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.edit-storyboard-image-modal .config-tabs .config-tab.active {
+  color: #0b1522 !important;
+  font-weight: 600;
+  background: rgb(74, 231, 253);
+}
+
+.edit-storyboard-image-modal .config-tabs--three {
+  display: flex;
+  width: 100%;
+  justify-content: center;
+  gap: 4px;
+  border-radius: 8px;
+  background: rgb(35, 67, 74);
+  margin-bottom: 12px;
+  flex-shrink: 0;
+}
+
+.edit-storyboard-image-modal .config-tabs--three .config-tab {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(225, 239, 255, 0.7);
+  font-size: 14px;
+  line-height: 1.2;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 4px;
+}
+
+.edit-storyboard-image-modal .config-tabs--three .config-tab.active {
+  color: #0b1522 !important;
+  font-weight: 600;
+  background: rgb(74, 231, 253);
+}
+
+.edit-storyboard-image-modal .config-tab-icon {
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.edit-storyboard-image-modal .storyboard-config-below-tabs {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-right: 0;
+}
+
+.edit-storyboard-image-modal .storyboard-config-scroll {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding-right: 4px;
+}
+
+.edit-storyboard-image-modal .storyboard-config-scroll::-webkit-scrollbar {
+  width: 0;
+}
+
+.edit-storyboard-image-modal .storyboard-config-scroll::-webkit-scrollbar-thumb {
+  background: rgba(120, 140, 170, 0.55);
+  border-radius: 4px;
+}
+
+.edit-storyboard-image-modal .storyboard-config-footer {
+  flex-shrink: 0;
+  padding: 10px 2px 4px;
+  border-top: 1px solid rgba(128, 154, 188, 0.2);
+  background: rgb(25, 26, 29);
+}

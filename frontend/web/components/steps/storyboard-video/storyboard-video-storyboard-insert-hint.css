@@ -1,0 +1,42 @@
+/* Tailwind/PostCSS component styles for storyboard-video. */
+
+
+.create-step-storyboard-video .storyboard-insert-hint {
+  flex: 1 1 100%;
+  font-size: 0.72rem;
+  color: var(--home-muted, #8e97a5);
+  margin-left: 36px;
+  line-height: 1.3;
+}
+
+.create-step-storyboard-video .storyboard-video-insert-host {
+  position: relative;
+}
+
+.create-step-storyboard-video .storyboard-video-insert-edge {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 14px;
+  z-index: 2;
+  cursor: pointer;
+}
+
+.create-step-storyboard-video .storyboard-video-insert-edge--top {
+  top: -2px;
+}
+
+.create-step-storyboard-video .storyboard-video-insert-edge--bottom {
+  bottom: -2px;
+}
+
+.create-step-storyboard-video .storyboard-video-insert-mid {
+  min-height: 0;
+}
+
+/* 列表末行「+ 添加」条保留正常流布局 */
+.create-step-storyboard-video .storyboard-list > .storyboard-insert-gap:last-child {
+  position: relative;
+  bottom: auto;
+  z-index: auto;
+}

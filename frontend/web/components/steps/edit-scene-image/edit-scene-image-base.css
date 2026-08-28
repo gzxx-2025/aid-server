@@ -1,0 +1,231 @@
+/* Tailwind/PostCSS component styles for edit-scene-image. */
+/* 原 EditSceneImageModal.vue 伴随 scoped 样式 第 1/3 部分：弹窗骨架、头部、场景 Tab、切换骨架屏 */
+
+.edit-scene-image-modal .ant-modal {
+  max-width: 100vw;
+  margin: 0;
+  padding: 0;
+  top: 0;
+  height: 100vh;
+}
+
+.edit-scene-image-modal .ant-modal-content {
+  height: 100vh !important;
+  display: flex !important;
+  flex-direction: column !important;
+  border-radius: 0 !important;
+}
+
+.edit-scene-image-modal .ant-modal-container {
+  padding: 0 !important;
+}
+
+.edit-scene-image-modal .ant-modal-body {
+  flex: 1;
+  padding: 0;
+  overflow: hidden;
+}
+
+.edit-scene-image-container {
+  display: flex;
+  flex-direction: column;
+  height: 99vh;
+  max-height: 100vh;
+  background: var(--create-surface-canvas);
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* 头部 */
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 10px;
+  background: rgba(25, 26, 29, 1);
+  border-bottom: 1px solid var(--gray-200);
+  flex-shrink: 0;
+}
+
+.back-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 14px;
+}
+
+.scene-switcher {
+  flex: 1;
+  min-width: 0;
+}
+
+.scene-switcher-track {
+  gap: 0.5rem;
+}
+
+/* 场景tab：未选中无边框/背景；选中整卡青色描边 */
+.scene-image-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+  width: 120px;
+  min-width: 120px;
+  max-width: 120px;
+  box-shadow: none;
+}
+
+.scene-image-tab:hover:not(.active) {
+  border-color: transparent;
+  background: transparent;
+}
+
+.scene-image-tab.active {
+  border-color: rgba(74, 231, 253, 1);
+  background: transparent;
+  box-shadow: none;
+}
+
+.scene-image-tab.selecting-mode.active {
+  border-color: rgba(74, 231, 253, 1);
+  box-shadow: none;
+}
+
+.scene-image-tab.scene-image-tab--generating .scene-image-thumbnail {
+  border: 1px solid rgba(74, 231, 253, 0.45);
+}
+
+.scene-image-thumbnail {
+  position: relative;
+  width: 100%;
+  height: 54px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: rgba(6, 10, 18, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.scene-image-thumbnail .shimmer-image {
+  width: 100%;
+  height: 100%;
+}
+
+.scene-image-thumbnail .thumbnail-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.thumbnail-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--gray-400);
+  font-size: 1.25rem;
+}
+
+.scene-tab-generating-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 14, 22, 0.82);
+  backdrop-filter: blur(3px);
+}
+
+.scene-tab-generating-mask__icon {
+  font-size: 18px;
+  color: #4ae7fd;
+}
+
+.scene-label {
+  font-size: 12px;
+  color: var(--gray-700);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  text-align: center;
+  padding: 0 10px 0;
+}
+
+.scene-image-tab.active .scene-label {
+  font-weight: 600;
+}
+
+/* 骨架屏 */
+/* 左右面板切换场景/角色/道具 Tab 时的独立骨架屏 */
+.panel-skeleton {
+  flex: 1;
+  overflow: auto;
+  padding: 1rem 1.25rem;
+  min-height: 200px;
+}
+
+.left-panel-skeleton {
+  border-bottom: none;
+}
+
+.right-panel-skeleton {
+  display: flex;
+  flex-direction: column;
+  padding: 0 !important;
+  overflow: hidden;
+}
+
+.skeleton-stage-layout {
+  display: grid;
+  grid-template-columns: 144px minmax(0, 1fr) 398px;
+  height: 100%;
+  background: #0b0f17;
+}
+
+.skeleton-history-panel,
+.skeleton-canvas-panel,
+.skeleton-config-panel {
+  border: 1px solid rgba(128, 154, 188, 0.24);
+  background: rgba(25, 26, 29, 1);
+  min-width: 0;
+  min-height: 0;
+}
+
+.skeleton-history-panel {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 7px;
+}
+
+.skeleton-panel-title {
+  width: 64px;
+  height: 12px;
+  border-radius: 6px;
+  margin-bottom: 10px;
+}
+
+.skeleton-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+}
+
+.skeleton-history-item {
+  width: 100%;
+  height: 60px;
+  border-radius: 8px;
+}

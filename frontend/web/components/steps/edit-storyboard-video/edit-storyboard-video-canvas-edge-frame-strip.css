@@ -1,0 +1,230 @@
+/* Tailwind/PostCSS component styles for edit-storyboard-video-canvas. */
+/* 原 EditStoryboardVideoModal.vue 伴随 scoped 样式（第二部分：首尾帧 / 骨架屏 / 视图切换 / 视频卡片区）
+   拆分自 edit-storyboard-video.css（超 800 行体量红线），转换规则同第一部分，须在其后引入。 */
+
+.edit-storyboard-video-modal .edge-frame-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 4px;
+  flex-shrink: 0;
+}
+
+.edit-storyboard-video-modal .edge-frame-card {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.edit-storyboard-video-modal .edge-frame-label {
+  font-size: 12px;
+  color: rgba(188, 205, 228, 0.75);
+  line-height: 1;
+}
+
+.edit-storyboard-video-modal .edge-frame-thumb {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  border: 1px dashed rgba(120, 140, 170, 0.45);
+  border-radius: 8px;
+  background: rgba(12, 18, 28, 0.55);
+  overflow: hidden;
+  cursor: pointer;
+  padding: 0;
+}
+
+.edit-storyboard-video-modal .edge-frame-thumb .shimmer-image {
+  width: 100%;
+  height: 100%;
+}
+
+.edit-storyboard-video-modal .edge-frame-thumb img,
+.edit-storyboard-video-modal .edge-frame-thumb .edge-frame-thumb__media {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.edit-storyboard-video-modal .edge-frame-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: rgba(188, 205, 228, 0.65);
+  font-size: 12px;
+}
+
+.edit-storyboard-video-modal .edge-frame-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 77, 79, 0.95);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 10px;
+  line-height: 1;
+  opacity: 0;
+  transform: scale(0.9);
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
+  z-index: 2;
+}
+
+.edit-storyboard-video-modal .edge-frame-thumb:hover .edge-frame-remove {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.edit-storyboard-video-modal .edge-frame-swap {
+  position: relative;
+  z-index: 2;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgba(74, 231, 253, 0.35);
+  border-radius: 8px;
+  background: rgba(74, 231, 253, 0.08);
+  color: #4ae7fd;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.edit-storyboard-video-modal .edge-frame-swap:hover {
+  background: rgba(74, 231, 253, 0.16);
+  border-color: rgba(74, 231, 253, 0.65);
+}
+
+.edit-storyboard-video-modal .tab-placeholder {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--gray-500);
+  font-size: 0.9rem;
+}
+
+.edit-storyboard-video-modal .panel-skeleton {
+  flex: 1;
+  overflow: auto;
+  padding: 1rem 1.25rem;
+  min-height: 200px;
+}
+
+.edit-storyboard-video-modal .panel-skeleton .ant-skeleton-content .ant-skeleton-title,
+.edit-storyboard-video-modal .panel-skeleton .ant-skeleton-content .ant-skeleton-paragraph > li {
+  background: linear-gradient(90deg, #2b2b2b 20%, #444444 50%, #2b2b2b 80%);
+  background-size: 300% 100%;
+  animation: storyboard-skeleton-shimmer 1.4s linear infinite;
+}
+
+.edit-storyboard-video-modal .right-panel-skeleton {
+  flex: 1;
+  min-height: 0;
+  padding: 0;
+}
+
+.edit-storyboard-video-modal .skeleton-stage-layout {
+  display: grid;
+  grid-template-columns: 144px minmax(0, 1fr) 398px;
+  gap: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.edit-storyboard-video-modal .skeleton-history-panel,
+.edit-storyboard-video-modal .skeleton-canvas-panel,
+.edit-storyboard-video-modal .skeleton-config-panel {
+  border: 1px solid rgba(128, 154, 188, 0.26);
+  background: rgba(25, 26, 29, 1);
+  min-height: 0;
+}
+
+.edit-storyboard-video-modal .skeleton-history-panel {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 7px;
+}
+
+.edit-storyboard-video-modal .skeleton-panel-title {
+  height: 14px;
+  border-radius: 4px;
+  margin: 0 4px 10px;
+}
+
+.edit-storyboard-video-modal .skeleton-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0 12px;
+}
+
+.edit-storyboard-video-modal .skeleton-history-item {
+  width: 88px;
+  height: 88px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.edit-storyboard-video-modal .skeleton-history-actions {
+  margin-top: auto;
+  padding: 0 4px;
+  display: grid;
+  gap: 6px;
+}
+
+.edit-storyboard-video-modal .skeleton-btn {
+  height: 32px;
+  border-radius: 6px;
+}
+
+.edit-storyboard-video-modal .skeleton-canvas-panel {
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.edit-storyboard-video-modal .skeleton-canvas-toolbar {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(60px, 1fr));
+  gap: 8px;
+}
+
+.edit-storyboard-video-modal .skeleton-chip {
+  height: 28px;
+  border-radius: 7px;
+}
+
+.edit-storyboard-video-modal .skeleton-canvas-main {
+  flex: 1;
+  min-height: 280px;
+  border-radius: 12px;
+}
+
+.edit-storyboard-video-modal .skeleton-config-panel {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}

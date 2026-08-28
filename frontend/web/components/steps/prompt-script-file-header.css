@@ -1,0 +1,278 @@
+.prompt-script-file-header {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: stretch;
+  padding: 6px 8px;
+  height: 82px;
+  background: rgba(18, 18, 18, 1);
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
+}
+
+.prompt-script-file-header--no-actions {
+  justify-content: flex-start;
+}
+
+.prompt-script-file-header--panel.prompt-script-file-header--no-actions {
+  justify-content: flex-start;
+}
+
+.prompt-script-file-header--panel .scene-file-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.prompt-script-file-header--panel .scene-file-info--clickable {
+  cursor: pointer;
+}
+
+.prompt-script-file-header--panel .scene-file-info--clickable:hover .scene-file-name {
+  color: var(--accent-800);
+}
+
+.prompt-script-file-header--panel .file-icon {
+  font-size: 1.25rem;
+  color: var(--accent-600);
+  flex-shrink: 0;
+}
+
+.prompt-script-file-header--panel .scene-file-name {
+  font-weight: 600;
+  color: var(--accent-700);
+  font-size: 0.875rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 编辑场景图弹窗 */
+.prompt-script-file-header--scene-modal {
+  padding: 8px 10px;
+  border-radius: 10px;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.prompt-script-file-header--scene-modal.prompt-script-file-header--no-actions {
+  height: auto;
+  min-height: 0;
+  padding: 10px 10px;
+  gap: 0;
+  margin-bottom: 8px;
+}
+
+.prompt-script-file-header--scene-modal .scene-file-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.prompt-script-file-header--scene-modal .scene-file-info--blocked {
+  cursor: not-allowed;
+  opacity: 0.85;
+}
+
+.prompt-script-file-header--scene-modal .file-icon--img {
+  width: 14px;
+  height: 14px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.prompt-script-file-header--scene-modal .scene-file-name {
+  font-size: 12px;
+  color: #cfe5ff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prompt-script-file-header .prompt-row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-shrink: 0;
+  width: 100%;
+  margin-left: 0;
+  margin-top: auto;
+  height: 28px;
+}
+
+/* 仅非 outline 的生成按钮需要深色底（避免覆盖 modal-dark 的描边「生成提示词」） */
+.prompt-script-file-header--panel
+  .prompt-row-actions
+  .generate-prompt-btn:not(.generate-prompt-btn--outline),
+.prompt-script-file-header--panel
+  .prompt-row-actions
+  .generate-prompt-btn:not(.generate-prompt-btn--outline):hover,
+.prompt-script-file-header--panel
+  .prompt-row-actions
+  .generate-prompt-btn:not(.generate-prompt-btn--outline):focus,
+.prompt-script-file-header--panel
+  .prompt-row-actions
+  .generate-prompt-btn:not(.generate-prompt-btn--outline):active,
+.prompt-script-file-header--scene-modal
+  .prompt-row-actions
+  .generate-prompt-btn:not(.generate-prompt-btn--outline),
+.prompt-script-file-header--scene-modal
+  .prompt-row-actions
+  .generate-prompt-btn:not(.generate-prompt-btn--outline):hover,
+.prompt-script-file-header--scene-modal
+  .prompt-row-actions
+  .generate-prompt-btn:not(.generate-prompt-btn--outline):focus,
+.prompt-script-file-header--scene-modal
+  .prompt-row-actions
+  .generate-prompt-btn:not(.generate-prompt-btn--outline):active {
+  background: rgba(18, 18, 18, 1) !important;
+  border: 1px solid rgba(74, 231, 253, 0.3) !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+/* primary 全局 hover 会把 border 设为 transparent，悬停时保持青描边 */
+.prompt-script-file-header--panel
+  .prompt-row-actions
+  .generate-prompt-btn:not(.generate-prompt-btn--outline):not(:disabled):hover,
+.prompt-script-file-header--scene-modal
+  .prompt-row-actions
+  .generate-prompt-btn:not(.generate-prompt-btn--outline):not(:disabled):hover {
+  border-color: rgba(74, 231, 253, 0.55) !important;
+  background: rgba(14, 89, 250, 0.12) !important;
+}
+
+.prompt-script-file-header .ref-link-btn {
+  color: rgba(216, 230, 252, 0.9);
+  padding-left: 0;
+  font-size: 13px;
+}
+
+.prompt-script-file-header .ref-link-btn .anticon {
+  font-size: 14px;
+}
+
+.prompt-script-file-header .ref-link-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: rgba(216, 230, 252, 0.9);
+  font-size: 13px;
+  user-select: none;
+  pointer-events: none;
+}
+
+.prompt-script-file-header .ref-link-label__icon {
+  font-size: 14px;
+}
+
+.prompt-script-file-header--scene-modal .ref-link-label {
+  font-size: 14px;
+}
+
+.prompt-script-file-header .generate-prompt-btn .ant-btn {
+  box-shadow: none !important;
+}
+
+/* loading 与文案同一行，避免块级子元素导致换行 */
+.prompt-script-file-header .generate-prompt-btn {
+  display: inline-flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  justify-content: center;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.prompt-script-file-header .generate-prompt-btn .text-gradient {
+  display: inline;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+
+.prompt-script-file-header .generate-prompt-btn .ant-btn-loading-icon {
+  display: inline-flex !important;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.prompt-script-file-header--panel .generate-prompt-btn {
+  height: 28px;
+  border-radius: 8px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.prompt-script-file-header .generate-prompt-btn--outline {
+  height: 40px;
+  border-radius: 999px;
+  padding: 0 18px;
+  color: #4ae7fd !important;
+  font-size: 13px;
+  font-weight: 500;
+  background: transparent !important;
+  /* 固定 1px 描边，避免 antd hover/focus 切换时先绘默认浅色边再覆盖导致白边闪烁 */
+  border: 1px solid rgba(74, 231, 253, 0.65) !important;
+  box-shadow: none !important;
+  outline: none !important;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease !important;
+}
+
+.prompt-script-file-header .generate-prompt-btn--outline:hover,
+.prompt-script-file-header .generate-prompt-btn--outline:focus,
+.prompt-script-file-header .generate-prompt-btn--outline:active,
+.prompt-script-file-header .generate-prompt-btn--outline:focus-visible,
+.prompt-script-file-header .generate-prompt-btn--outline.ant-btn-default:not(:disabled):not(.ant-btn-disabled):hover,
+.prompt-script-file-header .generate-prompt-btn--outline.ant-btn-default:not(:disabled):not(.ant-btn-disabled):focus,
+.prompt-script-file-header .generate-prompt-btn--outline.ant-btn-default:not(:disabled):not(.ant-btn-disabled):active {
+  background: rgba(9, 13, 20, 0.9) !important;
+  border: 1px solid rgba(74, 231, 253, 0.65) !important;
+  border-color: rgba(74, 231, 253, 0.65) !important;
+  color: #4ae7fd !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+/* 弹窗内 ant-btn-default * 会强制浅色字，保留渐变字填充 */
+.prompt-script-file-header .generate-prompt-btn--outline .text-gradient {
+  -webkit-text-fill-color: transparent !important;
+  color: transparent !important;
+}
+
+/* modal-dark：参考图 = 实心胶囊；生成提示词 = 青描边透明底（上文的 outline） */
+.prompt-script-file-header--modal-dark .ref-link-btn {
+  height: 40px;
+  border-radius: 999px !important;
+  padding: 0 16px !important;
+  color: rgba(225, 239, 255, 0.95) !important;
+  background: rgba(15, 45, 72, 0.95) !important;
+  border: 1px solid rgba(74, 231, 253, 0.18) !important;
+}
+
+.prompt-script-file-header--modal-dark .ref-link-btn:hover {
+  color: #fff !important;
+  background: rgba(22, 58, 92, 1) !important;
+  border-color: rgba(74, 231, 253, 0.35) !important;
+}
+/*.prompt-script-file-header--modal-dark .ref-link-btn:focus {*/
+/*  color: #fff !important;*/
+/*  background: rgba(22, 58, 92, 1) !important;*/
+/*  border-color: rgba(74, 231, 253, 0.35) !important;*/
+/*}*/
+.prompt-script-file-header--scene-modal .prompt-row-actions .ant-btn {
+  height: 28px;
+  border-radius: 8px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: none !important;
+}

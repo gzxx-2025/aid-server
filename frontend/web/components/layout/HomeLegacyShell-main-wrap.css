@@ -1,0 +1,149 @@
+/* Tailwind/PostCSS component styles for HomeLegacyShell. */
+
+
+.home-page .main-wrap {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 8px 20px 18px;
+}
+
+.home-page .main {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0;
+  position: relative;
+}
+
+.home-page .home-route-transition-host {
+  position: relative;
+  min-height: 100%;
+  isolation: isolate;
+}
+
+.home-page .home-main-route {
+  min-height: 100%;
+}
+
+/*
+ * 原 <Transition name="home-route" mode="out-in">：React 侧路由切换按 pathname 重挂载 .home-main-route，
+ * 保留进场过渡（参数与原 enter 一致：opacity 0.26s ease / transform 0.3s cubic-bezier），出场随卸载省略。
+ */
+@keyframes home-route-enter-opacity {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes home-route-enter-transform {
+  from {
+    transform: translateY(10px);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+.home-page .home-main-route {
+  animation:
+    home-route-enter-opacity 0.26s ease,
+    home-route-enter-transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-page .home-main-route {
+    animation: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .home-page {
+    flex-direction: column;
+  }
+
+  .home-page .sidebar {
+    width: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    border-right: none;
+    border-bottom: 1px solid var(--home-border);
+    padding: 0 14px 16px;
+  }
+
+  .home-page .sidebar .brand {
+    margin-bottom: 0;
+    margin-right: 12px;
+  }
+
+  .home-page .sidebar .logo-img {
+    width: 80px;
+    height: 36px;
+  }
+
+  .home-page .sidebar .nav {
+    flex-direction: row;
+    flex: 1;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .home-page .sidebar .spacer {
+    display: none;
+  }
+
+  .home-page .sidebar .wallet {
+    width: 100%;
+    order: 10;
+    margin-top: 8px;
+    margin-bottom: 0;
+  }
+
+  .home-page .sidebar .user {
+    width: 100%;
+    order: 11;
+    margin-top: 10px;
+  }
+}
+
+/* 原 layouts/home.vue 末尾非 scoped \3c style>：退出登录确认弹窗暗色视觉，原样平移 */
+.home-confirm-wrap .ant-modal-content,
+.home-confirm-modal .ant-modal-content {
+  background: var(--create-surface-modal, rgba(25, 26, 29, 1)) !important;
+  border: 1px solid rgba(74, 231, 253, 0.09) !important;
+  box-shadow: 0 24px 56px rgba(8, 12, 24, 0.45) !important;
+  border-radius: 8px !important;
+}
+
+.home-confirm-wrap .ant-modal-confirm-body,
+.home-confirm-modal .ant-modal-confirm-body {
+  color: #e6edf3 !important;
+}
+
+.home-confirm-wrap .ant-modal-confirm-title,
+.home-confirm-modal .ant-modal-confirm-title {
+  color: #fff !important;
+}
+
+.home-confirm-wrap .ant-modal-confirm-content,
+.home-confirm-modal .ant-modal-confirm-content {
+  color: #a8b4c4 !important;
+}
+
+.home-confirm-wrap .ant-modal-confirm-body > .anticon,
+.home-confirm-modal .ant-modal-confirm-body > .anticon {
+  color: #4ae7fd !important;
+}
+
+.home-confirm-wrap .ant-modal-confirm-btns .ant-btn,
+.home-confirm-modal .ant-modal-confirm-btns .ant-btn {
+  border-radius: 8px;
+}

@@ -1,0 +1,240 @@
+/* Tailwind/PostCSS component styles for edit-storyboard-video-canvas. */
+
+
+.edit-storyboard-video-modal .skeleton-config-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.edit-storyboard-video-modal .skeleton-tab {
+  height: 32px;
+  border-radius: 8px;
+}
+
+.edit-storyboard-video-modal .skeleton-file-row {
+  height: 52px;
+  border-radius: 10px;
+}
+
+.edit-storyboard-video-modal .skeleton-textarea {
+  height: 140px;
+  border-radius: 10px;
+}
+
+.edit-storyboard-video-modal .skeleton-select-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.edit-storyboard-video-modal .skeleton-select {
+  height: 44px;
+  border-radius: 10px;
+}
+
+.edit-storyboard-video-modal .skeleton-primary-btn {
+  margin-top: auto;
+  height: 42px;
+  border-radius: 10px;
+}
+
+.edit-storyboard-video-modal .skeleton-panel-title,
+.edit-storyboard-video-modal .skeleton-history-item,
+.edit-storyboard-video-modal .skeleton-btn,
+.edit-storyboard-video-modal .skeleton-chip,
+.edit-storyboard-video-modal .skeleton-canvas-main,
+.edit-storyboard-video-modal .skeleton-tab,
+.edit-storyboard-video-modal .skeleton-file-row,
+.edit-storyboard-video-modal .skeleton-textarea,
+.edit-storyboard-video-modal .skeleton-select,
+.edit-storyboard-video-modal .skeleton-primary-btn {
+  background: linear-gradient(90deg, #2b2b2b 20%, #444444 50%, #2b2b2b 80%);
+  background-size: 300% 100%;
+  animation: storyboard-skeleton-shimmer 1.4s linear infinite;
+}
+
+@keyframes storyboard-skeleton-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: 0 0;
+  }
+}
+
+.edit-storyboard-video-modal .view-switcher {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.edit-storyboard-video-modal .view-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border: 1px solid rgba(120, 140, 170, 0.28);
+  background: rgba(18, 24, 36, 0.85);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: rgba(188, 205, 228, 0.85);
+  transition: all 0.2s ease;
+}
+
+.edit-storyboard-video-modal .view-btn:hover {
+  border-color: rgba(74, 231, 253, 0.45);
+  background: rgba(74, 231, 253, 0.08);
+}
+
+.edit-storyboard-video-modal .view-btn.active {
+  border-color: rgba(74, 231, 253, 0.85);
+  background: rgba(74, 231, 253, 0.12);
+  color: #4ae7fd;
+  font-weight: 600;
+  box-shadow: 0 0 0 2px rgba(74, 231, 253, 0.12);
+}
+
+.edit-storyboard-video-modal .view-btn-icon {
+  font-size: 1rem;
+}
+
+.edit-storyboard-video-modal .videos-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.edit-storyboard-video-modal .videos-list-card {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
+.edit-storyboard-video-modal .video-card,
+.edit-storyboard-dubbing-modal .video-card {
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-md);
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  background: var(--create-surface-panel);
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.edit-storyboard-video-modal .video-card--active,
+.edit-storyboard-dubbing-modal .video-card--active {
+  border-color: rgba(74, 231, 253, 1);
+  box-shadow: 0 0 0 2px rgba(74, 231, 253, 0.18);
+}
+
+.edit-storyboard-video-modal .video-card-view {
+  max-width: 320px;
+}
+
+.edit-storyboard-video-modal .video-card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--gray-500);
+}
+
+.edit-storyboard-video-modal .video-source {
+  padding: 0.125rem 0.5rem;
+  background: rgba(6, 10, 18, 0.55);
+  border-radius: var(--radius-sm);
+  color: var(--gray-600);
+}
+
+.edit-storyboard-video-modal .video-date {
+  color: var(--gray-500);
+}
+
+.edit-storyboard-video-modal .video-preview-wrap,
+.edit-storyboard-dubbing-modal .video-preview-wrap {
+  /*
+   * 以高度预算反推宽度，始终 16:9 + contain。
+   * 小分辨率不再额外压矮（旧 42vh/360px 导致中间预览过小、四周空洞过大）；
+   * 上限仍 560，与 1920 观感对齐；矮屏用更高 vh 吃满中间列可用高度。
+   */
+  --video-preview-max-h: clamp(240px, 68vh, 560px);
+  position: relative;
+  width: min(100%, calc(var(--video-preview-max-h) * 16 / 9));
+  max-width: 100%;
+  margin-inline: auto;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: rgba(6, 10, 18, 0.55);
+  aspect-ratio: 16 / 9;
+  height: auto;
+}
+
+@media (min-height: 1100px) {
+  .edit-storyboard-video-modal .video-preview-wrap,
+  .edit-storyboard-dubbing-modal .video-preview-wrap {
+    --video-preview-max-h: clamp(280px, 72vh, 720px);
+  }
+}
+
+.edit-storyboard-video-modal .video-card-view .video-preview-wrap {
+  /* 卡片网格内随列宽走 16:9，不再单独限高 */
+  width: 100%;
+}
+
+.edit-storyboard-video-modal .video-preview-wrap .shimmer-video,
+.edit-storyboard-dubbing-modal .video-preview-wrap .shimmer-video {
+  width: 100%;
+  height: 100%;
+}
+
+.edit-storyboard-video-modal .video-preview-wrap .video-preview,
+.edit-storyboard-dubbing-modal .video-preview-wrap .video-preview {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.edit-storyboard-video-modal .video-top-actions,
+.edit-storyboard-dubbing-modal .video-top-actions {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  z-index: 4;
+  display: flex;
+  gap: 0.25rem;
+}
+
+.edit-storyboard-video-modal .video-action-btn,
+.edit-storyboard-dubbing-modal .video-action-btn {
+  color: rgba(255, 255, 255, 0.9) !important;
+  background: rgba(0, 0, 0, 0.4) !important;
+}
+
+.edit-storyboard-video-modal .video-action-btn:hover,
+.edit-storyboard-dubbing-modal .video-action-btn:hover {
+  color: white !important;
+  background: rgba(0, 0, 0, 0.6) !important;
+}
+
+.edit-storyboard-video-modal .btn-set-storyboard-done,
+.edit-storyboard-dubbing-modal .btn-set-storyboard-done {
+  flex-shrink: 0;
+  font-size: 14px;
+  color: #52c41a !important;
+  background: rgba(82, 196, 26, 0.12) !important;
+  border-color: rgba(82, 196, 26, 0.4) !important;
+}
+
+.edit-storyboard-video-modal .btn-set-storyboard-done:hover,
+.edit-storyboard-video-modal .btn-set-storyboard-done:focus,
+.edit-storyboard-dubbing-modal .btn-set-storyboard-done:hover,
+.edit-storyboard-dubbing-modal .btn-set-storyboard-done:focus {
+  color: #73d13d !important;
+  background: rgba(82, 196, 26, 0.2) !important;
+  border-color: rgba(82, 196, 26, 0.55) !important;
+}

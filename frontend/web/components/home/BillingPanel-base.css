@@ -1,0 +1,231 @@
+/* Tailwind/PostCSS component styles for BillingPanel. */
+/* BillingPanel 伴随样式：由原 components/home/BillingPanel.vue \3c style scoped> 平移，:deep()/:global() 已展开，颜色逐字保留 */
+.billing-page {
+  --billing-accent: #4ae7fd;
+  --billing-muted: #8e97a5;
+  --billing-surface: rgba(22, 28, 40, 0.92);
+  --billing-border: rgba(255, 255, 255, 0.08);
+  width: 100%;
+  flex: 1 0 auto;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.billing-page__inner {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-height: 0;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.billing-page__title {
+  margin: 0;
+  font-size:20px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.billing-page__subtitle {
+  margin: 8px 0 0;
+  color: var(--billing-muted);
+  font-size: 14px;
+}
+
+.billing-page__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.billing-page__filters {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.billing-page__provider-filter {
+  position: relative;
+  flex: 0 1 180px;
+  min-width: 140px;
+}
+
+.billing-page__provider-select {
+  width: 100%;
+}
+
+.billing-page__provider-select .ant-select-selector {
+  height: 42px !important;
+  padding: 0 38px 0 14px !important;
+  border: 1px solid var(--billing-border) !important;
+  border-radius: 10px !important;
+  background: linear-gradient(135deg, rgba(20, 29, 43, 0.96), rgba(13, 18, 28, 0.96)) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025) !important;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    background 0.2s ease !important;
+}
+
+.billing-page__provider-select .ant-select-selection-item {
+  min-width: 0;
+  color: #e6edf3 !important;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 40px !important;
+}
+
+.billing-page__provider-select .ant-select-arrow {
+  inset-inline-end: 14px;
+  margin-top: -6px;
+  color: #8e97a5 !important;
+  transition:
+    color 0.2s ease,
+    transform 0.2s ease;
+}
+
+.billing-page__provider-select:hover .ant-select-selector,
+.billing-page__provider-select.ant-select-focused .ant-select-selector,
+.billing-page__provider-select.ant-select-open .ant-select-selector {
+  border-color: rgba(74, 231, 253, 0.5) !important;
+  background: linear-gradient(135deg, rgba(21, 34, 49, 0.98), rgba(13, 21, 32, 0.98)) !important;
+  box-shadow:
+    0 0 0 3px rgba(74, 231, 253, 0.07),
+    inset 0 1px 0 rgba(255, 255, 255, 0.035) !important;
+}
+
+.billing-page__provider-select:hover .ant-select-arrow,
+.billing-page__provider-select.ant-select-open .ant-select-arrow {
+  color: #4ae7fd !important;
+}
+
+.billing-page__provider-select.ant-select-open .ant-select-arrow {
+  transform: rotate(180deg);
+}
+
+.billing-page__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.billing-page__tab {
+  height: 34px;
+  padding: 0 16px;
+  border-radius: 8px;
+  border: 1px solid var(--billing-border);
+  background: transparent;
+  color: #c9d1d9;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.billing-page__tab.is-active,
+.billing-page__tab:hover {
+  border-color: rgba(74, 231, 253, 0.45);
+  color: var(--billing-accent);
+  background: rgba(74, 231, 253, 0.08);
+}
+
+.billing-page__search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 240px;
+  height: 42px;
+  padding: 0 14px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--billing-border);
+}
+
+.billing-page__search-ico {
+  color: var(--billing-muted);
+}
+
+.billing-page__search-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: #fff;
+  font-size: 14px;
+}
+
+.billing-page__state {
+  padding: 48px 20px;
+  text-align: center;
+  color: var(--billing-muted);
+}
+
+.billing-page__state--error {
+  color: #fca5a5;
+}
+
+.billing-page__cards {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-bottom: 24px;
+}
+
+.billing-page__card {
+  border-radius: 14px;
+  background: var(--billing-surface);
+  border: 1px solid var(--billing-border);
+  padding: 20px;
+  animation: billing-card-in 0.32s ease both;
+}
+
+@keyframes billing-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.billing-page__card-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.billing-page__model-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.billing-page__model-logo {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(74, 231, 253, 0.12);
+  color: var(--billing-accent);
+  font-weight: 700;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.billing-page__model-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}

@@ -1,0 +1,227 @@
+/* Tailwind/PostCSS component styles for home-new-page. */
+
+
+.home-new-sub-page .works-lib-header,
+.home-new-sub-page .works-lib-stats,
+.home-new-sub-page .works-lib-toolbar {
+  flex-shrink: 0;
+}
+
+/* 顶部视频 + 轮播 */
+.home-new-index .home-new-hero {
+  position: relative;
+  width: 100%;
+  margin-bottom: 20px;
+  overflow: visible;
+  background: #111621;
+}
+
+/* 上：全宽视频舞台（对齐图二首屏占比）；下：轮播叠在舞台内 */
+.home-new-index .home-new-hero-media {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  overflow: visible;
+  background: #0a0e14;
+}
+
+.home-new-index .home-new-hero-stage {
+  position: relative;
+  width: 100%;
+  /*
+   * 与 1920 参考图一致：大视频约占首屏 65%～70%，
+   * 用 vh 定高（而非随 CSS 宽度算 aspect-ratio），任意分辨率/系统缩放观感统一。
+   * 同时预留下方「我要创作 / 查看教程」空间。
+   */
+  height: clamp(280px, 68vh, calc(100vh - 150px));
+  height: clamp(280px, 68dvh, calc(100dvh - 150px));
+  min-height: 280px;
+  max-height: none;
+  aspect-ratio: auto;
+  flex-shrink: 0;
+  overflow: visible;
+  z-index: 1;
+  isolation: isolate;
+}
+
+.home-new-index .home-new-hero-stage .home-hero-carousel {
+  z-index: 12;
+  left: 0;
+  right: 0;
+  width: 100%;
+}
+
+/* 无封面时的暗底微光氛围（替代拉伸 empty_icon） */
+.home-new-index .home-new-hero-ambient {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 72% 58% at 50% 42%, rgba(56, 78, 120, 0.28) 0%, transparent 68%),
+    radial-gradient(ellipse 90% 70% at 50% 100%, rgba(18, 28, 48, 0.55) 0%, transparent 55%),
+    linear-gradient(160deg, #0c1018 0%, #121926 45%, #0a0e14 100%);
+  opacity: 1;
+  transition: opacity 0.32s ease;
+}
+
+.home-new-index .home-new-hero-ambient::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.015) 40%,
+    rgba(255, 255, 255, 0.06) 50%,
+    rgba(255, 255, 255, 0.015) 60%,
+    transparent 100%
+  );
+  background-size: 220% 100%;
+  animation: home-new-hero-ambient-shimmer 2.4s ease-in-out infinite;
+}
+
+.home-new-index .home-new-hero-ambient.is-faded {
+  opacity: 0;
+}
+
+.home-new-index .home-new-hero-ambient.is-faded::after {
+  animation: none;
+}
+
+@keyframes home-new-hero-ambient-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-new-index .home-new-hero-ambient::after {
+    animation: none;
+    opacity: 0.4;
+  }
+}
+
+.home-new-index .home-new-hero-poster,
+.home-new-index .home-new-hero-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: opacity 0.32s ease;
+}
+
+.home-new-index .home-new-hero-poster {
+  z-index: 1;
+  opacity: 0;
+}
+
+.home-new-index .home-new-hero-poster.is-visible {
+  opacity: 1;
+}
+
+.home-new-index .home-new-hero-poster.is-dimmed {
+  opacity: 0;
+}
+
+.home-new-index .home-new-hero-video {
+  background: #000;
+  opacity: 0;
+  z-index: 2;
+  pointer-events: none;
+  will-change: opacity;
+}
+
+.home-new-index .home-new-hero-video.is-visible {
+  opacity: 1;
+  z-index: 2;
+}
+
+.home-new-index .home-new-hero-fade {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 58%;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    rgba(13, 13, 15, 0) 0%,
+    rgba(13, 13, 15, 0.55) 45%,
+    rgba(13, 13, 15, 0.92) 78%,
+    rgba(13, 13, 15, 0.98) 100%
+  );
+  z-index: 4;
+}
+
+/* 操作按钮：固定在 Hero 下方，首屏可见，不被视频区挤没 */
+.home-new-index .home-new-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 12px;
+  margin-bottom: 28px;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 2;
+}
+.home-new-actions button{
+  min-width: 16%;
+
+}
+.home-new-index .home-new-actions .btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 32px;
+  justify-content: center;
+  background: linear-gradient(270deg, #0e59fa 0%, #00abd8 100%);
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    filter 0.2s ease,
+    transform 0.2s ease;
+}
+
+.home-new-index .home-new-actions .btn-primary img {
+  width: 20px;
+  height: 20px;
+}
+
+.home-new-index .home-new-actions .btn-primary:hover {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+
+.home-new-index .home-new-actions .btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 12px 32px;
+  min-width: 16%;
+  background: rgba(18, 18, 18, 0.85);
+  color: #fff;
+  border-radius: 999px;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  transition: border-color 0.2s ease;
+  border: 1px solid rgba(74,231,253,0.3);
+}
+
+.home-new-index .home-new-actions .btn-secondary .text-gradient {
+  line-height: 1.2;
+}

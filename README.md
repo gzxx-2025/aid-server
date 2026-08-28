@@ -18,7 +18,7 @@
 
 AID 是一套面向 **AI 漫剧、AI 电影、AI 漫画** 的开源内容生产平台，覆盖 **故事与剧本 → 分集 → 角色/道具/场景 → 分镜 → 图片 → 视频 → 配音 → 成片** 的完整工作流，并提供多 AI 厂商编排、任务调度、计费支付、运营管理、生产部署和在线升级能力。
 
-本仓库是 **服务端（aid-server）**，也是三端统一的部署与发布入口。公开版本清单、一键部署脚本、增量 SQL 和独立升级器均由这里提供；用户创作端与运营管理端会按同一版本标签一起构建，避免三端版本不一致。
+本仓库是 AID 的**统一公开源码仓（aid-server）**和部署发布入口。服务端位于仓库根目录，运营管理端位于 `frontend/admin`，用户创作端位于 `frontend/web`；公开版本清单、一键部署脚本、增量 SQL 和独立升级器也由本仓库提供。一个版本只对应一个仓库标签，从源头避免三端版本不一致。
 
 ## 交流与反馈
 
@@ -65,13 +65,17 @@ AID 将不同内容形态分别组织为清晰的创作方向。每个方向都�
 - 创作者平台、内容工作室、MCN、教育培训和企业内部创意工具
 - 多模型统一接入、统一计费、统一运营管理的私有化 AI 生成平台
 
-## 仓库矩阵
+## 公开源码目录
 
-| 端 | 说明 | Gitee | GitHub |
-|----|------|-------|--------|
-| aid-server | Java 服务端（本仓库） | [gitee](https://gitee.com/gzxx-2025/aid-server) | [github](https://github.com/gzxx-2025/aid-server) |
-| aid-admin | 运营管理端（React） | [gitee](https://gitee.com/gzxx-2025/aid-admin) | [github](https://github.com/gzxx-2025/aid-admin) |
-| aid-web | 用户创作端 | [gitee](https://gitee.com/gzxx-2025/aid-web) | [github](https://github.com/gzxx-2025/aid-web) |
+公开源码统一发布到 [Gitee aid-server](https://gitee.com/gzxx-2025/aid-server) 和 [GitHub aid-server](https://github.com/gzxx-2025/aid-server)，两个平台使用相同提交和标签。
+
+| 路径 | 内容 |
+|------|------|
+| `/` | Java 服务端、初始化 SQL、部署脚本与升级器 |
+| `frontend/admin/` | 运营管理端（React） |
+| `frontend/web/` | 用户创作端 |
+
+`v1.0.0` 及更早版本仍保留原三仓标签和 Release，供既有环境兼容、历史源码获取与人工恢复使用；从 `v1.0.1` 起，新版本统一使用本仓库的同名标签。源码构建版本的一键升级失败会自动恢复升级前备份，但不提供跨版本的一键源码回退入口。
 
 ## 官方资产包
 
@@ -122,7 +126,10 @@ aid-server（Maven 多模块单体）
 │   ├── interface-system     实体、Mapper、系统服务
 │   └── interface-main       业务服务（媒体/分镜/计费/升级等）
 ├── aid-consumer     MQ 消费者
-└── deploy/updater   独立升级器（Go）
+├── deploy/updater   独立升级器（Go）
+└── frontend
+    ├── admin        运营管理端（React）
+    └── web          用户创作端
 ```
 
 调用链：`Controller → Service → Mapper → MySQL`，媒体生成经统一编排层路由到各厂商 Provider。
@@ -164,7 +171,7 @@ sudo env AID_REMOTE_BOOTSTRAP=1 AID_RELEASE_CHANNEL=beta bash /root/aid-install.
 | Docker（推荐） | 新服务器、希望中间件与运行环境隔离 | `/data/aid/config/docker.env` | Docker Compose |
 | 手动部署 | 已有主机环境、宝塔或 systemd 运维体系 | `/data/aid/aid-deploy.conf` | systemd + Nginx |
 
-首次部署会先生成配置并要求管理员检查确认；**配置未确认前不会拉取三端源码、构建程序、初始化数据库或启动服务**。部署器会优先使用国内源码、依赖和镜像线路，失败时回退官方地址；服务端、管理端、Web 端与升级器使用同一版本标签构建，完整日志写入 `/data/aid/logs/`。已存在且版本符合的依赖会直接复用，未完整下载的缓存会重新校验和下载。
+首次部署会先生成配置并要求管理员检查确认；**配置未确认前不会拉取统一源码、构建程序、初始化数据库或启动服务**。部署器会优先使用国内源码、依赖和镜像线路，失败时回退官方地址；服务端、管理端、Web 端与升级器从同一个版本标签构建，完整日志写入 `/data/aid/logs/`。已存在且版本符合的依赖会直接复用，未完整下载的缓存会重新校验和下载。
 
 Docker 模式支持内置或外部 MySQL 5.7、内置或外部 Redis、可选 RocketMQ、可选 HTTPS；配置外部 MySQL 后不会启动内置 MySQL。Redis 用户名、密码和数据库索引均可为空，RocketMQ 关闭时不会启动或校验 MQ，启用后可配置外部 NameServer 与 ACL。手动模式会按需准备 JDK、Git、Maven、Node.js、Go、Nginx、MySQL 5.7 和 Redis；外部中间件只做连通性校验，RocketMQ 由管理员自行准备。
 
@@ -254,7 +261,7 @@ https://admin.example.com/Ab12Cd34Ef56
 
 ### 配置 AI 厂商
 
-前端构建部署见 [aid-admin](https://gitee.com/gzxx-2025/aid-admin) 与 [aid-web](https://gitee.com/gzxx-2025/aid-web) 仓库。启动后在后台「AI模型配置」中配置至少一家厂商的密钥（或启用官方 API 统一网关）即可开始创作。
+运营管理端和用户创作端源码分别位于本仓库的 [`frontend/admin`](frontend/admin) 与 [`frontend/web`](frontend/web)。启动后在后台「AI模型配置」中配置至少一家厂商的密钥（或启用官方 API 统一网关）即可开始创作。
 
 ## 文档导航
 
@@ -267,7 +274,7 @@ https://admin.example.com/Ab12Cd34Ef56
 
 管理端「系统管理 → 项目升级配置」和命令行使用同一套独立升级器。页面会展示当前版本、线上版本、双语版本说明、升级器状态、可回退版本以及黑色实时终端；任务执行期间禁止重复提交，低于 4 核 4G 时会在确认升级前给出高风险提醒。
 
-升级流程会先确认升级器版本，升级器落后时必须先升级升级器；随后校验签名清单和三端同版本源码，完成配置与数据库备份、本机源码构建、增量 SQL、程序替换和健康检查。新增配置只会补入缺失项，原有配置值保持不变并在同目录生成备份；失败时按安全边界自动恢复程序与配置。升级期间可在页面或执行 `sudo aid progress` 查看同一份实时日志，按 `q` 退出查看不会中断后台任务。
+升级流程会先确认升级器版本，升级器落后时必须先升级升级器；随后校验签名清单和统一仓库版本标签，完成配置与数据库备份、本机三端源码构建、增量 SQL、程序替换和健康检查。新增配置只会补入缺失项，原有配置值保持不变并在同目录生成备份；失败时按安全边界自动恢复程序与配置。升级期间可在页面或执行 `sudo aid progress` 查看同一份实时日志，按 `q` 退出查看不会中断后台任务。
 
 更新会进行三端编译、数据库备份和健康检查，短时间内可能明显占用 CPU、内存和磁盘 I/O。生产环境应先做异机备份并在业务低峰执行；Beta 版本建议先在测试环境验证。完整升级、SQL 与回退规则见[部署指南](deploy/README.md)。
 

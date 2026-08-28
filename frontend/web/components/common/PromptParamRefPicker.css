@@ -1,0 +1,70 @@
+.prompt-param-ref-picker-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  background: transparent;
+}
+
+.prompt-param-ref-picker {
+  position: fixed;
+  z-index: 1101;
+  min-width: 160px;
+  max-width: 240px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 6px;
+  border-radius: 10px;
+  background: rgba(28, 32, 40, 0.98);
+  border: 1px solid rgba(128, 154, 188, 0.35);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+.prompt-param-ref-picker__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(225, 239, 255, 0.92);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease;
+  margin-bottom: 4px;
+}
+
+.prompt-param-ref-picker__item:last-child {
+  margin-bottom: 0;
+}
+
+.prompt-param-ref-picker__item:hover {
+  background: rgba(74, 231, 253, 0.1);
+}
+
+.prompt-param-ref-picker__item.is-selected {
+  background: rgba(74, 231, 253, 0.14);
+}
+
+.prompt-param-ref-picker__name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prompt-param-ref-picker__check {
+  flex-shrink: 0;
+  font-size: 16px;
+  color: #52c41a;
+}
+
+.prompt-param-ref-picker__empty {
+  padding: 12px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.45);
+  text-align: center;
+}

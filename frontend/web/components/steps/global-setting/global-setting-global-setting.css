@@ -1,0 +1,448 @@
+/* Tailwind/PostCSS component styles for global-setting. */
+/*
+ * GlobalSetting 伴随样式：由原 components/steps/GlobalSetting.vue \3c style scoped> 平移。
+ * scoped 等价处理：组件内元素规则统一加 .global-setting 前缀（含原 :deep() 展开）；
+ * 「新增风格」弹窗内容（asset-form-modal / style-cover-upload）渲染在 body portal，选择器原样保留
+ * （与 AssetsLibraryPanel.css 同源同值）。
+ */
+
+.global-setting {
+  padding: 1.5rem;
+}
+
+.global-setting .content-header {
+  margin-bottom: 2rem;
+}
+
+.global-setting .dict-placeholder {
+  margin: 0.5rem 0 0;
+  color: var(--home-muted, #8e97a5);
+  font-size: 0.9375rem;
+}
+
+.global-setting .step-description-text {
+  color: var(--home-muted, #8e97a5);
+  font-size: 1rem;
+  line-height: 1.6;
+  margin: 0;
+  font-weight: 500;
+}
+
+.global-setting .setting-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 2.5rem;
+  padding: 8px 12px 58px;
+}
+
+.global-setting .setting-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.global-setting .section-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--home-text, #e6edf3);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.global-setting .info-icon {
+  font-size: 1rem;
+  color: var(--home-cyan, #4ae7fd);
+  cursor: help;
+}
+
+.global-setting .option-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.global-setting .option-card {
+  padding: 0.875rem 1.5rem;
+  border: 2px solid rgba(74, 231, 253, 0.22);
+  border-radius: var(--radius-lg);
+  background: rgba(12, 16, 24, 0.88);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 140px;
+  justify-content: center;
+}
+
+.global-setting .option-card:hover {
+  border-color: rgba(74, 231, 253, 0.45);
+  background: rgba(14, 89, 250, 0.12);
+}
+
+.global-setting .option-card.active {
+  border-color: rgba(0, 171, 216, 0.75);
+  background: rgba(14, 89, 250, 0.18);
+  color: var(--home-cyan, #4ae7fd);
+  font-weight: 600;
+}
+
+.global-setting .option-checkbox {
+  width: 20px;
+  height: 20px;
+  border: 2px solid rgba(74, 231, 253, 0.35);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.global-setting .option-card.active .option-checkbox {
+  border-color: rgba(0, 171, 216, 0.9);
+  background: linear-gradient(270deg, #0e59fa 0%, #00abd8 100%);
+}
+
+.global-setting .check-icon {
+  color: white;
+  font-size: 0.875rem;
+}
+
+.global-setting .option-label {
+  font-size: 0.9375rem;
+  color: var(--home-text, #e6edf3);
+  font-weight: 500;
+}
+
+.global-setting .option-card.active .option-label {
+  color: var(--home-cyan, #4ae7fd);
+}
+.global-setting .content_box {
+  padding: 8px 16px;
+}
+/* 风格选择区域 */
+.global-setting .subsection-title {
+  font-size: 14px;
+  color: var(--home-text, #e6edf3);
+  margin-bottom: 0;
+}
+.global-setting .title-one {
+  margin-bottom: 8px;
+}
+.global-setting .head_box {
+  padding-left: 16px;
+  height: 40px;
+  width: 100%;
+  background: rgba(32, 36, 52, 1);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.global-setting .subsection-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.global-setting .style-more-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 4px 2px 4px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--home-cyan, #4ae7fd);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: color 0.2s ease;
+}
+
+.global-setting .style-more-button:hover,
+.global-setting .style-more-button:focus-visible {
+  color: #8af3ff;
+  outline: none;
+}
+
+.global-setting .style-more-button__arrow {
+  font-size: 10px;
+  transition: transform 0.2s ease;
+}
+
+.global-setting .style-more-button[aria-expanded='true'] .style-more-button__arrow {
+  transform: translateX(2px);
+}
+
+.global-setting-style-modal-wrap .ant-modal {
+  max-width: calc(100vw - 32px);
+  padding-bottom: 0;
+  /* 与批量生成弹窗一致：视口内固定高度，不随内容伸缩 */
+  height: min(698px, calc(100dvh - 80px)) !important;
+  max-height: min(698px, calc(100dvh - 80px)) !important;
+}
+
+/* antd 5: content；antd 6: container（className 在 .ant-modal 上） */
+.global-setting-style-modal.ant-modal,
+.global-setting-style-modal-wrap .ant-modal.global-setting-style-modal {
+  height: min(698px, calc(100dvh - 80px)) !important;
+  max-height: min(698px, calc(100dvh - 80px)) !important;
+}
+
+.global-setting-style-modal .ant-modal-content,
+.global-setting-style-modal .ant-modal-container,
+.global-setting-style-modal-wrap .ant-modal-content,
+.global-setting-style-modal-wrap .ant-modal-container,
+html.app-shell-create .global-setting-style-modal-wrap .ant-modal-content,
+html.app-shell-create .global-setting-style-modal-wrap .ant-modal-container,
+html.app-shell-create .ant-modal.global-setting-style-modal .ant-modal-content,
+html.app-shell-create .ant-modal.global-setting-style-modal .ant-modal-container {
+  display: flex;
+  flex-direction: column;
+  height: 100% !important;
+  max-height: 100% !important;
+  padding: 0;
+  overflow: hidden;
+  border: none !important;
+  border-radius: 12px;
+  background: #191a1d;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+  box-sizing: border-box;
+}
+
+.global-setting-style-modal .ant-modal-header,
+.global-setting-style-modal-wrap .ant-modal-header,
+html.app-shell-create .ant-modal-wrap.global-setting-style-modal-wrap .ant-modal .ant-modal-header,
+html.app-shell-create .ant-modal.global-setting-style-modal .ant-modal-header,
+html.layout-home-new .ant-modal-wrap.global-setting-style-modal-wrap .ant-modal .ant-modal-header,
+html.layout-home-new .ant-modal.global-setting-style-modal .ant-modal-header {
+  flex: 0 0 auto;
+  margin: 0 !important;
+  padding: 20px 24px 0 !important;
+  border-bottom: 0 !important;
+  background: #191a1d;
+}
+
+.global-setting-style-modal .ant-modal-title,
+.global-setting-style-modal-wrap .ant-modal-title,
+html.app-shell-create .global-setting-style-modal-wrap .ant-modal-title,
+html.layout-home-new .global-setting-style-modal-wrap .ant-modal-title {
+  color: var(--home-text, #e6edf3);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 24px;
+}
+
+.global-setting-style-modal .ant-modal-close,
+.global-setting-style-modal-wrap .ant-modal-close,
+html.app-shell-create .ant-modal-wrap.global-setting-style-modal-wrap .ant-modal-close,
+html.layout-home-new .ant-modal-wrap.global-setting-style-modal-wrap .ant-modal-close {
+  top: 18px !important;
+  inset-inline-end: 20px !important;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.global-setting-style-modal .ant-modal-close:hover,
+.global-setting-style-modal-wrap .ant-modal-close:hover {
+  color: var(--home-cyan, #4ae7fd);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.global-setting-style-modal .ant-modal-body,
+.global-setting-style-modal-wrap .ant-modal-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0 !important;
+  overflow: hidden;
+}
+
+/* 内层壳：对齐 .bgam，保证分类少/多时高度不变、列表区内滚 */
+.global-setting-style-modal .style-browser-shell,
+.global-setting-style-modal-wrap .style-browser-shell {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.global-setting-style-modal .style-browser-popover__header {
+  flex: 0 0 auto;
+  min-width: 0;
+  /* 标题与 Tab 留出间距；Tab 与卡片列表收紧 */
+  padding: 12px 24px 8px;
+  border-bottom: 0;
+  background: #191a1d;
+  container-type: inline-size;
+}
+
+.global-setting-style-modal .style-browser-popover__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 4px 24px 20px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(74, 231, 253, 0.28) transparent;
+}
+
+.global-setting-style-modal .style-browser-popover__body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.global-setting-style-modal .style-browser-popover__body::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(74, 231, 253, 0.28);
+}
+
+.global-setting-style-modal .styles-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.global-setting-style-modal .infinite-scroll-load-footer {
+  padding-bottom: 0;
+}
+
+.global-setting .style-category-filter {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: clamp(4px, 0.9cqi, 8px);
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+  overflow-y: hidden;
+}
+
+.global-setting .style-category-filter__item {
+  display: inline-flex;
+  flex: 1 1 0%;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 32px;
+  padding: 6px clamp(4px, 1.2cqi, 8px);
+  border: 1px solid rgba(47, 57, 73, 1);
+  border-radius: 8px;
+  background: rgba(10, 14, 22, 0.72);
+  color: var(--home-muted, rgba(255, 255, 255, 0.66));
+  cursor: pointer;
+  font-size: clamp(11px, 1.8cqi, 13px);
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: none;
+  transition:
+    color 0.2s ease,
+    border-color 0.2s ease,
+    background 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.global-setting .style-category-filter__item:hover,
+.global-setting .style-category-filter__item:focus-visible {
+  border-color: rgba(74, 231, 253, 0.35);
+  color: rgba(255, 255, 255, 0.92);
+  outline: none;
+}
+
+.global-setting .style-category-filter__item.is-active {
+  border-color: rgba(0, 108, 143, 1);
+  background: linear-gradient(270deg, rgba(14, 89, 250, 0.2) 0%, rgba(0, 171, 216, 0.2) 100%);
+  color: #fff;
+  box-shadow: 0 2px 12px rgba(74, 231, 253, 0.18);
+}
+
+.global-setting .style-category-filter__item:disabled {
+  cursor: wait;
+  opacity: 0.5;
+}
+
+.global-setting .style-category-filter__hint {
+  min-height: 32px;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 12px;
+  line-height: 32px;
+}
+
+.global-setting .styles-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.global-setting .style-lock-hint {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid rgba(250, 173, 20, 0.38);
+  border-radius: 6px;
+  color: #ffd666;
+  background: rgba(250, 173, 20, 0.08);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.global-setting .style-card {
+  aspect-ratio: 1;
+  border-radius: 8px;
+  overflow: hidden;
+  position: relative;
+  cursor: pointer;
+  transition:
+    border-color 0.38s cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 0.38s cubic-bezier(0.4, 0, 0.2, 1),
+    transform 0.38s cubic-bezier(0.4, 0, 0.2, 1);
+  border: 2px solid rgba(74, 231, 253, 0.2);
+  background: rgba(12, 16, 24, 0.9);
+  isolation: isolate;
+  will-change: transform, box-shadow;
+}
+
+.global-setting .style-card:hover:not(.active) {
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.42);
+  border-color: rgba(74, 231, 253, 0.45);
+  transform: translateY(-2px);
+}
+
+.global-setting .style-card.is-style-locked {
+  cursor: not-allowed;
+  opacity: 0.48;
+  filter: grayscale(0.28);
+}
+
+.global-setting .style-card.is-style-locked:hover {
+  border-color: rgba(74, 231, 253, 0.2);
+  box-shadow: none;
+  transform: none;
+}
+
+.global-setting .style-card.active {
+  border-color: rgba(74, 231, 253, 0.95);
+  transform: translateY(-2px) scale(1.02);
+  box-shadow:
+    0 0 0 2px rgba(14, 89, 250, 0.45),
+    0 0 18px rgba(74, 231, 253, 0.38),
+    0 10px 28px rgba(0, 0, 0, 0.45);
+}
+
+.global-setting .selected-style-shortcut {
+  outline: none;
+}
+
+.global-setting .selected-style-shortcut:focus-visible {
+  box-shadow:
+    0 0 0 2px rgba(14, 89, 250, 0.55),
+    0 0 0 4px rgba(74, 231, 253, 0.5),
+    0 10px 28px rgba(0, 0, 0, 0.45);
+}

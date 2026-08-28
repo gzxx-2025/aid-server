@@ -1,0 +1,226 @@
+/* Tailwind/PostCSS component styles for recharge-modal. */
+
+
+.recharge-modal__qr-wrap {
+  position: relative;
+  margin-top: 10px;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 8px;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.recharge-modal__qr-wrap--pay {
+  width: 180px;
+  height: 180px;
+  margin: 0 auto;
+  aspect-ratio: auto;
+  flex-shrink: 0;
+}
+
+.recharge-modal__qr-wrap--expired .recharge-modal__scan-line {
+  animation: none;
+  opacity: 0;
+}
+
+/* 二维码过期后盖在码上，交互参考登录页微信码区（此处仅过期时显示，非 hover） */
+.recharge-pay-qr-refresh-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 12px;
+  border: none;
+  border-radius: inherit;
+  background: rgba(14, 17, 24, 0.72);
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.recharge-pay-qr-refresh-overlay:hover:not(:disabled) {
+  background: rgba(14, 17, 24, 0.82);
+}
+
+.recharge-pay-qr-refresh-overlay:disabled {
+  cursor: wait;
+}
+
+.recharge-pay-qr-refresh-overlay__text {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: 148px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  text-align: center;
+  line-height: 1.35;
+  background: linear-gradient(270deg, rgba(14, 89, 250, 0.95) 0%, rgba(0, 171, 216, 0.95) 100%);
+  box-shadow: 0 4px 14px rgba(14, 89, 250, 0.35);
+}
+
+.recharge-modal__qr {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* 扫码线：自上而下循环（青色系） */
+.recharge-modal__scan-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  z-index: 2;
+  height: 12px;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    rgba(74, 231, 253, 0),
+    rgba(74, 231, 253, 0.4),
+    rgba(74, 231, 253, 0.95),
+    rgba(74, 231, 253, 0.4),
+    rgba(74, 231, 253, 0)
+  );
+  box-shadow:
+    0 0 10px rgba(74, 231, 253, 0.55),
+    0 0 20px rgba(74, 231, 253, 0.2);
+  animation: recharge-qr-scan 2.4s linear infinite;
+}
+
+@keyframes recharge-qr-scan {
+  0% {
+    top: 0;
+  }
+  100% {
+    top: calc(100% - 12px);
+  }
+}
+
+.recharge-modal__qr-empty {
+  color: #8e97a5;
+  font-size: 12px;
+  padding: 10px;
+  text-align: center;
+}
+
+.order-toolbar {
+  margin-bottom: 8px;
+}
+
+.order-status-tabs {
+  margin-bottom: 12px;
+}
+
+.order-status-tabs .ant-tabs-nav {
+  margin-bottom: 0;
+}
+
+.order-status-tabs .ant-tabs-nav::before {
+  border-color: rgba(74, 231, 253, 0.2);
+}
+
+.order-status-tabs .ant-tabs-tab {
+  color: #8e97a5;
+  padding: 8px 12px;
+}
+
+.order-status-tabs .ant-tabs-tab:hover {
+  color: rgba(74, 231, 253, 0.85);
+}
+
+.order-status-tabs .ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: rgba(74, 231, 253, 1) !important;
+}
+
+.order-status-tabs .ant-tabs-ink-bar {
+  background: rgba(74, 231, 253, 1);
+}
+
+.order-empty {
+  color: #8e97a5;
+}
+
+.order-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.order-card {
+  border: 1px solid rgba(74, 231, 253, 0.2);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.order-card__title {
+  color: #fff;
+  font-weight: 600;
+}
+
+.order-card__meta {
+  margin-top: 4px;
+  color: #8e97a5;
+  font-size: 12px;
+}
+
+.order-card__actions {
+  margin-top: 8px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.order-card__actions--pay {
+  align-items: center;
+}
+
+.order-card--highlight {
+  animation: recharge-order-highlight 1.1s ease-in-out 2;
+  box-shadow: 0 0 0 2px rgba(74, 231, 253, 0.75);
+  border-radius: 8px;
+}
+
+@keyframes recharge-order-highlight {
+  0%,
+  100% {
+    box-shadow: 0 0 0 2px rgba(74, 231, 253, 0.75);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(74, 231, 253, 0.45);
+  }
+}
+
+.consume-drawer__hint {
+  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #8e97a5;
+}
+
+.consume-drawer__scroll {
+  max-height: calc(100vh - 160px);
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.consume-drawer__error {
+  color: #fca5a5;
+}
+
+/* 对应原 TransitionGroup(name="consume-item") 的追加渐现 */
+.consume-card--appended {
+  animation: consume-item-in 0.28s ease;
+}

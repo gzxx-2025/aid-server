@@ -1,0 +1,230 @@
+/* Tailwind/PostCSS component styles for create-flow-compact-viewport. */
+
+@media (max-width: 1600px) and (max-height: 900px) {
+
+  html.app-shell-create .ant-modal.import-script-modal .import-container,
+  html.app-shell-create .import-script-modal-wrap .import-script-modal-shell,
+  html.app-shell-create .import-asset-preview-modal-wrap .import-asset-preview-modal-shell,
+  html.app-shell-create .select-asset-image-modal-wrap .saim-inner,
+  html.app-shell-create .select-asset-image-modal-wrap .content_box,
+  html.app-shell-create .storyboard-param-settings-modal-wrap .spsm-inner,
+  html.app-shell-create .import-scene-image-modal-wrap .import-scene-shell,
+  html.app-shell-create .select-scene-image-modal-wrap .select-scene-shell,
+  html.app-shell-create .batch-regenerate-dubbing-wrap .brdm,
+  html.app-shell-create .multi-angle-modal-wrap .ma-shell,
+  html.app-shell-create .batch-generate-storyboard-wrap .bgsm,
+  html.app-shell-create .create-first-step-wrap .modal-shell,
+  html.app-shell-create .batch-generate-asset-wrap .bgam,
+  html.app-shell-create .agent-picker-modal .picker-shell,
+  /* 新增/编辑资产、新增风格：仅匹配带底栏的表单壳，避免误伤 SeriesAssetDesignModal */
+  html.app-shell-create .create-flow-modal .asset-form-modal:has(.asset-form-modal__footer) {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    height: auto !important;
+    max-height: 100% !important;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  html.app-shell-create .ant-modal.import-script-modal .import-container {
+    flex-direction: row;
+  }
+
+  html.app-shell-create .storyboard-param-settings-modal .spsm-body,
+  html.app-shell-create .batch-regenerate-dubbing-wrap .brdm-body,
+  html.app-shell-create .batch-generate-storyboard-wrap .bgsm-body,
+  html.app-shell-create .create-first-step-wrap .modal-body,
+  html.app-shell-create .select-asset-image-modal-wrap .saim-content-row {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  html.app-shell-create .ant-modal.import-script-modal .main-content,
+  html.app-shell-create .ant-modal.import-script-modal .content-area,
+  html.app-shell-create .ant-modal.select-scene-image-modal .content-area,
+  html.app-shell-create .storyboard-param-settings-modal .spsm-grid-scroll,
+  html.app-shell-create .storyboard-param-settings-modal .spsm-settings-scroll,
+  html.app-shell-create .batch-regenerate-dubbing-wrap .brdm-body,
+  html.app-shell-create .batch-generate-storyboard-wrap .bgsm-body,
+  html.app-shell-create .batch-generate-asset-wrap .bgam-body,
+  html.app-shell-create .agent-picker-modal .picker-scroll,
+  html.app-shell-create .create-flow-modal .asset-form-modal__grid {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+  }
+
+  html.app-shell-create .agent-picker-modal .picker-scroll::-webkit-scrollbar {
+    display: none !important;
+  }
+
+  html.app-shell-create .ant-modal.import-script-modal .document-tree {
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  html.app-shell-create .create-flow-modal .ant-modal-footer .ant-btn,
+  html.app-shell-create .create-flow-modal .ant-modal-body .ant-btn:not(.ant-btn-sm):not(.ant-btn-link) {
+    height: var(--cf-c-modal-btn-h) !important;
+    min-height: var(--cf-c-modal-btn-h) !important;
+    padding-inline: 8px !important;
+    line-height: calc(var(--cf-c-modal-btn-h) - 2px) !important;
+    font-size: var(--cf-c-modal-btn-fs) !important;
+    font-weight: 500 !important;
+    justify-content: center;
+    align-items: center;
+    display: flex;
+  }
+
+  /* 取消按钮内 text-gradient / 主按钮 span：继承同一字号，避免一大一小 */
+  html.app-shell-create .create-flow-modal .ant-modal-footer .ant-btn .text-gradient,
+  html.app-shell-create .create-flow-modal .ant-modal-footer .ant-btn > span,
+  html.app-shell-create .create-flow-modal .ant-modal-body .ant-btn:not(.ant-btn-sm):not(.ant-btn-link) .text-gradient,
+  html.app-shell-create .create-flow-modal .ant-modal-body .ant-btn:not(.ant-btn-sm):not(.ant-btn-link) > span {
+    font-size: inherit !important;
+    font-weight: inherit !important;
+    line-height: inherit !important;
+  }
+
+  /* 命名约定的底部双按钮（含自定义 footer，不在 ant-modal-footer 内） */
+  html.app-shell-create .create-flow-modal .ant-btn[class*='btn-cancel'],
+  html.app-shell-create .create-flow-modal .ant-btn[class*='btn-ok'],
+  html.app-shell-create .create-flow-modal .ant-btn[class*='__btn-cancel'],
+  html.app-shell-create .create-flow-modal .ant-btn[class*='__btn-ok'],
+  html.app-shell-create .create-flow-modal .footer-right .ant-btn,
+  html.app-shell-create .create-flow-modal .modal-footer .ant-btn,
+  html.app-shell-create .create-flow-modal .bgam-actions .ant-btn,
+  html.app-shell-create .create-flow-modal .bgsm-actions .ant-btn,
+  html.app-shell-create .create-flow-modal .picker-footer .ant-btn,
+  html.app-shell-create .create-flow-modal .spsm-footer .ant-btn,
+  html.app-shell-create .create-flow-modal .brdm-footer .ant-btn {
+    font-size: var(--cf-c-modal-btn-fs) !important;
+    font-weight: 500 !important;
+  }
+
+  html.app-shell-create .create-flow-modal .ant-btn[class*='btn-cancel'] .text-gradient,
+  html.app-shell-create .create-flow-modal .ant-btn[class*='btn-ok'] .text-gradient,
+  html.app-shell-create .create-flow-modal .ant-btn[class*='__btn-cancel'] .text-gradient,
+  html.app-shell-create .create-flow-modal .ant-btn[class*='__btn-ok'] .text-gradient,
+  html.app-shell-create .create-flow-modal .footer-right .ant-btn .text-gradient,
+  html.app-shell-create .create-flow-modal .modal-footer .ant-btn .text-gradient,
+  html.app-shell-create .create-flow-modal .bgam-actions .ant-btn .text-gradient,
+  html.app-shell-create .create-flow-modal .bgsm-actions .ant-btn .text-gradient,
+  html.app-shell-create .create-flow-modal .picker-footer .ant-btn .text-gradient {
+    font-size: inherit !important;
+    font-weight: inherit !important;
+    line-height: inherit !important;
+  }
+
+  html.app-shell-create .create-flow-modal .ant-modal-body .ant-input,
+  html.app-shell-create .create-flow-modal .ant-modal-body .ant-input-affix-wrapper,
+  html.app-shell-create .create-flow-modal .ant-modal-body .ant-select-selector {
+    font-size: var(--cf-c-modal-body-fs) !important;
+  }
+
+  html.app-shell-create .create-flow-modal .ant-modal-body .ant-input-lg,
+  html.app-shell-create .create-flow-modal .ant-modal-body .ant-select-lg .ant-select-selector {
+    height: var(--cf-c-modal-btn-h) !important;
+    min-height: var(--cf-c-modal-btn-h) !important;
+  }
+
+  /* ---------- 固定 698px 壳层 ---------- */
+  html.app-shell-create .create-first-step-wrap .modal-shell {
+    width: var(--cf-c-modal-w-xl) !important;
+    height: auto !important;
+    max-height: calc(100dvh - var(--cf-c-modal-edge) * 2) !important;
+  }
+
+  html.app-shell-create .create-first-step-wrap .modal-title {
+    height: var(--cf-c-modal-header-h) !important;
+    line-height: var(--cf-c-modal-header-h) !important;
+    padding-top: 10px !important;
+    font-size: var(--cf-c-modal-title-fs) !important;
+  }
+
+  html.app-shell-create .create-first-step-wrap .modal-body {
+    height: auto !important;
+    padding: var(--cf-c-modal-pad) 18px 0 !important;
+    overflow: hidden !important;
+  }
+
+  html.app-shell-create .create-first-step-wrap .modal-body .create-first-step-form {
+    height: 100%;
+    min-height: 0;
+  }
+
+  html.app-shell-create .create-first-step-wrap .modal-actions {
+    position: static !important;
+    padding: var(--cf-c-modal-pad) 18px !important;
+  }
+
+  html.app-shell-create .create-first-step-wrap .btn {
+    height: var(--cf-c-modal-btn-h) !important;
+    font-size: var(--cf-c-modal-btn-fs) !important;
+    padding: 0 18px !important;
+    border-radius: 8px !important;
+  }
+
+  html.app-shell-create .create-first-step-wrap .close-btn {
+    top: 14px !important;
+    right: 16px !important;
+  }
+
+  html.app-shell-create .storyboard-param-settings-modal .spsm-title {
+    font-size: var(--cf-c-modal-title-fs) !important;
+  }
+
+  html.app-shell-create .storyboard-param-settings-modal .spsm-header {
+    padding-bottom: var(--cf-c-modal-gap) !important;
+  }
+
+  html.app-shell-create .storyboard-param-settings-modal .spsm-body {
+    gap: var(--cf-c-modal-gap) !important;
+  }
+
+  html.app-shell-create .storyboard-param-settings-modal .spsm-footer {
+    padding: var(--cf-c-modal-pad) var(--cf-c-modal-pad-lg) !important;
+  }
+
+  html.app-shell-create .storyboard-param-settings-modal .spsm-left,
+  html.app-shell-create .storyboard-param-settings-modal .spsm-right {
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  html.app-shell-create .storyboard-param-settings-modal .spsm-grid-scroll,
+  html.app-shell-create .storyboard-param-settings-modal .spsm-settings-scroll {
+    max-height: none !important;
+  }
+
+  html.app-shell-create .storyboard-param-settings-modal .spsm-textarea-wrap--rich {
+    height: min(180px, 28vh) !important;
+  }
+
+  html.app-shell-create .storyboard-param-settings-modal .spsm-textarea-wrap--rich .ql-editor {
+    min-height: min(180px, 28vh) !important;
+    height: min(180px, 28vh) !important;
+  }
+
+  html.app-shell-create .storyboard-param-settings-modal .spsm-preview-block,
+  html.app-shell-create .storyboard-param-settings-modal .spsm-preview-slot {
+    min-height: 180px !important;
+    height: auto !important;
+  }
+
+  html.app-shell-create .batch-regenerate-dubbing-wrap .brdm-header,
+  html.app-shell-create .multi-angle-modal-wrap .ma-header,
+  html.app-shell-create .batch-generate-storyboard-wrap .bgsm-header {
+    height: var(--cf-c-modal-header-h) !important;
+  }
+
+  html.app-shell-create .batch-regenerate-dubbing-wrap .brdm-title,
+  html.app-shell-create .multi-angle-modal-wrap .ma-title,
+  html.app-shell-create .batch-generate-storyboard-wrap .bgsm-title {
+    font-size: var(--cf-c-modal-title-fs) !important;
+  }
+}

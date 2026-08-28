@@ -1,0 +1,215 @@
+/*
+ * WorksLibraryPanel 伴随样式：由原 components/home/WorksLibraryPanel.vue <style scoped> 平移。
+ * 与 AssetsLibraryPanel 共用 works-lib-* 语义 class 的选择器加 .works-library-figma 前缀，
+ * 还原原 scoped 属性隔离（避免全局引入后泄漏到资产库）；其余选择器原样保留。
+ */
+
+/* 封面区尺寸与占位样式见 assets/css/home-theme.css */
+
+.works-library-figma .works-lib-card:hover .works-lib-card__cover-img.is-loaded {
+  transform: scale(1.04);
+}
+
+/* 剧集：标题 + 日期叠在封面左下角 */
+.works-library-figma .works-lib-card__cover-meta {
+  position: absolute;
+  left: 10px;
+  bottom: 8px;
+  right: 56px;
+  z-index: 2;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.works-library-figma .works-lib-card__cover-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.works-library-figma .works-lib-card__cover-updated {
+  font-size: 12px;
+  line-height: 1.2;
+  color: rgba(230, 237, 243, 0.88);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+.works-library-figma .works-lib-card__cover-actions {
+  z-index: 3;
+}
+
+.works-library-figma .works-lib-grid {
+  grid-auto-rows: max-content;
+}
+
+/* 电视剧集 Tab：新建卡片与剧集卡片同高；电影/短片 Tab 不受影响 */
+.works-library-figma--series-tab {
+  --works-lib-body-h: 56px;
+}
+
+.works-library-figma--series-tab .works-lib-grid {
+  align-items: stretch;
+}
+
+.works-library-figma--series-tab .works-lib-card,
+.works-library-figma--series-tab .works-lib-add-card {
+  align-self: stretch;
+  height: auto;
+}
+
+.works-library-figma--series-tab .works-lib-add-card__body {
+  height: auto;
+  min-height: var(--works-lib-body-h, 118px);
+  flex: 1 0 auto;
+}
+
+/* 剧集卡片底部：仅展示总集数与添加按钮 */
+.works-library-figma .works-lib-card--series .works-lib-card__body {
+  display: flex;
+  flex-direction: column;
+  padding: 0 12px 12px;
+  box-sizing: border-box;
+  height: auto;
+  min-height: var(--works-lib-body-h, 118px);
+  overflow: visible;
+}
+
+.works-library-figma .works-lib-card__episodes--series {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  gap: 6px;
+  min-height: 0;
+  padding-top: 10px;
+  margin-top: 0;
+  border-top: 1px solid rgba(74, 231, 253, 0.12);
+  box-sizing: border-box;
+}
+
+.works-library-figma .works-lib-card__ep-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  flex-shrink: 0;
+  min-height: 32px;
+  box-sizing: border-box;
+}
+
+.works-library-figma .works-lib-card__ep-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: #fff;
+}
+
+.works-library-figma .works-lib-card__ep-label em {
+  margin-left: 6px;
+  font-style: normal;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.works-library-figma .works-lib-card__ep-add--primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 8px;
+  border: none;
+  background: linear-gradient(270deg, #0e59fa, #00abd8);
+  color: #fff;
+  font-size: 18px;
+  line-height: 1;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(14, 89, 250, 0.25);
+}
+
+.works-library-figma .works-lib-card__ep-add--primary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  filter: none;
+}
+
+.works-library-figma .works-lib-card__ep-add--primary:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+/* 文字操作按钮：覆盖圆形图标按钮的固定宽高，做成胶囊形 */
+.works-library-figma .works-lib-card__cover-btn--text {
+  width: auto !important;
+  min-width: 52px;
+  height: 28px !important;
+  padding: 0 10px;
+  border-radius: 14px;
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+  color: #fff;
+  background: rgba(14, 89, 250, 0.88) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.works-library-figma .works-lib-card__cover-btn--text:hover {
+  background: rgba(14, 89, 250, 1) !important;
+  filter: brightness(1.06);
+}
+
+.works-library-figma .works-lib-card__cover-badge {
+  position: absolute;
+  left: 10px;
+  top: 10px;
+  z-index: 2;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.35;
+  color: #fff;
+  background: rgba(14, 89, 250, 0.82);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* 审核中 — 设计稿浅蓝胶囊 */
+.works-library-figma .works-lib-card__cover-badge--reviewing {
+  background: linear-gradient( 270deg, #0E59FA 0%, #00ABD8 100%);
+}
+
+/* 审核失败 — 设计稿浅红/粉胶囊 */
+.works-library-figma .works-lib-card__cover-badge--failed {
+  background: #FF6969;
+}
+
+/* 发布按钮 hover 提示：深色渐变气泡（设计稿样式），teleport 到 body 不能 scoped */
+.works-lib-publish-tooltip .ant-tooltip-inner {
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: linear-gradient(270deg, #444444 0%, #2b2b2b 100%);
+  border: none;
+  box-shadow: 0 8px 24px rgba(8, 12, 24, 0.45);
+  color: #fff;
+  font-size: 13px;
+  line-height: 1.4;
+  white-space: nowrap;
+  min-height: 0;
+}
+
+.works-lib-publish-tooltip .ant-tooltip-arrow::before,
+.works-lib-publish-tooltip .ant-tooltip-arrow::after {
+  background: #353535;
+}

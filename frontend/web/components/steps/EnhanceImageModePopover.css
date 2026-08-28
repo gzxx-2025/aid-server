@@ -1,0 +1,165 @@
+/* 原 EnhanceImageModePopover.vue <style scoped>：类名与声明原样保留（enhance-mode-* 前缀已具名，无需额外作用域） */
+.enhance-mode-popover-root {
+  display: inline-flex;
+  vertical-align: middle;
+}
+
+.enhance-mode-popover-trigger {
+  display: inline-flex;
+}
+
+.enhance-mode-panel {
+  padding: 10px;
+  border-radius: 12px;
+  background: rgba(19, 23, 34, 0.98);
+  border: 1px solid rgba(74, 231, 253, 0.22);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
+  box-sizing: border-box;
+}
+
+.enhance-mode-panel.is-open-down {
+  border-top-left-radius: 10px;
+  border-top-right-radius: 10px;
+}
+
+.enhance-mode-panel.is-open-up {
+  border-bottom-left-radius: 10px;
+  border-bottom-right-radius: 10px;
+}
+
+.enhance-mode-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 10px;
+  margin: 0;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  color: #e8ecf4;
+  transition: background 0.15s ease;
+}
+
+.enhance-mode-item:hover {
+  background: rgba(74, 231, 253, 0.08);
+}
+
+.enhance-mode-item + .enhance-mode-item {
+  border-top: 1px solid rgba(120, 140, 170, 0.18);
+  margin-top: 4px;
+  padding-top: 14px;
+}
+
+.enhance-mode-thumb {
+  position: relative;
+  flex-shrink: 0;
+  width: 52px;
+  height: 52px;
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  background: #1a2233;
+}
+
+.enhance-mode-thumb__half {
+  flex: 1;
+  height: 100%;
+}
+
+.enhance-mode-thumb__half--before {
+  filter: blur(1.2px) saturate(0.85);
+  opacity: 0.72;
+}
+
+.enhance-mode-thumb__half--after {
+  filter: contrast(1.08) saturate(1.05);
+}
+
+.enhance-mode-thumb--redraw_ultra .enhance-mode-thumb__half--before {
+  background: linear-gradient(135deg, #4a3728 0%, #6b5344 100%);
+}
+
+.enhance-mode-thumb--redraw_ultra .enhance-mode-thumb__half--after {
+  background: linear-gradient(135deg, #c27850 0%, #e8c9a8 100%);
+}
+
+.enhance-mode-thumb--lossless_upscale .enhance-mode-thumb__half--before {
+  background: linear-gradient(135deg, #3d2f55 0%, #524070 100%);
+}
+
+.enhance-mode-thumb--lossless_upscale .enhance-mode-thumb__half--after {
+  background: linear-gradient(135deg, #7c5cbf 0%, #a8e890 45%, #6fd4c4 100%);
+}
+
+.enhance-mode-thumb__divider {
+  position: absolute;
+  left: 50%;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  margin-left: -1px;
+  background: rgba(255, 255, 255, 0.85);
+  border-radius: 1px;
+  box-shadow: 0 0 6px rgba(0, 0, 0, 0.35);
+}
+
+.enhance-mode-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.enhance-mode-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.enhance-mode-title {
+  color: #f1f5ff;
+}
+
+.enhance-mode-cost {
+  font-size: 12px;
+  font-weight: 500;
+  color: #a8b4c8;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.enhance-mode-coin {
+  width: 14px;
+  height: 14px;
+  vertical-align: middle;
+  display: inline-block;
+}
+
+.enhance-mode-desc {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #8e97a5;
+}
+
+.enhance-mode-fade-enter-active,
+.enhance-mode-fade-leave-active {
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.enhance-mode-fade-enter-from,
+.enhance-mode-fade-leave-to {
+  opacity: 0;
+  transform: translateY(4px);
+}
+
+.enhance-mode-panel.is-open-up.enhance-mode-fade-enter-from,
+.enhance-mode-panel.is-open-up.enhance-mode-fade-leave-to {
+  transform: translateY(-4px);
+}

@@ -1,0 +1,160 @@
+/* Tailwind/PostCSS component styles for import-script-modal. */
+
+
+.import-script-modal-wrap .main-content {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #111621;
+}
+
+.import-script-modal-wrap .main-content .breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  font-size: 13px;
+  color: var(--home-muted, #8e97a5);
+}
+
+.import-script-modal-wrap .main-content .breadcrumb .breadcrumb-item.breadcrumb-muted {
+  color: #8e97a5 !important;
+}
+
+.import-script-modal-wrap .breadcrumb-item {
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+
+.import-script-modal-wrap .breadcrumb-item:hover {
+  color: var(--home-cyan, #4ae7fd);
+}
+
+.import-script-modal-wrap .breadcrumb-item.breadcrumb-current {
+  color: var(--home-text, #e6edf3) !important;
+  font-weight: 500;
+  cursor: default;
+}
+
+.import-script-modal-wrap .breadcrumb-item.breadcrumb-current:hover {
+  color: var(--home-text, #e6edf3) !important;
+}
+
+.import-script-modal-wrap .breadcrumb-separator {
+  font-size: 0.75rem;
+  color: rgba(142, 151, 165, 0.65);
+}
+
+.import-script-modal-wrap .content-area {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.import-script-modal-wrap .content-area .asset-list,
+.import-script-modal-wrap .content-area .import-asset-list,
+.import-script-modal-wrap .content-area .asset-list-container,
+.import-script-modal-wrap .content-area .asset-grid-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.import-script-modal-wrap .content-area .asset-list::-webkit-scrollbar,
+.import-script-modal-wrap .content-area .import-asset-list::-webkit-scrollbar,
+.import-script-modal-wrap .content-area .asset-list-container::-webkit-scrollbar,
+.import-script-modal-wrap .content-area .asset-grid-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.import-script-modal-wrap .modal-footer {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #191a1d;
+  padding: 12px 16px 16px;
+}
+
+.import-script-modal-wrap .footer-left {
+  display: flex;
+  align-items: center;
+}
+
+.import-script-modal-wrap .import-btn-dashed {
+  border-radius: 8px !important;
+  border: 1px dashed rgba(74, 231, 253, 0.35) !important;
+  background: #121212 !important;
+  color: #ffffff !important;
+  height: 30px;
+  padding: 0 12px !important;
+  font-size: 14px !important;
+}
+
+.import-script-modal-wrap .import-btn-dashed:hover {
+  border-color: rgba(74, 231, 253, 0.55) !important;
+  color: #4ae7fd !important;
+}
+
+.import-script-modal-wrap .footer-right {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.import-script-modal-wrap .footer-right .ant-btn {
+  min-width: 96px;
+  border-radius: 10px;
+  height: 34px;
+}
+
+.import-script-modal-wrap .footer-right .ant-btn-default {
+  border: 1px solid rgba(74, 231, 253, 0.3);
+  background: rgba(18, 18, 18, 1);
+  color: #e6edf3;
+}
+
+.import-script-modal-wrap .footer-right .ant-btn-primary {
+  border: none;
+  background: linear-gradient(270deg, #0e59fa 0%, #00abd8 100%);
+}
+
+@media (max-width: 1200px) {
+  .import-script-modal-wrap .import-container {
+    flex-direction: column;
+  }
+
+  .import-script-modal-wrap .sidebar {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid rgba(74, 231, 253, 0.12);
+    max-height: 180px;
+  }
+}
+
+/* 原非 scoped 全局覆盖块：选择器原样保留 */
+.ant-modal-wrap.import-script-modal-wrap .ant-modal.import-script-modal .ant-modal-content {
+  padding: 0 !important;
+  overflow: hidden;
+  border-radius: 12px;
+  background: #191a1d;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+}
+
+.ant-modal-wrap.import-script-modal-wrap .ant-modal.import-script-modal .ant-modal-header {
+  display: none !important;
+}
+
+.ant-modal-wrap.import-script-modal-wrap .ant-modal.import-script-modal .ant-modal-body {
+  padding: 0 !important;
+  background: #191a1d;
+}

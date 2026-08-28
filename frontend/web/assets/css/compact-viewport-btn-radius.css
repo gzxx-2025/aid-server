@@ -1,0 +1,71 @@
+/**
+ * 小分辨率：原 border-radius 10px 的按钮统一改为 6px
+ *
+ * 触发条件与 home-new-compact-viewport.css / create-flow-compact-viewport.css 一致：
+ *   宽 ≤1600 且 高 ≤900
+ *
+ * 仅覆盖按钮及按钮形态的交互控件（如模型下拉触发器），不影响卡片/输入框/容器。
+ * 本文件排除 postcss-pxtorem 换算。
+ */
+
+@media (max-width: 1600px) and (max-height: 900px) {
+  :is(html.layout-home-new, html.app-shell-create) {
+    --compact-btn-radius-from-10: 6px;
+  }
+
+  /* —— 首页壳侧栏 —— */
+  :is(html.layout-home-new, html.app-shell-create) .home-new-nav-item,
+  :is(html.layout-home-new, html.app-shell-create) .home-new-login,
+  /* —— 创作首步弹窗 —— */
+  html.app-shell-create .create-first-step-wrap .btn,
+  /* —— 生图 / 骨架主按钮 —— */
+  html.app-shell-create .generate-btn,
+  html.app-shell-create .skeleton-primary-btn,
+  /* —— 弹窗底部：命名约定 *-btn-cancel / *-btn-ok / *-btn-tool —— */
+  html.app-shell-create :is(
+      .story-gen-figma__btn-cancel,
+      .story-gen-figma__btn-ok,
+      .extract-btn-cancel,
+      .extract-btn-ok,
+      .picker-btn-cancel,
+      .picker-btn-ok,
+      .import-btn-cancel,
+      .import-btn-ok,
+      .saim-btn-tool,
+      .saim-btn-cancel,
+      .saim-btn-ok,
+      .bgam-btn-cancel,
+      .bgam-btn-ok,
+      .bgsm-btn-cancel,
+      .bgsm-btn-ok,
+      .spsm-btn-cancel,
+      .spsm-btn-ok,
+      .speaker-picker-btn-cancel,
+      .speaker-picker-btn-ok,
+      .pgc-btn-cancel,
+      .pgc-btn-ok,
+      .publish-case-plaza__btn-cancel,
+      .publish-case-plaza__btn-ok
+    ),
+  /* —— 弹窗底部：通用 footer ant-btn（组件内写死 10px）—— */
+  html.app-shell-create .import-script-modal .footer-right .ant-btn,
+  html.app-shell-create .select-scene-image-modal .footer-left .ant-btn,
+  html.app-shell-create .select-scene-image-modal .footer-right .ant-btn,
+  /* —— 编辑弹窗 / 配置区按钮 —— */
+  html.app-shell-create .prompt-script-file-header--panel .generate-prompt-btn,
+  html.app-shell-create .prompt-script-file-header--scene-modal .prompt-row-actions .ant-btn,
+  html.app-shell-create .asset-generate-card__action.ant-btn,
+  html.app-shell-create .create-step-scp .scp-asset-empty .scp-actions .ant-btn.btn-primary,
+  html.app-shell-create .create-step-scp .extracting-actions .ant-btn.scp-stop-extract-btn,
+  html.app-shell-create .enhance-mode-item,
+  /* —— 分镜左侧面板 —— */
+  html.app-shell-create .sb-generate-prompt,
+  html.app-shell-create .sb-select-btn,
+  html.app-shell-create .sb-expand,
+  html.app-shell-create .sb-pill,
+  /* —— 模型下拉触发器（按钮形态，原 10px）—— */
+  html.app-shell-create .model-select-dropdown .selected-model,
+  html.app-shell-create .footer-model-select .model-select-dropdown .selected-model {
+    border-radius: var(--compact-btn-radius-from-10) !important;
+  }
+}

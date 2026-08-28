@@ -1,0 +1,195 @@
+/* Tailwind/PostCSS component styles for StoryboardParamSettingsModal. */
+
+
+.spsm-switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.spsm-readonly-hint {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(74, 231, 253, 0.08);
+  border: 1px solid rgba(74, 231, 253, 0.22);
+  color: rgba(142, 151, 165, 1);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.spsm-readonly-block {
+  pointer-events: none;
+  opacity: 0.72;
+}
+
+.spsm-section-title {
+  margin: 4px 0 12px;
+  color: rgba(225, 239, 255, 0.92);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.spsm-section-title--multi {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(74, 231, 253, 0.12);
+}
+
+.spsm-switch-label {
+  display: flex;
+  align-items: center;
+  color: rgba(142, 151, 165, 1);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.spsm-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-500, #4ae7fd);
+  margin-right: 6px;
+}
+
+.spsm-switch-row .ant-switch {
+  background: rgba(106, 123, 148, 0.65) !important;
+  border: 1px solid rgba(180, 198, 224, 0.45);
+}
+
+.spsm-switch-row .ant-switch.ant-switch-checked {
+  background: linear-gradient(270deg, #0e59fa 0%, #00abd8 100%) !important;
+}
+
+.spsm-right {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 16px 20px;
+  border: 1px solid rgba(142, 151, 165, 0.2);
+  border-radius: 8px;
+}
+
+.spsm-settings-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.spsm-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.spsm-field-title {
+  color: #8e97a5 !important;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.spsm-textarea-wrap {
+  position: relative;
+}
+
+.spsm-textarea-wrap--rich {
+  height: 238px;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.spsm-textarea-wrap--rich .rich-text-editor,
+.spsm-textarea-wrap--rich .rich-text-editor__host,
+.spsm-textarea-wrap--rich .ql-container.ql-snow {
+  height: 100%;
+  background: #121212 !important;
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 8px;
+}
+
+.spsm-textarea-wrap--rich .ql-container.ql-snow:hover,
+.spsm-textarea-wrap--rich .ql-container.ql-snow:focus-within {
+  border-color: transparent !important;
+}
+
+.spsm-textarea-wrap--rich .ql-container.ql-snow {
+  overflow-y: auto;
+}
+
+.spsm-textarea-wrap--rich .ql-editor {
+  min-height: 238px !important;
+  height: auto;
+  background: #121212 !important;
+  border: none !important;
+  border-radius: 8px;
+  color: rgba(225, 239, 255, 0.9);
+  padding-bottom: 28px;
+  overflow: visible;
+}
+
+.spsm-textarea-actions {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  display: flex;
+  gap: 4px;
+  z-index: 1;
+}
+
+.spsm-textarea-actions .ant-btn {
+  color: #8e97a5 !important;
+}
+
+.spsm-input-actions {
+  width: 100%;
+}
+
+.spsm-input-action {
+  margin-left: 6px;
+  cursor: pointer;
+  color: #8e97a5 !important;
+}
+
+.spsm-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 14px 20px;
+  flex-shrink: 0;
+}
+
+.spsm-btn-cancel {
+  min-width: 80px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid rgba(128, 154, 188, 0.35) !important;
+  background: rgba(18, 18, 18, 1) !important;
+  color: rgba(225, 239, 255, 0.9) !important;
+}
+
+.spsm-btn-ok {
+  min-width: 80px;
+  height: 36px;
+  border-radius: 8px;
+  border: none !important;
+  background: linear-gradient(270deg, #0e59fa 0%, #00abd8 100%) !important;
+  color: #fff !important;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35);
+}
+
+.ant-modal-wrap.storyboard-param-settings-modal-wrap .ant-modal.storyboard-param-settings-modal .ant-modal-content {
+  padding: 0 !important;
+  overflow: hidden;
+  border-radius: 12px !important;
+  background: rgba(25, 26, 29, 1) !important;
+}
+
+.ant-modal-wrap.storyboard-param-settings-modal-wrap .ant-modal.storyboard-param-settings-modal .ant-modal-body {
+  padding: 0 !important;
+}

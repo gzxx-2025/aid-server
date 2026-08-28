@@ -1,0 +1,242 @@
+/* Tailwind/PostCSS component styles for storyboard-video. */
+
+
+.create-step-storyboard-video .scene-card-failed-icon {
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.create-step-storyboard-video .scene-card-failed-icon-image {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.create-step-storyboard-video .scene-card-failed-text {
+  font-size: 12px;
+  color: #8e97a5;
+  line-height: 1.3;
+  margin-bottom: 12px;
+}
+
+.create-step-storyboard-video .scene-card-failed-retry {
+  height: 24px;
+  padding: 0 14px;
+  border: none !important;
+  color: #fff !important;
+  font-size: 12px;
+  line-height: 24px;
+  box-shadow: none !important;
+}
+
+.create-step-storyboard-video .scene-card-failed-retry:hover {
+  background: #40a9ff !important;
+  color: #fff !important;
+}
+
+.create-step-storyboard-video .storyboard-video-set {
+  border: 1px solid rgba(74, 231, 253, 0.12);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+}
+
+.create-step-storyboard-video .storyboard-list-body .storyboard-video-set {
+  height: 100%;
+  min-height: 140px;
+}
+
+.create-step-storyboard-video .storyboard-video-preview-wrap {
+  flex: 1;
+  min-height: 0;
+  background: rgba(6, 10, 18, 0.55);
+  position: relative;
+  aspect-ratio: 16 / 9;
+}
+
+.create-step-storyboard-video .storyboard-list-body .storyboard-video-preview-wrap {
+  aspect-ratio: auto;
+}
+
+.create-step-storyboard-video .storyboard-video-preview-wrap .shimmer-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.create-step-storyboard-video .storyboard-video-preview {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.create-step-storyboard-video .storyboard-video-top-actions {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.35rem;
+  z-index: 4;
+  display: flex;
+  gap: 0.25rem;
+}
+
+.create-step-storyboard-video .storyboard-video-action-btn {
+  color: rgba(255, 255, 255, 0.9) !important;
+  background: rgba(0, 0, 0, 0.4) !important;
+}
+
+.create-step-storyboard-video .storyboard-video-action-btn:hover {
+  color: white !important;
+  background: rgba(0, 0, 0, 0.6) !important;
+}
+
+/* 与素材准备一致：浅青底、无描边（压过全局 ant-btn-default:hover） */
+html.app-shell-create .create-step-storyboard-video .asset-action-footer .ant-btn:hover,
+html.app-shell-create .create-step-storyboard-video .asset-action-footer .ant-btn:focus,
+html.app-shell-create .create-step-storyboard-video .asset-action-footer .ant-btn:focus-visible,
+.create-step-storyboard-video .asset-action-footer .ant-btn:hover,
+.create-step-storyboard-video .asset-action-footer .ant-btn:focus,
+.create-step-storyboard-video .asset-action-footer .ant-btn:focus-visible {
+  background: rgba(74, 231, 253, 0.16) !important;
+  color: #e9fbff !important;
+  border: none !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+.create-step-storyboard-video .storyboard-block-icon {
+  font-size: 1.25rem;
+  color: var(--home-muted, #8e97a5);
+}
+
+.create-step-storyboard-video .storyboard-block-text {
+  font-size: 12px;
+  color: #ffffff;
+}
+
+.create-step-storyboard-video .storyboard-block-sub {
+  font-size: 0.75rem;
+  color: var(--home-muted, #8e97a5);
+}
+
+.create-step-storyboard-video .storyboard-mode-value {
+  padding: 0.35rem 0.5rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+  color: var(--home-text, #e6edf3);
+  height: 200px;
+  overflow: auto;
+}
+
+.create-step-storyboard-video .storyboard-detail-desc {
+  font-size: 0.85rem;
+  color: var(--home-muted, #8e97a5);
+  line-height: 1.5;
+  height: 200px;
+  overflow: auto;
+}
+
+/* 原 <Transition name="storyboard-insert-fade"> + v-show：常驻渲染，靠类切换淡入淡出 */
+.create-step-storyboard-video .storyboard-insert-ui {
+  transition: opacity 0.28s ease;
+}
+
+.create-step-storyboard-video .storyboard-insert-ui--fade-hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity 0.28s ease,
+    visibility 0s linear 0.28s;
+}
+
+.create-step-storyboard-video .storyboard-drag-handle {
+  cursor: grab;
+}
+
+.create-step-storyboard-video .storyboard-list--dragging .storyboard-drag-handle {
+  cursor: grabbing;
+}
+
+.create-step-storyboard-video .storyboard-list-item--ghost {
+  opacity: 0.45;
+}
+
+.create-step-storyboard-video .storyboard-list-item--chosen {
+  /* 拖拽选中时不改描边，避免列表“点一下/移入”像被选中 */
+  border-color: rgba(74, 231, 253, 0.3);
+  box-shadow: none;
+}
+
+.create-step-storyboard-video .storyboard-list-item--fallback {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.create-step-storyboard-video .storyboard-insert-gap {
+  position: relative;
+  min-height: 14px;
+  margin: 2px 0;
+  flex-shrink: 0;
+}
+
+.create-step-storyboard-video .storyboard-insert-ui {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.5rem;
+  z-index: 4;
+  pointer-events: auto;
+}
+
+.create-step-storyboard-video .storyboard-insert-dash-line {
+  flex: 1 1 120px;
+  min-width: 40px;
+  height: 0;
+  border-top: 2px dashed #1677ff;
+}
+
+.create-step-storyboard-video .storyboard-insert-plus {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid var(--accent-500);
+  background: var(--create-surface-panel);
+  color: var(--accent-600);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  transition:
+    background 0.15s,
+    color 0.15s,
+    transform 0.15s;
+}
+
+.create-step-storyboard-video .storyboard-insert-plus:hover {
+  background: var(--accent-500);
+  color: white;
+  transform: scale(1.06);
+}
+
+.create-step-storyboard-video .storyboard-insert-label {
+  flex-shrink: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--home-muted, #8e97a5);
+}

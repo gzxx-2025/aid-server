@@ -1,0 +1,101 @@
+/* Tailwind/PostCSS component styles for edit-storyboard-dubbing-stage. */
+
+.edit-storyboard-dubbing-modal .dubbing-gen-card-actions .btn-set-lipsync {
+  background: none !important;
+  border: 1px solid rgba(74, 231, 253, 0.3) !important;
+  color: rgba(225, 239, 255, 0.92) !important;
+  flex-shrink: 0;
+}
+
+.edit-storyboard-dubbing-modal .btn-set-lipsync:hover,
+.edit-storyboard-dubbing-modal .btn-set-lipsync:focus {
+  background: rgba(74, 231, 253, 0.08) !important;
+  border-color: rgba(74, 231, 253, 0.55) !important;
+  color: #4ae7fd !important;
+}
+
+.edit-storyboard-dubbing-modal .btn-set-lipsync-done {
+  background: rgba(74, 231, 253, 0.12) !important;
+  border: 1px solid rgba(74, 231, 253, 0.55) !important;
+  color: rgba(225, 239, 255, 0.95) !important;
+  flex-shrink: 0;
+}
+
+.edit-storyboard-dubbing-modal .btn-set-lipsync-done:hover,
+.edit-storyboard-dubbing-modal .btn-set-lipsync-done:focus {
+  background: rgba(74, 231, 253, 0.18) !important;
+  border-color: rgba(74, 231, 253, 0.85) !important;
+  color: #fff !important;
+}
+
+.edit-storyboard-dubbing-modal .btn-set-lipsync-done .anticon {
+  color: #4ae7fd;
+}
+
+.edit-storyboard-dubbing-modal .dubbing-video-hero--accent {
+  border-color: var(--accent-500, #22c55e) !important;
+}
+
+.edit-storyboard-dubbing-modal .dubbing-gen-loading-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 220px;
+  gap: 1rem;
+  color: #fff;
+}
+
+.edit-storyboard-dubbing-modal .dubbing-gen-loading-text {
+  margin: 0;
+  font-size: 0.95rem;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.edit-storyboard-dubbing-modal .dubbing-gen-footer-hint {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--home-muted, #8e97a5);
+  line-height: 1.5;
+}
+
+.edit-storyboard-dubbing-modal .images-container {
+  display: flex;
+  min-height: min(52vh, 420px);
+  align-items: stretch;
+}
+
+.edit-storyboard-dubbing-modal .dubbing-video-placeholder-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 2rem;
+  border-radius: var(--radius-md);
+  border: 1px dashed var(--create-border-dashed, rgba(74, 168, 188, 0.38));
+  background: var(--create-surface-canvas, rgba(30, 40, 58, 0.9));
+  color: var(--home-muted, #8e97a5);
+  text-align: center;
+}
+
+.edit-storyboard-dubbing-modal .dubbing-video-placeholder-main .anticon {
+  font-size: 2.5rem;
+  color: var(--accent-400, #38bdf8);
+  opacity: 0.85;
+}
+
+.edit-storyboard-dubbing-modal .dubbing-video-placeholder-main p {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--home-text, #e6edf3);
+  line-height: 1.5;
+  max-width: 22rem;
+}
+
+.edit-storyboard-dubbing-modal .dubbing-stage-config .ql-editor.ql-blank::before {
+  color: #8e97a5 !important;
+  -webkit-text-fill-color: #8e97a5 !important;
+  opacity: 1 !important;
+}

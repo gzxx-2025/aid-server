@@ -1,0 +1,352 @@
+/*
+ * AssetsLibraryPanel 伴随样式：由原 components/home/AssetsLibraryPanel.vue <style scoped> 平移。
+ * 与 WorksLibraryPanel 共用 works-lib-* 语义 class 的选择器加 .assets-library-figma 前缀，
+ * 还原原 scoped 属性隔离（避免全局引入后泄漏到作品库）；
+ * 弹窗内容（asset-form-modal / style-cover-upload）渲染在 body portal，选择器原样保留。
+ */
+
+.assets-library-figma .works-lib-card__cover .works-lib-card__cover-shimmer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.assets-library-figma .works-lib-card__cover .works-lib-card__cover-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.35s ease;
+}
+
+.assets-library-figma .works-lib-card:hover .works-lib-card__cover .works-lib-card__cover-img {
+  transform: scale(1.04);
+}
+
+.assets-library-figma .assets-lib-card--appended {
+  animation: assets-lib-card-append 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(var(--asset-append-order, 0) * 36ms);
+}
+
+.assets-library-figma .assets-lib-list-footer {
+  grid-column: 1 / -1;
+  min-height: 48px;
+}
+
+@keyframes assets-lib-card-append {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .assets-library-figma .assets-lib-card--appended {
+    animation: none;
+  }
+}
+
+.assets-library-figma .works-lib-grid:has(> .works-lib-empty--full) {
+  display: flex;
+  flex-direction: column;
+}
+
+.assets-library-figma .works-lib-empty--full {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.assets-library-figma .works-lib-empty__icon-img {
+  width: 80px;
+  height: 80px;
+  object-fit: contain;
+  margin-bottom: 10px;
+}
+
+.assets-library-figma .works-lib-card__title-input {
+  width: 100%;
+  height: 28px;
+  border: 1px solid rgba(74, 231, 253, 0.45);
+  border-radius: 6px;
+  background: rgba(9, 18, 31, 0.95);
+  color: #e6edf3;
+  outline: none;
+  padding: 0 8px;
+  font-size: 14px;
+}
+
+/* 与 BatchRegenerateDubbingModal .brdm 同思路：限高 + 中部滚动 + 底栏固定 */
+.asset-form-modal {
+  padding: 8px 0 0;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: calc(100vh - 160px);
+  overflow: hidden;
+}
+
+.asset-form-modal__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 12px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 2px 4px 0;
+  box-sizing: border-box;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.asset-form-modal__grid::-webkit-scrollbar {
+  display: none;
+}
+
+.asset-form-item {
+  margin-bottom: 14px;
+}
+
+.asset-form-item--half {
+  grid-column: span 1;
+}
+
+.asset-form-item--full {
+  grid-column: 1 / -1;
+}
+
+.asset-form-item--upload {
+  margin-bottom: 18px;
+}
+
+.asset-form-item--upload .ant-form-item-label {
+  display: none;
+}
+
+.style-cover-upload {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.style-cover-upload--header {
+  width: 100%;
+  align-items: center;
+  padding: 14px 16px;
+  border-radius: 8px;
+  border: 1px dashed rgba(74, 231, 253, 0.22);
+  background: rgba(8, 11, 18, 0.55);
+  box-sizing: border-box;
+}
+
+.style-cover-upload__box {
+  width: 120px;
+  height: 120px;
+  border: 1px dashed rgba(74, 231, 253, 0.35);
+  border-radius: 8px;
+  background: rgba(8, 11, 18, 0.96);
+  padding: 0;
+  cursor: pointer;
+  overflow: hidden;
+  flex-shrink: 0;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.style-cover-upload__box:hover:not(:disabled) {
+  border-color: rgba(74, 231, 253, 0.55);
+  background: rgba(14, 89, 250, 0.1);
+}
+
+.style-cover-upload__box:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.style-cover-upload__box--filled {
+  border-style: solid;
+  border-color: rgba(74, 231, 253, 0.25);
+}
+
+.style-cover-upload__placeholder,
+.style-cover-upload__hint {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: #8e97a5;
+  font-size: 12px;
+}
+
+.style-cover-upload__icon {
+  font-size: 22px;
+  color: rgba(74, 231, 253, 0.55);
+}
+
+.style-cover-upload__required {
+  margin-right: 3px;
+  color: #ff5f67;
+}
+
+.style-cover-upload .style-cover-upload__preview {
+  width: 100%;
+  height: 100%;
+}
+
+.style-cover-upload .style-cover-upload__img {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.style-cover-upload__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.style-cover-upload__tip {
+  margin: 0;
+  color: #7f8ba0;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.style-cover-upload__remove {
+  color: var(--home-cyan, #4ae7fd);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.style-cover-upload__remove:hover {
+  color: #7ef0ff;
+}
+
+.asset-form-modal__footer {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+  margin-top: 0;
+  padding: 16px 4px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.asset-form-modal .ant-form-item-label > label {
+  color: rgba(220, 231, 245, 0.85);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.asset-form-modal .ant-input,
+.asset-form-modal .ant-input-affix-wrapper,
+.asset-form-modal .ant-input-textarea textarea,
+.asset-form-modal .ant-select-selector {
+  background: rgba(13, 18, 27, 0.98) !important;
+  border: 1px solid rgba(74, 231, 253, 0.18) !important;
+  color: #e6edf3 !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+}
+
+.asset-form-modal input.ant-input,
+.asset-form-modal .ant-input-affix-wrapper {
+  height: 40px;
+}
+
+.asset-form-modal .ant-select-selector {
+  min-height: 40px !important;
+  height: 40px !important;
+  display: flex;
+  align-items: center;
+}
+
+.asset-form-modal .ant-select-selection-item,
+.asset-form-modal .ant-select-selection-placeholder {
+  line-height: 40px !important;
+}
+
+.asset-form-modal .ant-input-textarea textarea {
+  min-height: 110px !important;
+  height: 110px !important;
+  line-height: 22px;
+  padding: 10px 12px;
+  resize: none;
+}
+
+.asset-form-modal .ant-input:hover,
+.asset-form-modal .ant-input-affix-wrapper:hover,
+.asset-form-modal .ant-input-textarea textarea:hover,
+.asset-form-modal .ant-select:not(.ant-select-disabled):hover .ant-select-selector {
+  border-color: rgba(74, 231, 253, 0.38) !important;
+}
+
+.asset-form-modal .ant-input:focus,
+.asset-form-modal .ant-input-focused,
+.asset-form-modal .ant-input-affix-wrapper:focus,
+.asset-form-modal .ant-input-affix-wrapper-focused,
+.asset-form-modal .ant-input-textarea textarea:focus,
+.asset-form-modal .ant-select-focused .ant-select-selector {
+  border-color: rgba(74, 231, 253, 0.68) !important;
+  box-shadow: inset 0 0 0 1px rgba(74, 231, 253, 0.12) !important;
+}
+
+.asset-form-modal .ant-input::placeholder,
+.asset-form-modal .ant-input-textarea textarea::placeholder,
+.asset-form-modal .ant-select-selection-placeholder {
+  color: #7f8ba0 !important;
+}
+
+.asset-form-modal .ant-select-arrow {
+  color: #8fa3c0;
+}
+
+.asset-form-select-dropdown.ant-select-dropdown {
+  padding: 6px;
+  border: 1px solid rgba(74, 231, 253, 0.2);
+  border-radius: 8px;
+  background: rgba(13, 18, 27, 0.99);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.48);
+}
+
+.asset-form-select-dropdown .ant-select-item {
+  color: rgba(220, 231, 245, 0.82);
+  border-radius: 6px;
+  transition: color 0.18s ease, background-color 0.18s ease;
+}
+
+.asset-form-select-dropdown .ant-select-item-option-active:not(.ant-select-item-option-disabled) {
+  color: #eefcff;
+  background: rgba(74, 231, 253, 0.1);
+}
+
+.asset-form-select-dropdown .ant-select-item-option-selected:not(.ant-select-item-option-disabled) {
+  color: #eefcff;
+  background: linear-gradient(90deg, rgba(0, 188, 212, 0.2), rgba(14, 89, 250, 0.2));
+  font-weight: 500;
+}
+
+@media (max-width: 768px) {
+  .asset-form-modal__grid {
+    grid-template-columns: 1fr;
+    column-gap: 0;
+  }
+
+  .asset-form-item--half,
+  .asset-form-item--full {
+    grid-column: 1 / -1;
+  }
+}

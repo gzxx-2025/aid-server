@@ -1,0 +1,228 @@
+/* Tailwind/PostCSS component styles for scene-character-prop-forms. */
+/**
+ * 原 aid-pc/assets/css/scp-scene-character-prop.scoped.scss 展平为伴随 CSS（第 3/3 段：
+ * 角色/道具卡片、形态列表、配音、生成中/失败块）。
+ * scoped 语义用根类 .create-step-scp 前缀代替；:deep(...) 转普通后代选择器。
+ * 选择器与数值 1:1，禁止改视觉。引入顺序：base → cards → forms（在 SceneCharacterProp.tsx 中依序 import）。
+ */
+
+/* ========== 角色生成界面样式 ========== */
+.create-step-scp .character-generation-view,
+.create-step-scp .prop-generation-view {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.create-step-scp .character-cards-container,
+.create-step-scp .prop-cards-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+/* 自动提取的角色/道具：网格布局，定宽展示（列宽见 scp-step-shared.css） */
+.create-step-scp .character-cards-auto,
+.create-step-scp .prop-cards-auto {
+  display: grid;
+  gap: 1.25rem;
+}
+
+/* 角色/道具卡片基础样式（与场景卡片一致） */
+.create-step-scp .character-card,
+.create-step-scp .prop-card {
+  border: 1px solid #006c8f;
+  border-radius: var(--radius-sm);
+  /* padding: 1.25rem; */
+  background: rgba(12, 16, 24, 0.72);
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.create-step-scp .character-card:hover,
+.create-step-scp .prop-card:hover {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  border-color: #33d9ff;
+}
+
+.create-step-scp .character-card-header,
+.create-step-scp .prop-card-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.create-step-scp .character-card-header-row,
+.create-step-scp .prop-card-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: relative;
+  gap: 0.75rem;
+  width: 100%;
+}
+
+.create-step-scp .character-card-title,
+.create-step-scp .prop-card-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--home-text, #e6edf3);
+  margin: 0;
+}
+
+/* 自动角色/道具的删除按钮在右上角（与场景一致） */
+.create-step-scp .character-card-auto,
+.create-step-scp .prop-card-auto {
+  position: relative;
+}
+
+.create-step-scp .character-card-delete-btn,
+.create-step-scp .prop-card-delete-btn {
+  position: static;
+  color: var(--home-muted, #8e97a5);
+  padding: 0.25rem;
+  width: auto;
+  height: auto;
+  z-index: 1;
+  background: transparent;
+  border-radius: var(--radius-md);
+}
+
+.create-step-scp .character-card-delete-btn:hover,
+.create-step-scp .prop-card-delete-btn:hover {
+  color: #ff7a84;
+  background: rgba(255, 82, 97, 0.12);
+}
+
+.create-step-scp .character-card-auto .character-card-header-row,
+.create-step-scp .prop-card-auto .prop-card-header-row {
+  padding-right: 0;
+}
+
+.create-step-scp .character-card-content,
+.create-step-scp .prop-card-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.create-step-scp .character-card-divider,
+.create-step-scp .prop-card-divider {
+  text-align: center;
+  color: var(--home-muted, #8e97a5);
+  font-size: 0.875rem;
+  font-weight: 500;
+  padding: 0.25rem 0;
+}
+
+/* 手动添加的角色/道具：单列布局，每个项目占满一行 */
+.create-step-scp .character-cards-manual,
+.create-step-scp .prop-cards-manual {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.create-step-scp .character-card-wrapper,
+.create-step-scp .prop-card-wrapper {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid rgba(74, 231, 253, 0.3);
+  background: #070d17;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.create-step-scp .character-card-header-bar,
+.create-step-scp .prop-card-header-bar {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid rgba(74, 231, 253, 0.3);
+}
+
+.create-step-scp .character-card-header-bar .character-name-input,
+.create-step-scp .prop-card-header-bar .character-name-input {
+  font-weight: 600;
+  font-size: 14px;
+  padding-left: 0;
+}
+
+/* 手动添加项内容区外框：对齐分镜列表的深色内容底 */
+.create-step-scp .scene-card-wrapper .character-card-wrapper .character-forms-list,
+.create-step-scp .prop-card-wrapper .prop-forms-list,
+.create-step-scp .character-card-wrapper .character-add-form,
+.create-step-scp .prop-card-wrapper .prop-add-form {
+  /*padding: 0.75rem; */
+  background: #080d14;
+}
+
+.create-step-scp .character-card-title-wrapper,
+.create-step-scp .prop-card-title-wrapper {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.create-step-scp .character-card-title-prefix,
+.create-step-scp .prop-card-title-prefix {
+  font-weight: 600;
+  color: var(--home-text, #e6edf3);
+  white-space: nowrap;
+}
+
+.create-step-scp .character-card-title-editable,
+.create-step-scp .prop-card-title-editable {
+  font-weight: 600;
+  color: var(--home-text, #e6edf3);
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  transition: all 0.2s ease;
+  /* 与 .scene-card-title-editable 一致：不占满整行，超长省略 */
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.create-step-scp .character-card-title-editable:hover,
+.create-step-scp .prop-card-title-editable:hover {
+  background: rgba(14, 89, 250, 0.12);
+  color: var(--home-cyan, #4ae7fd);
+}
+
+.create-step-scp .character-name-input,
+.create-step-scp .prop-name-input {
+  /* 与 .scene-name-input 一致：限制编辑框拉伸宽度 */
+  min-width: 240px;
+  width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  padding-left: 0;
+}
+
+.create-step-scp .character-card-actions-header,
+.create-step-scp .prop-card-actions-header {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  align-items: center;
+}
+
+.create-step-scp .character-card-actions-header button,
+.create-step-scp .prop-card-actions-header button {
+  border: 1px solid #2f3949 !important;
+}
+
+/* 手动角色/道具的卡片：定宽见 scp-step-shared.css --scp-card-width */

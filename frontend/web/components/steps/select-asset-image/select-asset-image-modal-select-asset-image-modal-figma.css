@@ -1,0 +1,215 @@
+/* Tailwind/PostCSS component styles for select-asset-image-modal. */
+/* —— Ant Modal 壳：与创作流 Figma 深色弹窗一致 —— */
+.select-asset-image-modal.select-asset-image-modal--figma .ant-modal-content {
+  padding: 0 !important;
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid rgba(74, 231, 253, 0.45);
+  background: #191a1d;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+  display: flex;
+  flex-direction: column;
+}
+.select-asset-image-modal.select-asset-image-modal--figma .ant-modal-header {
+  display: none;
+}
+
+.select-asset-image-modal.select-asset-image-modal--figma .ant-modal-body {
+  padding: 0 !important;
+  background: #191a1d;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.saim-inner {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: min(698px, calc(100dvh - 80px));
+  max-height: min(698px, calc(100dvh - 80px));
+  overflow: hidden;
+  box-sizing: border-box;
+  color: #e6edf3;
+}
+
+.content_box {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.saim-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 0 16px;
+  flex-shrink: 0;
+}
+/* 与 EditStoryboardImageModal 右侧 config-tabs--three 一致，整体居中 */
+.saim-header-tabs {
+  display: flex;
+  justify-content: center;
+  flex-shrink: 0;
+  height: 46px;
+  align-items: center;
+  background: rgba(32, 36, 52, 1);
+  border-radius: 8px 8px 0 0;
+  border: 1px solid rgba(74, 231, 253, 0.3)
+}
+
+.saim-config-tabs.config-tabs--three {
+  display: flex;
+  width: 100%;
+  max-width: min(480px, 100%);
+  justify-content: center;
+  gap: 4px;
+  border-radius: 8px;
+  background: rgba(35, 67, 74, 1);
+  flex-shrink: 0;
+  padding: 0;
+}
+
+.saim-config-tabs.config-tabs--three .config-tab {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(225, 239, 255, 0.7);
+  font-size: 14px;
+  line-height: 1.2;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color 0.2s, background 0.2s;
+}
+
+.saim-config-tabs.config-tabs--three .config-tab.active {
+  color: #0b1522 !important;
+  font-weight: 600;
+  background: rgba(74, 231, 253, 1);
+}
+
+.saim-title {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: 0.02em;
+}
+
+.saim-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.saim-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  font-size: 26px !important;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.72);
+  cursor: pointer;
+  transition: color 0.2s, background 0.2s;
+}
+
+.saim-icon-btn:hover {
+  color: #4ae7fd;
+  background: rgba(74, 231, 253, 0.08);
+}
+
+/* 主内容外框（设计稿大矩形描边） */
+.saim-body-shell--voice {
+  padding: 12px 16px 8px;
+  min-height: 0;
+  border-bottom: 1px solid rgba(74, 231, 253, 0.3);
+  border-left: 1px solid rgba(74, 231, 253, 0.3);
+  border-right: 1px solid rgba(74, 231, 253, 0.3);
+}
+
+.saim-body-shell {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: rgba(17, 22, 33,1);
+}
+
+.saim-content-row {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  border-bottom: 1px solid rgba(74, 231, 253, 0.3);
+  border-left: 1px solid rgba(74, 231, 253, 0.3);
+  border-right: 1px solid rgba(74, 231, 253, 0.3);
+}
+
+/* 左侧分类：1px 竖分割线 */
+.saim-sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 12px 10px 12px 12px;
+  border-right: 1px solid rgba(74, 231, 253, 0.3);
+}
+
+.saim-sidebar-scroll {
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  gap: 4px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.saim-sidebar-scroll::-webkit-scrollbar {
+  width: 0;
+  background: transparent;
+}
+
+.saim-sidebar-scroll:hover {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(120, 140, 170, 0.45) transparent;
+}
+
+.saim-sidebar-scroll:hover::-webkit-scrollbar {
+  width: 4px;
+}
+
+.saim-sidebar-scroll:hover::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.saim-sidebar-scroll:hover::-webkit-scrollbar-thumb {
+  background: rgba(120, 140, 170, 0.45);
+  border-radius: 4px;
+}
+
+.saim-sidebar-scroll:hover::-webkit-scrollbar-thumb:hover {
+  background: rgba(120, 140, 170, 0.65);
+}
+
+/* 左侧分类：无边框、无背景；!important 压过 assets 里 .ant-modal-body * 的全局字色 */

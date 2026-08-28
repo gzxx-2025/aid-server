@@ -1,0 +1,78 @@
+@import '@/assets/styles/variables.less';
+
+.app-header {
+  height: @header-height;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  background: #ffffff;
+
+  &__left {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    min-width: 0;
+  }
+
+  &__collapse {
+    font-size: 18px !important;
+    color: @text-color-primary !important;
+    border-radius: 8px !important;
+    width: 36px;
+    height: 36px;
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease !important;
+
+    &:hover {
+      color: @primary-color !important;
+      background: rgba(37, 99, 235, 0.08) !important;
+    }
+  }
+
+  &__breadcrumb {
+    font-size: 13.5px;
+    min-width: 0;
+
+    .ant-breadcrumb-link {
+      color: @text-color-secondary;
+      transition: color 0.2s;
+
+      a:hover {
+        color: @primary-color !important;
+        background: transparent !important;
+      }
+    }
+    .ant-breadcrumb-separator {
+      color: rgba(15, 23, 42, 0.25);
+    }
+    li:last-child .ant-breadcrumb-link {
+      color: @text-color-primary;
+      font-weight: 600;
+    }
+  }
+
+  &__right {
+    display: flex;
+    align-items: center;
+
+    .ant-btn {
+      font-size: 15px;
+      color: @text-color-secondary;
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s ease;
+
+      &:hover {
+        color: @primary-color;
+        background: rgba(37, 99, 235, 0.08);
+      }
+    }
+  }
+}

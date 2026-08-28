@@ -1,0 +1,123 @@
+/* Tailwind/PostCSS component styles for SeriesAssetDesignModal. */
+
+
+.sad-shell .sad-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.sad-shell .sad-label {
+  font-size: 14px;
+  line-height: 20px;
+  color: rgba(220, 231, 245, 0.85);
+}
+
+/* 与 AssetsLibraryPanel「新增资产」输入框一致（原 :deep()） */
+.sad-shell .sad-form .ant-input,
+.sad-shell .sad-form .ant-input-affix-wrapper,
+.sad-shell .sad-form .ant-input-textarea textarea,
+.sad-shell .sad-form .ant-select-selector {
+  background: rgba(8, 11, 18, 0.96) !important;
+  border: none !important;
+  color: #e6edf3 !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+}
+
+.sad-shell .sad-form input.ant-input,
+.sad-shell .sad-form .ant-input-affix-wrapper {
+  height: 40px;
+}
+
+.sad-shell .sad-form .ant-select-selector {
+  min-height: 40px !important;
+  height: 40px !important;
+  display: flex;
+  align-items: center;
+}
+
+.sad-shell .sad-form .ant-select-selection-item,
+.sad-shell .sad-form .ant-select-selection-placeholder {
+  line-height: 40px !important;
+  color: #e6edf3 !important;
+}
+
+.sad-shell .sad-form .ant-input-textarea textarea {
+  min-height: 88px !important;
+  line-height: 22px;
+  padding: 10px 12px;
+  resize: none;
+}
+
+.sad-shell .sad-form .ant-input:focus,
+.sad-shell .sad-form .ant-input-focused,
+.sad-shell .sad-form .ant-input-affix-wrapper:focus,
+.sad-shell .sad-form .ant-input-affix-wrapper-focused,
+.sad-shell .sad-form .ant-input-textarea textarea:focus,
+.sad-shell .sad-form .ant-select-focused .ant-select-selector {
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.sad-shell .sad-form .ant-input::placeholder,
+.sad-shell .sad-form .ant-input-textarea textarea::placeholder,
+.sad-shell .sad-form .ant-select-selection-placeholder {
+  color: #7f8ba0 !important;
+}
+
+.sad-shell .sad-form .ant-select-arrow {
+  color: #8fa3c0;
+}
+
+.sad-shell .sad-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 12px 24px 20px;
+  flex-shrink: 0;
+}
+
+.sad-shell .sad-footer-btn {
+  min-width: 96px;
+  height: 40px;
+  border-radius: 8px;
+}
+
+.sad-shell .sad-footer-btn--ghost {
+  background: #121212;
+  border-color: rgba(74, 231, 253, 0.3);
+  color: #fff;
+}
+
+.sad-shell .sad-footer-btn--ok {
+  background: linear-gradient(270deg, #0e59fa 0%, #00abd8 100%);
+  border: none;
+}
+
+.series-asset-design-modal-wrap .sad-file-input {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .sad-shell {
+    height: auto;
+    max-height: calc(100dvh - 40px);
+  }
+
+  .sad-shell .sad-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto;
+    overflow: auto;
+  }
+
+  .sad-shell .sad-media,
+  .sad-shell .sad-form {
+    height: auto;
+  }
+
+  .sad-shell .sad-media__frame {
+    min-height: 280px;
+  }
+}

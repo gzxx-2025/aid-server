@@ -1,0 +1,224 @@
+/* Tailwind/PostCSS component styles for home-theme. */
+
+
+.login-theme-logo-icon {
+  font-size: 4rem;
+  margin-bottom: 1rem;
+  display: block;
+}
+
+.login-theme-card .card-icon {
+  font-size: 2.5rem;
+}
+
+.login-theme-options {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.login-theme-forgot {
+  color: var(--home-cyan);
+  cursor: pointer;
+}
+
+.login-theme-decoration {
+  position: relative;
+  height: 300px;
+  z-index: 1;
+}
+
+.login-theme-card {
+  position: absolute;
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(10px);
+  padding: 1.5rem;
+  border-radius: var(--radius-xl, 1rem);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.login-theme-card.c1 {
+  top: 20%;
+  left: 10%;
+}
+.login-theme-card.c2 {
+  top: 50%;
+  right: 15%;
+}
+.login-theme-card.c3 {
+  bottom: 10%;
+  left: 25%;
+}
+
+/* 关于 / 用户等静态内容块 */
+.home-theme-static {
+  padding: 2rem 0;
+  min-height: 100%;
+}
+
+.home-theme-static .page-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 2rem;
+  width: 100%;
+}
+
+.home-theme-static .page-header {
+  text-align: center;
+  margin-bottom: 3rem;
+}
+
+.home-theme-static .about-hero-card {
+  background: var(--home-surface-soft);
+  padding: 3rem 2rem;
+  border-radius: var(--radius-2xl, 1.5rem);
+  border: 1px solid var(--home-border-subtle);
+}
+
+.home-theme-static .header-icon {
+  font-size: 4rem;
+  margin-bottom: 1.5rem;
+  color: var(--home-cyan);
+}
+
+.home-theme-static .page-title {
+  font-size: 2.25rem;
+  font-weight: 800;
+  margin-bottom: 1rem;
+  color: #fff;
+}
+
+.home-theme-static .page-subtitle {
+  font-size: 1.125rem;
+  color: var(--home-muted);
+  margin: 0;
+}
+
+.home-theme-static .content-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.home-theme-static .intro-card,
+.home-theme-static .mission-section,
+.home-theme-static .features-section {
+  background: var(--home-surface-soft);
+  padding: 2.5rem;
+  border-radius: var(--radius-2xl, 1.5rem);
+  border: 1px solid var(--home-border-subtle);
+}
+
+.home-theme-static .intro-card {
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.home-theme-static .intro-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: var(--home-grad);
+}
+
+.home-theme-static .card-icon {
+  font-size: 2.5rem;
+  margin-bottom: 1.5rem;
+  color: var(--home-cyan);
+}
+
+.home-theme-static .intro-text {
+  font-size: 1.0625rem;
+  line-height: 1.8;
+  color: var(--home-text);
+  margin: 0 auto;
+  max-width: 800px;
+}
+
+.home-theme-static .section-title {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
+}
+
+.home-theme-static .title-line {
+  width: 60px;
+  height: 3px;
+  background: var(--home-grad);
+  border-radius: 999px;
+}
+
+.home-theme-static .mission-text {
+  font-size: 1.25rem;
+  color: var(--home-text);
+  font-weight: 600;
+  margin: 0;
+  text-align: center;
+}
+
+.home-theme-static .features-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
+  margin-top: 1.5rem;
+}
+
+.home-theme-static .feature-card {
+  padding: 1.75rem;
+  background: rgba(12, 16, 24, 0.65);
+  border-radius: var(--radius-xl, 1rem);
+  text-align: center;
+  transition: all 0.2s ease;
+  border: 1px solid var(--home-border-subtle);
+}
+
+.home-theme-static .feature-card:hover {
+  border-color: rgba(74, 231, 253, 0.35);
+  box-shadow: var(--home-shadow-card);
+  transform: translateY(-4px);
+}
+
+.home-theme-static .feature-icon {
+  font-size: 2.25rem;
+  margin-bottom: 1rem;
+  color: var(--home-cyan);
+}
+
+.home-theme-static .feature-title {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 0.5rem;
+}
+
+.home-theme-static .feature-description {
+  font-size: 0.9375rem;
+  color: var(--home-muted);
+  line-height: 1.6;
+  margin: 0;
+}
+
+.home-theme-static .page-actions {
+  text-align: center;
+  margin-top: 2rem;
+  padding-top: 2rem;
+}
+
+/* 用户列表 / 详情 */
+.home-theme-static .user-list-section {
+  margin-bottom: 2rem;
+  background: var(--home-surface-soft);
+  border: 1px solid var(--home-border-subtle);
+  border-radius: var(--radius-2xl, 1.5rem);
+  padding: 2rem 2.5rem;
+}

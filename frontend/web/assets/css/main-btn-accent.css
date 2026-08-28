@@ -1,0 +1,240 @@
+/* Tailwind/PostCSS component styles for main. */
+
+
+.btn-accent:hover {
+  box-shadow: var(--shadow-glow);
+  transform: translateY(-2px) scale(1.02);
+}
+
+/* 手绘风格按钮 */
+.btn-hand-drawn {
+  background: white;
+  border: var(--border-hand-drawn) var(--gray-800);
+  color: var(--gray-800);
+  padding: 0.875rem 2rem;
+  border-radius: var(--radius-md);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  position: relative;
+  box-shadow: 4px 4px 0 var(--gray-800);
+}
+
+.btn-hand-drawn:hover {
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0 var(--gray-800);
+}
+
+.btn-hand-drawn-accent {
+  border-color: var(--accent-600);
+  color: var(--accent-600);
+  box-shadow: 4px 4px 0 var(--accent-600);
+}
+
+.btn-hand-drawn-accent:hover {
+  box-shadow: 2px 2px 0 var(--accent-600);
+  background: var(--accent-50);
+}
+
+/* ================================
+   悬浮卡片效果 - 有触感
+   ================================ */
+.hover-card {
+  transition: all var(--transition-base);
+  cursor: pointer;
+}
+
+.hover-card:hover {
+  transform: translateY(-8px) scale(1.02);
+  box-shadow: var(--shadow-xl);
+  border-color: var(--accent-300);
+}
+
+/* ================================
+   进度指示器 - 手绘风格
+   ================================ */
+.step-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: relative;
+  margin-bottom: var(--spacing-xl);
+  padding: var(--spacing-md) 0;
+}
+
+.step-indicator::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--gray-200);
+  z-index: 0;
+  transform: translateY(-50%);
+  border-radius: var(--radius-full);
+}
+
+.step-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  z-index: 1;
+}
+
+.step-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: white;
+  border: 3px solid var(--gray-300);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  color: var(--gray-500);
+  margin-bottom: var(--spacing-xs);
+  transition: all var(--transition-base);
+  box-shadow: var(--shadow-sm);
+}
+
+.step-item.active .step-icon {
+  background: var(--gradient-primary);
+  border-color: var(--accent-500);
+  color: white;
+  box-shadow: var(--shadow-glow);
+  transform: scale(1.1);
+}
+
+.step-item.completed .step-icon {
+  background: var(--accent-500);
+  border-color: transparent;
+  color: white;
+  box-shadow: var(--shadow-warm);
+}
+
+.step-label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--gray-600);
+  text-align: center;
+  max-width: 120px;
+  transition: color var(--transition-base);
+}
+
+.step-item.active .step-label {
+  color: var(--accent-600);
+  font-weight: 600;
+}
+
+.step-item.completed .step-label {
+  color: var(--gray-700);
+}
+
+/* ================================
+   工具类 - 反主流设计
+   ================================ */
+.text-gradient {
+  background: var(--gradient-primary);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.text-gradient-warm {
+  background: var(--gradient-accent);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.text-accent {
+  color: var(--accent-600);
+}
+
+/* 手绘风格背景图案 */
+.bg-pattern-hand-drawn {
+  background-image: 
+    radial-gradient(circle at 20px 20px, var(--gray-200) 1.5%, transparent 0%),
+    radial-gradient(circle at 80px 80px, var(--accent-200) 1%, transparent 0%);
+  background-size: 100px 100px;
+  opacity: 0.4;
+}
+
+/* 大留白区域 */
+.spacing-extra {
+  padding: var(--spacing-2xl) 0;
+}
+
+.spacing-section {
+  padding: var(--spacing-xl) 0;
+}
+
+/* ================================
+   滚动条美化 - 深灰+橙色
+   ================================ */
+::-webkit-scrollbar {
+  width: 0;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--gray-100);
+  border-radius: var(--radius-full);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--gray-400);
+  border-radius: var(--radius-full);
+  transition: background var(--transition-base);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent-500);
+}
+
+/* ================================
+   Ant Design 定制 - 深灰+橙色主题
+   ================================ */
+.ant-btn-primary:not(:disabled):not(.ant-btn-disabled) {
+  background: var(--gradient-primary);
+  border-color: transparent !important;
+  color: #FFFFFF !important;
+  box-shadow: var(--shadow-md);
+  transition: all var(--transition-base);
+  letter-spacing: 0.02em;
+}
+
+.ant-btn-primary:not(:disabled):not(.ant-btn-disabled):hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+  background: var(--gradient-accent) !important;
+  color: #FFFFFF !important;
+  border-color: transparent !important;
+}
+
+.ant-btn-primary:not(:disabled):not(.ant-btn-disabled):focus,
+.ant-btn-primary:not(:disabled):not(.ant-btn-disabled):active {
+  transform: translateY(0);
+  border-color: transparent !important;
+}
+
+/* 去掉鼠标交互时浏览器/Ant Design 的瞬时白框，同时保留键盘可见焦点。 */
+.ant-btn:focus:not(:focus-visible),
+button:focus:not(:focus-visible) {
+  outline: none !important;
+}
+
+.ant-btn:focus-visible,
+button:focus-visible {
+  outline: 2px solid rgba(74, 231, 253, 0.72);
+  outline-offset: 2px;
+}
+
+.ant-btn-primary:disabled {
+  /*opacity: 0.5;*/
+  cursor: not-allowed;
+  transform: none;
+}
+

@@ -1,0 +1,229 @@
+/* Tailwind/PostCSS component styles for import-script-modal. */
+/* 与 BatchRegenerateDubbingModal .brdm 同高 */
+.import-script-modal-wrap .import-script-modal-shell {
+  color: #e6edf3;
+  height: 698px;
+  max-height: calc(100vh - 80px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+  background: #191a1d;
+}
+
+.import-script-modal-wrap .modal-header {
+  flex-shrink: 0;
+  padding: 12px 16px 0.75rem;
+  background: #191a1d;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  align-items: center;
+}
+
+.import-script-modal-wrap .header-top {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 56px;
+  padding-right: 32px;
+}
+
+.import-script-modal-wrap .import-script-close {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.75);
+  cursor: pointer;
+  font-size: 20px;
+}
+
+.import-script-modal-wrap .import-script-close:hover {
+  color: #4ae7fd;
+  background: rgba(74, 231, 253, 0.08);
+}
+
+.import-script-modal-wrap .header-tabs {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+.import-script-modal-wrap .import-tab-bar__inner {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  padding: 6px 0;
+  background: #202434;
+  border-radius: 8px;
+}
+
+.import-script-modal-wrap .import-tab-bar__inner .import-tab-inner {
+  background: #294b5d;
+  border-radius: 8px;
+}
+
+.import-script-modal-wrap .import-tab-bar__inner .import-tab-inner .import-tab--active {
+  background: #4ae7fd;
+  color: #121212 !important;
+}
+
+.import-script-modal-wrap .import-tab {
+  position: relative;
+  margin: 0;
+  padding: 0.25rem 1rem;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #d9e6f2;
+  cursor: pointer;
+  background: transparent;
+  transition:
+    color 0.2s ease,
+    background 0.2s ease;
+}
+
+.import-script-modal-wrap .import-tab:hover {
+  color: #ffffff;
+}
+
+.import-script-modal-wrap .import-container {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  align-self: stretch;
+  margin: 0 16px;
+  border: 1px solid rgba(74, 231, 253, 0.2);
+  border-radius: 8px;
+  overflow: hidden;
+  background: #0d1422;
+  box-sizing: border-box;
+}
+
+.import-script-modal-wrap .sidebar {
+  width: 260px;
+  flex-shrink: 0;
+  border-right: 1px solid rgba(74, 231, 253, 0.12);
+  display: flex;
+  flex-direction: column;
+  background: #081120;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.import-script-modal-wrap .sidebar-header {
+  padding: 0.875rem 1rem;
+  border-bottom: 1px solid rgba(74, 231, 253, 0.14);
+  background: rgba(19, 33, 57, 0.55);
+}
+
+.import-script-modal-wrap .sidebar-title {
+  font-size: 1.125rem;
+  color: var(--home-text, #e6edf3);
+  margin: 0;
+}
+
+.import-script-modal-wrap .document-tree {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0.625rem;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.import-script-modal-wrap .document-tree::-webkit-scrollbar {
+  display: none;
+}
+
+.import-script-modal-wrap .tree-empty-hint {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--home-muted, #8e97a5);
+}
+
+.import-script-modal-wrap .tree-item {
+  margin-bottom: 0.25rem;
+}
+
+.import-script-modal-wrap .tree-node {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.375rem 0.625rem;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: var(--home-text, #e6edf3);
+  font-size: 14px;
+}
+
+.import-script-modal-wrap .tree-node:hover {
+  background: rgba(14, 89, 250, 0.12);
+}
+
+.import-script-modal-wrap .tree-item.active .tree-node {
+  background: rgba(14, 47, 100, 0.45);
+  font-weight: 500;
+  border-left: 2px solid rgba(0, 171, 216, 0.85);
+  padding-left: calc(0.625rem - 2px);
+}
+
+.import-script-modal-wrap .tree-item.active .tree-node span {
+  color: #4ae7fd;
+}
+
+.import-script-modal-wrap .tree-item.active .tree-node .tree-icon {
+  color: var(--home-cyan, #4ae7fd);
+}
+
+.import-script-modal-wrap .tree-node.leaf {
+  padding-left: 2rem;
+}
+
+.import-script-modal-wrap .tree-icon {
+  font-size: 0.875rem;
+  color: var(--home-muted, #8e97a5);
+  width: 16px;
+  min-width: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+
+.import-script-modal-wrap .tree-icon:hover {
+  color: var(--home-cyan, #4ae7fd);
+}
+
+.import-script-modal-wrap .tree-node.active .tree-icon {
+  color: var(--home-cyan, #4ae7fd);
+}
+
+.import-script-modal-wrap .tree-label {
+  flex: 1;
+}
+
+.import-script-modal-wrap .tree-children {
+  margin-left: 1rem;
+}

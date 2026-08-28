@@ -1,0 +1,260 @@
+/* 原 StoryboardLeftPanel.vue scoped 样式，根类 .sb-left 前缀防泄漏；:deep() 转普通后代选择器 */
+.sb-left {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.sb-left .sb-left-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0.5rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 0.35rem;
+}
+
+.sb-left .sb-left-tab {
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.75);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sb-left .sb-left-tab.active {
+  background: rgba(34, 197, 94, 0.12);
+  border-color: rgba(34, 197, 94, 0.35);
+  color: rgba(226, 255, 237, 0.95);
+}
+
+.sb-left .sb-left-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.sb-left .sb-left-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 12px;
+  border: 1px solid rgba(34, 197, 94, 0.25);
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.sb-left .sb-left-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: rgba(255, 255, 255, 0.88);
+  font-weight: 700;
+}
+
+.sb-left .sb-badge {
+  opacity: 0.9;
+}
+
+.sb-left .sb-generate-prompt {
+  height: 30px;
+  border-radius: 10px;
+}
+
+.sb-left .sb-left-grid {
+  display: grid;
+  grid-template-columns: 42px 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.sb-left .sb-left-grid-col-labels {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding-top: 0.4rem;
+}
+
+.sb-left .sb-left-label {
+  color: rgba(255, 255, 255, 0.7);
+  font-weight: 700;
+  font-size: 0.82rem;
+  line-height: 42px;
+}
+
+.sb-left .sb-import-card {
+  width: 100%;
+  height: 46px;
+  border-radius: 12px;
+  border: 1px dashed rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(255, 255, 255, 0.8);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.sb-left .sb-import-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  font-weight: 800;
+}
+
+.sb-left .sb-import-text {
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.sb-left .sb-other-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.sb-left .sb-other-card {
+  height: 40px;
+  border-radius: 12px;
+  border: 1px dashed rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(255, 255, 255, 0.8);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+}
+
+.sb-left .sb-left-side {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.sb-left .sb-select {
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.03);
+  padding: 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.sb-left .sb-select-label {
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.sb-left .sb-select-btn {
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(0, 0, 0, 0.1);
+  color: rgba(255, 255, 255, 0.88);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 0.7rem;
+  cursor: pointer;
+}
+
+.sb-left .sb-select-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.25rem;
+}
+
+.sb-left .sb-expand {
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.65);
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+}
+
+.sb-left .sb-expand-icon--open {
+  transform: rotate(180deg);
+}
+
+.sb-left .sb-composition-desc textarea {
+  background: rgba(0, 0, 0, 0.12) !important;
+  border-color: rgba(255, 255, 255, 0.14) !important;
+  color: rgba(255, 255, 255, 0.88) !important;
+}
+
+.sb-left .sb-left-side--dict .setting-select {
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(0, 0, 0, 0.1);
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.sb-left .sb-left-side--dict .setting-select span {
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.sb-left .sb-prompt {
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.1);
+  padding: 0.6rem;
+}
+
+.sb-left .sb-char-count {
+  text-align: right;
+  margin-top: 0.4rem;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.75rem;
+}
+
+.sb-left .sb-bottom {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.sb-left .sb-bottom-row {
+  display: grid;
+  grid-template-columns: 1.2fr 0.8fr 0.7fr 0.6fr;
+  gap: 0.5rem;
+}
+
+.sb-left .sb-pill {
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(255, 255, 255, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.82rem;
+}
+
+.sb-left .sb-generate-btn {
+  height: 44px;
+  border-radius: 12px;
+  font-weight: 800;
+}

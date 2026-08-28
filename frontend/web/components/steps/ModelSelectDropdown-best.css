@@ -1,0 +1,150 @@
+/* Tailwind/PostCSS component styles for ModelSelectDropdown. */
+
+
+.model-select-dropdown-portal .option-tag.best {
+  background: rgba(251, 191, 36, 0.18);
+  color: #fcd34d;
+  border: 1px solid rgba(251, 191, 36, 0.28);
+}
+
+.model-select-dropdown-portal .option-tag.cost-effective {
+  background: rgba(167, 139, 250, 0.2);
+  color: #c4b5fd;
+  border: 1px solid rgba(167, 139, 250, 0.3);
+}
+
+.model-select-dropdown-portal .option-tag.default {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--home-muted, #8e97a5);
+}
+
+.model-select-dropdown-portal .option-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin-top: 8px;
+  margin-bottom: 2px;
+  min-width: 0;
+}
+
+.model-select-dropdown-portal .option-desc {
+  font-size: 0.8125rem;
+  color: rgba(188, 205, 228, 0.78);
+  line-height: 1.55;
+  margin: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.model-select-dropdown-portal .option-capability {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  padding: 2px 8px 2px 6px;
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.model-select-dropdown-portal .option-capability--audio {
+  color: #7eefff;
+  background: linear-gradient(
+    135deg,
+    rgba(74, 231, 253, 0.16) 0%,
+    rgba(14, 89, 250, 0.14) 100%
+  );
+  border: 1px solid rgba(74, 231, 253, 0.32);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+}
+
+.model-select-dropdown-portal .option-capability__waves {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 10px;
+  width: 12px;
+}
+
+.model-select-dropdown-portal .option-capability__waves i {
+  display: block;
+  width: 2px;
+  border-radius: 1px;
+  background: currentColor;
+  opacity: 0.9;
+}
+
+.model-select-dropdown-portal .option-capability__waves i:nth-child(1) {
+  height: 4px;
+}
+
+.model-select-dropdown-portal .option-capability__waves i:nth-child(2) {
+  height: 9px;
+}
+
+.model-select-dropdown-portal .option-capability__waves i:nth-child(3) {
+  height: 6px;
+}
+
+.model-select-dropdown-portal .option-item.selected .option-capability--audio {
+  color: #a8f4ff;
+  border-color: rgba(74, 231, 253, 0.45);
+  background: linear-gradient(
+    135deg,
+    rgba(74, 231, 253, 0.22) 0%,
+    rgba(14, 89, 250, 0.2) 100%
+  );
+}
+
+.model-select-dropdown-portal .option-prices {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.model-select-dropdown-portal .price-item {
+  font-size: 0.6875rem;
+  color: rgba(216, 230, 252, 0.85);
+  padding: 4px 10px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(120, 140, 170, 0.22);
+  border-radius: 6px;
+}
+
+.model-select-dropdown-portal .check-icon {
+  font-size: 1rem;
+  color: var(--accent-500, #4ae7fd);
+  flex-shrink: 0;
+}
+
+/* 下拉动画（向下：从上缘展开；向上：从下缘展开） */
+.model-select-dropdown-portal.dropdown-enter-active,
+.model-select-dropdown-portal.dropdown-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.options-list.model-select-dropdown-portal.is-open-down.dropdown-enter-active,
+.options-list.model-select-dropdown-portal.is-open-down.dropdown-leave-active {
+  transform-origin: top center;
+}
+
+.options-list.model-select-dropdown-portal.is-open-up.dropdown-enter-active,
+.options-list.model-select-dropdown-portal.is-open-up.dropdown-leave-active {
+  transform-origin: bottom center;
+}
+
+.model-select-dropdown-portal.dropdown-enter-from {
+  opacity: 0;
+  transform: scaleY(0.96);
+}
+
+.model-select-dropdown-portal.dropdown-leave-to {
+  opacity: 0;
+  transform: scaleY(0.96);
+}

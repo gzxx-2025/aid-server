@@ -1,0 +1,232 @@
+/* Tailwind/PostCSS component styles for edit-storyboard-image-modal. */
+/* 原 aid-pc/assets/css/edit-storyboard-image-modal.scoped.scss（scoped）展平：
+   1) 去除 :deep()/::v-deep() 包裹（等价后代选择器）；2) sass 展平嵌套；
+   3) 原 scoped 属性隔离改为根类前缀 .edit-storyboard-image-modal（wrapClassName / Modal className
+      上附加该类；原 create-flow-modal / edit-scene-image-modal 契约类保持不变），
+      防止与共用 edit-scene-image-modal wrap 类的场景图弹窗（edit-scene-image*.css）同名选择器互相覆盖，
+      与 edit-storyboard-video.css 的 .edit-storyboard-video-modal 判别类同一先例。
+   history-record-card.css 由 components/common/HistoryRecordWrap.css 承载，不再 @import。 */
+.edit-storyboard-image-modal .storyboard-left {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1rem;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* 未展开：右侧设置区窄列(固定宽度)，不占满整行 */
+/* 已移除分镜生成子组件的遗留样式，统一由 StoryboardGeneratePanel 维护 */
+.edit-storyboard-image-modal .ant-modal {
+  max-width: 100vw;
+  margin: 0;
+  padding: 0;
+  top: 0;
+  height: 100vh;
+}
+
+.edit-storyboard-image-modal .ant-modal-content {
+  height: 100vh !important;
+  display: flex !important;
+  flex-direction: column !important;
+  border-radius: 0 !important;
+  background: rgb(11, 15, 23) !important;
+  padding: 0 !important;
+}
+
+.edit-storyboard-image-modal .ant-modal-container {
+  padding: 0 !important;
+}
+
+.edit-storyboard-image-modal .ant-modal-body {
+  flex: 1;
+  padding: 0;
+  overflow: hidden;
+}
+
+.edit-storyboard-image-modal .edit-scene-image-container {
+  display: flex;
+  flex-direction: column;
+  height: 99vh;
+  max-height: 100vh;
+  background: #0b0f17;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.edit-storyboard-image-modal .edit-scene-image-container .main-content-wrapper {
+  flex: 1;
+  min-height: 0;
+}
+
+/* 头部（与 EditSceneImageModal 一致） */
+.edit-storyboard-image-modal .modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 10px;
+  background: rgb(25, 26, 29);
+  border-bottom: 1px solid rgba(128, 154, 188, 0.26);
+  flex-shrink: 0;
+}
+
+.edit-storyboard-image-modal .back-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: rgba(225, 239, 255, 0.9) !important;
+  font-size: 14px;
+}
+.edit-storyboard-image-modal .back-btn:hover {
+  color: #4ae7fd !important;
+  background: rgba(74, 231, 253, 0.08) !important;
+}
+
+.edit-storyboard-image-modal .scene-switcher {
+  flex: 1;
+  min-width: 0;
+  padding: 0.25rem 0;
+}
+
+.edit-storyboard-image-modal .scene-switcher-track {
+  gap: 0.5rem;
+  padding: 0 6px 2px;
+}
+
+/* 场景 tab缩略图：未选中无边框/背景；选中整卡青色描边 */
+.edit-storyboard-image-modal .scene-image-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  width: 172px;
+  min-width: 172px;
+  max-width: 172px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  min-width: 80px;
+  box-shadow: none;
+}
+
+.edit-storyboard-image-modal .scene-image-tab:hover:not(.active) {
+  border-color: transparent;
+  background: transparent;
+}
+
+.edit-storyboard-image-modal .scene-image-tab.active {
+  border-color: rgb(74, 231, 253);
+  background: transparent;
+  box-shadow: none;
+}
+
+.edit-storyboard-image-modal .scene-image-thumbnail {
+  position: relative;
+  width: 100%;
+  height: 54px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: rgba(6, 10, 18, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.edit-storyboard-image-modal .scene-image-thumbnail .shimmer-image {
+  width: 100%;
+  height: 100%;
+}
+
+.edit-storyboard-image-modal .scene-image-thumbnail .thumbnail-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.edit-storyboard-image-modal .thumbnail-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--gray-400);
+  font-size: 1.25rem;
+}
+
+.edit-storyboard-image-modal .scene-label {
+  font-size: 12px;
+  color: var(--gray-700);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  text-align: center;
+  padding: 0 10px 0;
+}
+
+.edit-storyboard-image-modal .scene-image-tab.active .scene-label {
+  color: rgba(218, 233, 255, 0.92);
+  font-weight: 600;
+}
+
+.edit-storyboard-image-modal .scene-image-tab.scene-image-tab--generating .scene-image-thumbnail {
+  border: 1px solid rgba(74, 231, 253, 0.45);
+}
+
+.edit-storyboard-image-modal .scene-tab-generating-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 14, 22, 0.82);
+  backdrop-filter: blur(3px);
+}
+
+.edit-storyboard-image-modal .scene-tab-generating-mask__icon {
+  font-size: 18px;
+  color: #4ae7fd;
+}
+
+/* 主要内容区域 */
+.edit-storyboard-image-modal .main-content-wrapper {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* 三栏布局（与 EditSceneImageModal .figma-stage-layout 一致） */
+.edit-storyboard-image-modal .figma-stage-layout {
+  display: grid;
+  grid-template-columns: 144px minmax(0, 1fr) 398px;
+  grid-template-rows: minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+  background: #0b0f17;
+}
+
+.edit-storyboard-image-modal .figma-stage-layout > * {
+  min-height: 0;
+}
+
+.edit-storyboard-image-modal .stage-history-panel,
+.edit-storyboard-image-modal .stage-config-panel {
+  border: 1px solid rgba(128, 154, 188, 0.26);
+  background: rgb(25, 26, 29);
+}
+
+.edit-storyboard-image-modal .stage-history-panel {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 7px;
+  height: 100%;
+  min-height: 0;
+  overflow: visible;
+  box-sizing: border-box;
+}

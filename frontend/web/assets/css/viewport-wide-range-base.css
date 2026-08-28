@@ -1,0 +1,228 @@
+/* Tailwind/PostCSS component styles for viewport-wide-range. */
+/**
+ * 1920–4K 宽屏区间 — 全站样式微调（1921px–3840px）
+ *
+ * 覆盖范围：登录、首页、我的作品、资产库、关于/FAQ/计费、案例详情、
+ * 创作流程各步骤、旧版首页、用户页，以及挂载 body 的全局弹窗。
+ *
+ * 前提：plugins/viewport-compact-scale.client.ts 对 >1920 应用 zoom = 1920/width；
+ * html 带 data-viewport-above-design="1" 与 data-viewport-wide-tier（qhd | uhd | beyond）。
+ *
+ * vh/dvh 补偿变量见 viewport-large-scale-overrides.css（--vps-comp-vh / --vps-comp-dvh）。
+ */
+
+/* ========================================================================== */
+/* 0. 全站宽屏 token（所有 shell 共用）                                         */
+/* ========================================================================== */
+html[data-viewport-above-design='1'] {
+  --vps-wide-gallery-cols: 5;
+  --vps-wide-works-cols: 5;
+  --vps-wide-assets-min: 16%;
+  --vps-wide-grid-gap: 18px;
+  --vps-wide-page-pad-x: 32px;
+  --vps-wide-page-pad-y: 28px;
+  --vps-wide-hero-max-h: 520px;
+}
+
+html[data-viewport-above-design='1'][data-viewport-wide-tier='qhd'] {
+  --vps-wide-gallery-cols: 5;
+  --vps-wide-works-cols: 5;
+  --vps-wide-assets-min: 15%;
+  --vps-wide-grid-gap: 16px;
+  --vps-wide-page-pad-x: 28px;
+  --vps-wide-hero-max-h: 480px;
+}
+
+html[data-viewport-above-design='1'][data-viewport-wide-tier='uhd'],
+html[data-viewport-above-design='1'][data-viewport-wide-tier='beyond'] {
+  --vps-wide-gallery-cols: 6;
+  --vps-wide-works-cols: 6;
+  --vps-wide-assets-min: 14%;
+  --vps-wide-grid-gap: 14px;
+  --vps-wide-page-pad-x: 24px;
+  --vps-wide-page-pad-y: 24px;
+  --vps-wide-hero-max-h: 440px;
+}
+
+/* ========================================================================== */
+/* 1. 登录页 app-shell-login                                                   */
+/* 构图由 pages/login.vue 设计框 + zoom 统一缩放，宽屏不再改登录结构/内边距。   */
+/* ========================================================================== */
+html[data-viewport-above-design='1'].app-shell-login .login-page {
+  min-height: var(--vps-comp-vh, calc(100vh / var(--viewport-scale-factor, 1))) !important;
+}
+
+/* ========================================================================== */
+/* 2. 新版首页壳 layout-home-new（首页 / 作品 / 资产 / 关于 / FAQ / 计费）        */
+/* ========================================================================== */
+html[data-viewport-above-design='1'].layout-home-new .home-new-main-wrap,
+html[data-viewport-above-design='1'].layout-home-new .home-new-main,
+html[data-viewport-above-design='1'].layout-home-new .home-route-transition-host,
+html[data-viewport-above-design='1'].layout-home-new .home-main-route {
+  min-width: 0;
+  min-height: 0;
+}
+
+html[data-viewport-above-design='1'].layout-home-new .home-new-sub-page {
+  padding: var(--vps-wide-page-pad-y) var(--vps-wide-page-pad-x) 32px;
+}
+
+/* 首页案例广场 */
+html[data-viewport-above-design='1'].layout-home-new .home-new-index .works-grid {
+  grid-template-columns: repeat(var(--vps-wide-gallery-cols, 5), minmax(0, 1fr));
+  gap: var(--vps-wide-grid-gap);
+}
+
+html[data-viewport-above-design='1'].layout-home-new .home-new-index .home-new-hero-stage {
+  width: 100%;
+  height: clamp(280px, 68vh, calc(100vh - 150px));
+  height: clamp(280px, 68dvh, calc(100dvh - 150px));
+  max-height: none;
+  aspect-ratio: auto;
+}
+
+html[data-viewport-above-design='1'].layout-home-new .home-new-index .gallery-section {
+  padding-left: var(--vps-wide-page-pad-x);
+  padding-right: var(--vps-wide-page-pad-x);
+}
+
+/* 我的作品 / 资产库 */
+html[data-viewport-above-design='1'].layout-home-new .works-lib-grid {
+  grid-template-columns: repeat(var(--vps-wide-works-cols, 5), minmax(0, 1fr));
+  gap: var(--vps-wide-grid-gap);
+}
+
+html[data-viewport-above-design='1'].layout-home-new .home-new-sub-page.works-library-figma .works-lib-grid,
+html[data-viewport-above-design='1'].layout-home-new .home-new-sub-page.assets-library-figma .works-lib-grid {
+  grid-template-columns: repeat(var(--vps-wide-works-cols, 5), minmax(0, 1fr));
+}
+
+/*
+ * 必须用 max-content：定高 + overflow:auto 的网格里，auto 行最小尺寸会被当成 0，
+ * 浏览器把所有行硬塞进视口，封面 aspect-ratio 被压扁成「百叶窗」叠卡。
+ * （与 home-new-page.css 资产库注释一致；勿改回 auto）
+ */
+html[data-viewport-above-design='1'].layout-home-new .works-lib-grid,
+html[data-viewport-above-design='1'][data-viewport-wide-tier='uhd'].layout-home-new .works-lib-grid,
+html[data-viewport-above-design='1'][data-viewport-wide-tier='beyond'].layout-home-new .works-lib-grid {
+  grid-auto-rows: max-content;
+}
+
+/* 关于 / FAQ / 计费：内容区防横向溢出 */
+html[data-viewport-above-design='1'].layout-home-new .home-new-sub-page.about-page,
+html[data-viewport-above-design='1'].layout-home-new .home-new-sub-page.help-center-page,
+html[data-viewport-above-design='1'].layout-home-new .home-new-sub-page.billing-page {
+  overflow-x: hidden;
+}
+
+html[data-viewport-above-design='1'].layout-home-new .about-page__inner,
+html[data-viewport-above-design='1'].layout-home-new .help-center-page__inner,
+html[data-viewport-above-design='1'].layout-home-new .billing-page__inner {
+  max-width: 100%;
+  min-width: 0;
+}
+
+/* ========================================================================== */
+/* 3. 旧版首页 layout-home-shell / home-legacy-page                           */
+/* ========================================================================== */
+html[data-viewport-above-design='1'].layout-home-shell .home-legacy-page .works-grid {
+  grid-template-columns: repeat(var(--vps-wide-gallery-cols, 5), minmax(0, 1fr));
+  gap: var(--vps-wide-grid-gap);
+}
+
+html[data-viewport-above-design='1'].layout-home-shell .home-theme-page {
+  min-width: 0;
+  overflow-x: hidden;
+}
+
+/* ========================================================================== */
+/* 4. 案例详情 case-detail-shell                                               */
+/* ========================================================================== */
+html[data-viewport-above-design='1'].case-detail-shell .case-detail-root {
+  min-height: var(--vps-comp-dvh, calc(100dvh / var(--viewport-scale-factor, 1))) !important;
+  overflow: hidden;
+}
+
+html[data-viewport-above-design='1'].case-detail-shell .case-detail-page {
+  height: var(--vps-comp-dvh, calc(100dvh / var(--viewport-scale-factor, 1))) !important;
+  max-height: var(--vps-comp-dvh, calc(100dvh / var(--viewport-scale-factor, 1))) !important;
+  overflow: hidden;
+}
+
+html[data-viewport-above-design='1'].case-detail-shell .case-detail-main {
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+html[data-viewport-above-design='1'][data-viewport-wide-tier='uhd'].case-detail-shell .case-detail-main,
+html[data-viewport-above-design='1'][data-viewport-wide-tier='beyond'].case-detail-shell .case-detail-main {
+  padding: 28px 24px 28px 16px;
+}
+
+/* ========================================================================== */
+/* 5. 创作流程 layout-create-flow / app-shell-create                           */
+/* ========================================================================== */
+html[data-viewport-above-design='1'].app-shell-create {
+  --storyboard-list-item-height: 300px;
+  --storyboard-list-header-height: 40px;
+  --storyboard-card-media-min-height: 220px;
+  --storyboard-card-grid-min: 280px;
+}
+
+html[data-viewport-above-design='1'][data-viewport-wide-tier='qhd'].app-shell-create {
+  --storyboard-list-item-height: 280px;
+  --storyboard-card-media-min-height: 200px;
+  --storyboard-card-grid-min: 260px;
+}
+
+html[data-viewport-above-design='1'][data-viewport-wide-tier='uhd'].app-shell-create,
+html[data-viewport-above-design='1'][data-viewport-wide-tier='beyond'].app-shell-create {
+  --storyboard-list-item-height: 260px;
+  --storyboard-card-media-min-height: 180px;
+  --storyboard-card-grid-min: 240px;
+}
+
+html[data-viewport-above-design='1'].layout-create-flow .create-main,
+html[data-viewport-above-design='1'].layout-create-flow .create-main__transition-wrap,
+html[data-viewport-above-design='1'].layout-create-flow .create-main__flow-stack,
+html[data-viewport-above-design='1'].layout-create-flow .preview-panel,
+html[data-viewport-above-design='1'].layout-create-flow .preview-content {
+  min-height: 0;
+  min-width: 0;
+}
+
+html[data-viewport-above-design='1'].layout-create-flow .create-workflow__scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+/* 宽屏不再限制步骤 pill 的 max-width，避免「素材准备」等被截成「素…」 */
+html[data-viewport-above-design='1'].layout-create-flow .flow-step-pill--strip {
+  min-width: auto;
+  max-width: none;
+  flex: 0 0 auto;
+  padding-left: 12px;
+  padding-right: 12px;
+}
+
+/* 分镜卡片网格列宽（宽屏档位） */
+html[data-viewport-above-design='1'].app-shell-create .storyboard-step .storyboard-cards {
+  grid-template-columns: repeat(auto-fill, minmax(var(--storyboard-card-grid-min, 280px), 1fr));
+  gap: 0.875rem;
+}
+
+/* 列表媒体卡高度由 storyboard-step-shared 按行高 flex 撑满，不再按档位写死 px */
+
+html[data-viewport-above-design='1'].app-shell-create .preview-content:has(.create-step-storyboard-video) {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+html[data-viewport-above-design='1'].app-shell-create .preview-content:has(.create-step-storyboard-video) .storyboard-step {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}

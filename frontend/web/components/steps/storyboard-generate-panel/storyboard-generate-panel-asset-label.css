@@ -1,0 +1,223 @@
+/* Tailwind/PostCSS component styles for storyboard-generate-panel. */
+
+
+.storyboard-generate-panel .asset-panel .asset-label {
+  color: rgba(142, 151, 165, 1) !important;
+  font-weight: 600;
+  text-align: center;
+}
+
+.storyboard-generate-panel .storyboard-top:not(.storyboard-top-expanded) .storyboard-left-col .asset-panel {
+  flex: 1;
+  overflow-y: auto;
+  flex-shrink: 1;
+}
+
+/* 展开：压缩下方描述区高度，上方素材区占满剩余空间且不再出现纵向滚动条 */
+.storyboard-generate-panel .storyboard-top-expanded .asset-panel {
+  flex: 1;
+  min-height: 0;
+  overflow-y: hidden;
+  overflow-x: hidden;
+  flex-shrink: 1;
+}
+
+/* 1080+：优先铺满并减少左侧不必要滚动 */
+@media (min-height: 1080px) {
+  /* 高分辨率：参照设计稿，一屏铺满展示，不允许上方双栏“自动顶高”导致出现滚动条 */
+  .storyboard-generate-panel .storyboard-top:not(.storyboard-top-expanded) {
+    grid-template-rows: var(--storyboard-top-collapsed-height, 290px);
+  }
+
+  .storyboard-generate-panel .storyboard-top-expanded {
+    grid-template-rows: var(--storyboard-top-expanded-height, 450px);
+  }
+
+  .storyboard-generate-panel .storyboard-top:not(.storyboard-top-expanded) .storyboard-left-col .asset-panel {
+    overflow-y: hidden;
+  }
+
+  .storyboard-generate-panel .storyboard-top-expanded .asset-panel {
+    overflow-y: hidden;
+  }
+
+  .storyboard-generate-panel .setting-panel:not(.expanded) .setting-body,
+  .storyboard-generate-panel .setting-panel.expanded .setting-body {
+    overflow-y: hidden;
+  }
+}
+
+/* 低高度且点击“展开”：左侧素材区允许内部滚动，避免内容被截断 */
+@media (max-height: 900px) {
+  .storyboard-generate-panel .storyboard-top-expanded .asset-panel {
+    overflow-y: auto;
+  }
+}
+
+.storyboard-generate-panel .asset-card {
+  height: var(--storyboard-card-height, 50px);
+  border-radius: var(--radius-md);
+  border: 1px dashed var(--create-border-dashed);
+  background: rgba(18, 18, 18, 1);
+  color: var(--gray-700);
+  width: 40%;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.storyboard-generate-panel .asset-card span {
+  color: #8E97A5 !important;
+  font-size: 12px;
+}
+
+.storyboard-generate-panel .asset-card:hover {
+  border-color: var(--accent-300);
+  background: var(--accent-50);
+  color: var(--accent-700);
+}
+
+.storyboard-generate-panel .asset-card.small {
+  height: var(--storyboard-card-small-height, 44px);
+}
+
+.storyboard-generate-panel .asset-icon {
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 14px;
+}
+
+.storyboard-generate-panel .asset-row-other .asset-grid-other-top {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.storyboard-generate-panel .asset-thumb-item--removable {
+  position: relative;
+}
+
+.storyboard-generate-panel .asset-thumb-remove {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  line-height: 16px;
+  font-size: 14px;
+  border: none;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  cursor: pointer;
+  z-index: 2;
+}
+
+.storyboard-generate-panel .asset-thumb-remove:hover {
+  background: rgba(220, 38, 38, 0.9);
+}
+
+.storyboard-generate-panel .asset-horizontal-wrap {
+  display: flex;
+  align-items: center;
+  gap: var(--storyboard-block-gap, 6px);
+  min-width: 0;
+}
+
+.storyboard-generate-panel .asset-arrow {
+  flex-shrink: 0;
+  width: 28px;
+  height: var(--storyboard-card-height, 36px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--gray-200);
+  border-radius: 4px;
+  background: var(--create-surface-panel);
+  cursor: pointer;
+  color: var(--gray-600);
+}
+
+.storyboard-generate-panel .asset-arrow:hover {
+  border-color: var(--primary-400);
+  color: var(--primary-600);
+}
+
+.storyboard-generate-panel .asset-horizontal {
+  display: flex;
+  align-items: center;
+  gap: var(--storyboard-block-gap, 6px);
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 4px 0;
+  min-width: 0;
+  flex: 1;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.storyboard-generate-panel .asset-horizontal::-webkit-scrollbar {
+  display: none;
+}
+
+.storyboard-generate-panel .asset-thumb-item {
+  flex-shrink: 0;
+  width: 72px;
+  height: var(--storyboard-thumb-height, 52px);
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--gray-200);
+  transition: border-color 0.2s;
+  display: flex;
+  flex-direction: column;
+}
+
+.storyboard-generate-panel .asset-thumb-item:hover {
+  border-color: var(--primary-400);
+}
+
+.storyboard-generate-panel .asset-thumb-item .shimmer-image {
+  width: 100%;
+  flex-shrink: 0;
+}
+
+.storyboard-generate-panel .asset-thumb-img {
+  width: 100%;
+  height: var(--storyboard-thumb-img-height, 36px);
+  min-height: var(--storyboard-thumb-img-height, 36px);
+  object-fit: cover;
+  display: block;
+}
+
+.storyboard-generate-panel .asset-thumb-name {
+  display: block;
+  padding: 2px 4px;
+  font-size: 0.65rem;
+  line-height: 1.2;
+  color: var(--gray-600);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-height: 0;
+}
+
+.storyboard-generate-panel .asset-card-inline {
+  flex-shrink: 0;
+  width: 72px;
+  height: var(--storyboard-thumb-height, 52px);
+  margin: 0;
+}
+
+.storyboard-generate-panel .asset-other-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.storyboard-generate-panel .asset-card-import-other {
+  width: 30%;
+  max-width: 140px;
+}

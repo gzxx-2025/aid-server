@@ -1,0 +1,217 @@
+/* Tailwind/PostCSS component styles for story-gen-figma. */
+.story-gen-figma__grid {
+  display: grid;
+  grid-template-columns: 350px minmax(0, 1fr);
+  gap: 0;
+  padding: 0 1.5rem 1rem;
+  align-items: start;
+}
+
+/* 左右栏之间 1px 分割线 */
+.story-gen-figma__col--density,
+.story-gen-figma__col--video {
+  border-left: 1px solid rgba(74, 231, 253, 0.3);
+  padding-left: 1rem;
+  margin-left: 1rem;
+  min-width: 0;
+}
+
+@media (max-width: 960px) {
+  .story-gen-figma__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .story-gen-figma__col--density,
+  .story-gen-figma__col--video {
+    border-left: none;
+    margin-left: 0;
+    padding-left: 0;
+    border-top: 1px solid rgba(74, 231, 253, 0.3);
+    padding-top: 1rem;
+    margin-top: 1rem;
+  }
+}
+
+.story-gen-figma__label {
+  font-size: 14px;
+  font-weight: 500;
+  color: #fff;
+  margin-bottom: 10px;
+  line-height: 1.4;
+}
+
+/* 左侧：与 ExtractAgentModal 单列 extract-columns / extract-col 一致 */
+.story-gen-extract-columns.extract-columns {
+  display: grid;
+  gap: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(22, 26, 36, 0.6);
+  border:1px solid rgba(74, 231, 253, 0.3) ;
+}
+
+.story-gen-extract-columns.extract-columns--1 {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.story-gen-figma .extract-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.story-gen-figma .extract-col__head {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  margin-bottom: 0.5rem;
+  background: rgba(32, 36, 52, 1);
+  height: 40px;
+}
+
+.story-gen-figma .extract-col__head-ico {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.story-gen-figma .extract-col__head-ico img {
+  width: 14px;
+  height: 14px;
+}
+
+.story-gen-figma .extract-col__head-text {
+  font-size: 16px;
+  font-weight: 600;
+  color: #e6edf3;
+}
+
+.story-gen-figma .extract-col__figure {
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+}
+.story-gen-figma .extract-col__box{
+  padding:22px 12px 12px;
+}
+.story-gen-figma .extract-col__card {
+  flex: 1;
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 12px 0;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  overflow: hidden;
+  cursor: pointer;
+  background:rgba(22, 26, 36, 0.6);
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    background 0.2s ease;
+}
+
+.story-gen-figma .extract-col__card:hover {
+  border: 1px solid rgba(74, 231, 253, 0.95);
+  box-shadow:
+    0 0 0 1px rgba(74, 231, 253, 0.35),
+    0 8px 28px rgba(0, 163, 255, 0.18);
+  background: rgba(22, 28, 40, 0.92);
+}
+
+.story-gen-figma .extract-col__card:focus-visible {
+  outline: 2px solid rgba(74, 231, 253, 0.65);
+  outline-offset: 2px;
+}
+
+.story-gen-figma .extract-col__img-wrap {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  margin: 0 auto;
+  aspect-ratio: 1 / 1;
+  border-radius: 14px;
+  overflow: hidden;
+  background: rgba(10, 14, 22, 0.9);
+  border: 1px solid rgba(74, 231, 253, 0.28);
+}
+
+.story-gen-figma .extract-col__img-shimmer {
+  width: 100%;
+  height: 100%;
+}
+
+.story-gen-figma .extract-col__img-wrap .extract-col__img-shimmer {
+  width: 100%;
+  height: 100%;
+}
+
+.story-gen-figma .extract-col__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.story-gen-figma .extract-col__img-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(74, 231, 253, 0.45);
+  font-size: 2rem;
+}
+
+.story-gen-figma .extract-col__caption {
+  margin-top: 0.75rem;
+  width: 100%;
+  text-align: center;
+  background: #111111;
+  padding: 10px 0;
+}
+
+.story-gen-figma .extract-col__name {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: #f1f5f9;
+  line-height: 1.4;
+  margin: 0 0 0.4rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.story-gen-figma .extract-col__desc {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.55;
+  color: rgba(142, 151, 165, 0.98);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.story-gen-dict-placeholder {
+  margin: 0;
+  padding: 12px 0;
+  font-size: 14px;
+  color: #8e97a5;
+  line-height: 1.5;
+}
+
+.story-gen-density-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}

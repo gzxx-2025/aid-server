@@ -1,0 +1,194 @@
+/* 原 components/common/UserMenuDropdown.vue <style scoped> 平移（类名唯一，直接全局引入） */
+.user-menu-dropdown {
+  position: fixed;
+  width: 260px;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 12px;
+  background: rgba(17, 22, 33, 1);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  transform: translateY(-100%);
+  z-index: 1000;
+}
+
+.user-menu-dropdown__header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 14px 12px;
+}
+
+.user-menu-dropdown__avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: rgba(14, 89, 250, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.user-menu-dropdown__avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.user-menu-dropdown__meta {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.user-menu-dropdown__name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-menu-dropdown__sub {
+  font-size: 12px;
+  color: #8e97a5;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-menu-dropdown__wechat-notify {
+  padding: 0 14px 0;
+  background: #202434;
+}
+
+.user-menu-dropdown__wechat-notify-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 40px;
+}
+
+.user-menu-dropdown__wechat-notify-row.is-disabled {
+  cursor: not-allowed;
+}
+
+.user-menu-dropdown__wechat-notify-label {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.92);
+  user-select: none;
+}
+
+.user-menu-dropdown__list {
+  padding: 8px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.user-menu-dropdown__item {
+  width: 100%;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 14px;
+  padding: 8px 10px;
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    color 0.18s ease;
+}
+
+.user-menu-dropdown__item .anticon {
+  font-size: 16px;
+  color: #8e97a5;
+  flex-shrink: 0;
+  transition: color 0.18s ease;
+}
+
+.user-menu-dropdown__item:hover {
+  background: rgba(32, 36, 52, 1);
+}
+
+.user-menu-dropdown__item:hover .anticon {
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.user-menu-dropdown__item--danger {
+  color: #ffc9c9;
+}
+
+.user-menu-dropdown__item--danger .anticon {
+  color: rgba(255, 180, 180, 0.85);
+}
+
+.user-menu-dropdown__item--danger:hover {
+  background: rgba(32, 36, 52, 1);
+  color: #ffe0e0;
+}
+
+.user-menu-dropdown__item--danger:hover .anticon {
+  color: #ffb4b4;
+}
+
+/* 原 <transition name="user-menu-dropdown-pop">：React 侧 v-if 挂载即播放进场动画（0.2s ease，参数与原过渡一致） */
+@keyframes user-menu-dropdown-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-100%) translateX(-14px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(-100%);
+  }
+}
+
+.user-menu-dropdown {
+  animation: user-menu-dropdown-pop-in 0.2s ease;
+}
+
+/* 开关根节点即 .user-menu-dropdown__switch，需非 scoped 并压过 app-shell-create 全局纯色 */
+html.app-shell-create .user-menu-dropdown__switch.ant-switch,
+html.layout-home-new .user-menu-dropdown__switch.ant-switch {
+  min-width: 36px;
+  background: rgba(106, 123, 148, 0.7) !important;
+  border: 1px solid rgba(180, 198, 224, 0.48) !important;
+}
+
+html.app-shell-create .user-menu-dropdown__switch.ant-switch.ant-switch-checked,
+html.layout-home-new .user-menu-dropdown__switch.ant-switch.ant-switch-checked {
+  background: linear-gradient(270deg, #0e59fa 0%, #00abd8 100%) !important;
+  border-color: rgba(0, 171, 216, 0.95) !important;
+}
+
+html.app-shell-create
+  .user-menu-dropdown__switch.ant-switch.ant-switch-checked:hover:not(.ant-switch-disabled),
+html.layout-home-new
+  .user-menu-dropdown__switch.ant-switch.ant-switch-checked:hover:not(.ant-switch-disabled) {
+  background: linear-gradient(270deg, #0e59fa 0%, #00abd8 100%) !important;
+  border-color: rgba(0, 171, 216, 0.95) !important;
+}
+
+html.app-shell-create .user-menu-dropdown__switch.ant-switch .ant-switch-handle,
+html.layout-home-new .user-menu-dropdown__switch.ant-switch .ant-switch-handle {
+  top: 50% !important;
+  translate: 0 -50%;
+}
+
+html.app-shell-create .user-menu-dropdown__switch.ant-switch .ant-switch-handle::before,
+html.layout-home-new .user-menu-dropdown__switch.ant-switch .ant-switch-handle::before {
+  background: #ffffff !important;
+}

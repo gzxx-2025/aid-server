@@ -1,0 +1,206 @@
+/* Tailwind/PostCSS component styles for MultiAngleCameraModal. */
+
+
+.multi-angle-modal-wrap .center-image-overlay {
+  object-fit: cover;
+  border-radius: 2px;
+  height: 160px;
+  width: 160px;
+  box-shadow: 0 0 0 1px rgba(120, 130, 166, 0.08);
+}
+
+.multi-angle-modal-wrap .footer-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 1.5rem 1.25rem;
+  flex-shrink: 0;
+}
+
+.multi-angle-modal-wrap .footer-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+.multi-angle-modal-wrap .footer-model-select {
+  flex: 1;
+  max-width: 360px;
+  min-width: 200px;
+}
+
+/* 与编辑弹窗 GenerateModelConfigBlock 内模型下拉保持一致 */
+.multi-angle-modal-wrap .footer-model-select .model-select-dropdown .selected-model {
+  height: 40px !important;
+  min-height: 40px;
+  padding: 0 10px !important;
+  border-radius: 10px !important;
+  background: #0a0d12 !important;
+  border: 1px solid rgba(78, 94, 122, 0.42) !important;
+  box-shadow: none !important;
+}
+
+.multi-angle-modal-wrap .footer-model-select .model-select-dropdown .selected-model:hover {
+  border-color: rgba(120, 140, 170, 0.45) !important;
+  background: #0a0d12 !important;
+}
+
+.multi-angle-modal-wrap .footer-model-select .model-select-dropdown .selected-model.expanded {
+  background: #0a0d12 !important;
+  border-color: rgba(78, 94, 122, 0.42) !important;
+}
+
+.multi-angle-modal-wrap .footer-model-select .model-select-dropdown .selected-model.expanded.is-open-down {
+  border-bottom-left-radius: 0 !important;
+  border-bottom-right-radius: 0 !important;
+}
+
+.multi-angle-modal-wrap .footer-model-select .model-select-dropdown .selected-model.expanded.is-open-up {
+  border-top-left-radius: 0 !important;
+  border-top-right-radius: 0 !important;
+}
+
+.multi-angle-modal-wrap .footer-model-select .model-select-dropdown .model-name {
+  font-size: 13px;
+  color: rgba(225, 239, 255, 0.92);
+}
+
+.multi-angle-modal-wrap .footer-model-select .model-select-dropdown .expand-icon {
+  color: rgba(225, 239, 255, 0.72);
+}
+
+.multi-angle-modal-wrap .right-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.multi-angle-modal-wrap .import-btn-dashed {
+  min-width: 9.25rem;
+  max-width: 100%;
+  height: 40px;
+  min-height: 40px;
+  border-radius: 0.5rem !important;
+  border: 1px dashed rgba(74, 231, 253, 0.35) !important;
+  background: #121212 !important;
+  color: #ffffff !important;
+  padding: 0 12px !important;
+  font-size: 0.875rem !important;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  line-height: 1;
+  overflow: visible;
+}
+
+.multi-angle-modal-wrap .import-btn-dashed .ant-btn-icon {
+  flex-shrink: 0;
+  margin-inline-end: 0 !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+}
+
+.multi-angle-modal-wrap .import-btn-dashed .anticon {
+  display: inline-flex;
+  line-height: 0;
+}
+
+.multi-angle-modal-wrap .import-btn-dashed > span:not(.ant-btn-icon) {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.multi-angle-modal-wrap .import-btn-dashed .ellipsis-tooltip-text {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+}
+
+.multi-angle-modal-wrap .import-btn-dashed:hover {
+  border-color: rgba(74, 231, 253, 0.55) !important;
+  color: #4ae7fd !important;
+}
+
+.multi-angle-modal-wrap .cancel-btn {
+  min-width: 96px;
+  height: 40px;
+  border-radius: 8px;
+  border: 1px solid rgba(74, 231, 253, 0.3) !important;
+  background: rgba(12, 16, 24, 0.9) !important;
+  color: #fff !important;
+}
+
+.multi-angle-modal-wrap .gen-btn {
+  min-width: 112px;
+  height: 40px;
+  border-radius: 8px;
+  border: none;
+  background: linear-gradient(270deg, #0e59fa 0%, #00abd8 100%);
+}
+
+.multi-angle-modal-wrap .gen-btn:hover {
+  background: linear-gradient(270deg, #2a6cfb 0%, #4ae7fd 100%);
+}
+
+/* 设计稿：滑块 thumb 使用 Polygon-nor / Polygon-sel 图标 */
+.multi-angle-modal-wrap .control-panel .ant-slider {
+  margin: 0;
+}
+
+.multi-angle-modal-wrap .control-panel .ant-slider-rail {
+  height: 2px;
+  background: rgba(142, 151, 165, 1);
+}
+
+.multi-angle-modal-wrap .control-panel .ant-slider-track {
+  height: 2px;
+  background: rgba(74, 231, 253, 0.95);
+}
+
+.multi-angle-modal-wrap .control-panel .ant-slider-handle {
+  inset-block-start: calc(50%);
+  width: 10px;
+  height: 10px;
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 0;
+  background: url('../../assets/img/icon/Polygon-nor.svg') no-repeat center / 100% 100% !important;
+  transform: none !important;
+}
+
+.multi-angle-modal-wrap .control-panel .ant-slider-handle::after {
+  display: none !important;
+}
+
+.multi-angle-modal-wrap .control-panel .ant-slider:hover .ant-slider-handle,
+.multi-angle-modal-wrap .control-panel .ant-slider-handle:focus,
+.multi-angle-modal-wrap .control-panel .ant-slider-handle:active,
+.multi-angle-modal-wrap .control-panel .ant-slider-handle-dragging {
+  background: url('../../assets/img/icon/Polygon-sel.svg') no-repeat center / 100% 100% !important;
+}
+
+/* 焦距滑块中线分割标记 */
+.multi-angle-modal-wrap .control-panel .focal-slider.ant-slider {
+  position: relative;
+}
+
+.multi-angle-modal-wrap .control-panel .focal-slider.ant-slider::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 2px;
+  height: 10px;
+  transform: translate(-50%, -50%);
+  border-radius: 1px;
+  background: rgba(142, 151, 165, 0.75);
+  pointer-events: none;
+}

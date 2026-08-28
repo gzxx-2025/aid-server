@@ -1,0 +1,411 @@
+@import '@/assets/styles/variables.less';
+
+.config-page {
+  display: flex;
+  height: calc(100vh - 140px);
+  background: @bg-layout;
+  gap: 0;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 2px 12px rgba(15, 23, 42, 0.04);
+
+  &__sidebar {
+    width: 240px;
+    background: #fff;
+    border-right: 1px solid #e8ecf0;
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+
+    &-header {
+      padding: 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border-bottom: 1px solid #e8ecf0;
+
+      .icon-box {
+        width: 36px;
+        height: 36px;
+        background: linear-gradient(135deg, @primary-color 0%, #6366f1 100%);
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #fff;
+        font-size: 18px;
+      }
+
+      .title {
+        font-size: 16px;
+        font-weight: 600;
+        color: @text-color-primary;
+      }
+    }
+
+    &-menu {
+      flex: 1;
+      padding: 12px;
+      overflow-y: auto;
+
+      &::-webkit-scrollbar {
+        width: 5px;
+      }
+      &::-webkit-scrollbar-thumb {
+        background: #dcdfe6;
+        border-radius: 3px;
+      }
+    }
+  }
+
+  &__menu-item {
+    display: flex;
+    align-items: center;
+    padding: 10px 14px;
+    cursor: pointer;
+    color: @text-color-secondary;
+    border-radius: 8px;
+    margin-bottom: 4px;
+    transition: all 0.2s ease;
+    user-select: none;
+
+    .anticon {
+      font-size: 15px;
+      margin-right: 10px;
+      color: @text-color-secondary;
+    }
+
+    .text {
+      flex: 1;
+      font-size: 14px;
+    }
+
+    .count {
+      background: #f0f2f5;
+      color: @text-color-secondary;
+      padding: 1px 8px;
+      border-radius: 10px;
+      font-size: 12px;
+      line-height: 18px;
+    }
+
+    &:hover {
+      background: @bg-layout;
+      color: @text-color-primary;
+
+      .anticon {
+        color: @primary-color;
+      }
+    }
+
+    &.active {
+      background: fade(@primary-color, 8%);
+      color: @primary-color;
+      font-weight: 500;
+
+      .anticon {
+        color: @primary-color;
+      }
+
+      .count {
+        background: @primary-color;
+        color: #fff;
+      }
+    }
+  }
+
+  &__main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: #fff;
+  }
+
+  &__header {
+    height: 64px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+    border-bottom: 1px solid #e8ecf0;
+    flex-shrink: 0;
+
+    &-left {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+
+      .title {
+        font-size: 18px;
+        font-weight: 600;
+        color: @text-color-primary;
+        margin: 0;
+      }
+
+      .desc {
+        font-size: 13px;
+        color: @text-color-secondary;
+      }
+    }
+
+    &-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+
+      .save-btn {
+        font-weight: 500;
+      }
+    }
+  }
+
+  &__tabs {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 10px 24px 0;
+    border-bottom: 1px solid #e8ecf0;
+    flex-shrink: 0;
+  }
+
+  &__tab {
+    padding: 8px 16px;
+    font-size: 14px;
+    color: @text-color-secondary;
+    cursor: pointer;
+    border-radius: 8px 8px 0 0;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s ease;
+    user-select: none;
+
+    &:hover {
+      color: @text-color-primary;
+      background: @bg-layout;
+    }
+
+    &.active {
+      color: @primary-color;
+      font-weight: 600;
+      border-bottom-color: @primary-color;
+    }
+  }
+
+  &__notice {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 24px;
+    background: linear-gradient(90deg, #fff7ed 0%, #fffbeb 100%);
+    border-bottom: 1px solid #fed7aa;
+    color: #c2410c;
+    font-size: 13px;
+    flex-shrink: 0;
+
+    .anticon {
+      color: #f59e0b;
+      font-size: 15px;
+    }
+
+    strong {
+      color: #ea580c;
+    }
+  }
+
+  &__provider-note {
+    margin: 18px 24px 6px;
+    padding: 14px 16px;
+    border: 1px solid #dbeafe;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #eff6ff 0%, #f8fafc 100%);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    color: #334155;
+
+    > div {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    strong {
+      color: #0f172a;
+      font-size: 14px;
+    }
+
+    span {
+      color: #64748b;
+      font-size: 12px;
+    }
+
+    a {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+      color: @primary-color;
+      font-weight: 600;
+    }
+  }
+
+  &__content {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+
+    &::-webkit-scrollbar {
+      width: 6px;
+    }
+    &::-webkit-scrollbar-thumb {
+      background: #dcdfe6;
+      border-radius: 3px;
+    }
+  }
+
+  &__center {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  &__form {
+    flex: 1;
+    padding: 8px 0;
+  }
+
+  &__row {
+    display: flex;
+    align-items: center;
+    padding: 16px 24px;
+    border-bottom: 1px solid @bg-layout;
+    transition: all 0.2s ease;
+    gap: 16px;
+
+    &:hover {
+      background: #fafbfc;
+    }
+
+    &:last-of-type {
+      border-bottom: none;
+    }
+
+    &.modified {
+      background: linear-gradient(90deg, fade(@primary-color, 4%) 0%, transparent 60%);
+      border-left: 3px solid @primary-color;
+      padding-left: 21px;
+    }
+
+    // 项目生成配置等宽内容字段：改为上下堆叠，标签置顶，编辑区占满整行宽度
+    &--block {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 10px;
+
+      .config-page__label {
+        width: 100%;
+      }
+
+      .config-page__value {
+        width: 100%;
+      }
+
+      .config-page__current {
+        max-width: 100%;
+        align-self: flex-start;
+      }
+    }
+  }
+
+  &__label {
+    width: 220px;
+    flex-shrink: 0;
+    padding-right: 16px;
+    font-size: 14px;
+    font-weight: 500;
+    color: @text-color-primary;
+    line-height: 1.5;
+  }
+
+  &__value {
+    width: 360px;
+    flex-shrink: 0;
+    min-width: 0;
+
+    .ant-input,
+    .ant-input-number,
+    .ant-select-selector {
+      border-radius: 8px !important;
+    }
+
+    textarea.ant-input {
+      min-height: 90px;
+    }
+  }
+
+  &__current {
+    display: flex;
+    align-items: center;
+    padding: 4px 12px;
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    border-radius: 6px;
+    font-size: 12px;
+    max-width: 240px;
+
+    .anticon {
+      color: #52c41a;
+      margin-right: 4px;
+    }
+
+    .label {
+      color: #16a34a;
+      margin-right: 4px;
+      white-space: nowrap;
+    }
+
+    .value {
+      color: #374151;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
+  &__empty {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #c0c4cc;
+
+    .anticon {
+      font-size: 56px;
+      margin-bottom: 12px;
+    }
+  }
+
+  .switch-wrap {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+
+    .switch-text {
+      font-size: 13px;
+      color: @text-color-secondary;
+    }
+  }
+}
+
+/* 内嵌配置区块（AdminEntry / AdminBrand / DefaultAvatar）：统一内容宽度与标题图标色 */
+.config-section {
+  max-width: 880px;
+
+  &__icon {
+    color: #6366f1;
+  }
+}

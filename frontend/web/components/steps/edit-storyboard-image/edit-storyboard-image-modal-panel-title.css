@@ -1,0 +1,226 @@
+/* Tailwind/PostCSS component styles for edit-storyboard-image-modal. */
+
+
+.edit-storyboard-image-modal .stage-history-panel .panel-title {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: rgba(225, 239, 255, 0.7);
+  flex-shrink: 0;
+}
+
+.edit-storyboard-image-modal .stage-history-panel .history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  overflow-x: visible;
+  min-height: 0;
+  flex: 1;
+  padding: 0 12px 10px;
+  scrollbar-gutter: stable;
+}
+
+.edit-storyboard-image-modal .stage-history-panel .history-item {
+  position: relative;
+  width: 88px;
+  height: 88px;
+  flex: 0 0 88px;
+  padding: 0;
+  border-radius: 8px;
+  border: 2px solid rgba(120, 140, 170, 0.3);
+  overflow: hidden;
+  background: rgba(18, 24, 36, 0.92);
+  cursor: pointer;
+}
+
+.edit-storyboard-image-modal .history-delete-icon {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 5;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.edit-storyboard-image-modal .history-delete-icon img {
+  width: 30px !important;
+  height: 30px !important;
+  max-width: none !important;
+  max-height: none !important;
+  display: block;
+}
+
+.edit-storyboard-image-modal .stage-history-panel .history-item.active {
+  border-color: rgb(74, 231, 253);
+  box-shadow: 0 0 0 2px rgba(74, 231, 253, 0.18);
+}
+
+.edit-storyboard-image-modal .stage-history-panel .history-item.history-item--generating {
+  border-color: rgba(74, 231, 253, 0.55);
+}
+
+.edit-storyboard-image-modal .history-generating-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 14, 22, 0.82);
+  backdrop-filter: blur(3px);
+}
+
+.edit-storyboard-image-modal .history-generating-mask__icon {
+  font-size: 22px;
+  color: #4ae7fd;
+}
+
+.edit-storyboard-image-modal .stage-history-panel .history-item .shimmer-image,
+.edit-storyboard-image-modal .stage-history-panel .history-item .history-item__image,
+.edit-storyboard-image-modal .stage-history-panel .history-empty,
+.edit-storyboard-image-modal .stage-history-panel .history-generating {
+  width: 100%;
+  height: 100%;
+}
+
+.edit-storyboard-image-modal .stage-history-panel .history-item .history-item__image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.edit-storyboard-image-modal .stage-history-panel .history-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(225, 239, 255, 0.55);
+  font-size: 12px;
+}
+
+.edit-storyboard-image-modal .stage-history-panel .history-generating {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(12, 18, 28, 0.88);
+}
+
+.edit-storyboard-image-modal .stage-history-panel .history-actions {
+  margin-top: auto;
+  padding: 0 0.25rem;
+  display: grid;
+  gap: 0.375rem;
+  flex-shrink: 0;
+  background: rgb(25, 26, 29);
+}
+
+.edit-storyboard-image-modal .stage-history-panel .history-actions .ant-btn {
+  width: 100%;
+  min-width: 0;
+  height: 1.75rem;
+  padding: 0 0.375rem;
+  font-size: 0.75rem;
+  line-height: 1;
+  overflow: visible;
+  border: 1px dashed rgba(74, 231, 253, 0.3);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.125rem;
+}
+
+.edit-storyboard-image-modal .stage-history-panel .history-actions .ant-btn > .ant-btn-icon {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  margin-inline-end: 0 !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+  overflow: visible;
+}
+
+.edit-storyboard-image-modal .stage-history-panel .history-actions .ant-btn .anticon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.edit-storyboard-image-modal .stage-history-panel .history-actions .ant-btn .anticon svg {
+  display: block;
+  width: 14px;
+  height: 14px;
+}
+
+.edit-storyboard-image-modal .stage-history-panel .history-actions .ant-btn > span:not(.ant-btn-icon) {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  margin-inline-start: 0 !important;
+}
+
+.edit-storyboard-image-modal .stage-history-panel .history-actions .ant-btn .ellipsis-tooltip-text {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+}
+
+.edit-storyboard-image-modal .stage-canvas-panel.storyboard-stage-canvas {
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid rgba(128, 154, 188, 0.22);
+  background: radial-gradient(circle at 1px 1px, rgba(74, 231, 253, 0.1) 1px, transparent 0), #07090d;
+  background-size: 14px 14px, auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* 与 EditSceneImageModal .canvas-content-stack 同宽、同顶距 */
+.edit-storyboard-image-modal .storyboard-canvas-stack {
+  width: 562px;
+  max-width: 100%;
+  margin: 0 auto;
+  margin-top: 56px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 0 0 auto;
+  min-height: 0;
+}
+
+/* 与 EditSceneImageModal 中间栏：顶条 + 五按钮工具栏 + 预览框 */
+.edit-storyboard-image-modal .storyboard-canvas-subbar {
+  flex-shrink: 0;
+  width: 100%;
+}
+
+.edit-storyboard-image-modal .storyboard-canvas-subbar .storyboard-toolbar-inner {
+  justify-content: flex-end;
+}
+
+.edit-storyboard-image-modal .storyboard-stage-canvas .canvas-toolbar {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  width: 492px;
+  max-width: 100%;
+  margin: 0 auto;
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgb(17, 22, 33);
+  box-sizing: border-box;
+  border: 1px solid rgba(128, 154, 188, 0.18);
+  overflow: hidden;
+}

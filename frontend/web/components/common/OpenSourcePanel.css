@@ -1,0 +1,111 @@
+/* 设计稿 1440：面板 626×280（标注逻辑尺寸 ×2，对齐侧栏 80px） */
+.open-source-panel {
+  position: fixed;
+  z-index: 1000;
+  box-sizing: border-box;
+  width: 626px;
+  padding: 24px 24px 28px;
+  border-radius: 12px;
+  background: rgba(17, 22, 33, 1);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.open-source-panel__title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 22px;
+  color: #fff;
+}
+
+.open-source-panel__field {
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+}
+
+.open-source-panel__label {
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+  color: #fff;
+}
+
+.open-source-panel__input {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-sizing: border-box;
+  width: 100%;
+  height: 48px;
+  padding: 0 16px;
+  border: 1px solid rgba(74, 231, 253, 0.3);
+  border-radius: 8px;
+  background: rgba(17, 22, 33, 1);
+}
+
+.open-source-panel__link {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 16px;
+  color: #4ae7fd;
+  text-decoration: none;
+}
+
+.open-source-panel__link:hover {
+  text-decoration: underline;
+}
+
+.open-source-panel__copy {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #878895;
+  font-size: 16px;
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+
+.open-source-panel__copy:hover {
+  color: #4ae7fd;
+}
+
+.open-source-panel-pop-enter-active,
+.open-source-panel-pop-leave-active {
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease;
+}
+
+.open-source-panel-pop-enter-from,
+.open-source-panel-pop-leave-to {
+  opacity: 0;
+  transform: translateX(-6px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .open-source-panel-pop-enter-active,
+  .open-source-panel-pop-leave-active {
+    transition: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .open-source-panel {
+    width: min(626px, calc(100vw - 96px));
+    min-height: auto;
+  }
+}

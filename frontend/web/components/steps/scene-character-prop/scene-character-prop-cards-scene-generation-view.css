@@ -1,0 +1,227 @@
+/* Tailwind/PostCSS component styles for scene-character-prop-cards. */
+/**
+ * 原 aid-pc/assets/css/scp-scene-character-prop.scoped.scss 展平为伴随 CSS（第 2/3 段：
+ * 场景卡片、图片卡、通用生成卡按钮、空列表容器）。
+ * scoped 语义用根类 .create-step-scp 前缀代替；:deep(...) 转普通后代选择器。
+ * 选择器与数值 1:1，禁止改视觉。引入顺序：base → cards → forms（在 SceneCharacterProp.tsx 中依序 import）。
+ */
+
+/* 场景生成界面 */
+.create-step-scp .scene-generation-view {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* 场景卡片容器 */
+.create-step-scp .scene-cards-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+/* 自动提取的场景：网格布局，定宽展示（列宽见 scp-step-shared.css） */
+.create-step-scp .scene-cards-auto {
+  display: grid;
+  gap: 1.25rem;
+}
+.create-step-scp .scene-card-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 11px;
+  padding: 12px 12px  ;
+}
+
+/* 手动场景已有图片时，卡片宽度与自动场景卡片一致 */
+.create-step-scp .scene-card-list > .scene-card-auto {
+  width: 24.3%;
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+/* 手动添加的场景：单列布局，每个项目占满一行 */
+.create-step-scp .scene-cards-manual {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+/* 手动场景的包装器：占满一行，垂直布局 */
+.create-step-scp .scene-card-wrapper {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid rgba(74, 231, 253, 0.3);
+  background: #070d17;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* 失败场景在网格布局中占满整行 */
+.create-step-scp .scene-cards-auto > .scene-card-wrapper {
+  grid-column: 1 / -1;
+}
+
+/* 头部横条：占满一行，左侧标题，右侧按钮 */
+.create-step-scp .scene-card-header-bar {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid rgba(74, 231, 253, 0.3);
+}
+/* 场景内容区与角色/道具保持一致：放到外层容器内 */
+.create-step-scp .scene-card-wrapper .scene-card-failed {
+  padding: 0.75rem;
+  background: #080d14;
+}
+
+/* 手动场景的卡片：定宽见 scp-step-shared.css --scp-card-width */
+.create-step-scp .scene-card-manual {
+  flex-shrink: 0;
+}
+
+/* 场景名称编辑相关 */
+.create-step-scp .scene-card-title-wrapper {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.create-step-scp .scene-card-title-wrapper .scene-card-title-editable,
+.create-step-scp .scene-card-title-wrapper .scene-name-input {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.create-step-scp .scene-card-title-wrapper .scene-name-input {
+  line-height: 30px;
+  padding-left: 0;
+}
+
+.create-step-scp .scene-card-title-prefix {
+  font-weight: 600;
+  color: var(--home-text, #e6edf3);
+  white-space: nowrap;
+}
+
+.create-step-scp .scene-card-title-editable {
+  font-size: 12px;
+  color: var(--home-text, #e6edf3);
+  cursor: pointer;
+  padding: 0.25rem 0.5rem 0.25rem 0;
+  border-radius: var(--radius-md);
+  transition: all 0.2s ease;
+  /*flex: 1; */
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.create-step-scp .scene-card-title-editable:hover {
+  background: rgba(14, 89, 250, 0.12);
+  color: var(--home-cyan, #4ae7fd);
+}
+
+.create-step-scp .scene-name-input {
+  /* flex: 1; */
+  min-width: 240px;
+  width: 0;
+}
+
+.create-step-scp .image-title-input {
+  flex: 1;
+  font-size: 12px;
+  min-width: 0;
+}
+
+.create-step-scp .scene-card-actions-header {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  align-items: center;
+}
+
+.create-step-scp .scene-card-actions-header button {
+  border: 1px solid #2f3949 !important;
+}
+
+/* disabled 按钮本身不触发 mouse 事件，包一层给 a-tooltip 用 */
+.create-step-scp .scp-edit-image-btn-wrap {
+  display: inline-flex;
+  max-width: 100%;
+}
+
+.create-step-scp .scene-card-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: relative;
+  gap: 0.75rem;
+  width: 100%;
+}
+
+/* 场景卡片基础样式 */
+.create-step-scp .scene-card {
+  border-radius: 8px 8px 0 0;
+  padding: 1.25rem;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.create-step-scp .scene-card:hover {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  border-color: rgba(74, 231, 253, 0.35);
+}
+
+.create-step-scp .scene-card-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+/* 自动场景/角色/道具：对齐设计稿的头部横条 + 中部双操作块布局 */
+.create-step-scp .scene-card-auto {
+  position: relative;
+  padding: 0;
+  overflow: hidden;
+  background: rgba(8, 13, 24, 0.92);
+  border-color: rgba(74, 231, 253, 0.34);
+}
+
+.create-step-scp .character-card-auto,
+.create-step-scp .prop-card-auto {
+  position: relative;
+  padding: 0;
+  overflow: hidden;
+  background: rgba(8, 13, 24, 0.92);
+  border-color: rgba(74, 231, 253, 0.34);
+}
+
+.create-step-scp .scene-card-auto .scene-card-header,
+.create-step-scp .character-card-auto .character-card-header,
+.create-step-scp .prop-card-auto .prop-card-header {
+  margin: 0;
+  padding: 4px 10px;
+  background: #202434;
+  border-bottom: 1px solid #006c8f;
+}
+
+.create-step-scp .scene-card-auto .scene-card-delete-btn {
+  position: static;
+  color: var(--home-muted, #8e97a5);
+  padding: 0.25rem;
+  width: auto;
+  height: auto;
+  z-index: 1;
+  background: transparent;
+  border-radius: var(--radius-md);
+}

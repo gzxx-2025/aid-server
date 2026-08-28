@@ -1,0 +1,227 @@
+/* Tailwind/PostCSS component styles for InvitePanel. */
+
+
+.invite-page__stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  color: #fff;
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.invite-page__stat-label {
+  color: #fff;
+}
+
+.invite-page__stat-num {
+  color: #fff;
+  font-size: 24px;
+  font-weight: 500;
+  line-height: 1;
+  margin-left: 24px;
+}
+
+.invite-page__stat-unit {
+  color: var(--invite-muted);
+  font-size: 12px;
+}
+
+.invite-page__records {
+  margin-top: var(--invite-gap);
+  min-width: 0;
+}
+
+.invite-page__records-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+  margin-bottom: 12px;
+}
+
+.invite-page__records-title {
+  margin: 0;
+  color: #fff;
+  font-size: var(--invite-section-title);
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+.invite-page__records-meta {
+  color: var(--invite-muted);
+  font-size: 14px;
+  line-height: 1.3;
+}
+
+.invite-page__table {
+  width: 100%;
+  min-width: 0;
+}
+
+.invite-page__thead,
+.invite-page__tr {
+  display: grid;
+  grid-template-columns: 72px minmax(120px, 1.2fr) minmax(120px, 1fr) minmax(88px, 0.6fr);
+  align-items: center;
+  column-gap: 12px;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 0 16px;
+}
+
+.invite-page__thead {
+  height: var(--invite-head-h);
+  border-radius: 8px 8px 0 0;
+  background: transparent;
+  border: 1px solid rgba(74,231,253,0.3);
+}
+
+.invite-page__th {
+  color: var(--invite-muted);
+  font-size: 14px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.invite-page__tr {
+  height: var(--invite-row-h);
+  margin-top: 4px;
+  border-radius: 6px;
+  background: var(--invite-row-bg);
+}
+
+.invite-page__tr.is-alt {
+  background: rgba(32, 36, 52, 0.5);
+}
+
+.invite-page__td {
+  min-width: 0;
+  color: #fff;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.invite-page__col-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.invite-page__index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #3d7cff 0%, #1a4fd6 100%);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.invite-page__col-user {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.invite-page__avatar {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.invite-page__user-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.invite-page__col-time {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+.invite-page__col-points {
+  text-align: left;
+}
+
+.invite-page__state {
+  padding: 48px 16px;
+  text-align: center;
+  color: var(--invite-muted);
+  font-size: 14px;
+}
+
+.invite-page__state--table {
+  padding: 40px 16px;
+}
+
+.invite-page__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 56px 16px 40px;
+}
+
+.invite-page__empty-icon {
+  opacity: 0.85;
+}
+
+.invite-page__empty-text {
+  margin: 0;
+  color: var(--invite-muted);
+  font-size: 14px;
+  line-height: 1.3;
+}
+
+.invite-page__more {
+  margin-top: 16px;
+  text-align: center;
+}
+
+@media (max-width: 1440px) {
+  .invite-page {
+    --invite-title-size: 28px;
+    --invite-code-size: 28px;
+    --invite-label-size: 16px;
+    --invite-code-h: 48px;
+    --invite-btn-w: 108px;
+    --invite-card-pad-x: 20px;
+    --invite-card-pad-y: 18px;
+    --invite-pic-w: 240px;
+    --invite-pic-h: 208px;
+    --invite-top-gap: 16px;
+  }
+
+  .invite-page__link-btn-text {
+    font-size: 14px;
+  }
+
+  .invite-page__thead,
+  .invite-page__tr {
+    grid-template-columns: 56px minmax(100px, 1.2fr) minmax(100px, 1fr) minmax(72px, 0.55fr);
+    padding: 0 12px;
+  }
+}
+
+@media (max-width: 1200px) {
+  .invite-page {
+    --invite-pic-w: 200px;
+    --invite-pic-h: 173px;
+  }
+
+  .invite-page__top {
+    gap: 16px 24px;
+  }
+}

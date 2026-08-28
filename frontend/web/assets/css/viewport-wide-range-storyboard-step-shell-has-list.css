@@ -1,0 +1,178 @@
+/* Tailwind/PostCSS component styles for viewport-wide-range. */
+
+
+html[data-viewport-above-design='1'].app-shell-create
+  .create-step-storyboard-video
+  .storyboard-step-shell--has-list {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+html[data-viewport-above-design='1'].app-shell-create .create-step-storyboard-video .storyboard-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* 场景/角色/道具第三步：内容区 flex 链 */
+html[data-viewport-above-design='1'].app-shell-create .preview-content.step-scene-character,
+html[data-viewport-above-design='1'].app-shell-create .preview-content.step-preview {
+  overflow: hidden;
+}
+
+html[data-viewport-above-design='1'].app-shell-create .create-step-scp,
+html[data-viewport-above-design='1'].app-shell-create .video-preview-step {
+  min-height: 0;
+  min-width: 0;
+}
+
+/* 素材准备空态「自动提取」/ 提取中「停止生成」：宽屏档位放大 */
+html[data-viewport-above-design='1'][data-viewport-wide-tier='qhd'].app-shell-create .create-step-scp {
+  --scp-empty-cta-h: 44px;
+  --scp-empty-cta-fs: 15px;
+  --scp-empty-cta-pad-x: 32px;
+  --scp-empty-cta-min-w: 160px;
+  --scp-empty-tips-fs: 15px;
+  --scp-empty-icon-size: 96px;
+  --scp-extracting-title-fs: 20px;
+}
+
+html[data-viewport-above-design='1'][data-viewport-wide-tier='uhd'].app-shell-create .create-step-scp,
+html[data-viewport-above-design='1'][data-viewport-wide-tier='beyond'].app-shell-create .create-step-scp {
+  --scp-empty-cta-h: 48px;
+  --scp-empty-cta-fs: 16px;
+  --scp-empty-cta-pad-x: 36px;
+  --scp-empty-cta-min-w: 176px;
+  --scp-empty-cta-radius: 10px;
+  --scp-empty-tips-fs: 16px;
+  --scp-empty-icon-size: 104px;
+  --scp-extracting-title-fs: 22px;
+}
+
+/* 创作流程内嵌「我的作品 / 资产库」 */
+html[data-viewport-above-design='1'].layout-create-flow .create-main.create-main--embed-lib,
+html[data-viewport-above-design='1'].layout-create-flow .create-main__embed-scroll {
+  min-height: 0;
+  overflow: hidden;
+}
+
+html[data-viewport-above-design='1'].layout-create-flow .create-main__embed-scroll > .home-new-sub-page {
+  min-height: 0;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+html[data-viewport-above-design='1'].layout-create-flow .create-main__embed-scroll > .home-new-sub-page.assets-library-figma {
+  overflow: hidden;
+}
+
+html[data-viewport-above-design='1'].layout-create-flow .create-main__embed-scroll > .home-new-sub-page.assets-library-figma .works-lib-grid {
+  flex: 1 1 auto;
+  min-height: 0;
+  grid-auto-rows: max-content;
+  align-content: start;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+html[data-viewport-above-design='1'].layout-create-flow .create-main__embed-scroll .works-lib-grid {
+  grid-template-columns: repeat(var(--vps-wide-works-cols, 5), minmax(0, 1fr));
+  gap: var(--vps-wide-grid-gap);
+}
+
+/* ========================================================================== */
+/* 6. 全站弹窗（首页 / 登录 / 创作流程均可能挂载 body）                           */
+/* ========================================================================== */
+html[data-viewport-above-design='1'] .ant-modal-wrap.create-flow-modal:not(.edit-scene-image-modal):not(.touch-edit-modal-wrap):not(.home-confirm-wrap):not(.app-confirm-wrap):not(.recharge-confirm-wrap) .ant-modal,
+html[data-viewport-above-design='1'] .ant-modal-wrap.recharge-modal-wrap .ant-modal,
+html[data-viewport-above-design='1']
+  .ant-modal-wrap.app-confirm-wrap:not(.image-preview-modal-wrap):not(.image-gallery-preview-modal-wrap):not(
+    .video-preview-modal-wrap
+  )
+  .ant-modal {
+  max-height: calc(var(--vps-comp-dvh, var(--viewport-compensated-dvh, 100dvh)) - 24px) !important;
+}
+
+html[data-viewport-above-design='1'] .select-asset-image-modal-wrap .saim-inner,
+html[data-viewport-above-design='1'] .select-scene-image-modal-wrap .select-scene-shell,
+html[data-viewport-above-design='1'] .import-scene-image-modal-wrap .import-scene-shell,
+html[data-viewport-above-design='1'] .import-script-modal-wrap .import-script-modal-shell,
+html[data-viewport-above-design='1'] .batch-generate-storyboard-wrap .bgsm,
+html[data-viewport-above-design='1'] .batch-generate-asset-wrap .bgam,
+html[data-viewport-above-design='1'] .batch-regenerate-dubbing-wrap .brdm,
+html[data-viewport-above-design='1'] .multi-angle-modal-wrap .ma-shell,
+html[data-viewport-above-design='1'] .storyboard-param-settings-modal-wrap .spsm-inner,
+html[data-viewport-above-design='1'] .scene-setting-modal-wrap .setting-modal-shell,
+html[data-viewport-above-design='1'] .storyboard-script-modal-wrap .setting-modal-shell,
+html[data-viewport-above-design='1'] .create-first-step-wrap .modal-shell,
+html[data-viewport-above-design='1'] .recharge-modal-wrap .recharge-modal__body {
+  max-height: calc(var(--vps-comp-vh, var(--viewport-compensated-vh, 100vh)) - 80px) !important;
+}
+
+/* 批量生成图/视频：仅宽屏抬高封面；矮屏 compact 另有规则，勿用 os-scale 下限压过 */
+html[data-viewport-above-design='1'] .batch-generate-asset-wrap .bgam-card-media,
+html[data-viewport-above-design='1'] .batch-generate-storyboard-wrap .bgsm-card-media {
+  height: clamp(168px, 22vh, 240px) !important;
+}
+
+html[data-viewport-above-design='1'][data-viewport-wide-tier='uhd'] .batch-generate-asset-wrap .bgam-card-media,
+html[data-viewport-above-design='1'][data-viewport-wide-tier='beyond'] .batch-generate-asset-wrap .bgam-card-media,
+html[data-viewport-above-design='1'][data-viewport-wide-tier='uhd'] .batch-generate-storyboard-wrap .bgsm-card-media,
+html[data-viewport-above-design='1'][data-viewport-wide-tier='beyond'] .batch-generate-storyboard-wrap .bgsm-card-media {
+  height: clamp(180px, 24vh, 260px) !important;
+}
+
+/* 系统缩放且 CSS 视口仍较高时略抬高；矮屏交给 create-flow-compact-viewport */
+@media (min-height: 901px) {
+  html[data-viewport-os-scale] .batch-generate-asset-wrap .bgam-card-media,
+  html[data-viewport-os-scale] .batch-generate-storyboard-wrap .bgsm-card-media {
+    height: clamp(168px, 20vh, 220px) !important;
+  }
+}
+
+html[data-viewport-above-design='1'] .publish-case-plaza-modal-wrap .ant-modal,
+html[data-viewport-os-scale] .publish-case-plaza-modal-wrap .ant-modal {
+  width: min(680px, calc(100vw - 32px)) !important;
+  max-width: min(680px, calc(100vw - 32px)) !important;
+}
+
+html[data-viewport-above-design='1'] .publish-case-plaza-modal-wrap .ant-modal-footer,
+html[data-viewport-os-scale] .publish-case-plaza-modal-wrap .ant-modal-footer {
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  justify-content: flex-end !important;
+  align-items: center !important;
+  gap: 8px !important;
+  text-align: end !important;
+}
+
+html[data-viewport-above-design='1'] .publish-case-plaza-modal-wrap .ant-modal-footer .ant-btn,
+html[data-viewport-os-scale] .publish-case-plaza-modal-wrap .ant-modal-footer .ant-btn {
+  display: inline-flex !important;
+  width: auto !important;
+  min-width: 88px !important;
+  flex: 0 0 auto !important;
+  margin: 0 !important;
+}
+
+html[data-viewport-above-design='1'] .agent-picker-wrap .ant-modal-body,
+html[data-viewport-above-design='1'] .project-gen-config-modal-wrap .ant-modal-body {
+  max-height: calc(var(--vps-comp-vh, var(--viewport-compensated-vh, 100vh)) - 48px) !important;
+  overflow-y: auto;
+}
+
+/* 用户菜单浮层：fixed 定位在宽屏 zoom 下由 viewportZoom.ts 处理，此处防溢出 */
+html[data-viewport-above-design='1'] .user-menu-dropdown {
+  max-height: calc(var(--vps-comp-vh, 100vh) - 24px);
+  overflow-y: auto;
+}
+
+html[data-viewport-above-design='1'] .open-source-panel,
+html[data-viewport-above-design='1'] .discussion-group-panel {
+  max-height: calc(var(--vps-comp-vh, 100vh) - 24px);
+  overflow-y: auto;
+}

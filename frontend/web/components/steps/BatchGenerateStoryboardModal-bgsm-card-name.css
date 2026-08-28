@@ -1,0 +1,255 @@
+/* Tailwind/PostCSS component styles for BatchGenerateStoryboardModal. */
+
+
+.bgsm-card-name {
+  font-size: 14px;
+  color: #fff;
+  line-height: 20px;
+}
+
+.bgsm-footer {
+  flex-shrink: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 0 0;
+  flex-wrap: nowrap;
+}
+
+.bgsm-footer .bgsm-actions {
+  flex-shrink: 0;
+}
+
+.bgsm-footer-left {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
+  gap: 10px;
+  min-width: 0;
+}
+
+.bgsm-footer-left--video {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: flex-end;
+  gap: 10px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.bgsm-field--video-model {
+  width: 200px;
+  flex: 0 0 200px;
+}
+
+.bgsm-field--video-param {
+  width: 120px;
+  flex: 0 0 120px;
+}
+
+.bgsm-video-model-placeholder {
+  height: 40px;
+  display: flex;
+  align-items: center;
+  padding: 0 11px;
+  border-radius: 8px;
+  background: #0a0d12;
+  border: 1px solid rgba(78, 94, 122, 0.42);
+  color: #8e97a5;
+  font-size: 14px;
+}
+
+.bgsm-video-model-select {
+  width: 100%;
+}
+
+.bgsm-video-model-select .selected-model.expanded.is-open-down {
+  border-bottom-left-radius: 0 !important;
+  border-bottom-right-radius: 0 !important;
+}
+
+.bgsm-video-model-select .selected-model.expanded.is-open-up {
+  border-top-left-radius: 0 !important;
+  border-top-right-radius: 0 !important;
+}
+
+.bgsm-video-model-select .model-icon-wrapper {
+  display: none;
+}
+
+.bgsm-video-model-select .model-preview {
+  gap: 0;
+}
+
+.bgsm-video-model-select .model-name {
+  font-size: 14px;
+  line-height: 34px;
+  color: #e6edf3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bgsm-video-model-select .expand-icon {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.bgsm-field {
+  min-width: 0;
+}
+
+.bgsm-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: #8e97a5;
+}
+
+.bgsm-select {
+  width: 100%;
+}
+
+/* 压过全局 Select.selectorBg / 青边，与设计稿输入框一致 */
+html.app-shell-create .batch-generate-storyboard-wrap .bgsm-select.ant-select {
+  --ant-select-selector-bg: #0a0d12;
+  --ant-color-border: rgba(78, 94, 122, 0.42);
+}
+
+html.app-shell-create .batch-generate-storyboard-wrap .bgsm-select.ant-select .ant-select-selector,
+.bgsm-select .ant-select-selector {
+  height: 40px !important;
+  border-radius: 8px !important;
+  background: #0a0d12 !important;
+  background-color: #0a0d12 !important;
+  border: 1px solid rgba(78, 94, 122, 0.42) !important;
+  border-color: rgba(78, 94, 122, 0.42) !important;
+  box-shadow: none !important;
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+}
+
+.bgsm-select .ant-select-selection-wrap {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
+}
+
+.bgsm-select .ant-select-selection-item,
+.bgsm-select.ant-select-open .ant-select-selection-item {
+  line-height: 38px !important;
+  color: #e6edf3 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.bgsm-select .ant-select-selection-placeholder {
+  line-height: 38px !important;
+  color: #8e97a5 !important;
+}
+
+.bgsm-select .ant-select-arrow {
+  color: rgba(255, 255, 255, 0.45) !important;
+  flex-shrink: 0 !important;
+}
+
+html.app-shell-create .batch-generate-storyboard-wrap .bgsm-select.ant-select:not(.ant-select-disabled):hover .ant-select-selector,
+html.app-shell-create .batch-generate-storyboard-wrap .bgsm-select.ant-select-focused .ant-select-selector,
+html.app-shell-create .batch-generate-storyboard-wrap .bgsm-select.ant-select-open .ant-select-selector,
+.bgsm-select:hover .ant-select-selector,
+.bgsm-select.ant-select-focused .ant-select-selector,
+.bgsm-select.ant-select-open .ant-select-selector {
+  border-color: rgba(120, 140, 170, 0.45) !important;
+  background: #0a0d12 !important;
+  background-color: #0a0d12 !important;
+  box-shadow: none !important;
+}
+
+/* 生视频模型：ModelSelectDropdown 与下方 Select 同色 */
+html.app-shell-create .batch-generate-storyboard-wrap .bgsm-field--video-model .model-select-dropdown .selected-model,
+.batch-generate-storyboard-wrap .bgsm-field--video-model .model-select-dropdown .selected-model,
+.bgsm-video-model-select .selected-model {
+  height: 40px !important;
+  min-height: 40px;
+  padding: 0 11px !important;
+  border-radius: 8px !important;
+  background: #0a0d12 !important;
+  border: 1px solid rgba(78, 94, 122, 0.42) !important;
+  box-shadow: none !important;
+}
+
+html.app-shell-create .batch-generate-storyboard-wrap .bgsm-field--video-model .model-select-dropdown .selected-model:hover,
+.batch-generate-storyboard-wrap .bgsm-field--video-model .model-select-dropdown .selected-model:hover,
+.bgsm-video-model-select .selected-model:hover {
+  border-color: rgba(120, 140, 170, 0.45) !important;
+  background: #0a0d12 !important;
+}
+
+html.app-shell-create .batch-generate-storyboard-wrap .bgsm-field--video-model .model-select-dropdown .selected-model.expanded,
+.batch-generate-storyboard-wrap .bgsm-field--video-model .model-select-dropdown .selected-model.expanded,
+.bgsm-video-model-select .selected-model.expanded {
+  background: #0a0d12 !important;
+  border-color: rgba(120, 140, 170, 0.45) !important;
+}
+
+.bgsm-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.bgsm-btn-cancel {
+  width: 96px;
+  height: 40px;
+  border-radius: 6px !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  background: #0d1018 !important;
+  color: #fff !important;
+}
+
+.bgsm-btn-ok {
+  min-width: 120px;
+  height: 40px;
+  border-radius: 6px !important;
+  border: none !important;
+  background: linear-gradient(270deg, #0e59fa 0%, #00abd8 100%) !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.bgsm-btn-ok:hover,
+.bgsm-btn-ok:focus,
+.bgsm-btn-ok:active {
+  background: linear-gradient(270deg, #0e59fa 0%, #00abd8 100%) !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.bgsm-btn-ok img {
+  width: 16px;
+  height: 16px;
+}
+
+.bgsm-select-popup.ant-select-dropdown {
+  background: #111621 !important;
+  border: 1px solid rgba(74, 231, 253, 0.28) !important;
+}
+
+.bgsm-select-popup .ant-select-item {
+  color: #e6edf3 !important;
+}
+
+.bgsm-select-popup .ant-select-item-option-selected:not(.ant-select-item-option-disabled) {
+  background: rgba(74, 231, 253, 0.2) !important;
+  color: #4ae7fd !important;
+}
+
+.bgsm-select-popup .ant-select-item-option-active:not(.ant-select-item-option-disabled) {
+  background: rgba(74, 231, 253, 0.12) !important;
+}

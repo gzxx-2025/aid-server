@@ -3,7 +3,7 @@
 # AID 统一部署管理脚本（菜单式，Docker 与手动部署通用）
 #
 # 用法：
-#   sudo bash aid.sh              # 交互菜单（首次部署按版本标签拉取三端源码并构建）
+#   sudo bash aid.sh              # 交互菜单（首次部署按统一仓版本标签拉取三端源码并构建）
 #   sudo bash aid.sh <子命令>     # 直通执行：install/auto/install-docker/install-manual/update/rollback/progress/
 #                                 # restart/stop/status/default/mysql/logs/config/backup/setup-updater/uninstall/uninstall-all
 #
@@ -4848,7 +4848,7 @@ bootstrap_source_builder() { # bootstrap_source_builder <docker|host>
   [[ ! -f "${builder}" ]] || warn "本地源码构建器不支持 Docker/非 Docker 显式隔离，将从公开 master 刷新构建器"
   tmpDir="$(mktemp -d)"
   # 安装器本身从公开 master 获取最新修复，源码构建器也应遵循同一策略；
-  # 三端业务源码仍由构建器严格拉取版本标签，不会混入 master 业务代码。
+  # 三端业务源码仍由构建器从统一公开仓严格拉取版本标签，不会混入 master 业务代码。
   for sourceRef in master "v${RESOLVED_VERSION}"; do
     [[ "${sourceRef}" != "master" ]] \
       && warn "公开 master 构建工具不可用，回退版本内置构建器；业务源码仍固定使用 v${RESOLVED_VERSION} 标签"
@@ -4972,7 +4972,7 @@ ensure_source_package() {
   prepare_source_build_images "${sourceBuildMode}"
   builder="${SOURCE_BUILDER_PATH}"
   section "远程源码构建 AID v${RESOLVED_VERSION}"
-  warn "只拉取三个公开仓库的 v${RESOLVED_VERSION} 标签；优先 Gitee，失败时整组回退到 GitHub"
+  warn "只拉取统一公开仓的 v${RESOLVED_VERSION} 标签；优先 Gitee，失败时整仓回退到 GitHub"
   if [[ "${sourceBuildMode}" == "docker" ]]; then
     log "源码构建模式：Docker 容器源码构建"
     warn "首次构建需要下载 Maven/npm/Go 依赖及 Docker 构建镜像，请预留至少 15GB 磁盘与足够时间"

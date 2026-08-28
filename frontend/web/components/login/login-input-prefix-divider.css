@@ -1,0 +1,225 @@
+/* Tailwind/PostCSS component styles for login. */
+
+
+.login-page .input-prefix-divider {
+  display: inline-block;
+  width: 1px;
+  height: 18px;
+  background: rgba(142, 151, 165, 0.5);
+}
+
+.login-page .code-row {
+  --login-code-btn-width: 118px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--login-code-btn-width);
+  gap: 10px;
+  align-items: stretch;
+}
+
+.login-page .code-row .login-input {
+  min-width: 0;
+  width: 100%;
+}
+
+.login-page .code-btn {
+  width: 100%;
+  min-width: 0 !important;
+  height: 48px;
+  padding: 0 8px;
+  border-radius: 8px;
+  border: none;
+  color: #fff;
+  font-size: 13px;
+  line-height: 1;
+  white-space: nowrap;
+  background: linear-gradient(270deg, #0e59fa 0%, #00abd8 100%);
+}
+
+.login-page .code-btn:hover {
+  color: #ffff;
+}
+
+.login-page .submit-btn {
+  height: 48px;
+  border-radius: 8px;
+  border: 0;
+  background: linear-gradient(270deg, #0e59fa 0%, #00abd8 100%);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.login-page .submit-btn:hover,
+.login-page .submit-btn:focus,
+.login-page .submit-btn:active {
+  background: linear-gradient(270deg, #0e59fa 0%, #00abd8 100%) !important;
+  color: #fff !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+.login-page .agreement-form-item {
+  position: absolute;
+  left: 50%;
+  bottom: 40px;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: calc(100% - 48px);
+  margin-bottom: 0 !important;
+  box-sizing: border-box;
+  text-align: center;
+}
+
+.login-page .agreement-form-item .ant-form-item-control,
+.login-page .agreement-form-item .ant-form-item-control-input,
+.login-page .agreement-form-item .ant-form-item-control-input-content {
+  min-width: 0;
+  min-height: 0;
+  width: auto;
+  max-width: 100%;
+}
+
+.login-page .agreement-form-item .ant-form-item-explain-error {
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.login-page .agreement-form-item .ant-checkbox-wrapper {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  text-align: left;
+  font-size: 12px;
+  color: rgba(142, 151, 165, 1);
+  line-height: 1.5;
+}
+
+.login-page .invite-code-item {
+  margin-bottom: 12px;
+}
+.login-page .agreement-text {
+  color: rgba(142, 151, 165, 1);
+  font-size: 14px;
+}
+
+.login-page .agreement-link {
+  color: #4ae7fd;
+  text-decoration: none;
+}
+
+.login-page .wechat-section {
+  height: 100%;
+  padding: 48px 52px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  box-sizing: border-box;
+}
+
+.login-page .wechat-title {
+  margin: 0 0 16px;
+  color: #fff;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.login-page .wechat-disabled {
+  width: 270px;
+  height: 270px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.34);
+  text-align: center;
+}
+
+.login-page .wechat-disabled__icon {
+  width: 52px;
+  height: 52px;
+  display: grid;
+  grid-template-columns: repeat(2, 14px);
+  grid-template-rows: repeat(2, 14px);
+  place-content: center;
+  gap: 6px;
+  margin-bottom: 20px;
+  border: 1px solid rgba(74, 231, 253, 0.24);
+  border-radius: 12px;
+  color: #4ae7fd;
+  background: rgba(74, 231, 253, 0.06);
+}
+
+.login-page .wechat-disabled__icon span {
+  display: block;
+  border: 2px solid currentcolor;
+  border-radius: 3px;
+  opacity: 0.72;
+}
+
+.login-page .wechat-disabled__title {
+  margin: 0;
+  color: rgba(241, 245, 249, 0.92);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.login-page .wechat-disabled__description {
+  margin: 8px 0 0;
+  color: rgba(148, 163, 184, 0.86);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.login-page .wechat-qr-wrap {
+  position: relative;
+  width: 270px;
+  height: 270px;
+  margin: 0 auto;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: #fff;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.login-page .wechat-qr-wrap.is-loading {
+  border-color: rgba(74, 231, 253, 0.22);
+  background:
+    radial-gradient(circle at 20% 10%, rgba(74, 231, 253, 0.14), transparent 50%),
+    radial-gradient(circle at 85% 85%, rgba(59, 130, 246, 0.16), transparent 55%),
+    rgba(9, 13, 22, 0.72);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.05),
+    0 24px 48px rgba(0, 0, 0, 0.35);
+}
+
+.login-page .wechat-qr {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 10px;
+}
+
+.login-page .wechat-scanned-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: rgba(14, 17, 24, 0.76);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+}

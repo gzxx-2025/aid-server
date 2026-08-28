@@ -1,0 +1,88 @@
+/* Tailwind/PostCSS component styles for edit-storyboard-dubbing-base. */
+
+
+.edit-storyboard-dubbing-modal .skeleton-canvas-toolbar {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(60px, 1fr));
+  gap: 8px;
+}
+
+.edit-storyboard-dubbing-modal .skeleton-chip {
+  height: 28px;
+  border-radius: 7px;
+}
+
+.edit-storyboard-dubbing-modal .skeleton-canvas-main {
+  flex: 1;
+  min-height: 280px;
+  border-radius: 12px;
+}
+
+.edit-storyboard-dubbing-modal .skeleton-config-panel {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.edit-storyboard-dubbing-modal .skeleton-config-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.edit-storyboard-dubbing-modal .skeleton-tab {
+  height: 32px;
+  border-radius: 8px;
+}
+
+.edit-storyboard-dubbing-modal .skeleton-file-row {
+  height: 52px;
+  border-radius: 10px;
+}
+
+.edit-storyboard-dubbing-modal .skeleton-textarea {
+  height: 140px;
+  border-radius: 10px;
+}
+
+.edit-storyboard-dubbing-modal .skeleton-select-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.edit-storyboard-dubbing-modal .skeleton-select {
+  height: 44px;
+  border-radius: 10px;
+}
+
+.edit-storyboard-dubbing-modal .skeleton-primary-btn {
+  margin-top: auto;
+  height: 42px;
+  border-radius: 10px;
+}
+
+.edit-storyboard-dubbing-modal .skeleton-panel-title,
+.edit-storyboard-dubbing-modal .skeleton-history-item,
+.edit-storyboard-dubbing-modal .skeleton-btn,
+.edit-storyboard-dubbing-modal .skeleton-chip,
+.edit-storyboard-dubbing-modal .skeleton-canvas-main,
+.edit-storyboard-dubbing-modal .skeleton-tab,
+.edit-storyboard-dubbing-modal .skeleton-file-row,
+.edit-storyboard-dubbing-modal .skeleton-textarea,
+.edit-storyboard-dubbing-modal .skeleton-select,
+.edit-storyboard-dubbing-modal .skeleton-primary-btn {
+  background: linear-gradient(90deg, #2b2b2b 20%, #444444 50%, #2b2b2b 80%);
+  background-size: 300% 100%;
+  animation: storyboard-skeleton-shimmer 1.4s linear infinite;
+}
+
+@keyframes storyboard-skeleton-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: 0 0;
+  }
+}

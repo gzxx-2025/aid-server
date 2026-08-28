@@ -1,0 +1,46 @@
+@import '@/assets/styles/variables.less';
+
+/* 表格与主按钮的全站统一风格见 assets/styles/global-ui.less */
+.crud-page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+
+  &__search {
+    .ant-form-item {
+      margin-bottom: 8px;
+      margin-right: 12px;
+    }
+
+    .ant-form-item-label > label {
+      color: @text-color-primary;
+      font-size: 13px;
+    }
+  }
+
+  &__toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+    gap: 10px;
+
+    .ant-btn {
+      border-radius: 8px;
+      font-weight: 500;
+    }
+  }
+
+  &__stats {
+    color: @text-color-secondary;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+
+    .ant-tag {
+      border-radius: 6px;
+    }
+  }
+}

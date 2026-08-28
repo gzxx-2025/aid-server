@@ -1,0 +1,229 @@
+/* Tailwind/PostCSS component styles for edit-storyboard-image-modal. */
+
+
+.edit-storyboard-image-modal .right-panel-skeleton {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  padding: 0 !important;
+  overflow: hidden;
+}
+
+.edit-storyboard-image-modal .skeleton-stage-layout {
+  display: grid;
+  grid-template-columns: 144px minmax(0, 1fr) 398px;
+  height: 100%;
+  min-height: 0;
+  background: #0b0f17;
+}
+
+.edit-storyboard-image-modal .skeleton-history-panel,
+.edit-storyboard-image-modal .skeleton-canvas-panel,
+.edit-storyboard-image-modal .skeleton-config-panel {
+  border: 1px solid rgba(128, 154, 188, 0.24);
+  background: rgb(25, 26, 29);
+  min-width: 0;
+  min-height: 0;
+}
+
+.edit-storyboard-image-modal .skeleton-history-panel {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 7px;
+}
+
+.edit-storyboard-image-modal .skeleton-panel-title {
+  width: 64px;
+  height: 12px;
+  border-radius: 6px;
+  margin-bottom: 10px;
+}
+
+.edit-storyboard-image-modal .skeleton-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+}
+
+.edit-storyboard-image-modal .skeleton-history-item {
+  width: 100%;
+  height: 60px;
+  border-radius: 8px;
+}
+
+.edit-storyboard-image-modal .skeleton-history-actions {
+  margin-top: auto;
+  padding-top: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.edit-storyboard-image-modal .skeleton-btn {
+  width: 100%;
+  height: 28px;
+  border-radius: 8px;
+}
+
+.edit-storyboard-image-modal .skeleton-canvas-panel {
+  display: flex;
+  flex-direction: column;
+  padding: 14px;
+  background: rgb(25, 26, 29);
+}
+
+.edit-storyboard-image-modal .skeleton-canvas-toolbar {
+  width: 492px;
+  max-width: 100%;
+  margin: 0 auto 10px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(128, 154, 188, 0.22);
+  background: rgba(17, 22, 33, 0.75);
+  display: flex;
+  gap: 4px;
+  box-sizing: border-box;
+}
+
+.edit-storyboard-image-modal .skeleton-canvas-toolbar .skeleton-chip {
+  flex: 1 1 0;
+  min-width: 0;
+  width: auto;
+  height: 26px;
+  border-radius: 6px;
+}
+
+.edit-storyboard-image-modal .skeleton-canvas-main {
+  flex: 1;
+  min-height: 0;
+  border-radius: 12px;
+  border: 1px solid rgba(128, 154, 188, 0.24);
+}
+
+.edit-storyboard-image-modal .skeleton-config-panel {
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  gap: 10px;
+}
+
+.edit-storyboard-image-modal .skeleton-config-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 3px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 8px;
+}
+
+.edit-storyboard-image-modal .skeleton-tab {
+  flex: 1;
+  height: 32px;
+  border-radius: 6px;
+}
+
+.edit-storyboard-image-modal .skeleton-file-row {
+  height: 42px;
+  border-radius: 10px;
+}
+
+.edit-storyboard-image-modal .skeleton-textarea {
+  height: 200px;
+  border-radius: 10px;
+}
+
+.edit-storyboard-image-modal .skeleton-select-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.edit-storyboard-image-modal .skeleton-select {
+  height: 36px;
+  border-radius: 8px;
+}
+
+.edit-storyboard-image-modal .skeleton-primary-btn {
+  margin-top: auto;
+  height: 40px;
+  border-radius: 10px;
+}
+
+.edit-storyboard-image-modal .skeleton-panel-title,
+.edit-storyboard-image-modal .skeleton-history-item,
+.edit-storyboard-image-modal .skeleton-btn,
+.edit-storyboard-image-modal .skeleton-chip,
+.edit-storyboard-image-modal .skeleton-canvas-main,
+.edit-storyboard-image-modal .skeleton-tab,
+.edit-storyboard-image-modal .skeleton-file-row,
+.edit-storyboard-image-modal .skeleton-textarea,
+.edit-storyboard-image-modal .skeleton-select,
+.edit-storyboard-image-modal .skeleton-primary-btn {
+  background: linear-gradient(90deg, #2b2b2b 20%, #444444 50%, #2b2b2b 80%);
+  background-size: 300% 100%;
+  animation: storyboard-skeleton-shimmer 1.4s linear infinite;
+}
+
+@keyframes storyboard-skeleton-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: 0 0;
+  }
+}
+.edit-storyboard-image-modal .view-switcher {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.edit-storyboard-image-modal .view-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border: 1px solid rgba(120, 140, 170, 0.28);
+  background: rgba(8, 12, 20, 0.85);
+  color: rgba(225, 239, 255, 0.88);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.edit-storyboard-image-modal .view-btn-icon {
+  font-size: 1rem;
+}
+
+.edit-storyboard-image-modal .view-btn.active {
+  border-color: rgba(74, 231, 253, 0.55);
+  background: rgba(74, 231, 253, 0.12);
+  color: #4ae7fd;
+}
+
+.edit-storyboard-image-modal .right-actions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.edit-storyboard-image-modal .right-actions .ant-btn {
+  height: 36px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.edit-storyboard-image-modal .right-actions .ant-btn-default {
+  background: rgba(8, 12, 20, 0.9) !important;
+  border: 1px solid rgba(78, 94, 122, 0.42) !important;
+  color: rgba(225, 239, 255, 0.9) !important;
+}
+
+.edit-storyboard-image-modal .right-actions .ant-btn-default:hover {
+  border-color: rgba(74, 231, 253, 0.45) !important;
+  color: #4ae7fd !important;
+}
+
+.edit-storyboard-image-modal .right-actions .ant-btn-primary {
+  background: linear-gradient(270deg, #2a6cfb 0%, #4ae7fd 100%) !important;
+  border: none !important;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
+}

@@ -1,0 +1,231 @@
+/* Tailwind/PostCSS component styles for scene-character-prop. */
+/**
+ * 原 aid-pc/assets/css/scp-scene-character-prop.scoped.scss（scoped）展平为伴随 CSS（第 1/3 段：
+ * 根布局 / 顶栏 / Tab / 空状态 / 提取中 / 待生成形态横条 / 全局浮层）。
+ * scoped 语义用根类 .create-step-scp 前缀代替；body 浮层（批量操作下拉面板）保持全局具名类。
+ * 选择器与数值 1:1，禁止改视觉。
+ */
+
+.scp-root.create-step-scp {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.create-step-scp .scp-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 1rem;
+  border-radius: var(--radius-xl);
+}
+
+.create-step-scp .scp-topbar-hint {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--home-muted, #8e97a5);
+  text-align: left;
+}
+
+.create-step-scp .scp-topbar__right {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.create-step-scp .scp-topbar__right .scp-topbar-task-btn {
+  position: relative;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid #2f3949 !important;
+  background: rgba(18, 22, 30, 0.95) !important;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.create-step-scp .scp-topbar__right .scp-topbar-task-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  margin-left: 8px;
+  background: rgba(74, 231, 253, 0.18);
+  border: 1px solid rgba(74, 231, 253, 0.35);
+  color: #4ae7fd;
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 600;
+}
+
+.create-step-scp .scp-topbar__right .scp-topbar-add-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-color: #2f3949 !important;
+  background: rgba(18, 22, 30, 0.95) !important;
+  color: var(--home-text, #e6edf3);
+}
+
+.create-step-scp .scp-topbar__right .scp-topbar-batch-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  background: #4ae7fd !important;
+  color: #121212 !important;
+}
+
+.create-step-scp .scp-topbar__right .scp-topbar-batch-btn img {
+  width: 16px;
+  height: 16px;
+}
+
+.create-step-scp .scp-topbar__right .scp-topbar-ops-btn__arrow {
+  margin-left: 2px;
+  font-size: 10px;
+  line-height: 1;
+  transition: transform 0.2s ease;
+}
+
+.create-step-scp .scp-topbar__right .scp-topbar-ops-btn__arrow--open {
+  transform: rotate(180deg);
+}
+
+/* 批量操作下拉面板渲染在 body 浮层（原 scoped 对 teleport 内容仍生效），保持全局具名类 */
+.scp-topbar-ops-panel {
+  min-width: 196px;
+  padding: 8px 10px 10px;
+  border-radius: 12px;
+  background: rgba(17, 22, 33, 1);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+}
+
+.scp-topbar-ops-panel__list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.scp-topbar-ops-panel__item-wrap {
+  display: block;
+  width: 100%;
+}
+
+.scp-topbar-ops-panel__item {
+  width: 100%;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 14px;
+  padding: 8px 10px;
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    color 0.18s ease;
+  text-align: left;
+}
+
+.scp-topbar-ops-panel__item .anticon {
+  font-size: 16px;
+  color: #8e97a5;
+  flex-shrink: 0;
+  transition: color 0.18s ease;
+}
+
+.scp-topbar-ops-panel__item:hover:not(:disabled) {
+  background: rgba(32, 36, 52, 1);
+}
+
+.scp-topbar-ops-panel__item:hover:not(:disabled) .anticon {
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.scp-topbar-ops-panel__item--disabled,
+.scp-topbar-ops-panel__item:disabled {
+  color: rgba(255, 255, 255, 0.35);
+  cursor: not-allowed;
+  text-decoration: line-through;
+}
+
+.scp-topbar-ops-panel__item--disabled .anticon,
+.scp-topbar-ops-panel__item:disabled .anticon {
+  color: rgba(142, 151, 165, 0.45);
+}
+
+.scp-topbar-ops-panel__item--danger {
+  color: #ffc9c9;
+}
+
+.scp-topbar-ops-panel__item--danger .anticon {
+  color: rgba(255, 180, 180, 0.85);
+}
+
+.scp-topbar-ops-panel__item--danger:hover:not(:disabled) {
+  background: rgba(32, 36, 52, 1);
+  color: #ffe0e0;
+}
+
+.scp-topbar-ops-panel__item--danger:hover:not(:disabled) .anticon {
+  color: #ffb4b4;
+}
+
+.create-step-scp .scp-topbar-add-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.create-step-scp .scp-topbar-add-btn:hover:not(:disabled) {
+  border-color: rgba(74, 231, 253, 0.55);
+  color: var(--home-cyan, #4ae7fd);
+}
+
+.create-step-scp .scp-topbar-add-btn__ico-wrap {
+  position: relative;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.create-step-scp .scp-topbar-add-btn__ico {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 16px;
+  height: 16px;
+  display: block;
+  object-fit: contain;
+  object-position: center;
+  pointer-events: none;
+  transition: opacity 0.22s ease;
+}
+
+/* a-button 内部多一层包裹，scoped 需 :deep 才能命中图标 */
+.create-step-scp .scp-topbar-add-btn .scp-topbar-add-btn__ico--nor {
+  opacity: 1;
+}
+
+.create-step-scp .scp-topbar-add-btn .scp-topbar-add-btn__ico--sel {
+  opacity: 0;
+}

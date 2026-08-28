@@ -1,0 +1,79 @@
+/* Tailwind/PostCSS component styles for home-theme. */
+
+
+.assets-library-figma .works-lib-type-tabs__btn.is-active {
+  color: #fff;
+  border-color: rgba(0, 108, 143, 1);
+  background: linear-gradient(270deg, rgba(14, 89, 250, 0.2) 0%, rgba(0, 171, 216, 0.2) 100%);
+}
+
+.assets-library-figma .assets-lib-tab__ico {
+  display: block;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+}
+
+.works-lib-card__row--asset {
+  align-items: center;
+  margin-top: 6px;
+}
+
+.works-lib-card__from {
+  font-size: 13px;
+  color: var(--home-muted);
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.works-lib-card__row-trailing {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.assets-library-figma .works-lib-card {
+  cursor: pointer;
+}
+
+.assets-library-figma .works-lib-card.is-selected {
+  border-color: rgba(74, 231, 253, 0.55);
+  box-shadow: 0 0 0 1px rgba(74, 231, 253, 0.22);
+}
+
+@media (max-width: 1100px) {
+  .works-lib-stats {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 640px) {
+  .works-lib-stat-card {
+    width: 100%;
+    max-width: 282px;
+  }
+
+  .works-lib-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .works-lib-type-tabs {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .works-lib-type-tabs__btn {
+    flex: 1;
+    text-align: center;
+  }
+
+  .works-lib-header__title {
+    font-size: 18px;
+  }
+}

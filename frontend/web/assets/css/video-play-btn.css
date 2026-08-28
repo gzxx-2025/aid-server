@@ -1,0 +1,54 @@
+/**
+ * 视频预览播放按钮 — 半透明圆底 + 实心白色三角
+ * 用于：分镜视频列表、编辑分镜视频弹窗、音画同步列表/弹窗等
+ */
+
+.dubbing-video-play-btn {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 3;
+  width: 56px;
+  height: 56px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition:
+    background 0.2s ease,
+    transform 0.2s ease;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+}
+
+.dubbing-video-play-btn::after {
+  content: '';
+  display: block;
+  width: 0;
+  height: 0;
+  margin-left: 4px;
+  border-style: solid;
+  border-width: 12px 0 12px 16px;
+  border-color: transparent transparent transparent #fff;
+  flex-shrink: 0;
+}
+
+.dubbing-video-play-btn:hover {
+  background: rgba(0, 0, 0, 0.72);
+  transform: translate(-50%, -50%) scale(1.06);
+}
+
+.dubbing-video-play-btn--card {
+  width: 48px;
+  height: 48px;
+}
+
+.dubbing-video-play-btn--card::after {
+  margin-left: 3px;
+  border-width: 12px 0 12px 16px;
+}

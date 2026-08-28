@@ -1,0 +1,230 @@
+/* Tailwind/PostCSS component styles for AgentPickerModal. */
+/*
+ * 弹窗 teleport 到 body，壳层勿 scoped（大屏无 compact-viewport 全局兜底时会失效）
+ */
+html.app-shell-create .ant-modal-wrap.agent-picker-wrap .ant-modal,
+html.app-shell-create .ant-modal.agent-picker-modal {
+  background: transparent !important;
+}
+
+html.app-shell-create .ant-modal-wrap.agent-picker-wrap .ant-modal-content,
+html.app-shell-create .ant-modal.agent-picker-modal .ant-modal-content {
+  overflow: hidden;
+  border-radius: 12px;
+  background: #191a1d;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+  display: flex;
+  flex-direction: column;
+  height: min(750px, calc(100dvh - 48px));
+  max-height: calc(100dvh - 48px);
+}
+
+html.app-shell-create .ant-modal-wrap.agent-picker-wrap .ant-modal-header,
+html.app-shell-create .ant-modal.agent-picker-modal .ant-modal-header {
+  margin: 0;
+  padding: 1.25rem 1.5rem 1rem;
+  border-bottom: none !important;
+  background: #191a1d;
+  flex-shrink: 0;
+}
+
+html.app-shell-create .ant-modal-wrap.agent-picker-wrap .ant-modal-title,
+html.app-shell-create .ant-modal.agent-picker-modal .ant-modal-title {
+  width: 100%;
+}
+
+html.app-shell-create .ant-modal-wrap.agent-picker-wrap .ant-modal-close,
+html.app-shell-create .ant-modal.agent-picker-modal .ant-modal-close {
+  top: 1rem;
+  inset-inline-end: 1rem;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+html.app-shell-create .ant-modal-wrap.agent-picker-wrap .ant-modal-close:hover,
+html.app-shell-create .ant-modal.agent-picker-modal .ant-modal-close:hover {
+  color: #4ae7fd;
+}
+
+html.app-shell-create .ant-modal-wrap.agent-picker-wrap .ant-modal-body,
+html.app-shell-create .ant-modal.agent-picker-modal .ant-modal-body {
+  padding: 0;
+  background: #191a1d;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 以下为原 \3c style scoped> 部分：声明原样保留，统一以 .agent-picker-wrap 作用域前缀替代 scoped（picker-* 与 agent-card 跟其他 Picker 弹窗同名，防互相污染） */
+.agent-picker-wrap .picker-shell {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 100%;
+}
+
+.agent-picker-wrap .picker-search {
+  flex-shrink: 0;
+  padding: 10px 66px 10px 96px;
+  background: rgba(32, 36, 52, 1);
+}
+
+.agent-picker-wrap .picker-search .picker-search-input {
+  background: rgba(10, 18, 30, 1) !important;
+  border: 1px solid rgba(7, 63, 86, 1) !important;
+}
+
+.agent-picker-wrap .picker-search-input .ant-input-affix-wrapper {
+  border-radius: 10px;
+  color: #e6edf3 !important;
+}
+
+.agent-picker-wrap .picker-search-input .ant-input-affix-wrapper:hover,
+.agent-picker-wrap .picker-search-input .ant-input-affix-wrapper-focused {
+  border-color: rgba(74, 231, 253, 0.45) !important;
+}
+
+.agent-picker-wrap .picker-search-input .ant-input {
+  background: transparent !important;
+  color: #e6edf3 !important;
+}
+
+.agent-picker-wrap .picker-search-input .ant-input::placeholder {
+  color: rgba(142, 151, 165, 0.9);
+}
+
+.agent-picker-wrap .picker-search-ico {
+  color: rgba(142, 151, 165, 0.95);
+  font-size: 1rem;
+}
+
+.agent-picker-wrap .picker-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 1.25rem 0 1rem;
+  background: #191a1d;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.agent-picker-wrap .picker-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.agent-picker-wrap .picker-section-label {
+  margin: 0 0 0.875rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: #e6edf3;
+}
+
+.agent-picker-wrap .picker-section-label--models {
+  margin-top: 24px;
+}
+
+.agent-picker-wrap .picker-models-loading,
+.agent-picker-wrap .picker-models-empty {
+  min-height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.875rem;
+  color: rgba(142, 151, 165, 0.95);
+  margin-bottom: 0.5rem;
+}
+
+.agent-picker-wrap .agent-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  padding: 0;
+}
+
+.agent-picker-wrap .agent-grid--agents {
+  gap: 1.25rem;
+  align-items: start;
+}
+
+.agent-picker-wrap .agent-grid--models {
+  margin-bottom: 0.25rem;
+}
+
+/* 我的智能体：上图标 + 下文字块（#121212，文字垂直居中） */
+.agent-picker-wrap .agent-card--agent {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  text-align: center;
+  height: 148px;
+  min-height: 148px;
+  max-height: 148px;
+  padding: 0;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.agent-picker-wrap .agent-card--agent .agent-card__avatar-wrap {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 0;
+  padding: 14px 12px 10px;
+}
+
+.agent-picker-wrap .agent-card--agent .agent-card__avatar-shimmer,
+.agent-picker-wrap .agent-card--agent .agent-card__avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+}
+
+.agent-picker-wrap .agent-card--agent .agent-card__avatar-shimmer {
+  overflow: hidden;
+}
+
+.agent-picker-wrap .agent-card--agent .agent-card__avatar {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.agent-picker-wrap .agent-card--agent .agent-card__avatar--placeholder {
+  font-size: 1.625rem;
+}
+
+.agent-picker-wrap .agent-card--agent .agent-card__info {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 52px;
+  padding: 8px 12px;
+  background: #121212;
+}
+
+.agent-picker-wrap .agent-card--agent .agent-card__name {
+  margin-bottom: 2px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-picker-wrap .agent-card--agent .agent-card__desc {
+  max-width: 100%;
+  -webkit-line-clamp: 1;
+  line-clamp: 1;
+  color: #8E97A5 !important;
+}
+
+.agent-picker-wrap .agent-card--agent:hover .agent-card__info,
+.agent-picker-wrap .agent-card--agent.agent-card--selected .agent-card__info {
+  background: #121212;
+}

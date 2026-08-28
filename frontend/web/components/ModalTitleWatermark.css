@@ -1,0 +1,37 @@
+.modal-title-watermark {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.25rem;
+  margin: 12px 0 16px;
+}
+
+.modal-title-watermark__bg {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  background: linear-gradient(270deg, #4ae7fd 0%, #ffffff 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  opacity: 0.2;
+  font-size: 48px;
+  letter-spacing: 4px;
+  font-family: AlimamaShuHeiTi-Bold, system-ui, sans-serif;
+  text-transform: uppercase;
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+}
+
+.modal-title-watermark__text {
+  position: relative;
+  z-index: 1;
+  font-family: AlimamaShuHeiTi-Bold, system-ui, sans-serif;
+  font-size: 24px;
+  font-weight: 700;
+  color: #f1f5f9;
+  margin-top: 12px;
+}

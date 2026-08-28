@@ -1,0 +1,1945 @@
+.scp-root {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.scp-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 1rem;
+  border-radius: var(--radius-xl);
+}
+
+.scp-topbar-hint {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--home-muted, #8e97a5);
+  text-align: left;
+}
+
+.scp-topbar__right {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  flex-shrink: 0;
+  margin-left: auto;
+  .scp-topbar-task-btn {
+    position: relative;
+    height: 32px;
+    border-radius: 8px ;
+    border: 1px solid #2f3949 !important;
+    background: rgba(18, 22, 30, 0.95) !important;
+    color: rgba(255, 255, 255, 0.88);
+  }
+
+  .scp-topbar-task-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 6px;
+    border-radius: 999px;
+    margin-left: 8px;
+    background: rgba(74, 231, 253, 0.18);
+    border: 1px solid rgba(74, 231, 253, 0.35);
+    color: #4ae7fd;
+    font-size: 12px;
+    line-height: 18px;
+    font-weight: 600;
+  }
+
+  .scp-topbar-add-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    border-color: #2f3949 !important;
+    background: rgba(18, 22, 30, 0.95) !important;
+    color: var(--home-text, #e6edf3);
+  }
+
+  .scp-topbar-batch-btn {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    height: 28px;
+    background: #4ae7fd !important;
+    color: #121212 !important;
+    img {
+      width: 16px;
+      height: 16px;
+    }
+  }
+
+  .scp-topbar-ops-btn__arrow {
+    margin-left: 2px;
+    font-size: 10px;
+    line-height: 1;
+    transition: transform 0.2s ease;
+  }
+
+  .scp-topbar-ops-btn__arrow--open {
+    transform: rotate(180deg);
+  }
+}
+
+.scp-topbar-ops-panel {
+  min-width: 196px;
+  padding: 8px 10px 10px;
+  border-radius: 12px;
+  background: rgba(17, 22, 33, 1);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+}
+
+.scp-topbar-ops-panel__list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.scp-topbar-ops-panel__item-wrap {
+  display: block;
+  width: 100%;
+}
+
+.scp-topbar-ops-panel__item {
+  width: 100%;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 14px;
+  padding: 8px 10px;
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    color 0.18s ease;
+  text-align: left;
+}
+
+.scp-topbar-ops-panel__item :deep(.anticon) {
+  font-size: 16px;
+  color: #8e97a5;
+  flex-shrink: 0;
+  transition: color 0.18s ease;
+}
+
+.scp-topbar-ops-panel__item:hover:not(:disabled) {
+  background: rgba(32, 36, 52, 1);
+}
+
+.scp-topbar-ops-panel__item:hover:not(:disabled) :deep(.anticon) {
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.scp-topbar-ops-panel__item--disabled,
+.scp-topbar-ops-panel__item:disabled {
+  color: rgba(255, 255, 255, 0.35);
+  cursor: not-allowed;
+  text-decoration: line-through;
+}
+
+.scp-topbar-ops-panel__item--disabled :deep(.anticon),
+.scp-topbar-ops-panel__item:disabled :deep(.anticon) {
+  color: rgba(142, 151, 165, 0.45);
+}
+
+.scp-topbar-ops-panel__item--danger {
+  color: #ffc9c9;
+}
+
+.scp-topbar-ops-panel__item--danger :deep(.anticon) {
+  color: rgba(255, 180, 180, 0.85);
+}
+
+.scp-topbar-ops-panel__item--danger:hover:not(:disabled) {
+  background: rgba(32, 36, 52, 1);
+  color: #ffe0e0;
+}
+
+.scp-topbar-ops-panel__item--danger:hover:not(:disabled) :deep(.anticon) {
+  color: #ffb4b4;
+}
+
+.scp-topbar-add-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.scp-topbar-add-btn:hover:not(:disabled) {
+  border-color: rgba(74, 231, 253, 0.55);
+  color: var(--home-cyan, #4ae7fd);
+}
+
+.scp-topbar-add-btn__ico-wrap {
+  position: relative;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.scp-topbar-add-btn__ico {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 16px;
+  height: 16px;
+  display: block;
+  object-fit: contain;
+  object-position: center;
+  pointer-events: none;
+  transition: opacity 0.22s ease;
+}
+
+/* a-button 内部多一层包裹，scoped 需 :deep 才能命中图标 */
+.scp-topbar-add-btn :deep(.scp-topbar-add-btn__ico--nor) {
+  opacity: 1;
+}
+
+.scp-topbar-add-btn :deep(.scp-topbar-add-btn__ico--sel) {
+  opacity: 0;
+}
+
+.scp-topbar-add-btn:hover:not(:disabled) :deep(.scp-topbar-add-btn__ico--nor) {
+  opacity: 0;
+}
+
+.scp-topbar-add-btn:hover:not(:disabled) :deep(.scp-topbar-add-btn__ico--sel) {
+  opacity: 1;
+}
+
+/* 药丸分段 Tab：深底 + 选中段纯色青底黑字 */
+.scp-tabs {
+  display: flex;
+  align-items: stretch;
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: 240px;
+  gap: 0;
+  height: 28px;
+  background: rgba(32, 36, 52, 0.5);
+  border: none;
+  border-radius: 8px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.scp-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  flex: 1 1 0;
+  width: 5rem;
+  padding: 6px 0.75rem;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease,
+    box-shadow 0.2s ease;
+  color: #8e97a5;
+  /* 字号见 assets/css/scp-step-shared.css */
+}
+
+.scp-tab:hover:not(.disabled):not(.active) {
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+}
+
+.scp-tab.active {
+  background: #202434;
+  color: #ffff;
+  box-shadow: none;
+  font-weight: 600;
+}
+
+.scp-tab.disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.scp-tab-loading {
+  font-size: 0.95rem;
+  flex-shrink: 0;
+}
+
+.scp-tab:not(.active) .scp-tab-loading {
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.scp-tab.active .scp-tab-loading {
+  color: #ffffff;
+}
+
+.scp-actions {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  /* 尺寸由 scp-step-shared.css / viewport-wide-range.css 的 --scp-empty-cta-* 控制 */
+  .btn-primary {
+    background: #121212 !important;
+    border: 1px solid rgba(74, 231, 253, 0.55) !important;
+  }
+  .btn-primary:hover {
+    background: #121212 !important;
+    border: 1px solid rgba(74, 231, 253, 0.55) !important;
+  }
+}
+
+.scp-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.scp-task-restore-banner {
+  margin: 10px 0 0;
+  padding-left: 12px;
+  background: rgba(18, 22, 30, 0.6);
+  border-radius: 10px;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.scp-task-restore-banner__text {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scp-script-change-banner {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: rgba(14, 89, 250, 0.12);
+  border: 1px solid rgba(74, 231, 253, 0.25);
+  border-radius: 10px;
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.scp-script-change-banner__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.scp-script-change-banner__actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 4px;
+}
+
+.scp-task-panel {
+  width: 360px;
+  max-width: 72vw;
+  padding: 6px;
+}
+
+.scp-task-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 6px 10px;
+}
+
+.scp-task-panel__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.scp-task-panel__empty {
+  padding: 14px 8px;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 13px;
+}
+
+.scp-task-panel__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.scp-task-panel__item {
+  width: 100%;
+  text-align: left;
+  padding: 10px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(74, 231, 253, 0.18);
+  background: rgba(18, 22, 30, 0.6);
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.scp-task-panel__item:hover {
+  border-color: rgba(74, 231, 253, 0.45);
+  background: rgba(14, 89, 250, 0.12);
+}
+
+.scp-task-panel__item.active {
+  border-color: rgba(74, 231, 253, 0.65);
+  background: rgba(14, 89, 250, 0.18);
+}
+
+.scp-task-panel__item-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.scp-task-panel__item-status {
+  font-weight: 600;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.scp-task-panel__item-sub {
+  margin-top: 6px;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.asset-section {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.asset-section--bootstrap-pending {
+  position: relative;
+}
+
+.scp-asset-bootstrap-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  text-align: center;
+  background: rgba(8, 14, 26, 0.97);
+  backdrop-filter: blur(6px);
+  border-radius: var(--radius-m, 10px);
+  pointer-events: auto;
+}
+
+.scp-asset-bootstrap-mask__icon {
+  font-size: 28px;
+  color: var(--home-accent, #4ae7fd);
+}
+
+.scp-asset-bootstrap-mask__text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.asset-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.asset-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--home-text, #e6edf3);
+}
+
+/* 场景 / 角色 / 道具 — 空数据展示（对齐创作页深蓝青主题） */
+.scp-asset-empty {
+  position: relative;
+  flex: 1;
+  align-self: stretch;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  min-height: 0;
+  padding: 2.5rem 1.5rem;
+  border-radius: var(--radius-m);
+  overflow: hidden;
+  border: 1px dashed rgba(74, 231, 253, 0.3);
+}
+
+.scp-asset-empty--character {
+  box-shadow: inset 0 1px 0 rgba(74, 231, 253, 0.06);
+}
+
+.scp-asset-empty--prop {
+  box-shadow: inset 0 1px 0 rgba(74, 231, 253, 0.06);
+}
+
+.scp-asset-empty__grid {
+  position: absolute;
+  inset: 0;
+  opacity: 0.4;
+  /*background-image: */
+  /*  linear-gradient(rgba(74, 231, 253, 0.05) 1px, transparent 1px), */
+  /*  linear-gradient(90deg, rgba(74, 231, 253, 0.05) 1px, transparent 1px); */
+  background-size: 22px 22px;
+  mask-image: radial-gradient(ellipse 70% 65% at 50% 45%, #000 20%, transparent 72%);
+  pointer-events: none;
+}
+
+.scp-asset-empty__icon-wrap {
+  position: relative;
+  z-index: 1;
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 1.25rem;
+}
+.tips {
+  color: #8e97a5;
+  margin-bottom: 12px;
+}
+.scp-asset-empty__icon {
+  font-size: 2.35rem;
+  color: #4ae7fd;
+}
+
+.scp-asset-empty__title {
+  position: relative;
+  z-index: 1;
+  margin: 0 0 0.65rem;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--home-text, #e6edf3);
+  letter-spacing: 0.02em;
+}
+
+.scp-asset-empty__desc {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+  max-width: 520px;
+  font-size: 0.9375rem;
+  line-height: 1.65;
+  color: var(--home-muted, #8e97a5);
+}
+
+.scp-asset-empty__hint {
+  position: relative;
+  z-index: 1;
+  margin-top: 1.35rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius-full);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: rgba(74, 231, 253, 0.88);
+  background: rgba(74, 231, 253, 0.08);
+  border: 1px solid rgba(74, 231, 253, 0.2);
+  max-width: min(100%, 480px);
+  text-align: left;
+}
+
+.scp-asset-empty__hint-ico {
+  flex-shrink: 0;
+  font-size: 0.95rem;
+  color: #4ae7fd;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid rgba(74, 231, 253, 0.2);
+  border-radius: var(--radius-full);
+  background: rgba(18, 22, 30, 0.85);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.chip-text {
+  color: var(--home-text, #e6edf3);
+  font-weight: 600;
+}
+
+.chip-remove {
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  border: 1px solid rgba(74, 231, 253, 0.22);
+  background: rgba(6, 10, 18, 0.6);
+  color: var(--home-muted, #8e97a5);
+  cursor: pointer;
+  transition: all var(--transition-base);
+  line-height: 18px;
+}
+
+.chip-remove:hover {
+  border-color: rgba(74, 231, 253, 0.5);
+  color: var(--home-cyan, #4ae7fd);
+  background: rgba(14, 89, 250, 0.15);
+}
+
+/* 提取中状态 */
+.extracting-view {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 400px;
+  gap: 1.5rem;
+}
+
+.extracting-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--home-text, #e6edf3);
+  text-align: center;
+  max-width: min(560px, 92vw);
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.extracting-subtitle {
+  margin-top: -0.5rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  color: rgba(255, 255, 255, 0.72);
+  text-align: center;
+  max-width: 520px;
+}
+
+.extracting-actions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.extracting-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+}
+
+.extracting-placeholder-image {
+  width: 200px;
+  max-width: 42vw;
+  height: auto;
+  object-fit: contain;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 场景生成界面 */
+.scene-generation-view {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* 场景卡片容器 */
+.scene-cards-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+/* 自动提取的场景：网格布局，定宽展示（列宽见 scp-step-shared.css） */
+.scene-cards-auto {
+  display: grid;
+  gap: 1.25rem;
+}
+.scene-card-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 11px;
+  padding: 0 12px;
+}
+
+/* 手动场景已有图片时，卡片宽度与自动场景卡片一致 */
+.scene-card-list > .scene-card-auto {
+  width: 24.3%;
+  flex-shrink: 0;
+  padding: 8px 0;
+  margin-top: 4px;
+}
+/* 手动添加的场景：单列布局，每个项目占满一行 */
+.scene-cards-manual {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+/* 手动场景的包装器：占满一行，垂直布局 */
+.scene-card-wrapper {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid rgba(74, 231, 253, 0.3);
+  background: #070d17;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* 失败场景在网格布局中占满整行 */
+.scene-cards-auto > .scene-card-wrapper {
+  grid-column: 1 / -1;
+}
+
+/* 头部横条：占满一行，左侧标题，右侧按钮 */
+.scene-card-header-bar {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid rgba(74, 231, 253, 0.3);
+}
+/* 场景内容区与角色/道具保持一致：放到外层容器内 */
+.scene-card-wrapper .scene-card-failed {
+  padding: 0.75rem;
+  background: #080d14;
+}
+
+/* 手动场景的卡片：定宽见 scp-step-shared.css --scp-card-width */
+.scene-card-manual {
+  flex-shrink: 0;
+}
+
+/* 场景名称编辑相关 */
+.scene-card-title-wrapper {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  .scene-card-title-editable,
+  .scene-name-input {
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .scene-name-input {
+    line-height: 30px;
+    padding-left: 0;
+  }
+}
+
+.scene-card-title-prefix {
+  font-weight: 600;
+  color: var(--home-text, #e6edf3);
+  white-space: nowrap;
+}
+
+.scene-card-title-editable {
+  font-size: 12px;
+  color: var(--home-text, #e6edf3);
+  cursor: pointer;
+  padding: 0.25rem 0.5rem 0.25rem 0;
+  border-radius: var(--radius-md);
+  transition: all 0.2s ease;
+  /*flex: 1; */
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.scene-card-title-editable:hover {
+  background: rgba(14, 89, 250, 0.12);
+  color: var(--home-cyan, #4ae7fd);
+}
+
+.scene-name-input {
+  /* flex: 1; */
+  min-width: 240px;
+  width: 0;
+}
+
+.image-title-input {
+  flex: 1;
+  font-size: 12px;
+  min-width: 0;
+}
+
+.scene-card-actions-header {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  align-items: center;
+  button {
+    border: 1px solid #2f3949 !important;
+  }
+}
+
+/* disabled 按钮本身不触发 mouse 事件，包一层给 a-tooltip 用 */
+.scp-edit-image-btn-wrap {
+  display: inline-flex;
+  max-width: 100%;
+}
+
+.scene-card-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: relative;
+  gap: 0.75rem;
+  width: 100%;
+}
+
+/* 场景卡片基础样式 */
+.scene-card {
+  border-radius: 8px 8px 0 0;
+  padding: 1.25rem;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.scene-card:hover {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  border-color: rgba(74, 231, 253, 0.35);
+}
+
+.scene-card-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+/* 自动场景/角色/道具：对齐设计稿的头部横条 + 中部双操作块布局 */
+.scene-card-auto {
+  position: relative;
+  padding: 0;
+  overflow: hidden;
+  background: rgba(8, 13, 24, 0.92);
+  border-color: rgba(74, 231, 253, 0.34);
+}
+
+.character-card-auto,
+.prop-card-auto {
+  position: relative;
+  padding: 0;
+  overflow: hidden;
+  background: rgba(8, 13, 24, 0.92);
+  border-color: rgba(74, 231, 253, 0.34);
+}
+
+.scene-card-auto .scene-card-header,
+.character-card-auto .character-card-header,
+.prop-card-auto .prop-card-header {
+  margin: 0;
+  padding: 4px 10px;
+  background: #202434;
+  border-bottom: 1px solid #006c8f;
+}
+
+.scene-card-auto .scene-card-delete-btn {
+  position: static;
+  color: var(--home-muted, #8e97a5);
+  padding: 0.25rem;
+  width: auto;
+  height: auto;
+  z-index: 1;
+  background: transparent;
+  border-radius: var(--radius-md);
+}
+
+.scene-card-auto .scene-card-delete-btn:hover {
+  color: #ff7a84;
+  background: rgba(255, 82, 97, 0.12);
+}
+
+.scene-card-auto .scene-card-header-row {
+  padding-right: 0;
+}
+
+.scene-card-actions-row {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.scene-card-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--home-text, #e6edf3);
+  margin: 0;
+}
+
+.scene-card-delete-btn {
+  color: var(--home-muted, #8e97a5);
+  padding: 0.25rem;
+  width: auto;
+  height: auto;
+}
+
+.scene-card-delete-btn:hover {
+  color: var(--red-600);
+  background: var(--red-50);
+}
+
+.scene-card-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.scene-card-auto .scene-card-content,
+.character-card-auto .character-card-content,
+.prop-card-auto .prop-card-content {
+  min-height: 250px;
+  padding: 1.15rem 1rem 1.1rem;
+  justify-content: center;
+}
+
+.asset-generate-card__actions {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.95rem;
+}
+
+.asset-generate-card__action-icon {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  object-fit: contain;
+  display: block;
+}
+
+.asset-generate-card__or {
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 0.82rem;
+  flex-shrink: 0;
+}
+
+.asset-generate-card__action.ant-btn {
+  width: 100px;
+  height: 100px;
+  border-radius: 10px !important;
+  border: 1px dashed rgba(74, 231, 253, 0.42) !important;
+  background: rgba(12, 16, 24, 0.62) !important;
+  color: rgba(230, 237, 243, 0.9) !important;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  line-height: 1.25;
+  padding: 0.45rem;
+  box-shadow: none !important;
+}
+
+.asset-generate-card__action.ant-btn > span {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  line-height: 1.25;
+}
+
+.asset-generate-card__action.ant-btn .anticon {
+  font-size: 1.02rem;
+}
+
+.asset-generate-card__action.ant-btn:hover {
+  border-color: rgba(74, 231, 253, 0.72) !important;
+  color: #e9fbff !important;
+  background: rgba(20, 40, 68, 0.72) !important;
+}
+
+/*.asset-generate-card__action--primary.ant-btn { */
+/*  border-style: solid !important; */
+/*  border-color: rgba(74, 231, 253, 0.55) !important; */
+/*  background: linear-gradient(180deg, rgba(18, 127, 233, 0.86) 0%, rgba(33, 97, 242, 0.84) 100%) !important; */
+/*} */
+
+.asset-generate-card__action--primary.ant-btn:hover {
+  border-color: rgba(74, 231, 253, 0.72) !important;
+  color: #e9fbff !important;
+  background: rgba(20, 40, 68, 0.72) !important;
+}
+
+.scene-card-new {
+  border-color: rgba(0, 171, 216, 0.45);
+  background: rgba(14, 89, 250, 0.12);
+}
+
+.scene-card-divider {
+  text-align: center;
+  color: var(--home-muted, #8e97a5);
+  font-size: 0.875rem;
+  font-weight: 500;
+  padding: 0.25rem 0;
+}
+
+/* 有图片时的场景卡片样式（图6） */
+.scene-card-header-with-image {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0;
+  gap: 0.75rem;
+  padding: 8px 4px;
+  min-height: 36px;
+  border: 1px solid rgba(74, 231, 253, 0.3);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+}
+
+.scene-card-header-with-image .scene-card-title-editable {
+  padding: 0;
+}
+
+.scene-card-header-with-image > .ant-dropdown-trigger,
+.scene-card-header-with-image .ant-btn {
+  color: var(--home-muted, #8e97a5);
+}
+
+.scene-card-image-body {
+  margin-bottom: 0;
+  text-align: center;
+  box-sizing: border-box;
+  overflow: hidden;
+  background: var(--create-surface-canvas);
+  position: relative;
+  height: var(--scp-image-body-height, 11rem);
+  flex-shrink: 0;
+  isolation: isolate;
+  .ant-image {
+    width: 100%;
+    height: 100% !important;
+  }
+  .shimmer-image {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+}
+
+.scene-main-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  cursor: pointer;
+}
+/* 图片底部操作条布局见 storyboard-step-shared.css；按钮字号见 scp-step-shared.css */
+
+.footer-action-icon {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+/* AImage 默认按原尺寸展示，强制导入图充满卡片区域（对齐设计稿） */
+:deep(.scene-main-image .ant-image),
+:deep(.scene-main-image .ant-image-img) {
+  width: 100%;
+  height: 100%;
+}
+
+:deep(.scene-main-image .ant-image-img) {
+  object-fit: cover;
+}
+
+/* 角色形态图：保持原高度，完整展示不裁剪、不拉伸 */
+.character-form-images-list .scene-card-image-body {
+  display: block;
+}
+
+.character-form-images-list .scene-main-image {
+  object-fit: contain;
+  object-position: center;
+}
+
+.character-form-images-list :deep(.scene-main-image .ant-image-img) {
+  object-fit: contain;
+  object-position: center;
+}
+
+.empty-asset-view {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  flex: 1;
+  min-height: 0;
+}
+
+/* ========== 角色生成界面样式 ========== */
+.character-generation-view,
+.prop-generation-view {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.character-cards-container,
+.prop-cards-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+/* 自动提取的角色/道具：网格布局，定宽展示（列宽见 scp-step-shared.css） */
+.character-cards-auto,
+.prop-cards-auto {
+  display: grid;
+  gap: 1.25rem;
+}
+
+/* 角色/道具卡片基础样式（与场景卡片一致） */
+.character-card,
+.prop-card {
+  border: 1px solid #006c8f;
+  border-radius: var(--radius-sm);
+  /* padding: 1.25rem; */
+  background: rgba(12, 16, 24, 0.72);
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.character-card:hover,
+.prop-card:hover {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  border-color: #33d9ff;
+}
+
+.character-card-header,
+.prop-card-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.character-card-header-row,
+.prop-card-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: relative;
+  gap: 0.75rem;
+  width: 100%;
+}
+
+.character-card-title,
+.prop-card-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--home-text, #e6edf3);
+  margin: 0;
+}
+
+/* 自动角色/道具的删除按钮在右上角（与场景一致） */
+.character-card-auto,
+.prop-card-auto {
+  position: relative;
+}
+
+.character-card-delete-btn,
+.prop-card-delete-btn {
+  position: static;
+  color: var(--home-muted, #8e97a5);
+  padding: 0.25rem;
+  width: auto;
+  height: auto;
+  z-index: 1;
+  background: transparent;
+  border-radius: var(--radius-md);
+}
+
+.character-card-delete-btn:hover,
+.prop-card-delete-btn:hover {
+  color: #ff7a84;
+  background: rgba(255, 82, 97, 0.12);
+}
+
+.character-card-auto .character-card-header-row,
+.prop-card-auto .prop-card-header-row {
+  padding-right: 0;
+}
+
+.character-card-content,
+.prop-card-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.character-card-divider,
+.prop-card-divider {
+  text-align: center;
+  color: var(--home-muted, #8e97a5);
+  font-size: 0.875rem;
+  font-weight: 500;
+  padding: 0.25rem 0;
+}
+
+/* 手动添加的角色/道具：单列布局，每个项目占满一行 */
+.character-cards-manual,
+.prop-cards-manual {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.character-card-wrapper,
+.prop-card-wrapper {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid rgba(74, 231, 253, 0.3);
+  background: #070d17;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.character-card-header-bar,
+.prop-card-header-bar {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid rgba(74, 231, 253, 0.3);
+  .character-name-input {
+    font-weight: 600;
+    font-size: 14px;
+    padding-left: 0;
+  }
+}
+
+/* 手动添加项内容区外框：对齐分镜列表的深色内容底 */
+.scene-card-wrapper .character-card-wrapper .character-forms-list,
+.prop-card-wrapper .prop-forms-list,
+.character-card-wrapper .character-add-form,
+.prop-card-wrapper .prop-add-form {
+  /*padding: 0.75rem; */
+  background: #080d14;
+}
+
+.character-card-title-wrapper,
+.prop-card-title-wrapper {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.character-card-title-prefix,
+.prop-card-title-prefix {
+  font-weight: 600;
+  color: var(--home-text, #e6edf3);
+  white-space: nowrap;
+}
+
+.character-card-title-editable,
+.prop-card-title-editable {
+  font-weight: 600;
+  color: var(--home-text, #e6edf3);
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  transition: all 0.2s ease;
+  /* 与 .scene-card-title-editable 一致：不占满整行，超长省略 */
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.character-card-title-editable:hover,
+.prop-card-title-editable:hover {
+  background: rgba(14, 89, 250, 0.12);
+  color: var(--home-cyan, #4ae7fd);
+}
+
+.character-name-input,
+.prop-name-input {
+  /* 与 .scene-name-input 一致：限制编辑框拉伸宽度 */
+  min-width: 240px;
+  width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  padding-left: 0;
+}
+
+.character-card-actions-header,
+.prop-card-actions-header {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  align-items: center;
+  button {
+    border: 1px solid #2f3949 !important;
+  }
+}
+
+/* 手动角色/道具的卡片：定宽见 scp-step-shared.css --scp-card-width */
+.character-card-manual,
+.prop-card-manual {
+  flex-shrink: 0;
+}
+
+/* 角色形态相关 */
+.character-forms-list,
+.prop-forms-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 0.75rem;
+}
+
+.character-form-item {
+  padding-left: 12px;
+}
+.prop-form-item {
+  padding-left: 12px;
+}
+.character-form-header,
+.prop-form-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: -4px;
+  gap: 1rem;
+  padding-left: 12px;
+}
+
+.character-form-title-wrapper,
+.prop-form-title-wrapper {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.character-form-title-prefix,
+.prop-form-title-prefix {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--home-text, #e6edf3);
+  white-space: nowrap;
+}
+
+.character-form-title-editable,
+.prop-form-title-editable {
+  font-size: 14px;
+  color: var(--home-text, #e6edf3);
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  transition: all 0.2s ease;
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.character-form-title-editable:hover,
+.prop-form-title-editable:hover {
+  background: rgba(14, 89, 250, 0.12);
+  color: var(--home-cyan, #4ae7fd);
+}
+
+.form-name-input,
+.prop-form-name-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.character-form-voiceover {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-left: 24px;
+  min-height: 28px;
+}
+
+.voiceover-label {
+  font-size: 14px;
+  line-height: 1;
+  color: var(--home-muted, #8e97a5);
+  white-space: nowrap;
+}
+
+/* 配音 / 试听：同一套尺寸，避免大/小分辨率下高度、内边距不一致 */
+.voiceover-btn.ant-btn,
+.voice-preview-btn.ant-btn {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  box-sizing: border-box;
+  height: 28px !important;
+  min-height: 28px !important;
+  padding: 0 12px !important;
+  font-size: 14px !important;
+  line-height: 1 !important;
+  color: var(--home-muted, #8e97a5) !important;
+  border: 1px solid #8e97a5 !important;
+  border-radius: 999px !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.voiceover-btn.ant-btn:hover,
+.voice-preview-btn.ant-btn:hover {
+  color: #4ae7fd !important;
+  border-color: rgba(74, 231, 253, 0.7) !important;
+}
+
+.voiceover-btn :deep(.anticon) {
+  font-size: 12px;
+  line-height: 1;
+}
+
+.voice-preview-btn.is-playing {
+  color: #ffd089 !important;
+  border-color: rgba(255, 166, 77, 0.6) !important;
+  background: rgba(255, 166, 77, 0.12) !important;
+}
+
+.voice-preview-eq {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 12px;
+}
+
+.voice-preview-eq-bar {
+  width: 2px;
+  background: currentColor;
+  border-radius: 1px;
+  animation: voice-preview-eq 0.45s ease-in-out infinite alternate;
+}
+
+.voice-preview-eq-bar-1 {
+  height: 6px;
+  animation-delay: 0s;
+}
+
+.voice-preview-eq-bar-2 {
+  height: 11px;
+  animation-delay: 0.12s;
+}
+
+.voice-preview-eq-bar-3 {
+  height: 8px;
+  animation-delay: 0.24s;
+}
+
+@keyframes voice-preview-eq {
+  0% {
+    transform: scaleY(0.35);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+.voice-preview-audio {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.character-form-content,
+.prop-form-content {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+/* 场景主图区：与角色/道具「形态内容区」同一底衬与缩进，生成中/失败不再套虚线大框 */
+.scene-image-form-content {
+  padding-left: 12px;
+  padding-right: 0.75rem;
+  padding-bottom: 0.75rem;
+  background: #080d14;
+}
+
+.scene-image-form-content .asset-visual-generating-block {
+  margin: 12px 0 0 0;
+}
+
+.scene-image-form-content > .character-form-generate-failed {
+  margin: 12px 0 0 0;
+}
+
+.scene-image-form-content > .character-form-card.manual-generate-card {
+  margin: 12px 0 0 0;
+}
+
+.form-images-list,
+.character-form-images-list,
+.prop-form-images-list {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+}
+
+.form-image-card {
+  border: 1px solid rgba(74, 231, 253, 0.15);
+  border-radius: var(--radius-lg);
+  padding: 1rem;
+  background: rgba(12, 16, 24, 0.65);
+  flex-shrink: 0;
+}
+
+/* 手动添加后已有图片时，角色/道具形态卡片样式对齐自动卡片 */
+.form-image-card.scene-card-auto {
+  padding: 0;
+  background: rgba(8, 13, 24, 0.92);
+  border-color: rgba(74, 231, 253, 0.34);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.character-form-card,
+.prop-form-card {
+  width: min(100%, 24%);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/* 手动添加（无图）卡片：与自动生成卡片保持同一尺寸、背景、边框与 hover 效果 */
+.scene-card-manual-empty,
+.manual-generate-card {
+  border: 1px dashed rgba(74, 231, 253, 0.3);
+  border-radius: var(--radius-sm);
+  background: rgba(12, 16, 24, 0.72);
+  min-height: 250px;
+  padding: 1.15rem 1rem 1.1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  margin: 12px 0 0 12px;
+}
+.scene-card-manual-empty:hover,
+.manual-generate-card:hover {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  border-color: #33d9ff;
+}
+
+.character-form-actions,
+.prop-form-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-right: 12px;
+  align-items: flex-start;
+  button {
+    border: 1px solid #2f3949 !important;
+    font-size: 14px;
+  }
+}
+
+.character-add-form {
+  width: 100%;
+  margin-top: 12px;
+  border-top: 1px solid rgba(74, 231, 253, 0.3);
+  button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 48px;
+    gap: 6px;
+    width: 100%;
+    background: transparent !important;
+    border-radius: 0;
+  }
+}
+.prop-add-form {
+  margin: 0 auto 12px;
+}
+
+/* 生成失败的场景卡片样式 */
+.scene-card-failed {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 240px;
+  background: rgba(8, 13, 24, 0.92);
+  border: 1px dashed rgba(74, 231, 253, 0.34);
+  border-radius: var(--radius-lg);
+  width: min(100%, 24.4%);
+}
+
+.scene-card-failed-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.scene-card-failed-icon {
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.scene-card-failed-icon-image {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.scene-card-failed-text {
+  font-size: 12px;
+  color: #8e97a5;
+  line-height: 1.3;
+  margin-bottom: 12px;
+}
+
+.scene-card-failed-retry {
+  height: 24px;
+  padding: 0 14px;
+  border: none !important;
+  color: #fff !important;
+  font-size: 12px;
+  line-height: 24px;
+  box-shadow: none !important;
+}
+
+.scene-card-failed-retry:hover {
+  background: #40a9ff !important;
+  color: #fff !important;
+}
+
+.character-form-generate-failed {
+  width: 100%;
+  max-width: 24.4%;
+  margin: 12px 0 0 0;
+}
+
+/* 第三步自动生成：卡片内可见的加载块（替代不易察觉的 Skeleton）
+ * 宽度与 `.scene-card-list > .scene-card-auto`（24.3%）对齐，小/大分辨率下与正常图片卡片一致 */
+.asset-visual-generating-block {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 240px;
+  width: 24.3%;
+  max-width: 100%;
+  flex-shrink: 0;
+  margin: 12px 0 0 12px;
+  padding: 24px 16px;
+  border: 1px solid rgba(74, 231, 253, 0.35);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(145deg, rgba(18, 22, 38, 0.96) 0%, rgba(25, 32, 52, 0.99) 100%);
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.asset-visual-generating-block__shimmer {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(74, 231, 253, 0.06) 42%,
+    rgba(74, 231, 253, 0.14) 50%,
+    rgba(74, 231, 253, 0.06) 58%,
+    transparent 100%
+  );
+  background-size: 220% 100%;
+  animation: scp-asset-shimmer 1.6s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes scp-asset-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+.asset-visual-generating-block__icon {
+  position: relative;
+  z-index: 1;
+  font-size: 32px;
+  color: #4ae7fd;
+}
+
+.asset-visual-generating-block__text {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.82);
+  text-align: center;
+}
+
+@media (max-width: 768px) {
+  .scp-asset-empty {
+    min-height: 0;
+    padding: 1.75rem 1rem;
+  }
+
+  .scp-asset-empty__hint {
+    flex-direction: column;
+    text-align: center;
+  }
+
+  .scp-topbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .scp-tabs {
+    justify-content: center;
+  }
+  .scp-actions {
+    justify-content: center;
+  }
+  .scp-topbar__right {
+    justify-content: center;
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .scp-topbar-hint {
+    width: 100%;
+    flex: none;
+    text-align: center;
+    padding: 0.35rem 0 0;
+  }
+}
+
+/* 提取后待生成形态：小卡片横条（与现有深蓝卡片风格一致） */
+.scp-pending-form-strip-wrap {
+  padding: 0 4px;
+}
+
+.scp-pending-form-strip-hint {
+  margin: 0 0 0.65rem;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--home-white);
+}
+
+.scp-pending-form-strip {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 1%;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  scrollbar-width: thin;
+}
+
+.scp-pending-form-card {
+  flex: 0 0 auto;
+  min-height: 250px;
+  border: 1px solid rgba(74, 231, 253, 0.22);
+  border-radius: var(--radius-sm, 8px);
+  background: rgba(12, 16, 24, 0.85);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+  margin-bottom: 10px;
+}
+
+.scp-pending-form-card:hover {
+  border-color: rgba(74, 231, 253, 0.42);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+}
+
+.scp-pending-form-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 10px 8px;
+  border-bottom: 1px solid rgba(74, 231, 253, 0.12);
+}
+
+.scp-pending-form-card__title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.scp-pending-form-card__title-ico {
+  flex-shrink: 0;
+  color: rgba(74, 231, 253, 0.85);
+  font-size: 14px;
+}
+
+.scp-pending-form-card__title-text {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--home-text, #e6edf3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scp-pending-form-card__title-prefix {
+  flex-shrink: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--home-text, #e6edf3);
+  white-space: nowrap;
+}
+
+.scp-pending-form-card__title-editable {
+  cursor: pointer;
+  border-radius: 4px;
+  transition:
+    color 0.15s ease,
+    background 0.15s ease;
+}
+
+.scp-pending-form-card__title-editable:hover {
+  color: var(--home-cyan, #4ae7fd);
+  background: rgba(14, 89, 250, 0.12);
+}
+
+.scp-pending-form-card__title-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.scp-pending-form-card__more {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  color: var(--home-muted, #8e97a5);
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    background 0.15s ease;
+}
+
+.scp-pending-form-card__more:hover {
+  color: var(--home-cyan, #4ae7fd);
+  background: rgba(74, 231, 253, 0.08);
+}
+
+.scp-pending-form-card__body {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 10px 14px;
+}
+
+.scp-pending-form-card__gen-btn {
+  font-size: 14px;
+  min-width: 108px;
+  padding: 4px 8px;
+  background: transparent !important;
+  border: 1px solid rgba(74, 231, 253, 0.3) !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

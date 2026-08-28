@@ -1,0 +1,40 @@
+/* Tailwind/PostCSS component styles for glass-effects. */
+
+@media (prefers-reduced-motion: reduce) {
+  .home-new-nav-item,
+  .home-new-index .filter-tab,
+  .home-new-index .work-card,
+  .home-new-index .home-new-actions .btn-secondary,
+  .home-hero-carousel__card,
+  .home-hero-carousel__dot,
+  .works-lib-card,
+  .works-lib-add-card,
+  .works-lib-stat-card,
+  .works-lib-search,
+  .works-lib-type-tabs,
+  .user-menu-dropdown-pop-enter-active,
+  .user-menu-dropdown-pop-leave-active {
+    transition: none;
+  }
+
+  .home-new-sidebar,
+  .home-hero-carousel::before,
+  .home-hero-carousel__card,
+  .home-new-index .search-box,
+  .home-new-index .filter-tab,
+  .home-new-index .work-card,
+  .home-new-index .gallery-section,
+  .works-lib-card,
+  .works-lib-add-card,
+  .works-lib-stat-card,
+  .works-lib-search,
+  .works-lib-type-tabs,
+  .user-menu-dropdown,
+  .create-workflow__scroll,
+  .preview-header,
+  .preview_bg_box,
+  .route-overlay__inner {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}

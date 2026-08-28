@@ -1,0 +1,246 @@
+/* Tailwind/PostCSS component styles for storyboard-script. */
+
+
+.create-step-storyboard-script .storyboard-block-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.create-step-storyboard-script .storyboard-block-card.has-image .storyboard-block-card-header {
+  position: relative;
+  z-index: 3;
+  min-height: 36px;
+  padding: 8px 4px;
+  margin-bottom: 0;
+  gap: 0.75rem;
+  background: transparent;
+  border-bottom: 1px solid rgba(74, 231, 253, 0.3);
+  border-radius: 8px 8px 0 0;
+  box-sizing: border-box;
+}
+
+.create-step-storyboard-script .storyboard-block-card-header .storyboard-block-image-title {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--home-text, #e6edf3);
+}
+
+.create-step-storyboard-script .storyboard-block-image-wrap {
+  cursor: pointer;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: rgba(6, 10, 18, 0.55);
+  text-align: center;
+  position: relative;
+}
+
+/* 列表行内：图片区随卡片剩余高度填充，避免大屏按宽度撑破 */
+.create-step-storyboard-script
+  .storyboard-list
+  .storyboard-block-card.has-image
+  .storyboard-block-image-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  aspect-ratio: auto;
+  height: auto;
+  border-radius: 0;
+}
+
+.create-step-storyboard-script .storyboard-block-card.has-image .storyboard-block-image-wrap {
+  border-radius: 0;
+}
+
+.create-step-storyboard-script .storyboard-block-image-wrap .shimmer-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.create-step-storyboard-script .storyboard-block-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.create-step-storyboard-script .storyboard-block-btn {
+  font-size: 0.8rem;
+  color: var(--home-text, #e6edf3);
+  padding: 0 0.5rem;
+}
+
+.create-step-storyboard-script .storyboard-block-image-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--home-text, #e6edf3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  width: 100%;
+  text-align: center;
+}
+
+.create-step-storyboard-script .storyboard-block-icon {
+  font-size: 1.25rem;
+}
+
+.create-step-storyboard-script .storyboard-block-text {
+  font-size: 12px;
+  color: #ffffff;
+}
+
+.create-step-storyboard-script .storyboard-block-sub {
+  font-size: 0.75rem;
+  color: var(--home-muted, #8e97a5);
+}
+
+.create-step-storyboard-script .storyboard-reference-card {
+  border: 1px solid rgba(74, 231, 253, 0.12);
+  border-radius: 8px;
+  min-height: var(--storyboard-list-media-height, 200px);
+  height: var(--storyboard-list-media-height, 200px);
+  display: flex;
+  font-size: 12px;
+  align-items: center;
+  justify-content: center;
+  color: var(--home-muted, #8e97a5);
+  background: transparent;
+}
+
+.create-step-storyboard-script .storyboard-reference-card--has-image {
+  min-height: 0;
+  height: auto;
+  align-items: stretch;
+  justify-content: flex-start;
+  color: inherit;
+}
+
+.create-step-storyboard-script .storyboard-reference-count {
+  margin-left: 0.35rem;
+  font-size: 0.75rem;
+  color: var(--home-muted, #8e97a5);
+  font-weight: 400;
+}
+
+.create-step-storyboard-script .storyboard-script-tip {
+  height: var(--storyboard-list-media-height, 200px);
+  padding: 0.2rem 0;
+  color: var(--home-muted, #8e97a5);
+  background: transparent;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  cursor: pointer;
+  overflow: auto;
+}
+
+.create-step-storyboard-script .storyboard-script-content {
+  padding: 0.2rem 0;
+  color: var(--home-text, #e6edf3);
+  font-size: 0.9rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  cursor: pointer;
+  height: var(--storyboard-list-media-height, 200px);
+  overflow: auto;
+}
+
+/* 原 :deep()：v-html 注入的富文本段落/列表 */
+.create-step-storyboard-script .storyboard-script-content p {
+  margin: 0 0 0.5rem;
+}
+
+.create-step-storyboard-script .storyboard-script-content p:last-child {
+  margin-bottom: 0;
+}
+
+.create-step-storyboard-script .storyboard-script-content ul,
+.create-step-storyboard-script .storyboard-script-content ol {
+  margin: 0.2rem 0 0.6rem 1.2rem;
+  padding: 0;
+}
+
+.create-step-storyboard-script .storyboard-script-content li {
+  margin: 0.15rem 0;
+}
+
+.create-step-storyboard-script .storyboard-drag-handle {
+  cursor: grab;
+}
+
+.create-step-storyboard-script .storyboard-list--dragging .storyboard-drag-handle {
+  cursor: grabbing;
+}
+
+.create-step-storyboard-script .storyboard-list-item--ghost {
+  opacity: 0.45;
+}
+
+.create-step-storyboard-script .storyboard-list-item--chosen {
+  border-color: rgba(74, 231, 253, 0.45);
+}
+
+.create-step-storyboard-script .storyboard-list-item--fallback {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* 分镜图底栏三按钮：与素材准备 / 分镜视频一致，移入无青描边 */
+html.app-shell-create .create-step-storyboard-script .asset-action-footer .ant-btn {
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+html.app-shell-create .create-step-storyboard-script .asset-action-footer .ant-btn:hover,
+html.app-shell-create .create-step-storyboard-script .asset-action-footer .ant-btn:focus,
+html.app-shell-create .create-step-storyboard-script .asset-action-footer .ant-btn:focus-visible {
+  background: rgba(74, 231, 253, 0.16) !important;
+  color: #e9fbff !important;
+  border: none !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+/* 列表：行间/列内插入空白分镜 */
+.create-step-storyboard-script .storyboard-insert-gap {
+  position: relative;
+  min-height: 14px;
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.create-step-storyboard-script .storyboard-insert-ui {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  z-index: 4;
+  pointer-events: auto;
+  /* 原 <Transition name="storyboard-insert-fade">（0.28s 渐显）的 CSS 等价实现 */
+  transition: opacity 0.28s ease;
+}
+
+/* 原 v-show 隐藏态：保留占位（绝对定位无布局影响），淡出且不可点 */
+.create-step-storyboard-script .storyboard-insert-ui--hidden {
+  opacity: 0;
+  pointer-events: none;
+}

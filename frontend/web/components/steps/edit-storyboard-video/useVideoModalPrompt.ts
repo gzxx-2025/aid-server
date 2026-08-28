@@ -1,0 +1,261 @@
+'use client'
+
+import { message } from 'antd'
+import { isStoryboardVideoTaskOngoing } from '~/composables/useStoryboardVideoGenerateTask'
+import { userReferenceAudioDelete } from '~/utils/businessApi'
+import { type ReferenceMediaItem } from '~/utils/referenceMediaItem'
+import { fetchUserStoryboardDetailOnce } from '~/utils/storyboardDetailOnce'
+import {
+readStoryboardDetailPromptField
+} from '~/utils/storyboardPromptGenerateFlow'
+import { validateImageToVideoPromptPlain } from '~/utils/storyboardVideoPromptSave'
+import {
+collectNewlyAddedPromptAudioAssets,
+mergeReferenceAudioLists,
+removeAudioFromPromptAndList,
+syncAudioPlaceholdersIntoPrompt
+} from '~/utils/storyboardVideoReferenceAudioWire'
+import type { VideoModalCtx,VideoModalPromptApi } from './types'
+
+import { useVideoModalPromptEditorOps } from './useVideoModalPromptEditorOps'
+
+/** 视频提示词：拉取回填 / 生成任务 / 参考音频占位联动（原 setup 提示词段逻辑） */
+export function useVideoModalPrompt(ctx: VideoModalCtx): void {
+  const { applyMultiParamPromptFromApi, applyVideoParamSelectionsFromPlain, applyVideoPromptFromApi, aspectRatioEnumOptions, cameraMovementOptions, edgeVideoPromptPlain, ensureDictLoaded, imageToVideoPromptPlain, isStoryboardVideoPromptGeneratingForScene, multiParamPromptParamGroups, multiParamPromptPlain, renderStoryboardVideoPromptApiTextToEditor, shootingTechniqueOptions, showGeneratingMultiParamPromptForScene, showGeneratingVideoPromptForScene, videoPromptParamGroups } = useVideoModalPromptEditorOps(ctx)
+
+  async function fetchStoryboardImageToVideoPrompt(storyboardId: number): Promise<string> {
+    const row = await fetchUserStoryboardDetailOnce(storyboardId)
+    return readStoryboardDetailPromptField(row, 'videoPromptImage')
+  }
+
+  async function fetchStoryboardMultiVideoPrompt(storyboardId: number): Promise<string> {
+    const row = await fetchUserStoryboardDetailOnce(storyboardId)
+    return readStoryboardDetailPromptField(row, 'videoPrompt')
+  }
+
+  function saveEdgeVideoPromptToCache(storyboardId: string | number | null | undefined) {
+    if (!storyboardId) return
+    ctx.edgeVideoPromptByStoryboardId.set({
+      ...ctx.edgeVideoPromptByStoryboardId.get(),
+      [String(storyboardId)]: ctx.edgeVideoPrompt.get()
+    })
+  }
+
+  function restoreEdgeVideoPromptFromCache(storyboardId: string | number | null | undefined) {
+    if (!storyboardId) {
+      ctx.edgeVideoPrompt.set('')
+      return
+    }
+    ctx.edgeVideoPrompt.set(ctx.edgeVideoPromptByStoryboardId.get()[String(storyboardId)] ?? '')
+  }
+
+  function loadStoryboardEdgeVideoPromptForScene() {
+    restoreEdgeVideoPromptFromCache(ctx.currentStoryboardId())
+  }
+
+  async function loadStoryboardVideoPromptForScene() {
+    if (isStoryboardVideoPromptGeneratingForScene()) return
+    const id = ctx.currentStoryboardId()
+    if (!id) {
+      ctx.resolvedVideoPromptAssets.set([])
+      ctx.imageToVideoPrompt.set('')
+      return
+    }
+    const persisted = ctx.store().getStoryboardVideoPromptGenTask(id)
+    if (
+      (persisted?.taskKind === 'video-prompt-gen' ||
+        persisted?.taskKind === 'grid-video-prompt-gen') &&
+      (await isStoryboardVideoTaskOngoing(persisted.taskId))
+    ) {
+      return
+    }
+    try {
+      const plain = await fetchStoryboardImageToVideoPrompt(id)
+      await applyVideoPromptFromApi(plain)
+    } catch {
+      ctx.resolvedVideoPromptAssets.set([])
+      ctx.imageToVideoPrompt.set('')
+    }
+  }
+
+  async function loadStoryboardMultiVideoPromptForScene() {
+    if (isStoryboardVideoPromptGeneratingForScene()) return
+    const id = ctx.currentStoryboardId()
+    if (!id) {
+      ctx.resolvedMultiParamPromptAssets.set([])
+      ctx.multiParamPrompt.set('')
+      return
+    }
+    const persisted = ctx.store().getStoryboardVideoPromptGenTask(id)
+    if (
+      persisted?.taskKind === 'multi-video-prompt-gen' &&
+      (await isStoryboardVideoTaskOngoing(persisted.taskId))
+    ) {
+      return
+    }
+    try {
+      const plain = await fetchStoryboardMultiVideoPrompt(id)
+      await applyMultiParamPromptFromApi(plain)
+    } catch {
+      ctx.resolvedMultiParamPromptAssets.set([])
+      ctx.multiParamPrompt.set('')
+    }
+  }
+
+  function writePromptPlainToActiveEditor(plain: string) {
+    const text = String(plain || '')
+    if (ctx.leftActiveTab.get() === 'multiParam') {
+      ctx.multiParamPrompt.set(
+        renderStoryboardVideoPromptApiTextToEditor(text, {
+          assets: ctx.resolvedMultiParamPromptAssets.get(),
+          paramGroups: multiParamPromptParamGroups(),
+          enableAssetRefs: true,
+          enableMarkdown: true
+        })
+      )
+      return
+    }
+    if (ctx.leftActiveTab.get() === 'startEndFrame') {
+      ctx.edgeVideoPrompt.set(
+        renderStoryboardVideoPromptApiTextToEditor(text, {
+          enableAssetRefs: true,
+          enableMarkdown: false
+        })
+      )
+      return
+    }
+    ctx.imageToVideoPrompt.set(
+      renderStoryboardVideoPromptApiTextToEditor(text, {
+        assets: ctx.resolvedVideoPromptAssets.get(),
+        paramGroups: videoPromptParamGroups(),
+        enableAssetRefs: true,
+        enableMarkdown: false
+      })
+    )
+  }
+
+  function basePlainForActiveTab(): string {
+    return ctx.leftActiveTab.get() === 'multiParam'
+      ? multiParamPromptPlain()
+      : ctx.leftActiveTab.get() === 'startEndFrame'
+        ? edgeVideoPromptPlain()
+        : imageToVideoPromptPlain()
+  }
+
+  function applyImportedReferenceAudios(audios: ReferenceMediaItem[]) {
+    if (!audios.length) return
+    const prev = ctx.referenceAudios.get()
+    const merged = mergeReferenceAudioLists(prev, audios)
+    ctx.referenceAudios.set(merged)
+    const addedAssets = collectNewlyAddedPromptAudioAssets(prev, merged)
+    if (!addedAssets.length) return
+    // 优先走编辑器光标插入（与图片 upsert 一致）；编辑器未挂载时再回退文末追加
+    if (ctx.getActiveStoryboardPanel()?.insertPromptAssetRefsAtCaret?.(addedAssets)) return
+    writePromptPlainToActiveEditor(syncAudioPlaceholdersIntoPrompt(basePlainForActiveTab(), audios))
+  }
+
+  async function removeReferenceAudioAt(index: number) {
+    const target = ctx.referenceAudios.get()[index]
+    if (!target) return
+    if (target.audioSource === 'upload' && Number(target.referenceAudioId) > 0) {
+      try {
+        await userReferenceAudioDelete({ id: Number(target.referenceAudioId) })
+      } catch (e: unknown) {
+        const err = e as { msg?: string; message?: string }
+        message.error(err?.msg || err?.message || '删除参考音频失败')
+        return
+      }
+    }
+    const r = removeAudioFromPromptAndList(basePlainForActiveTab(), ctx.referenceAudios.get(), index)
+    ctx.referenceAudios.set(r.audios)
+    writePromptPlainToActiveEditor(r.plain)
+  }
+
+  async function handleSaveVideoPrompt() {
+    if (ctx.isSavingVideoPrompt.get() || showGeneratingVideoPromptForScene()) return
+    const storyboardId = ctx.currentStoryboardId()
+    if (!storyboardId) {
+      message.warning('分镜ID缺失，无法保存提示词')
+      return
+    }
+
+    const plain = imageToVideoPromptPlain().trim()
+    const validation = validateImageToVideoPromptPlain(plain)
+    if (validation.ok === false) {
+      message.warning(validation.message)
+      return
+    }
+
+    ctx.isSavingVideoPrompt.set(true)
+    const hideLoading = message.loading('正在保存视频提示词...', 0)
+    try {
+      // 图生方向无独立 save 接口；出片时传 videoPrompt 会自动落库 video_prompt_image
+      message.success('提示词格式正确，点击「开始生成」时将自动保存并出片')
+    } finally {
+      hideLoading()
+      ctx.isSavingVideoPrompt.set(false)
+    }
+  }
+
+  function copyCameraDesc() {
+    if (ctx.cameraMovementDesc.get()) {
+      navigator.clipboard.writeText(ctx.cameraMovementDesc.get())
+      message.success('已复制')
+    }
+  }
+
+  function copyImageToVideoPrompt() {
+    const plain = imageToVideoPromptPlain()
+    if (plain) {
+      navigator.clipboard.writeText(plain)
+      message.success('已复制')
+    }
+  }
+
+  function copyMultiParamPrompt() {
+    const plain = multiParamPromptPlain()
+    if (plain) {
+      navigator.clipboard.writeText(plain)
+      message.success('已复制')
+    }
+  }
+
+  function copyEdgeVideoPrompt() {
+    const plain = edgeVideoPromptPlain()
+    if (plain) {
+      navigator.clipboard.writeText(plain)
+      message.success('已复制')
+    }
+  }
+
+  const api: VideoModalPromptApi = {
+    imageToVideoPromptPlain,
+    multiParamPromptPlain,
+    edgeVideoPromptPlain,
+    videoPromptParamGroups,
+    multiParamPromptParamGroups,
+    ensureDictLoaded,
+    cameraMovementOptions,
+    shootingTechniqueOptions,
+    aspectRatioEnumOptions,
+    showGeneratingVideoPromptForScene,
+    showGeneratingMultiParamPromptForScene,
+    isStoryboardVideoPromptGeneratingForScene,
+    applyVideoPromptFromApi,
+    applyMultiParamPromptFromApi,
+    loadStoryboardVideoPromptForScene,
+    loadStoryboardMultiVideoPromptForScene,
+    loadStoryboardEdgeVideoPromptForScene,
+    saveEdgeVideoPromptToCache,
+    handleSaveVideoPrompt,
+    copyImageToVideoPrompt,
+    copyMultiParamPrompt,
+    copyEdgeVideoPrompt,
+    copyCameraDesc,
+    writePromptPlainToActiveEditor,
+    applyImportedReferenceAudios,
+    removeReferenceAudioAt,
+    applyVideoParamSelectionsFromPlain
+  }
+  Object.assign(ctx, api)
+}

@@ -1,0 +1,97 @@
+.home-new-page {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  height: 100vh;
+  height: 100dvh;
+  max-height: 100vh;
+  max-height: 100dvh;
+  background: var(--home-bg-gradient, linear-gradient(165deg, #001731 0%, #0d0d0f 42%, #121212 100%));
+  background-color: var(--home-bg-solid, #060a12);
+  color: #fff;
+  overflow: hidden;
+}
+
+.home-new-main-wrap {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.home-new-main {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  position: relative;
+}
+
+.home-route-transition-host {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1 0 auto;
+  min-height: 100%;
+  isolation: isolate;
+}
+
+.home-main-route {
+  display: flex;
+  flex-direction: column;
+  flex: 1 0 auto;
+  min-height: 100%;
+}
+
+/* 原 Vue <Transition name="home-route" mode="out-in">：React 下按 pathname 重挂载 + 进场动画（时长/缓动照抄） */
+.home-main-route {
+  animation:
+    home-route-enter-fade 0.26s ease,
+    home-route-enter-move 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes home-route-enter-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes home-route-enter-move {
+  from {
+    transform: translateY(10px);
+  }
+  to {
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-main-route {
+    animation: none;
+  }
+}
+
+/* 锁定整页高度：仅右侧主区域滚动 */
+html.layout-home-new,
+html.layout-home-new body {
+  height: 100%;
+  overflow: hidden;
+}
+
+/* 原 #__nuxt / #__nuxt > div 的等价链：Next 下壳根节点直接挂在 body 下 */
+html.layout-home-new .home-layout-root {
+  height: 100%;
+  overflow: hidden;
+}

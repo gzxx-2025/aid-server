@@ -1,0 +1,231 @@
+/* Tailwind/PostCSS component styles for home-theme. */
+/* =============================================================================
+   首页 / 侧栏布局统一主题（与 pages/index.vue、layouts/home.vue 视觉一致）
+   修改主色、边框、圆角等请优先改此处 CSS 变量，便于全局替换。
+   页面根节点使用 class="home-theme-page"（关于/用户等 home 布局内页）。
+   旧版首页见 home-legacy-page.css（.home-legacy-page）；新版首页见 home-new-page.css（.home-new-index）。
+   ============================================================================= */
+
+:root {
+  /* 深蓝青主视觉 */
+  --home-bg-solid: #060a12;
+  --home-bg-gradient: linear-gradient(165deg, #001731 0%, #0d0d0f 42%, #121212 100%);
+  --home-main-wrap-bg: linear-gradient(180deg, rgba(6, 10, 18, 0.4) 0%, rgba(8, 10, 14, 0.95) 100%);
+  --home-cyan: #4ae7fd;
+  --home-muted: #8E97A5;
+  --home-white: #ffffff;
+  --home-text: #e6edf3;
+  --home-surface: rgba(18, 22, 30, 0.92);
+  --home-surface-soft: rgba(18, 22, 30, 0.6);
+  --home-border: rgba(74, 231, 253, 0.28);
+  --home-border-subtle: rgba(74, 231, 253, 0.1);
+  --home-border-input: rgba(7, 63, 86, 1);
+  --home-border-strong: #006c8f;
+  --home-grad: linear-gradient(270deg, #0e59fa 0%, #00abd8 100%);
+  --home-grad-tab: linear-gradient(90deg, rgba(14, 89, 250, 0.3) 0%, rgba(0, 171, 216, 0.1) 100%);
+  --home-shadow-card: 0 20px 40px rgba(0, 0, 0, 0.3);
+  --home-radius-panel: 12px;
+  --home-radius-input: 10px;
+  --home-radius-btn: 8px;
+}
+
+/* 独立全屏页（登录 / 创作）：避免露出浅色 body */
+html.app-shell-create,
+html.app-shell-create body,
+html.app-shell-login,
+html.app-shell-login body {
+  background: var(--home-bg-solid);
+  color: var(--home-text);
+  min-height: 100vh;
+}
+
+/*
+ * 登录页未挂 app-shell-create（避免全局 Ant 表单被创作页覆盖干扰登录区样式），
+ * 仅对挂到 body 的 Message / Notification 做暗色对齐流程页。
+ */
+html.app-shell-login .ant-message-notice,
+html.app-shell-login .ant-message-notice-content,
+html.app-shell-login .ant-notification-notice {
+  background: rgba(34, 44, 64, 0.96) !important;
+  border: 1px solid rgba(74, 231, 253, 0.09) !important;
+  color: #e6edf3 !important;
+  box-shadow: 0 12px 40px rgba(8, 12, 24, 0.4) !important;
+}
+
+html.app-shell-login .ant-message .anticon {
+  color: #4ae7fd !important;
+}
+
+/* ---------------------------------------------------------------------------
+   主内容区（关于/用户/资产库旧壳等，不含 / 与 /index-legacy 首页）
+   --------------------------------------------------------------------------- */
+.home-theme-page {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 2% 24px 0 34px;
+  min-height: 100%;
+  color: var(--home-cyan);
+  --home-muted: #8e97a5;
+}
+
+.home-theme-page .page-header {
+  margin-bottom: 24px;
+}
+
+.home-theme-page .header-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.home-theme-page .page-title {
+  font-size: 24px;
+  font-weight: 700;
+  color: #fff;
+  margin: 0 0 8px 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  letter-spacing: -0.02em;
+}
+
+.home-theme-page .title-icon {
+  font-size: 24px;
+  color: var(--home-cyan);
+}
+
+.home-theme-page .page-subtitle {
+  font-size: 14px;
+  color: var(--home-muted);
+  margin: 0;
+  font-weight: 500;
+}
+
+.home-theme-page .create-btn,
+.home-theme-page .upload-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 24px;
+  background: var(--home-grad);
+  color: #fff;
+  border: none;
+  border-radius: var(--home-radius-btn);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.home-theme-page .create-btn:hover,
+.home-theme-page .upload-btn:hover {
+  filter: brightness(1.1);
+  transform: translateY(-2px);
+}
+
+.home-theme-page .filter-section {
+  background: var(--home-surface-soft);
+  padding: 20px;
+  border-radius: var(--home-radius-panel);
+  border: 1px solid var(--home-border-subtle);
+  margin-bottom: 24px;
+}
+
+.home-theme-page .filter-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.home-theme-page .filter-bar--no-bottom {
+  margin-bottom: 0;
+}
+
+.home-theme-page .status-filter {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.home-theme-page .status-btn {
+  padding: 8px 16px;
+  background: var(--home-surface-soft);
+  border: 1px solid var(--home-border-input);
+  border-radius: var(--home-radius-btn);
+  color: var(--home-muted);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.home-theme-page .status-btn:hover {
+  color: #c9d1d9;
+  border-color: rgba(74, 231, 253, 0.4);
+}
+
+.home-theme-page .status-btn.active {
+  background: var(--home-grad-tab);
+  border-color: rgba(0, 171, 216, 0.5);
+  color: var(--home-cyan);
+}
+
+.home-theme-page .works-count {
+  font-size: 14px;
+  color: var(--home-muted);
+  padding-top: 16px;
+  border-top: 1px solid var(--home-border-subtle);
+}
+
+.home-theme-page .count-number {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--home-cyan);
+  margin: 0 4px;
+}
+
+.home-theme-page .work-meta--simple {
+  border: none;
+  border-image: none;
+  padding-bottom: 0;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  gap: 12px;
+}
+
+.home-theme-page .work-description {
+  color: var(--home-muted);
+  margin-bottom: 12px;
+  font-size: 13px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-weight: 500;
+}
+
+.home-theme-page .work-progress {
+  margin-bottom: 12px;
+}
+
+.home-theme-page .progress-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--home-muted);
+  margin-bottom: 8px;
+}
+
+.home-theme-page .progress-bar {
+  height: 6px;
+  background: rgba(74, 231, 253, 0.1);
+  border-radius: 3px;
+  overflow: hidden;
+}

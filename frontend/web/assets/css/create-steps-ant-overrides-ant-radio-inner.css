@@ -1,0 +1,230 @@
+/* Tailwind/PostCSS component styles for create-steps-ant-overrides. */
+
+
+html.app-shell-create .ant-radio-checked .ant-radio-inner {
+  border-color: #00abd8 !important;
+  background-color: #00abd8 !important;
+}
+
+html.app-shell-create .ant-radio:hover .ant-radio-inner {
+  border-color: #4ae7fd !important;
+}
+
+html.app-shell-create .ant-checkbox-checked .ant-checkbox-inner {
+  background-color: #00abd8 !important;
+  border-color: #00abd8 !important;
+}
+
+html.app-shell-create .ant-checkbox:hover .ant-checkbox-inner {
+  border-color: #4ae7fd !important;
+}
+
+html.app-shell-create .ant-switch-checked {
+  background: #00abd8 !important;
+}
+
+/* ---------- Modal / Popover / Tooltip / Dropdown ---------- */
+html.app-shell-create  .ant-modal-wrap  {
+  background: rgba(18,18,18, 0.7);
+}
+html.app-shell-create .ant-modal .ant-modal-header {
+  background: transparent !important;
+  border-bottom-color: transparent !important;
+  padding: 0 !important;
+}
+.ant-modal-close-x{
+  font-size: 26px !important;
+}
+html.app-shell-create .ant-modal .ant-modal-title {
+  color: #fff !important;
+}
+
+html.app-shell-create .ant-modal .ant-modal-close {
+  color: #8e97a5 !important;
+}
+
+html.app-shell-create .ant-modal .ant-modal-close:hover {
+  color: #4ae7fd !important;
+}
+
+html.app-shell-create .ant-modal .ant-modal-body {
+  color: #e6edf3 !important;
+}
+
+/* 弹窗内正文：压过各组件 scoped 里的 #0F172A / gray-700 等深色字 */
+html.app-shell-create .ant-modal .ant-modal-content {
+  color: #e6edf3 !important;
+}
+
+html.app-shell-create .ant-modal .ant-modal-body *:not(img):not(video):not(canvas):not(input):not(textarea):not(select) {
+  color: #e6edf3 ;
+}
+
+html.app-shell-create .ant-modal .ant-modal-body input,
+html.app-shell-create .ant-modal .ant-modal-body textarea {
+  color: #e6edf3 !important;
+}
+
+html.app-shell-create .ant-modal .ant-modal-body *::placeholder {
+  color: #8e97a5 !important;
+}
+
+html.app-shell-create .ant-modal .ant-modal-body .ant-btn-primary,
+html.app-shell-create .ant-modal .ant-modal-body .ant-btn-primary * {
+  color: #fff ;
+}
+
+html.app-shell-create .ant-modal .ant-modal-body .ant-btn-link,
+html.app-shell-create .ant-modal .ant-modal-body .ant-btn-link * {
+  color: #4ae7fd !important;
+}
+
+html.app-shell-create .ant-modal .ant-modal-body .ant-btn-default,
+html.app-shell-create .ant-modal .ant-modal-body .ant-btn-default * {
+  color: #e6edf3 !important;
+}
+
+html.app-shell-create .ant-modal .ant-modal-body .ant-form-item-extra,
+html.app-shell-create .ant-modal .ant-modal-body .ant-input-data-count,
+html.app-shell-create .ant-modal .ant-modal-body .ant-select-selection-placeholder {
+  color: #8e97a5 !important;
+}
+
+html.app-shell-create .ant-modal .ant-modal-body .ant-typography-danger,
+html.app-shell-create .ant-modal .ant-modal-body .ant-form-item-explain-error {
+  color: #ff7875 !important;
+}
+
+html.app-shell-create .ant-modal .ant-modal-body .ant-typography-secondary {
+  color: #8e97a5 !important;
+}
+
+html.app-shell-create .ant-modal .ant-modal-body .ant-alert-message {
+  color: #e6edf3 !important;
+}
+
+html.app-shell-create .ant-modal .ant-modal-body .ant-alert-description {
+  color: #a8b0ba !important;
+}
+
+html.app-shell-create .ant-modal .ant-modal-footer,
+html.app-shell-create .ant-modal .ant-modal-footer * {
+  color: #e6edf3 !important;
+}
+
+html.app-shell-create .ant-modal .ant-modal-footer .ant-btn-primary,
+html.app-shell-create .ant-modal .ant-modal-footer .ant-btn-primary * {
+  color: #fff !important;
+}
+
+/**
+ * 弹窗右下角取消 / 确认双按钮：字号与字重统一
+ * - 取消常用 .text-gradient 包一层，确认常为纯文本 + font-weight:600，视觉上一大一小
+ * - 大屏 14px；小屏由 create-flow-compact-viewport 的 --cf-c-modal-btn-fs 覆盖
+ */
+html.app-shell-create .create-flow-modal .ant-btn[class*='btn-cancel'],
+html.app-shell-create .create-flow-modal .ant-btn[class*='btn-ok'],
+html.app-shell-create .create-flow-modal .ant-btn[class*='__btn-cancel'],
+html.app-shell-create .create-flow-modal .ant-btn[class*='__btn-ok'],
+html.app-shell-create .create-flow-modal .footer-right .ant-btn,
+html.app-shell-create .create-flow-modal .modal-footer .ant-btn,
+html.app-shell-create .create-flow-modal .modal-actions .ant-btn,
+html.app-shell-create .create-flow-modal .bgam-actions .ant-btn,
+html.app-shell-create .create-flow-modal .bgsm-actions .ant-btn,
+html.app-shell-create .create-flow-modal .picker-footer .ant-btn,
+html.app-shell-create .create-flow-modal .spsm-footer .ant-btn,
+html.app-shell-create .create-flow-modal .brdm-footer .ant-btn,
+html.app-shell-create .create-flow-modal .ant-modal-footer .ant-btn {
+  font-size: 14px !important;
+  font-weight: 500 !important;
+}
+
+html.app-shell-create .create-flow-modal .ant-btn[class*='btn-cancel'] .text-gradient,
+html.app-shell-create .create-flow-modal .ant-btn[class*='btn-ok'] .text-gradient,
+html.app-shell-create .create-flow-modal .ant-btn[class*='__btn-cancel'] .text-gradient,
+html.app-shell-create .create-flow-modal .ant-btn[class*='__btn-ok'] .text-gradient,
+html.app-shell-create .create-flow-modal .footer-right .ant-btn .text-gradient,
+html.app-shell-create .create-flow-modal .modal-footer .ant-btn .text-gradient,
+html.app-shell-create .create-flow-modal .modal-actions .ant-btn .text-gradient,
+html.app-shell-create .create-flow-modal .bgam-actions .ant-btn .text-gradient,
+html.app-shell-create .create-flow-modal .bgsm-actions .ant-btn .text-gradient,
+html.app-shell-create .create-flow-modal .picker-footer .ant-btn .text-gradient,
+html.app-shell-create .create-flow-modal .ant-modal-footer .ant-btn .text-gradient,
+html.app-shell-create .create-flow-modal .ant-btn[class*='btn-cancel'] > span,
+html.app-shell-create .create-flow-modal .ant-btn[class*='btn-ok'] > span,
+html.app-shell-create .create-flow-modal .ant-btn[class*='__btn-cancel'] > span,
+html.app-shell-create .create-flow-modal .ant-btn[class*='__btn-ok'] > span,
+html.app-shell-create .create-flow-modal .bgam-actions .ant-btn > span,
+html.app-shell-create .create-flow-modal .bgsm-actions .ant-btn > span,
+html.app-shell-create .create-flow-modal .footer-right .ant-btn > span,
+html.app-shell-create .create-flow-modal .ant-modal-footer .ant-btn > span {
+  font-size: inherit !important;
+  font-weight: inherit !important;
+  line-height: 1 !important;
+}
+
+/* 标题区（含自定义 title 插槽） */
+html.app-shell-create .ant-modal .ant-modal-header .ant-modal-title,
+html.app-shell-create .ant-modal .ant-modal-header .ant-modal-title * {
+  color: #fff !important;
+}
+
+/* Modal.confirm / info 等 */
+html.app-shell-create .ant-modal-confirm .ant-modal-confirm-body,
+html.app-shell-create .ant-modal-confirm .ant-modal-confirm-body *:not(.anticon) {
+  color: #e6edf3 !important;
+}
+
+html.app-shell-create .ant-modal-confirm .ant-modal-confirm-title {
+  color: #fff !important;
+}
+
+/* confirm 图标布局见 app-confirm-modal.css */
+
+html.app-shell-create .ant-modal-confirm .ant-modal-confirm-btns .ant-btn-primary.ant-btn-dangerous {
+  background: linear-gradient(270deg, #c62828 0%, #ff4d4f 100%) !important;
+  border-color: transparent !important;
+  color: #fff !important;
+  box-shadow: 0 8px 20px rgba(198, 40, 40, 0.3) !important;
+}
+
+html.app-shell-create .ant-modal-confirm .ant-modal-confirm-btns .ant-btn-primary.ant-btn-dangerous:hover,
+html.app-shell-create .ant-modal-confirm .ant-modal-confirm-btns .ant-btn-primary.ant-btn-dangerous:focus {
+  background: linear-gradient(270deg, #d32f2f 0%, #ff6b6b 100%) !important;
+  color: #fff !important;
+}
+
+/* 全屏类弹窗：内容区直接子级也继承浅色字（防个别结构无 body 包裹） */
+html.app-shell-create .create-flow-modal .ant-modal-content > * {
+  color: #e6edf3 !important;
+}
+html.app-shell-create .publish-case-plaza-modal-wrap .ant-modal-footer {
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  justify-content: flex-end !important;
+  align-items: center !important;
+  gap: 8px !important;
+}
+
+html.app-shell-create .publish-case-plaza-modal-wrap .ant-modal-footer .ant-btn {
+  display: inline-flex !important;
+  width: auto !important;
+  min-width: 88px !important;
+  flex: 0 0 auto !important;
+  margin-inline-start: 0 !important;
+}
+
+/* 蒙层 + 弹窗根（部分版本类名在 .ant-modal-root 下） */
+html.app-shell-create .ant-modal-mask {
+  background: rgba(14, 20, 34, 0.58) !important;
+}
+
+html.app-shell-create .ant-modal-wrap.create-flow-modal .ant-modal-content,
+html.app-shell-create .create-flow-modal .ant-modal-content,
+html.app-shell-create .ant-modal .ant-modal-content {
+  background: var(--create-surface-modal, rgba(34, 44, 64, 0.985)) !important;
+  /*border: 1px solid rgba(74, 231, 253, 0.09) !important;*/
+  /*box-shadow: 0 24px 56px rgba(8, 12, 24, 0.45) !important;*/
+  border-radius: 8px !important;
+}

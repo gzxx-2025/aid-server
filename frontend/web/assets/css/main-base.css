@@ -1,0 +1,230 @@
+/* Tailwind/PostCSS component styles for main. */
+/* Ant Design 基础样式改由 app/layout.tsx 先于本文件引入（antd/dist/reset.css） */
+
+/* ================================
+   全局设计令牌 - 与 home-theme.css、create-steps-ant-overrides.css 对齐
+   主色：深蓝 + 青（--home-cyan / --home-grad）；创作页可在 html.app-shell-create 内重映射 --gray-100/200
+   ================================ */
+
+/* CSS 变量 - 与首页 / 创作流程主题一致 */
+:root {
+  /* 主色阶 - 冷灰蓝（贴近 Navy 底上的中性层次，可与 --home-surface 搭配） */
+  --primary-50: #f0f4f8;
+  --primary-100: #e2e8f0;
+  --primary-200: #cbd5e1;
+  --primary-300: #94a3b8;
+  --primary-400: #64748b;
+  --primary-500: #475569;
+  --primary-600: #334155;
+  --primary-700: #1e293b;
+  --primary-800: #0f172a;
+  --primary-900: #060a12;
+
+  /* 强调色 - 青蓝系（与 create-steps-ant-overrides 中 html.app-shell-create 的 --accent-* 一致） */
+  --accent-50: rgba(74, 231, 253, 0.06);
+  --accent-100: rgba(74, 231, 253, 0.1);
+  --accent-200: rgba(74, 231, 253, 0.16);
+  --accent-300: rgba(74, 231, 253, 0.28);
+  --accent-400: rgba(74, 231, 253, 0.42);
+  --accent-500: #4ae7fd;
+  --accent-600: #00abd8;
+  --accent-700: #007ea8;
+  --accent-800: #005f7a;
+  --accent-900: #004052;
+
+  /* 中性色 - 浅底文案/描边用；深色全屏页见 html.app-shell-create 内 --gray-100/200 重映射 */
+  --gray-50: #f8fafc;
+  --gray-100: #f1f5f9;
+  --gray-200: #e2e8f0;
+  --gray-300: #cbd5e1;
+  --gray-400: #94a3b8;
+  --gray-500: #64748b;
+  --gray-600: #475569;
+  --gray-700: #334155;
+  --gray-800: #1e293b;
+  --gray-900: #0f172a;
+
+  /* 深色背景 - 对齐 home-theme :root --home-* */
+  --dark-bg: #060a12;
+  --dark-surface: rgba(18, 22, 30, 0.92);
+  --dark-border: rgba(74, 231, 253, 0.28);
+  --dark-text: #e6edf3;
+  --dark-text-muted: #8e97a5;
+
+  /* 渐变 - 对齐 home-theme --home-grad / create-steps 主按钮渐变 */
+  --gradient-primary: linear-gradient(270deg, #0e59fa 0%, #00abd8 100%);
+  --gradient-accent: linear-gradient(270deg, #2563eb 0%, #4ae7fd 100%);
+  --gradient-warm: linear-gradient(270deg, #0e59fa 0%, #00abd8 100%);
+  --gradient-dark: linear-gradient(165deg, #001731 0%, #0d0d0f 42%, #121212 100%);
+  --gradient-glass: linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.05) 100%);
+  --gradient-warm-glow: linear-gradient(135deg, rgba(14, 89, 250, 0.2) 0%, rgba(0, 171, 216, 0.12) 100%);
+
+  /* 阴影 */
+  --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 4px 12px -2px rgba(0, 0, 0, 0.1), 0 2px 6px -1px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 10px 24px -4px rgba(0, 0, 0, 0.12), 0 6px 12px -3px rgba(0, 0, 0, 0.08);
+  --shadow-xl: 0 20px 40px -8px rgba(0, 0, 0, 0.15), 0 10px 20px -5px rgba(0, 0, 0, 0.1);
+  --shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  --shadow-glow: 0 0 40px rgba(14, 89, 250, 0.22);
+  --shadow-warm: 0 8px 32px rgba(0, 171, 216, 0.18);
+
+  /* 间距 - 适配电脑端的紧凑间距 */
+  --spacing-xs: 0.25rem;
+  --spacing-sm: 0.5rem;
+  --spacing-md: 1rem;
+  --spacing-lg: 1.5rem;
+  --spacing-xl: 2rem;
+  --spacing-2xl: 3rem;
+  --spacing-3xl: 4rem;
+
+  /* 圆角 - 更柔和的圆角 */
+  --radius-m: 8px;
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1.5rem;
+  --radius-2xl: 2rem;
+  --radius-full: 9999px;
+
+  /* 过渡 - 遵循ui-ux-pro-max原则：150-300ms */
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: 300ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-bounce: 400ms cubic-bezier(0.68, -0.55, 0.265, 1.55);
+
+  /* 手绘风格边框 */
+  --border-hand-drawn: 2px solid;
+  --border-hand-drawn-color: var(--gray-300);
+}
+
+/* ================================
+   基础样式重置 - 大留白设计
+   ================================ */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+.ant-modal-confirm-title{
+  color:#FFFFFF  !important;
+}
+.ant-modal-confirm-content{
+  color:#FFFFFF  !important;
+}
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', 'SF Pro Display', Roboto, 'Helvetica Neue', Arial,
+    sans-serif;
+  background: #060a12;
+  color: #e6edf3;
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  letter-spacing: -0.01em;
+}
+
+/* 防止刷新时先出现无样式内容（FOUC） */
+[v-cloak] {
+  display: none !important;
+}
+
+/* 首页 layouts/home：避免 body 浅底从缝隙透出，由布局在挂载时给 html 加类 */
+html.layout-home-shell,
+html.layout-home-shell body,
+html.home-page-shell,
+html.home-page-shell body {
+  background: #060a12;
+  color: #e6edf3;
+}
+
+/* 大留白容器 */
+.container-spacious {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: var(--spacing-xl) var(--spacing-md);
+}
+
+/* ================================
+   页面过渡动画 - 有温度
+   ================================ */
+.page-enter-active,
+.page-leave-active {
+  transition: all var(--transition-slow);
+}
+
+.page-enter-from {
+  opacity: 0;
+  transform: translateY(20px) scale(0.98);
+}
+
+.page-leave-to {
+  opacity: 0;
+  transform: translateY(-20px) scale(0.98);
+}
+
+/* ================================
+   玻璃态卡片 - 深色+暖色点缀
+   ================================ */
+.glass-card {
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--gray-200);
+  box-shadow: var(--shadow-lg);
+  border-radius: var(--radius-xl);
+  transition: all var(--transition-base);
+}
+
+.glass-card:hover {
+  box-shadow: var(--shadow-xl);
+  border-color: var(--accent-300);
+}
+
+.glass-card-dark {
+  background: rgba(13, 17, 23, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--dark-border);
+  box-shadow: var(--shadow-xl);
+  border-radius: var(--radius-xl);
+  transition: all var(--transition-base);
+}
+
+.glass-card-dark:hover {
+  border-color: var(--accent-500);
+  box-shadow: var(--shadow-warm);
+}
+
+/* ================================
+   渐变按钮 - 深灰+橙色
+   ================================ */
+.btn-gradient {
+  background: var(--gradient-primary);
+  border: none;
+  color: white;
+  padding: 0.875rem 2.5rem;
+  border-radius: var(--radius-lg);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  box-shadow: var(--shadow-md);
+  letter-spacing: 0.02em;
+}
+
+.btn-gradient:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+  background: var(--gradient-accent);
+}
+
+.btn-gradient:active {
+  transform: translateY(0);
+}
+
+.btn-accent {
+  background: var(--gradient-accent);
+  box-shadow: var(--shadow-warm);
+}

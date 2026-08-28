@@ -1,0 +1,31 @@
+.DS_Store
+node_modules
+dist
+dist-ssr
+*.local
+.idea
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.log
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.env.local
+
+# AI 工具本地配置与指导文件（仅本地开发使用，禁止发布）
+.claude/
+.cursor/
+.codex/
+.kiro/
+.agents/
+.mcp.json
+CLAUDE.md
+AGENTS.md
+
+# 构建与工具临时产物
+vite.config.ts.timestamp-*.mjs
+/build/
+
+# 根目录本地笔记（不入库）
+/*.txt

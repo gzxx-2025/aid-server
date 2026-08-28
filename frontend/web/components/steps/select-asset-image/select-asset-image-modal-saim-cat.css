@@ -1,0 +1,226 @@
+/* Tailwind/PostCSS component styles for select-asset-image-modal. */
+
+.saim-cat {
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 0;
+  background: transparent !important;
+  color: #8e97a5 !important;
+  font-size: 14px;
+  line-height: 1.4;
+  word-break: break-word;
+  cursor: pointer;
+  transition: color 0.2s;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.saim-cat:hover {
+  color: rgba(74, 231, 253, 1) !important;
+  background: transparent !important;
+}
+
+.saim-cat--active {
+  color: rgba(74, 231, 253, 1) !important;
+  font-weight: 600;
+  background: transparent !important;
+}
+
+.saim-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.saim-main-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 14px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.saim-main-scroll::-webkit-scrollbar {
+  width: 0;
+  background: transparent;
+}
+
+.saim-main-scroll:hover {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(120, 140, 170, 0.45) transparent;
+}
+
+.saim-main-scroll:hover::-webkit-scrollbar {
+  width: 4px;
+}
+
+.saim-main-scroll:hover::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.saim-main-scroll:hover::-webkit-scrollbar-thumb {
+  background: rgba(120, 140, 170, 0.45);
+  border-radius: 4px;
+}
+
+.saim-main-scroll:hover::-webkit-scrollbar-thumb:hover {
+  background: rgba(120, 140, 170, 0.65);
+}
+
+.saim-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 260px;
+  color: #8e97a5;
+}
+
+.saim-empty__ico-img {
+  margin-bottom: 12px;
+  opacity: 0.88;
+}
+
+.saim-empty__ico {
+  font-size: 48px;
+  margin-bottom: 12px;
+  opacity: 0.35;
+  color: #8e97a5;
+}
+
+.saim-empty__text {
+  margin: 0;
+  font-size: 14px;
+  text-align: center;
+  max-width: 280px;
+  line-height: 1.5;
+}
+
+.saim-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.saim-card {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  overflow: hidden;
+  cursor: pointer;
+  background: rgba(18, 18, 18, 1);
+  height: 132px;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
+}
+
+.saim-card-select {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 24px;
+  height: 24px;
+  display: block;
+  object-fit: contain;
+  pointer-events: none;
+  z-index: 2;
+}
+.saim-card:hover:not(.saim-card--selected) {
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.saim-card--selected {
+  border: 1px solid rgba(74, 231, 253, 1);
+  box-shadow:
+    0 0 0 1px rgba(74, 231, 253, 0.25),
+    0 0 16px rgba(74, 231, 253, 0.12);
+}
+
+.saim-card__media {
+  height: 100px;
+  position: relative;
+  background: rgba(6, 10, 18, 0.85);
+}
+
+.saim-card__shimmer {
+  width: 100%;
+  height: 100%;
+}
+
+.saim-card__media .shimmer-image {
+  width: 100%;
+  height: 100%;
+}
+
+.saim-card__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.saim-card__media .shimmer-image__img.saim-card__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.saim-card__placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.2);
+  font-size: 2rem;
+}
+
+/* 右上角勾选：未选半透明圆 + 勾；选中实心青圆 + 深色勾 */
+
+.saim-card__title,
+.saim-card__meta {
+  display: flex;
+  justify-content: flex-end;
+  padding: 6px 8px;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.saim-card__title {
+  color: #e6edf3;
+  font-weight: 500;
+}
+
+.saim-card__meta {
+  color: #8e97a5;
+}
+
+/* 底部操作区 */
+.saim-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 1rem 0 0;
+  border-top: 1px solid rgba(74, 231, 253, 0.12);
+  background: #191a1d;
+  flex-shrink: 0;
+}
+
+.saim-pending-wrap {
+  width: 100%;
+  padding: 0 0 4px;
+}
+
+.saim-pending-title {
+  font-size: 12px;
+  color: rgba(142, 151, 165, 1);
+  margin-bottom: 8px;
+}

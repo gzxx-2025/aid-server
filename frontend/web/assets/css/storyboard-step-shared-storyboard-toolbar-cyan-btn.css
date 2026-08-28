@@ -1,0 +1,238 @@
+/* Tailwind/PostCSS component styles for storyboard-step-shared. */
+
+
+html.app-shell-create .storyboard-step .storyboard-toolbar-right .storyboard-toolbar-cyan-btn.ant-btn-primary img {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+/* 禁用态仍保持「主按钮」语义，略降低透明度（勿退回 default 幽灵按钮） */
+html.app-shell-create
+  .storyboard-step
+  .storyboard-toolbar-right
+  .storyboard-toolbar-cyan-btn.ant-btn-primary.ant-btn-disabled,
+html.app-shell-create
+  .storyboard-step
+  .storyboard-toolbar-right
+  .storyboard-toolbar-cyan-btn.ant-btn-primary.ant-btn-disabled:hover {
+  background: rgba(74, 231, 253, 0.38) !important;
+  color: rgba(18, 18, 18, 0.65) !important;
+  border: none !important;
+  opacity: 1;
+}
+
+html.app-shell-create
+  .storyboard-step
+  .storyboard-toolbar-right
+  .storyboard-toolbar-cyan-btn.ant-btn-primary.ant-btn-disabled
+  .anticon,
+html.app-shell-create
+  .storyboard-step
+  .storyboard-toolbar-right
+  .storyboard-toolbar-cyan-btn.ant-btn-primary.ant-btn-disabled
+  img {
+  opacity: 0.75;
+}
+
+.storyboard-step .storyboard-tooltip-wrap {
+  display: inline-flex;
+}
+
+.storyboard-toolbar-ops-btn__arrow {
+  margin-left: 2px;
+  font-size: 10px;
+  line-height: 1;
+  transition: transform 0.2s ease;
+}
+
+.storyboard-toolbar-ops-btn__arrow--open {
+  transform: rotate(180deg);
+}
+
+.storyboard-ops-panel {
+  min-width: 196px;
+  padding: 8px 10px 10px;
+  border-radius: 12px;
+  background: rgba(17, 22, 33, 1);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+}
+
+.storyboard-ops-panel__list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.storyboard-ops-panel__item-wrap {
+  display: block;
+  width: 100%;
+}
+
+.storyboard-ops-panel__item {
+  width: 100%;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 14px;
+  padding: 8px 10px;
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    color 0.18s ease;
+  text-align: left;
+}
+
+.storyboard-ops-panel__item .anticon {
+  font-size: 16px;
+  color: #8e97a5;
+  flex-shrink: 0;
+  transition: color 0.18s ease;
+}
+
+.storyboard-ops-panel__item:hover:not(:disabled) {
+  background: rgba(32, 36, 52, 1);
+}
+
+.storyboard-ops-panel__item:hover:not(:disabled) .anticon {
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.storyboard-ops-panel__item--disabled,
+.storyboard-ops-panel__item:disabled {
+  color: rgba(255, 255, 255, 0.35);
+  cursor: not-allowed;
+  text-decoration: line-through;
+}
+
+.storyboard-ops-panel__item--disabled .anticon,
+.storyboard-ops-panel__item:disabled .anticon {
+  color: rgba(142, 151, 165, 0.45);
+}
+
+.storyboard-ops-panel__item--danger {
+  color: #ffc9c9;
+}
+
+.storyboard-ops-panel__item--danger .anticon {
+  color: rgba(255, 180, 180, 0.85);
+}
+
+.storyboard-ops-panel__item--danger:hover:not(:disabled) {
+  background: rgba(32, 36, 52, 1);
+  color: #ffe0e0;
+}
+
+.storyboard-ops-panel__item--danger:hover:not(:disabled) .anticon {
+  color: #ffb4b4;
+}
+
+.storyboard-ops-panel .ant-dropdown-menu-item-disabled .storyboard-ops-panel__item-wrap,
+.storyboard-ops-panel__item-wrap .storyboard-ops-panel__item--disabled {
+  pointer-events: auto;
+}
+
+.storyboard-ops-dropdown-overlay,
+.storyboard-ops-dropdown-overlay .ant-dropdown-menu {
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  border: none !important;
+}
+
+/* 空状态（与分镜脚本一致） */
+.storyboard-step .storyboard-empty-content {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* border: 1px dashed rgba(74, 231, 253, 0.2); */
+  border-radius: 8px;
+  background: #0b1629;
+}
+
+.storyboard-step .storyboard-empty-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  color: #8e97a5;
+}
+
+.storyboard-step .storyboard-empty-icon-wrap {
+  width: 80px;
+  height: 80px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.storyboard-step .storyboard-empty-icon-wrap img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.storyboard-step .storyboard-empty-icon {
+  font-size: 30px;
+  color: rgba(142, 151, 165, 0.7);
+}
+
+.storyboard-step .storyboard-empty-title {
+  margin: 0;
+  font-size: 14px;
+  color: #8e97a5;
+  text-align: center;
+  max-width: 22rem;
+  line-height: 1.5;
+  margin-bottom: 10px;
+}
+
+.storyboard-step .storyboard-empty-add-btn {
+  margin-top: 0.15rem;
+  border-radius: 8px;
+  border: 1px solid rgba(74, 231, 253, 0.28);
+  background: #0f1e35;
+  color: #4ae7fd;
+  height: 30px;
+  padding: 0 10px;
+}
+
+.storyboard-step .storyboard-empty-add-btn:hover {
+  border-color: rgba(74, 231, 253, 0.45);
+  color: #7df0ff;
+}
+
+/* 列表行（三步骤共用基础） */
+.storyboard-step .storyboard-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding-top: 0.25rem;
+}
+
+.storyboard-step .storyboard-list-item {
+  border: 1px solid rgba(74, 231, 253, 0.30);
+  background: #070d17;
+  border-radius: 8px;
+  padding: 0;
+  overflow: hidden;
+  height: var(--storyboard-list-item-height);
+  box-sizing: border-box;
+}
+
+/* 移入/点选不加重描边，避免像“选中态”；拖拽态仅用 --dragging 透明度 */
+.storyboard-step .storyboard-list-item:hover,
+.storyboard-step .storyboard-list-item:focus,
+.storyboard-step .storyboard-list-item:focus-within {
+  border-color: rgba(74, 231, 253, 0.30);
+  box-shadow: none;
+  outline: none;
+}

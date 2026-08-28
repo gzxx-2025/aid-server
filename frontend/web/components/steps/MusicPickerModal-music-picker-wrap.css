@@ -1,0 +1,229 @@
+/* Tailwind/PostCSS component styles for MusicPickerModal. */
+.music-picker-wrap .ant-modal-content {
+  background: var(--create-surface-modal, rgba(25, 26, 29, 1)) !important;
+  border-radius: var(--radius-lg, 1rem) !important;
+  padding: 0 !important;
+  box-shadow: var(--shadow-lg, 0 10px 24px -4px rgba(0, 0, 0, 0.12)) !important;
+  overflow: hidden;
+}
+.music-picker-wrap .ant-modal-header {
+  display: none !important;
+}
+.music-picker-wrap .ant-modal-close {
+  color: var(--home-muted, #8e97a5) !important;
+  top: 16px !important;
+  right: 16px !important;
+  width: 32px;
+  height: 32px;
+  line-height: 32px;
+  font-size: 24px;
+}
+.music-picker-wrap .ant-modal-close:hover {
+  color: var(--accent-400, #38bdf8) !important;
+}
+.music-picker-wrap .ant-modal-body {
+  padding: 0 !important;
+  background: #191a1d !important;
+}
+.music-picker-wrap .music-picker-volume-slider .ant-slider-rail {
+  background: rgba(255, 255, 255, 0.12) !important;
+}
+.music-picker-wrap .music-picker-volume-slider .ant-slider-track {
+  background: #4ae7fd !important;
+}
+.music-picker-wrap .music-picker-volume-slider .ant-slider-handle::after {
+  box-shadow: 0 0 0 2px #4ae7fd !important;
+}
+
+.music-picker-close {
+  font-size: 24px;
+}
+
+.music-picker-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: min(52vh, 480px);
+  padding: 20px 24px 24px;
+}
+
+.music-picker-title {
+  margin: 0 0 16px;
+  font-size: 18px;
+  font-weight: 600;
+  color: #f1f5f9;
+  line-height: 1.4;
+  flex-shrink: 0;
+}
+
+.music-picker-list {
+  display: grid;
+  grid-template-columns: repeat(3, 32%);
+  grid-auto-rows: max-content;
+  align-content: start;
+  gap: 2%;
+  flex: 1;
+  min-height: 0;
+  max-height: min(35vh, 420px);
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.music-picker-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 12px;
+  flex-shrink: 0;
+}
+
+.music-picker-volume-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: rgba(13, 17, 23, 0.95);
+  border: 1px solid rgba(96, 124, 158, 0.15);
+  border-radius: 8px;
+  min-width: 0;
+  width: min(200px, 52%);
+}
+
+.music-picker-volume-label,
+.music-picker-volume-value {
+  flex-shrink: 0;
+  font-size: 13px;
+  color: #e6edf3;
+  min-width: 28px;
+}
+
+.music-picker-volume-value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: #8e97a5;
+  min-width: 36px;
+}
+
+.music-picker-volume-slider {
+  flex: 1;
+  min-width: 80px;
+  margin: 0;
+}
+
+.music-picker-upload {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 8px 14px;
+  border: 1px dashed rgba(96, 124, 158, 0.35);
+  border-radius: 8px;
+  background: rgba(13, 17, 23, 0.6);
+  color: #e6edf3;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    border-color 0.2s,
+    background 0.2s;
+}
+
+.music-picker-upload:hover:not(:disabled) {
+  border-color: rgba(74, 231, 253, 0.45);
+  background: rgba(74, 231, 253, 0.06);
+}
+
+.music-picker-upload:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.music-picker-upload-icon {
+  font-size: 18px;
+  color: #4ae7fd;
+}
+
+.music-picker-upload-text {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.music-picker-file-input {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.music-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: rgba(13, 17, 23, 0.95);
+  border: 1px solid rgba(96, 124, 158, 0.15);
+  border-radius: 8px;
+  min-height: 64px;
+  transition:
+    background 0.2s,
+    border-color 0.2s;
+}
+
+.music-card.is-selected {
+  border-color: rgba(74, 231, 253, 0.25);
+}
+
+.music-card-icon-wrap {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  background: rgba(249, 115, 22, 0.15);
+}
+
+.music-card-icon-wrap-none {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: default;
+  background: rgba(96, 124, 158, 0.12);
+}
+
+.music-card-none-icon {
+  font-size: 20px;
+  color: #8e97a5;
+}
+
+.music-card-cover {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.music-card-cover-fallback {
+  object-fit: contain;
+  padding: 8px;
+  box-sizing: border-box;
+}
+
+.music-card-icon-mask {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  opacity: 0;
+  transition: opacity 0.2s;
+  pointer-events: none;
+}
+
+.music-card-icon-wrap:hover .music-card-icon-mask,
+.music-card-icon-wrap.is-audio-playing .music-card-icon-mask {
+  opacity: 1;
+}

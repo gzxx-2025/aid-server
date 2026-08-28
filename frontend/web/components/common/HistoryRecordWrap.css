@@ -1,0 +1,7 @@
+/* 原组件非 scoped 样式：悬浮按钮固定定位（其余样式在全局 history-record-card.css） */
+.history-set-main-btn--floating {
+  position: fixed;
+  transform: translateY(-50%);
+  z-index: 10050;
+  pointer-events: auto;
+}

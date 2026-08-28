@@ -1,0 +1,28 @@
+/* 原 components/create/SeriesProjectAssetCard.vue <style scoped>；
+   根类 .series-project-asset-card 防泄漏（.works-lib-card 基础样式来自全局 home-theme.css），
+   :deep() 展开为普通后代选择器 */
+
+.series-project-asset-card .works-lib-card__body {
+  height: auto;
+  min-height: 0;
+  padding: 10px 12px 12px;
+}
+
+.series-project-asset-card .works-lib-card__cover .works-lib-card__cover-shimmer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.series-project-asset-card .works-lib-card__cover .works-lib-card__cover-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center top;
+  transition: transform 0.35s ease;
+}
+
+.series-project-asset-card.works-lib-card:hover .works-lib-card__cover .works-lib-card__cover-img {
+  transform: scale(1.04);
+}

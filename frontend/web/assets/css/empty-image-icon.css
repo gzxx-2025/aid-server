@@ -1,0 +1,44 @@
+/**
+ * 全站缺省图占位 — 配合 utils/emptyImageIcon.ts / empty_icon.svg
+ */
+.empty-image-icon {
+  display: block;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.empty-image-icon--xs {
+  width: 20px;
+  height: 20px;
+}
+
+.empty-image-icon--sm {
+  width: 88px;
+  height: 88px;
+}
+
+.empty-image-icon--md {
+  width: 48px;
+  height: 48px;
+}
+
+.empty-image-icon--lg {
+  width: 56px;
+  height: 56px;
+}
+
+.empty-image-icon--xl {
+  width: 88px;
+  height: 88px;
+}
+
+/* 卡片封面区：缺省 logo 居中（尺寸由 .works-lib-card__cover--placeholder 统一定义） */
+.card-cover-placeholder-icon {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 0;
+  transform: translate(-50%, -50%);
+  object-fit: contain !important;
+  pointer-events: none;
+}

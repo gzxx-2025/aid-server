@@ -1,0 +1,218 @@
+/* Tailwind/PostCSS component styles for edit-storyboard-dubbing-stage. */
+/* 原 EditStoryboardDubbingModal.vue \3c style scoped> 平移（第 2 段：三栏舞台 / 生成记录 / 预览 / 配置面板）。
+   转换规则同 edit-storyboard-dubbing-base.css：根类前缀 + :deep() 展开 + SCSS 嵌套展开。 */
+
+.edit-storyboard-dubbing-modal .stage-history-panel,
+.edit-storyboard-dubbing-modal .stage-config-panel.dubbing-stage-config {
+  border: 1px solid rgba(128, 154, 188, 0.26);
+  background: rgba(25, 26, 29, 1);
+}
+
+.edit-storyboard-dubbing-modal .stage-history-panel {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 7px;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.edit-storyboard-dubbing-modal .stage-history-panel .panel-title {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: rgba(225, 239, 255, 0.7);
+  flex-shrink: 0;
+}
+
+.edit-storyboard-dubbing-modal .stage-history-panel .history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+  flex: 1;
+  padding: 0 12px 10px;
+  scrollbar-gutter: stable;
+}
+
+.edit-storyboard-dubbing-modal .history-empty-msg {
+  padding: 12px 8px;
+  font-size: 12px;
+  color: rgba(225, 239, 255, 0.45);
+  text-align: center;
+  line-height: 1.4;
+}
+
+.edit-storyboard-dubbing-modal .stage-history-panel .history-item {
+  position: relative;
+  width: 88px;
+  height: 88px;
+  flex: 0 0 88px;
+  padding: 0;
+  border-radius: 8px;
+  border: 2px solid rgba(120, 140, 170, 0.3);
+  overflow: hidden;
+  background: rgba(18, 24, 36, 0.92);
+  cursor: pointer;
+}
+
+.edit-storyboard-dubbing-modal .stage-history-panel .history-item.active {
+  border-color: rgba(74, 231, 253, 1);
+  box-shadow: 0 0 0 2px rgba(74, 231, 253, 0.18);
+}
+
+.edit-storyboard-dubbing-modal .stage-history-panel .history-item.history-item--main {
+  border-color: rgba(74, 231, 253, 0.85);
+}
+
+.edit-storyboard-dubbing-modal .stage-history-panel .history-item.history-item--generating {
+  border-color: rgba(74, 231, 253, 0.55);
+}
+
+.edit-storyboard-dubbing-modal .history-delete-icon {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 5;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.edit-storyboard-dubbing-modal .history-delete-icon img {
+  width: 30px !important;
+  height: 30px !important;
+  max-width: none !important;
+  max-height: none !important;
+  display: block;
+}
+
+.edit-storyboard-dubbing-modal .history-generating-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 14, 22, 0.82);
+  backdrop-filter: blur(3px);
+}
+
+.edit-storyboard-dubbing-modal .history-generating-mask__icon {
+  font-size: 22px;
+  color: #4ae7fd;
+}
+
+.edit-storyboard-dubbing-modal .history-thumb-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.edit-storyboard-dubbing-modal .stage-history-panel .history-item .video-poster-thumb {
+  width: 100%;
+  height: 100%;
+}
+
+.edit-storyboard-dubbing-modal .stage-history-panel .history-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  color: rgba(225, 239, 255, 0.55);
+  font-size: 12px;
+}
+
+.edit-storyboard-dubbing-modal .dubbing-stage-canvas {
+  overflow: hidden;
+}
+
+.edit-storyboard-dubbing-modal .dubbing-stage-config {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
+  height: 100%;
+}
+
+.edit-storyboard-dubbing-modal .dubbing-config-below-tabs {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 12px;
+  box-sizing: border-box;
+  padding-right: 16px;
+}
+
+.edit-storyboard-dubbing-modal .dubbing-stage-config .dubbing-edit-left {
+  flex: 1 1 0;
+  height: 100%;
+  min-height: 0;
+}
+
+@media (max-height: 900px) {
+  .edit-storyboard-dubbing-modal .dubbing-config-below-tabs {
+    padding: 8px 12px 8px 8px;
+  }
+}
+
+.edit-storyboard-dubbing-modal .dubbing-canvas-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  color: rgba(188, 205, 228, 0.75);
+  text-align: center;
+  padding: 2rem;
+}
+
+.edit-storyboard-dubbing-modal .dubbing-canvas-empty .anticon {
+  font-size: 2.5rem;
+  color: #4ae7fd;
+  opacity: 0.85;
+}
+
+.edit-storyboard-dubbing-modal .dubbing-canvas-preview {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-height: 0;
+}
+
+.edit-storyboard-dubbing-modal .dubbing-canvas-preview--loading {
+  flex: 1;
+}
+
+.edit-storyboard-dubbing-modal .video-placeholder--blank {
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  background: rgba(12, 18, 28, 0.88);
+}
+
+.edit-storyboard-dubbing-modal .video-card-generating-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: rgba(10, 14, 22, 0.82);
+  backdrop-filter: blur(4px);
+}

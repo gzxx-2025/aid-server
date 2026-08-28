@@ -1,0 +1,226 @@
+/* Tailwind/PostCSS component styles for ExtractAgentModal. */
+/* 与 AgentPickerModal 一致的深色弹窗壳 */
+.extract-agent-modal .ant-modal {
+  background: transparent !important;
+}
+
+.extract-agent-modal .ant-modal-content {
+  padding: 0;
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid rgba(74, 231, 253, 0.45);
+  background: #191a1d;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+}
+
+.extract-agent-modal .ant-modal-header {
+  margin: 0;
+  padding: 1.25rem 1.5rem 1rem;
+  border-bottom: none !important;
+  background: #191a1d;
+}
+
+.extract-agent-modal .ant-modal-title {
+  width: 100%;
+}
+
+.extract-agent-modal .ant-modal-close {
+  top: 1rem;
+  inset-inline-end: 1rem;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.extract-agent-modal .ant-modal-close:hover {
+  color: #4ae7fd;
+}
+
+.extract-agent-modal .ant-modal-body {
+  padding: 0;
+  background: #191a1d;
+}
+
+.extract-body {
+  background: #191a1d;
+}
+
+.extract-progress {
+  width: 100%;
+}
+
+.extract-progress__track {
+  height: 4px;
+  width: 100%;
+  background: #121212;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.extract-progress__fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, #0e59fa 0%, #00abd8 50%, #4ae7fd 100%);
+  box-shadow: 0 0 10px rgba(74, 231, 253, 0.35);
+  transition: width 1.4s cubic-bezier(0.33, 1, 0.68, 1);
+  will-change: width;
+}
+
+.extract-shell {
+  padding: 0 0 1.25rem;
+  background: #191a1d;
+}
+
+.extract-subtitle {
+  margin: 0 0 1rem;
+  font-size: 0.875rem;
+  color: rgba(142, 151, 165, 0.95);
+  font-weight: 500;
+  text-align: center;
+}
+
+.extract-columns {
+  display: grid;
+  gap: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(22, 26, 36, 0.6);
+  border-bottom: 1px solid rgba(74, 231, 253, 0.3);
+  border-left: 1px solid rgba(74, 231, 253, 0.3);
+  border-right: 1px solid rgba(74, 231, 253, 0.3);
+}
+
+.extract-columns--3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.extract-columns--2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.extract-columns--1 {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.extract-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.extract-col:not(:last-child) {
+  border-right: 1px solid rgba(74, 231, 253, 0.3);
+}
+
+.extract-col__head {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  margin-bottom: 0.5rem;
+  background: rgba(32, 36, 52, 1);
+  height: 40px;
+  border-bottom: 1px solid rgba(74, 231, 253, 0.3);
+}
+
+.extract-col__head-ico {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  color: #fff;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.extract-col__head-ico img {
+  width: 14px;
+  height: 14px;
+}
+
+.extract-col__head-text {
+  font-size: 16px;
+  font-weight: 600;
+  color: #e6edf3;
+}
+
+.extract-col__figure {
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+}
+
+.extract-col__box {
+  padding: 22px 12px 12px;
+}
+
+.extract-col__box .extract-col__card {
+  flex: 1;
+  display: block;
+  width: 100%;
+  margin: 0;
+  border: 1px solid transparent;
+  overflow: hidden;
+  cursor: pointer;
+  background: rgba(22, 26, 36, 0.6);
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    background 0.2s ease;
+}
+
+/* 整块卡片（含图+文案）统一高亮，不再单独给子元素加 hover */
+/*.extract-col__card:hover {
+  border: 1px solid rgba(74, 231, 253, 0.95);
+  box-shadow:
+    0 0 0 1px rgba(74, 231, 253, 0.35),
+    0 8px 28px rgba(0, 163, 255, 0.18);
+  background: rgba(22, 28, 40, 0.92);
+}*/
+
+/*.extract-col__card:focus-visible {
+  outline: 2px solid rgba(74, 231, 253, 0.65);
+  outline-offset: 2px;
+}*/
+
+.extract-col__img-wrap {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  margin: 0 auto;
+  aspect-ratio: 1 / 1;
+  border-radius: 14px;
+  overflow: hidden;
+  background: rgba(10, 14, 22, 0.9);
+  border: 1px solid rgba(74, 231, 253, 0.28);
+}
+
+.extract-col__img-shimmer {
+  width: 100%;
+  height: 100%;
+}
+
+.extract-col__img-wrap .extract-col__img-shimmer {
+  width: 100%;
+  height: 100%;
+}
+
+.extract-col__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.extract-col__img-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(74, 231, 253, 0.45);
+  font-size: 2rem;
+}

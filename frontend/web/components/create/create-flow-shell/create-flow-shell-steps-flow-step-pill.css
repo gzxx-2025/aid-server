@@ -1,0 +1,227 @@
+/* Tailwind/PostCSS component styles for create-flow-shell-steps. */
+/* 原 CreateFlowShell.vue scoped SCSS 展开（2/2）：流程 pill / 连接符 / 预览面板 / 响应式，
+   以及原非 scoped 段（导出下拉、发布引导，浮层挂 body 不加前缀）。 */
+
+/* Figma：横向条上的单格约 191×40，竖向侧栏用圆角块 + 内边距 */
+.create-page .flow-step-pill {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  width: 100%;
+  margin: 0;
+  padding: 0.5rem 0.625rem;
+  min-height: 2.5rem;
+  text-align: left;
+  cursor: pointer;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: none;
+  color: var(--home-muted, #8e97a5);
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    color 0.2s ease;
+  font: inherit;
+  box-sizing: border-box;
+}
+
+/* 顶部横向流程条：按内容撑开，保证「项目配置」等四字标题完整显示 */
+.create-page .flow-step-pill-wrap {
+  flex: 0 0 auto;
+  display: inline-flex;
+  max-width: 100%;
+}
+
+.create-page .flow-step-pill--strip {
+  width: auto;
+  min-width: auto;
+  max-width: none;
+  flex: 0 0 auto;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  min-height: 40px;
+  padding: 0 28px;
+}
+
+.create-page .flow-step-pill--strip .flow-step-pill__title {
+  flex-shrink: 0;
+  white-space: nowrap;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.create-page .flow-step-connector--h {
+  width: 28px;
+  height: 10px;
+  min-width: 28px;
+  margin: 0 2px;
+  align-self: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.create-page .flow-step-connector__img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+}
+
+/* 当前步骤后的一个连接图标：弱化底图，突出“逐步前进”的菱形动画 */
+.create-page .flow-step-connector__img--next {
+  opacity: 0.35;
+}
+
+.create-page .flow-step-connector--next {
+  position: relative;
+}
+
+.create-page .flow-step-connector__march {
+  position: absolute;
+  inset: 0;
+  display: block;
+  pointer-events: none;
+}
+
+.create-page .march-chevron {
+  --size: 7px;
+  --stroke: 2px;
+  position: absolute;
+  top: 50%;
+  left: -2px;
+  width: var(--size);
+  height: var(--size);
+  transform: translateY(-50%) rotate(45deg);
+  border-top: var(--stroke) solid #4ae7fd;
+  border-right: var(--stroke) solid #4ae7fd;
+  border-radius: 1px;
+  opacity: 0;
+  box-shadow: 0 0 6px rgba(74, 231, 253, 0.55);
+  animation: connectorChevronMarch 1.2s linear infinite;
+}
+
+.create-page .march-chevron.c2 {
+  animation-delay: 0.4s;
+}
+.create-page .march-chevron.c3 {
+  animation-delay: 0.8s;
+}
+
+.create-page .flow-step-connector--done .march-chevron {
+  border-top-color: #00abd8;
+  border-right-color: #00abd8;
+}
+
+.create-page .flow-step-pill--active {
+  border-color: transparent;
+  background: linear-gradient(135deg, rgba(14, 89, 250, 0.34) 0%, rgba(0, 171, 216, 0.26) 100%);
+  backdrop-filter: blur(16px) saturate(1.55);
+  -webkit-backdrop-filter: blur(16px) saturate(1.55);
+  box-shadow:
+    0 4px 22px rgba(14, 89, 250, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.08);
+  color: var(--home-cyan, #4ae7fd);
+  border-radius: 100px;
+  padding: 0 28px;
+}
+
+.create-page .flow-step-pill--completed:not(.flow-step-pill--active) {
+  color: rgba(230, 237, 243, 0.85);
+}
+
+.create-page .flow-step-pill--disabled {
+  opacity: 0.45;
+}
+
+.create-page .flow-step-pill--locked-ahead:not(:disabled) {
+  cursor: pointer;
+}
+
+.create-page .flow-step-pill:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.create-page .flow-step-pill__icon {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.create-page .flow-step-pill__img {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  display: block;
+  opacity: 0.92;
+  filter: grayscale(0.15);
+  margin-top: 2px;
+}
+
+.create-page .flow-step-pill--pending:not(.flow-step-pill--active) .flow-step-pill__img {
+  opacity: 0.75;
+}
+
+.create-page .flow-step-pill__img--active {
+  opacity: 1;
+  filter: none;
+}
+
+.create-page .flow-step-pill__loading {
+  font-size: 1.125rem;
+  color: var(--home-cyan, #4ae7fd);
+}
+
+.create-page .flow-step-pill__check {
+  font-size: 1rem;
+  color: var(--home-cyan, #4ae7fd);
+}
+
+.create-page .flow-step-pill--active .flow-step-pill__check {
+  color: #fff;
+}
+
+.create-page .flow-step-pill__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.create-page .flow-step-pill__title {
+  font-size: 14px;
+  line-height: 1.35;
+  font-weight: 600;
+  color: inherit;
+}
+
+.create-page .flow-step-pill--active .flow-step-pill__title {
+  font-weight: 600;
+  color: var(--home-cyan, #4ae7fd);
+}
+
+.create-page .flow-step-pill--completed:not(.flow-step-pill--active) .flow-step-pill__title {
+  color: #ffffff;
+}
+
+.create-page .flow-step-pill__guide {
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(142, 151, 165, 0.95);
+  font-weight: 400;
+}
+
+.create-page .flow-step-pill--active .flow-step-pill__guide {
+  color: rgba(74, 231, 253, 0.75);
+}
+
+/* Figma 步骤间 32×10 渐变连接，竖向改为窄条 */

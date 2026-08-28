@@ -1,0 +1,239 @@
+/**
+ * 原 app.vue <style lang="scss">（非 scoped，全局生效）逐字平移。
+ * 与原文件的差异仅限以下三处（Vue/Nuxt 载体差异，非视觉改动）：
+ * - `[v-cloak] { display: none !important; }`：v-cloak 是 Vue 挂载前占位属性，React 渲染树
+ *   不存在该属性，选择器永不命中，故省略。
+ * - `@import 'assets/font/font.css';`：已在 app/layout.tsx 按原 nuxt.config 顺序全局引入，
+ *   此处不重复引入。
+ * - `#app { min-height: 100vh; font-family: PingFang SC; }`：React 壳层无 #app 包裹节点，
+ *   font-family 已在 app/globals.css 对齐到 body；min-height 同样落到 body（见下），
+ *   viewport-*-overrides.css 中 body/#app 成对选择器由 body 分支生效。
+ */
+
+body {
+  min-height: 100vh;
+}
+
+.global-page-loading {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(165deg, #001731 0%, #0d0d0f 42%, #121212 100%);
+}
+
+.global-page-loading__inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  color: #e6edf3;
+}
+
+.global-page-loading__logo {
+  font-size: 24px;
+  font-weight: 700;
+  color: #4ae7fd;
+  letter-spacing: 0.02em;
+}
+
+.global-page-loading__dots {
+  display: flex;
+  gap: 8px;
+}
+
+.global-page-loading__dots span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(74, 231, 253, 0.35);
+  animation: global-dot-pulse 1s infinite ease-in-out;
+}
+
+.global-page-loading__dots span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.global-page-loading__dots span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+.global-page-loading p {
+  margin: 0;
+  font-size: 13px;
+  color: #8e97a5;
+}
+
+@keyframes global-dot-pulse {
+  0%,
+  80%,
+  100% {
+    transform: scale(0.8);
+    opacity: 0.35;
+  }
+  40% {
+    transform: scale(1);
+    opacity: 1;
+    background: #4ae7fd;
+  }
+}
+
+.route-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(60% 55% at 50% 40%, rgba(74, 231, 253, 0.14), transparent 62%),
+    linear-gradient(
+      165deg,
+      rgba(0, 23, 49, 0.92) 0%,
+      rgba(13, 13, 15, 0.92) 42%,
+      rgba(18, 18, 18, 0.92) 100%
+    );
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  animation: route-overlay-in 0.18s ease-out both;
+}
+
+.route-overlay__inner {
+  width: min(520px, calc(100vw - 40px));
+  border-radius: 14px;
+  border: 1px solid rgba(74, 231, 253, 0.16);
+  background: rgba(10, 14, 20, 0.72);
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.42);
+  padding: 18px 18px 14px;
+  color: #e6edf3;
+  position: relative;
+  overflow: hidden;
+}
+
+.route-overlay__glow {
+  position: absolute;
+  inset: -60px -40px auto;
+  height: 120px;
+  background: radial-gradient(closest-side, rgba(74, 231, 253, 0.22), transparent 70%);
+  filter: blur(2px);
+}
+
+.route-overlay__brand {
+  position: relative;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: #4ae7fd;
+}
+
+.route-overlay__hint {
+  position: relative;
+  margin-top: 6px;
+  font-size: 13px;
+  color: rgba(230, 237, 243, 0.78);
+}
+
+.route-overlay__bar {
+  position: relative;
+  margin-top: 14px;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(74, 231, 253, 0.12);
+  overflow: hidden;
+}
+
+.route-overlay__bar i {
+  display: block;
+  width: 38%;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    rgba(74, 231, 253, 0),
+    rgba(74, 231, 253, 0.85),
+    rgba(14, 89, 250, 0.75)
+  );
+  animation: route-overlay-bar 0.72s ease-in-out infinite;
+}
+
+@keyframes route-overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes route-overlay-bar {
+  0% {
+    transform: translateX(-40%);
+    opacity: 0.55;
+  }
+  50% {
+    transform: translateX(90%);
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(190%);
+    opacity: 0.55;
+  }
+}
+
+/* 原 NuxtPage <Transition name="create-step-route" mode="out-in">。
+   React 不做 leave/out-in（避免 Vue 同类卸载竞态），按 page-key 重挂载 + 进场淡入，时长 180ms 照抄。 */
+.create-page .preview-content.create-step-route {
+  animation: create-step-route-enter 0.18s ease;
+}
+
+@keyframes create-step-route-enter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.create-step-route-enter-active,
+.create-step-route-leave-active {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  transition:
+    opacity 0.18s ease;
+  will-change: opacity, transform;
+}
+
+.create-step-route-enter-from {
+  opacity: 0;
+  transform: none;
+}
+
+.create-step-route-leave-to {
+  opacity: 0;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .create-page .preview-content.create-step-route {
+    animation: none;
+  }
+  .create-step-route-enter-active,
+  .create-step-route-leave-active {
+    transition: none;
+  }
+  .route-overlay {
+    animation: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  .route-overlay__bar i {
+    animation: none;
+  }
+}
+
+.edit-scene-image-modal .ant-modal-content,
+.edit-scene-image-modal .ant-modal-container {
+  padding: 0 !important;
+}

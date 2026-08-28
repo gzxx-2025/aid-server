@@ -1,0 +1,235 @@
+/* 原 GenerateSourceImagesStrip.vue <style scoped>：类名与声明原样保留，统一以 .generate-source-images-strip 作用域前缀替代 scoped */
+.generate-source-images-strip {
+  padding: 8px 10px;
+  background: rgba(18, 18, 18, 1);
+  border-radius: 10px;
+  margin-bottom: 4px;
+}
+
+.generate-source-images-strip--i2v {
+  flex-shrink: 0;
+}
+
+.generate-source-images-strip .generate-source-images-list {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.generate-source-images-strip--i2v .generate-source-images-list {
+  gap: 4px;
+}
+
+.generate-source-images-strip .generate-source-thumb {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px dashed rgba(128, 154, 188, 0.35);
+  background: rgba(8, 12, 20, 0.9);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.generate-source-images-strip .generate-source-thumb.is-clickable {
+  cursor: pointer;
+}
+
+.generate-source-images-strip .generate-source-thumb--audio {
+  --create-ref-audio-bg: var(--accent-100, rgba(74, 231, 253, 0.1));
+  --create-ref-audio-border: var(--accent-400, rgba(74, 231, 253, 0.42));
+  --create-ref-audio-text: var(--accent-500, #4ae7fd);
+  border-style: solid;
+  border-color: var(--create-ref-audio-border);
+  background: var(--create-ref-audio-bg);
+  padding: 6px 4px 5px;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.generate-source-images-strip .generate-source-thumb--audio.is-playing {
+  box-shadow: 0 0 0 1px var(--create-ref-audio-text);
+}
+
+.generate-source-images-strip .generate-source-audio-duration {
+  position: absolute;
+  top: 3px;
+  left: 4px;
+  z-index: 1;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 10px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.generate-source-images-strip .generate-source-audio-icon {
+  display: block;
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+  flex-shrink: 0;
+  filter: brightness(0) saturate(100%) invert(78%) sepia(42%) saturate(548%) hue-rotate(143deg)
+    brightness(101%) contrast(101%);
+}
+
+.generate-source-images-strip .generate-source-audio-eq {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 3px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.generate-source-images-strip .generate-source-eq-bar {
+  width: 3px;
+  background: var(--create-ref-audio-text);
+  border-radius: 1px;
+  transform-origin: center bottom;
+  animation: generate-source-voice-eq 0.45s ease-in-out infinite alternate;
+}
+
+.generate-source-images-strip .generate-source-eq-bar-1 {
+  height: 8px;
+  animation-delay: 0s;
+}
+
+.generate-source-images-strip .generate-source-eq-bar-2 {
+  height: 16px;
+  animation-delay: 0.12s;
+}
+
+.generate-source-images-strip .generate-source-eq-bar-3 {
+  height: 11px;
+  animation-delay: 0.24s;
+}
+
+@keyframes generate-source-voice-eq {
+  0% {
+    transform: scaleY(0.35);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+.generate-source-images-strip .generate-source-audio-name {
+  max-width: 100%;
+  padding: 0 2px;
+  margin-top: 0;
+  font-size: 10px;
+  line-height: 1.2;
+  color: var(--create-ref-audio-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.generate-source-images-strip .generate-source-thumb .shimmer-image {
+  width: 100%;
+  height: 100%;
+}
+
+.generate-source-images-strip .generate-source-thumb img,
+.generate-source-images-strip .generate-source-thumb .generate-source-thumb__image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.generate-source-images-strip .generate-source-thumb--audio img.generate-source-audio-icon {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+}
+
+.generate-source-images-strip .generate-source-thumb__remove {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 77, 79, 0.95);
+  color: #fff;
+  cursor: pointer;
+  font-size: 10px;
+  line-height: 1;
+  opacity: 0;
+  transform: scale(0.9);
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
+  z-index: 2;
+}
+
+.generate-source-images-strip .generate-source-thumb:hover .generate-source-thumb__remove {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.generate-source-images-strip .generate-source-thumb--adder {
+  border: 1px dashed rgba(188, 205, 228, 0.6);
+  background: transparent;
+  color: rgba(225, 239, 255, 0.85);
+  cursor: pointer;
+  font-size: 18px;
+}
+
+.generate-source-images-strip .generate-source-thumb--adder:hover {
+  border-color: rgba(74, 231, 253, 0.85);
+  color: rgba(74, 231, 253, 1);
+}
+
+.generate-source-images-strip .generate-source-thumb--adder .adder-text {
+  font-size: 12px;
+  margin-top: 2px;
+  white-space: nowrap;
+}
+
+.generate-source-images-strip .generate-source-empty-hint {
+  margin-left: 4px;
+  color: rgba(188, 205, 228, 0.62);
+  font-size: 12px;
+}
+
+.generate-source-images-strip .generate-source-collapse-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(225, 239, 255, 0.85);
+  cursor: pointer;
+  font-size: 12px;
+  flex-shrink: 0;
+  align-self: center;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease;
+}
+
+.generate-source-images-strip .generate-source-collapse-toggle:hover {
+  background: rgba(74, 231, 253, 0.16);
+  color: rgba(74, 231, 253, 1);
+}

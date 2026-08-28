@@ -1,0 +1,213 @@
+/* Tailwind/PostCSS component styles for edit-storyboard-dubbing-base. */
+/* 原 EditStoryboardDubbingModal.vue \3c style scoped> 平移（第 1 段：弹窗壳 / 头部 Tab / 三栏布局 / 骨架屏）。
+   转换规则：所有选择器加根类 .edit-storyboard-dubbing-modal 前缀防泄漏（该类加在 wrapClassName 上）；
+   :deep() 展开；SCSS 嵌套手动展开；声明原样保留。第 2 段见 edit-storyboard-dubbing-stage.css，须按序引入。 */
+
+/* 与 EditStoryboardImageModal 全屏分镜弹窗一致 */
+.edit-storyboard-dubbing-modal .ant-modal {
+  max-width: 100vw;
+  margin: 0;
+  padding: 0;
+  top: 0;
+  height: 100vh;
+}
+
+.edit-storyboard-dubbing-modal .ant-modal-content {
+  height: 100vh !important;
+  display: flex !important;
+  flex-direction: column !important;
+  border-radius: 0 !important;
+  background: rgba(11, 15, 23, 1) !important;
+  padding: 0 !important;
+}
+
+.edit-storyboard-dubbing-modal .ant-modal-container {
+  padding: 0 !important;
+}
+
+.edit-storyboard-dubbing-modal .ant-modal-body {
+  flex: 1;
+  padding: 0;
+  overflow: hidden;
+}
+
+.edit-storyboard-dubbing-modal .edit-scene-image-container {
+  display: flex;
+  flex-direction: column;
+  height: 99vh;
+  max-height: 100vh;
+  background: #0b0f17;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.edit-storyboard-dubbing-modal .edit-scene-image-container .main-content-wrapper {
+  flex: 1;
+  min-height: 0;
+}
+
+.edit-storyboard-dubbing-modal .modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 10px;
+  background: rgba(25, 26, 29, 1);
+  border-bottom: 1px solid rgba(128, 154, 188, 0.26);
+  flex-shrink: 0;
+}
+
+.edit-storyboard-dubbing-modal .back-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  color: rgba(225, 239, 255, 0.9) !important;
+  font-size: 14px;
+}
+
+.edit-storyboard-dubbing-modal .back-btn:hover {
+  color: #4ae7fd !important;
+  background: rgba(74, 231, 253, 0.08) !important;
+}
+
+.edit-storyboard-dubbing-modal .scene-switcher {
+  display: flex;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 0.25rem 0;
+  justify-content: center;
+}
+
+.edit-storyboard-dubbing-modal .scene-switcher--dubbing {
+  overflow: hidden;
+}
+
+.edit-storyboard-dubbing-modal .scene-switcher-inner {
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+}
+
+.edit-storyboard-dubbing-modal .scene-image-tab--dubbing {
+  min-width: 92px;
+  max-width: 120px;
+}
+
+.edit-storyboard-dubbing-modal .scene-label--dubbing {
+  white-space: normal;
+  display: -webkit-box;
+  line-clamp: 2;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-align: center;
+  line-height: 1.2;
+  font-size: 0.7rem;
+}
+
+.edit-storyboard-dubbing-modal .main-content-wrapper {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  flex-direction: column;
+}
+
+/* 与 EditStoryboardImageModal 一致：左 144 | 中 自适应 | 右 398 */
+.edit-storyboard-dubbing-modal .figma-stage-layout.dubbing-stage-layout {
+  display: grid;
+  grid-template-columns: 144px minmax(0, 1fr) 398px;
+  grid-template-rows: minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+  flex: 1;
+  background: #0b0f17;
+}
+
+/* 窄屏略收左右列，把宽度让给中间预览 */
+@media (max-width: 1440px) {
+  .edit-storyboard-dubbing-modal .figma-stage-layout.dubbing-stage-layout {
+    grid-template-columns: 128px minmax(0, 1fr) 340px;
+  }
+}
+
+.edit-storyboard-dubbing-modal .figma-stage-layout.dubbing-stage-layout > * {
+  min-height: 0;
+}
+
+.edit-storyboard-dubbing-modal .panel-skeleton {
+  flex: 1;
+  overflow: auto;
+  padding: 0;
+  min-height: 200px;
+}
+
+.edit-storyboard-dubbing-modal .right-panel-skeleton {
+  flex: 1;
+  min-height: 0;
+}
+
+.edit-storyboard-dubbing-modal .skeleton-stage-layout {
+  display: grid;
+  grid-template-columns: 144px minmax(0, 1fr) 398px;
+  gap: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.edit-storyboard-dubbing-modal .skeleton-history-panel,
+.edit-storyboard-dubbing-modal .skeleton-canvas-panel,
+.edit-storyboard-dubbing-modal .skeleton-config-panel {
+  border: 1px solid rgba(128, 154, 188, 0.26);
+  background: rgba(25, 26, 29, 1);
+  min-height: 0;
+}
+
+.edit-storyboard-dubbing-modal .skeleton-history-panel {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 7px;
+}
+
+.edit-storyboard-dubbing-modal .skeleton-panel-title {
+  height: 14px;
+  border-radius: 4px;
+  margin: 0 4px 10px;
+}
+
+.edit-storyboard-dubbing-modal .skeleton-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0 12px;
+}
+
+.edit-storyboard-dubbing-modal .skeleton-history-item {
+  width: 88px;
+  height: 88px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.edit-storyboard-dubbing-modal .skeleton-history-actions {
+  margin-top: auto;
+  padding: 0 4px;
+  display: grid;
+  gap: 6px;
+}
+
+.edit-storyboard-dubbing-modal .skeleton-btn {
+  height: 32px;
+  border-radius: 6px;
+}
+
+.edit-storyboard-dubbing-modal .skeleton-canvas-panel {
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}

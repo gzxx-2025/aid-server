@@ -1,0 +1,283 @@
+/* 原 GenerateModelConfigBlock.vue <style scoped>：类名与声明原样保留，统一以 .generate-model-config-block 作用域前缀替代 scoped（.setting-item / .setting-select 等类名在其他步骤组件也有使用，避免互相污染） */
+.generate-model-config-block .model-config-title {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: rgba(218, 233, 255, 0.9);
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 12px;
+}
+
+.generate-model-config-block .model-config-title .anticon {
+  font-size: 14px;
+  color: rgba(188, 205, 228, 0.92);
+}
+
+.generate-model-config-block .generate-settings-stacked {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.generate-model-config-block .setting-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.generate-model-config-block .setting-item--model {
+  width: 100%;
+}
+
+.generate-model-config-block .setting-item--model .model-select-dropdown,
+.generate-model-config-block .setting-item--model .ant-select {
+  width: 100%;
+}
+
+.generate-model-config-block .setting-item label {
+  margin-bottom: 2px;
+  color: rgba(188, 205, 228, 0.72);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.generate-model-config-block .setting-duration-select-wrap {
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+
+/* a-tooltip 可能包一层 inline 节点，强制与 ant-select 同宽撑满栅格列 */
+.generate-model-config-block .setting-duration-select-wrap > span,
+.generate-model-config-block .setting-duration-select-wrap > div {
+  display: block !important;
+  width: 100% !important;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.generate-model-config-block .setting-duration-select-wrap .ant-select {
+  width: 100%;
+}
+
+.generate-model-config-block--scene .setting-item label {
+  font-size: 13px;
+  color: #8e97a5 !important;
+}
+
+.generate-model-config-block .generate-settings-params {
+  display: grid;
+  gap: 10px;
+  width: 100%;
+}
+
+.generate-model-config-block .generate-settings-params--cols-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.generate-model-config-block .generate-settings-params--cols-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.generate-model-config-block .generate-settings-params--cols-4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+/* 与模型选择条同色；带 html.app-shell-create 压过全局青边 / Select.selectorBg */
+html.app-shell-create .generate-model-config-block .setting-select.ant-select,
+html.app-shell-create .generate-model-config-block .setting-select-inline.ant-select {
+  --ant-select-selector-bg: #0a0d12;
+  --ant-color-border: rgba(78, 94, 122, 0.42);
+}
+
+html.app-shell-create .generate-model-config-block .setting-select .ant-select-selector,
+html.app-shell-create .generate-model-config-block .setting-select-inline .ant-select-selector,
+.generate-model-config-block .setting-select .ant-select-selector,
+.generate-model-config-block .setting-select-inline .ant-select-selector {
+  height: 44px !important;
+  border-radius: 8px !important;
+  background: #0a0d12 !important;
+  background-color: #0a0d12 !important;
+  border: 1px solid rgba(78, 94, 122, 0.42) !important;
+  border-color: rgba(78, 94, 122, 0.42) !important;
+  box-shadow: none !important;
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+}
+
+html.app-shell-create .generate-model-config-block .setting-select:not(.ant-select-disabled):hover .ant-select-selector,
+html.app-shell-create .generate-model-config-block .setting-select-inline:not(.ant-select-disabled):hover .ant-select-selector,
+html.app-shell-create .generate-model-config-block .setting-select.ant-select-focused .ant-select-selector,
+html.app-shell-create .generate-model-config-block .setting-select-inline.ant-select-focused .ant-select-selector,
+html.app-shell-create .generate-model-config-block .setting-select.ant-select-open .ant-select-selector,
+html.app-shell-create .generate-model-config-block .setting-select-inline.ant-select-open .ant-select-selector {
+  background: #0a0d12 !important;
+  background-color: #0a0d12 !important;
+  border-color: rgba(120, 140, 170, 0.45) !important;
+  box-shadow: none !important;
+}
+
+.generate-model-config-block .setting-select .ant-select-selection-wrap,
+.generate-model-config-block .setting-select-inline .ant-select-selection-wrap {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
+}
+
+.generate-model-config-block .setting-select .ant-select-selection-item,
+.generate-model-config-block .setting-select-inline .ant-select-selection-item {
+  line-height: 42px !important;
+  font-size: 13px;
+  color: rgba(225, 239, 255, 0.92) !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.generate-model-config-block .setting-select .ant-select-arrow,
+.generate-model-config-block .setting-select-inline .ant-select-arrow {
+  flex-shrink: 0 !important;
+  margin-inline-start: 4px;
+}
+
+.generate-model-config-block .setting-select .ant-select-selection-placeholder,
+.generate-model-config-block .setting-select-inline .ant-select-selection-placeholder {
+  line-height: 42px !important;
+  font-size: 13px;
+}
+
+/*
+ * Tooltip 包裹时长 Select：外层撑满列宽即可。
+ * 禁止把 .ant-select 设成 display:block——antd 箭头与 selector 是兄弟节点，
+ * block 会把箭头挤到下一行（「15 s」换行问题）。
+ */
+.generate-model-config-block .setting-duration-select-wrap .ant-tooltip-open,
+.generate-model-config-block .setting-duration-select-wrap > span,
+.generate-model-config-block .setting-duration-select-wrap > div {
+  display: block !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+}
+
+.generate-model-config-block .setting-duration-select-wrap .ant-select {
+  display: inline-flex !important;
+  align-items: center !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+}
+
+.generate-model-config-block .setting-duration-select-wrap .ant-select-selector {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+}
+
+.generate-model-config-block .setting-duration-select-wrap .ant-select-arrow {
+  position: static !important;
+  transform: none !important;
+  margin-inline-start: 4px !important;
+  flex-shrink: 0 !important;
+}
+
+.generate-model-config-block--storyboard .setting-select-inline .ant-select-selector {
+  height: 40px !important;
+}
+
+.generate-model-config-block--storyboard .setting-select-inline .ant-select-selection-item,
+.generate-model-config-block--storyboard
+  .setting-select-inline
+  .ant-select-selection-placeholder {
+  line-height: 38px !important;
+}
+
+.generate-model-config-block--storyboard .model-select-dropdown .selected-model {
+  height: 40px !important;
+  min-height: 40px;
+  padding: 0 10px !important;
+  border-radius: 10px !important;
+  background: #0a0d12 !important;
+  border: 1px solid rgba(78, 94, 122, 0.42) !important;
+  box-shadow: none !important;
+}
+
+.generate-model-config-block--scene .model-select-dropdown .selected-model {
+  height: 44px !important;
+  min-height: 44px;
+  padding: 0 10px !important;
+  border-radius: 10px !important;
+  background: #0a0d12 !important;
+  border: 1px solid rgba(78, 94, 122, 0.42) !important;
+  box-shadow: none !important;
+}
+
+.generate-model-config-block--scene .model-select-dropdown .selected-model.expanded.is-open-down {
+  border-bottom-left-radius: 0 !important;
+  border-bottom-right-radius: 0 !important;
+}
+
+.generate-model-config-block--scene .model-select-dropdown .selected-model.expanded.is-open-up {
+  border-top-left-radius: 0 !important;
+  border-top-right-radius: 0 !important;
+}
+
+.generate-model-config-block--scene .model-select-dropdown .selected-model:hover {
+  border-color: rgba(120, 140, 170, 0.45) !important;
+}
+
+.generate-model-config-block .generate-model-config-block__action {
+  width: 100%;
+}
+
+.generate-model-config-block--storyboard .generate-model-config-block__action .generate-btn {
+  margin: 1rem 1rem 0;
+  flex-shrink: 0;
+  height: 46px;
+  border-radius: 8px !important;
+  font-size: 14px;
+  font-weight: 600;
+  background: linear-gradient(270deg, #2a6cfb 0%, #4ae7fd 100%) !important;
+  box-shadow: 0 8px 20px rgba(37, 99, 235, 0.35);
+  border: none !important;
+  outline: none !important;
+}
+
+.generate-model-config-block--storyboard .generate-model-config-block__action .generate-btn:hover,
+.generate-model-config-block--storyboard .generate-model-config-block__action .generate-btn:focus,
+.generate-model-config-block--storyboard .generate-model-config-block__action .generate-btn:active {
+  border: none !important;
+  outline: none !important;
+  filter: brightness(1.06);
+  box-shadow: 0 8px 20px rgba(37, 99, 235, 0.35) !important;
+}
+
+.generate-model-config-block--scene .generate-model-config-block__action .generate-btn {
+  margin-top: auto;
+  height: 46px;
+  border: none !important;
+  outline: none !important;
+  border-radius: 8px !important;
+  font-size: 14px;
+  font-weight: 600;
+  background: linear-gradient(270deg, #2a6cfb 0%, #4ae7fd 100%);
+  box-shadow: 0 8px 20px rgba(37, 99, 235, 0.35);
+}
+
+.generate-model-config-block--scene .generate-model-config-block__action .generate-btn:hover,
+.generate-model-config-block--scene .generate-model-config-block__action .generate-btn:focus,
+.generate-model-config-block--scene .generate-model-config-block__action .generate-btn:active {
+  border: none !important;
+  outline: none !important;
+  filter: brightness(1.06);
+  box-shadow: 0 8px 20px rgba(37, 99, 235, 0.35) !important;
+}
+
+.generate-model-config-block--scene .generate-model-config-block__action .ant-btn-primary {
+  border: none !important;
+}

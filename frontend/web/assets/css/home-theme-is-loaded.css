@@ -1,0 +1,230 @@
+/* Tailwind/PostCSS component styles for home-theme. */
+
+
+.works-lib-card__cover img.works-lib-card__cover-img.is-loaded {
+  opacity: 1;
+}
+
+.works-lib-card:hover .works-lib-card__cover img:not(.card-cover-placeholder-icon) {
+  transform: scale(1.04);
+}
+
+.works-lib-card:hover .works-lib-card__cover .card-cover-placeholder-icon {
+  transform: translate(-50%, -50%);
+}
+
+.works-lib-card__cover-actions {
+  z-index: 10;
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: flex;
+  gap: 8px;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
+  pointer-events: none;
+}
+.works-lib-card__cover-actions img{
+  width: 16px;
+  height: 16px;
+}
+.works-lib-card:hover .works-lib-card__cover-actions {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.works-lib-card__cover-btn {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(18, 18, 18, 1);
+  color: #fff;
+  font-size: 15px;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  border: none;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
+}
+
+
+
+.works-lib-card__body {
+  flex: 0 0 auto;
+  padding: 12px;
+  box-sizing: border-box;
+  height: var(--works-lib-body-h, 68px);
+  min-height: var(--works-lib-body-h, 68px);
+}
+
+.works-lib-card__title {
+  margin-bottom: 0;
+  font-size: 16px;
+  color: #fff;
+  line-height: 1.35;
+}
+
+.works-lib-card__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.works-lib-card__updated {
+  font-size: 13px;
+  color: var(--home-muted);
+}
+
+.works-lib-card__open {
+  flex-shrink: 0;
+  width: 12px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--home-muted);
+  font-size: 16px;
+  cursor: pointer;
+  transition:
+    color 0.2s ease,
+    background 0.2s ease;
+}
+
+.works-lib-card__open:hover {
+  color: var(--home-cyan);
+  background: rgba(74, 231, 253, 0.08);
+}
+
+
+.works-lib-card__ep-label {
+  font-size: 12px;
+  color: var(--home-muted);
+}
+
+.works-lib-card__ep-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.works-lib-card__ep-num {
+  min-width: 32px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  background: #202434;
+  color: var(--home-white);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: all .2s linear;
+}
+
+.works-lib-card__ep-num:hover {
+  color: var(--home-cyan);
+}
+
+.works-lib-card__ep-add {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px dashed rgba(74, 231, 253, 0.45);
+  background: transparent;
+  color: var(--home-cyan);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.works-lib-card__ep-add:hover {
+  background: rgba(74, 231, 253, 0.1);
+}
+
+.works-lib-empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 80px 24px;
+  border-radius: 12px;
+  border: 1px dashed rgba(74, 231, 253, 0.2);
+  background: rgba(12, 18, 28, 0.5);
+}
+
+.works-lib-empty__icon {
+  font-size: 48px;
+  margin-bottom: 12px;
+  opacity: 0.85;
+}
+
+.works-lib-empty__title {
+  margin: 0 0 18px;
+  font-size: 14px;
+  color: var(--home-muted);
+}
+
+
+.works-lib-empty__btn {
+  padding: 2px 10px;
+  border-radius: 8px;
+  font-size: 14px;
+  color: #fff;
+  cursor: pointer;
+  background:#121212;
+  border: 1px solid rgba(74, 231, 253, 0.3);
+}
+
+/* =============================================================================
+   资产库页：与「我的作品」同壳 + Tab 图标 + 来自项目 + 选中态
+   ============================================================================= */
+
+.assets-library-figma .assets-library-figma__inner {
+  width: 100%;
+  margin: 0 auto;
+}
+
+/* 资产库：独立圆角按钮 + 选中/未选中 SVG 图标（与「我的作品」分段 Tab 区分） */
+.assets-library-figma .works-lib-type-tabs {
+  background: transparent;
+  padding: 0;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.assets-library-figma .works-lib-type-tabs__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border: 1px solid rgba(47, 57, 73, 1);
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--home-muted);
+  background: rgba(10, 14, 22, 0.72);
+  box-shadow: none;
+  transition:
+    color 0.2s ease,
+    border-color 0.2s ease,
+    background 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.assets-library-figma .works-lib-type-tabs__btn:hover {
+  color: rgba(255, 255, 255, 0.92);
+  border-color: rgba(74, 231, 253, 0.35);
+}

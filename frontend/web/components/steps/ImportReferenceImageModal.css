@@ -1,0 +1,10 @@
+.import-reference-content {
+  padding: 1rem 0;
+}
+
+.import-reference-content .upload-tip {
+  margin-top: 1rem;
+  color: var(--gray-500);
+  font-size: 0.875rem;
+  text-align: center;
+}

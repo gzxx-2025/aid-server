@@ -1,0 +1,26 @@
+.create-sidebar--skeleton {
+  pointer-events: none;
+}
+
+.skeleton-sidebar-logo {
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  background: rgba(74, 231, 253, 0.1);
+  margin-bottom: 10px;
+}
+
+.skeleton-sidebar-nav {
+  width: 64px;
+  height: 56px;
+  border-radius: 10px;
+  background: rgba(74, 231, 253, 0.08);
+  margin-bottom: 8px;
+}
+
+.skeleton-sidebar-footer {
+  width: 64px;
+  height: 72px;
+  border-radius: 10px;
+  background: rgba(74, 231, 253, 0.08);
+}

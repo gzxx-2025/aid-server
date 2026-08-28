@@ -1,0 +1,237 @@
+/* Tailwind/PostCSS component styles for storyboard-step-shared. */
+
+
+.storyboard-step .storyboard-list-body .storyboard-block-card.has-image .storyboard-block-image-wrap,
+.storyboard-step .storyboard-list-body .storyboard-video-preview-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+  aspect-ratio: auto;
+}
+
+/* 专业版：仅展示分镜脚本列 */
+.storyboard-step .storyboard-list-body.storyboard-list-body--pro-script-only {
+  grid-template-columns: 1fr;
+}
+
+.storyboard-step .storyboard-card-body.storyboard-card-body--pro-script-only {
+  display: block;
+}
+
+.storyboard-step .storyboard-block-title {
+  font-size: 12px;
+  color: var(--home-muted, #8e97a5);
+  margin-bottom: 0.45rem;
+  font-weight: 600;
+}
+
+/* 分镜步骤通用：图片/视频卡片底部操作条（预览/替换/下载） */
+.scene-card-image-footer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 4;
+  margin: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  height: 40px;
+  justify-content: center;
+  border-radius:0 0 8px 8px;
+  background: rgba(9, 13, 22, 0.66);
+  backdrop-filter: blur(2px);
+  pointer-events: auto;
+}
+.storyboard-step .asset-action-footer .ant-btn {
+  padding: 0 8px;
+  border-radius: 6px;
+  border: none !important;
+  background: none !important;
+  color: rgba(230, 237, 243, 0.9);
+  font-size: 14px;
+  display: flex;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  width: 33%;
+  gap: 6px;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+/*
+ * 对齐素材准备 create-step-scp .asset-action-footer：移入浅青底、无描边。
+ * 须压过 html.app-shell-create .ant-btn-default:hover 的 border-color。
+ */
+html.app-shell-create .storyboard-step .asset-action-footer .ant-btn:hover,
+html.app-shell-create .storyboard-step .asset-action-footer .ant-btn:focus,
+html.app-shell-create .storyboard-step .asset-action-footer .ant-btn:focus-visible,
+.storyboard-step .asset-action-footer .ant-btn:hover,
+.storyboard-step .asset-action-footer .ant-btn:focus,
+.storyboard-step .asset-action-footer .ant-btn:focus-visible {
+  background: rgba(74, 231, 253, 0.16) !important;
+  color: #e9fbff !important;
+  border: none !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+.storyboard-step .asset-action-footer .ant-btn .anticon {
+  font-size: 12px;
+}
+
+.storyboard-step .asset-action-footer .footer-action-icon {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+/* 底部「+ 添加」条（与分镜脚本列表末行一致） */
+.storyboard-step .storyboard-list > .storyboard-insert-gap:last-child .storyboard-insert-ui {
+  position: static;
+  transform: none;
+  justify-content: center;
+  gap: 0.35rem;
+  height: 58px;
+  border: 1px solid rgba(74, 231, 253, 0.45);
+  border-radius: 8px;
+  background: rgba(7, 13, 23, 0.95);
+}
+
+.storyboard-step .storyboard-list > .storyboard-insert-gap:last-child .storyboard-insert-dash-line {
+  display: none;
+}
+
+.storyboard-step .storyboard-list > .storyboard-insert-gap:last-child .storyboard-insert-plus {
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: #dbe7f4;
+}
+
+.storyboard-step .storyboard-list > .storyboard-insert-gap:last-child .storyboard-insert-plus:hover {
+  background: transparent;
+  color: #ffffff;
+  transform: none;
+}
+
+.storyboard-step .storyboard-list > .storyboard-insert-gap:last-child .storyboard-insert-label {
+  font-size: 16px;
+  color: #dbe7f4;
+  max-width: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  cursor: pointer;
+}
+
+/* 音画同步：列表主体区高度与分镜设计/视频生成列表行一致 */
+.storyboard-step .dubbing-list-body-shell {
+  position: relative;
+  height: calc(var(--storyboard-list-item-height) - var(--storyboard-list-header-height));
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+/* ========== 卡片视图：行高随内容撑开 + 外层 preview-content 滚动 ========== */
+.storyboard-step:has(.storyboard-cards) {
+  height: auto;
+  min-height: 100%;
+  flex: 1 0 auto;
+}
+
+.storyboard-step .storyboard-step-shell:has(> .storyboard-cards),
+.storyboard-step .storyboard-script-empty:has(> .storyboard-cards),
+.storyboard-step .storyboard-video-empty:has(> .storyboard-cards),
+.storyboard-step .dubbing-wrap:has(> .storyboard-cards) {
+  height: auto;
+  flex: 1 0 auto;
+  overflow: visible;
+}
+
+.storyboard-step .storyboard-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-auto-rows: max-content;
+  align-content: start;
+  gap: 1rem;
+  padding: 0 0 1.25rem;
+  flex: none;
+  min-height: auto;
+  overflow: visible;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.storyboard-step .storyboard-card {
+  align-self: start;
+  width: 100%;
+  height: auto;
+  min-height: 0;
+  border: 1px solid rgba(74, 231, 253, 0.12);
+  background: var(--create-surface-panel);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.storyboard-step .storyboard-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid rgba(74, 231, 253, 0.08);
+  flex-shrink: 0;
+}
+
+.storyboard-step .storyboard-card-body {
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  flex: none;
+  min-height: auto;
+}
+
+.storyboard-step .storyboard-card .storyboard-block-card {
+  min-height: var(--storyboard-card-media-min-height);
+  height: auto;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.storyboard-step .storyboard-card .storyboard-block-card.has-image {
+  display: flex;
+  flex-direction: column;
+  min-height: var(--storyboard-card-media-min-height);
+  padding: 0;
+}
+
+.storyboard-step .storyboard-card .storyboard-block-card.has-image .storyboard-block-image-wrap {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: calc(var(--storyboard-card-media-min-height) - 36px);
+  aspect-ratio: 16 / 9;
+  height: auto;
+}
+
+.storyboard-step .storyboard-card .storyboard-video-set,
+.storyboard-step .storyboard-card .storyboard-video-loading,
+.storyboard-step .storyboard-card .storyboard-image-loading,
+.storyboard-step .storyboard-card .storyboard-video-failed,
+.storyboard-step .storyboard-card .storyboard-video-placeholder {
+  min-height: var(--storyboard-card-media-min-height);
+  height: auto;
+}
+
+.storyboard-step .storyboard-card .storyboard-video-preview-wrap {
+  width: 100%;
+  min-height: calc(var(--storyboard-card-media-min-height) - 40px);
+  aspect-ratio: 16 / 9;
+  height: auto;
+}

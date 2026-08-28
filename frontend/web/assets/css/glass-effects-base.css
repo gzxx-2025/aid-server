@@ -1,0 +1,224 @@
+/* Tailwind/PostCSS component styles for glass-effects. */
+/* =============================================================================
+   玻璃态动效增强层（iOS Liquid Glass 风格细节）
+
+   【如何关闭 — 任选其一】
+   1. 推荐：在 nuxt.config.ts 的 css 数组中注释掉本文件那一行即可：
+        // '~/assets/css/glass-effects.css',
+      保存后重启 dev / 重新 build，页面恢复原有纯色样式，无需改组件。
+
+   2. 临时调试：浏览器开发者工具里取消勾选本文件（Sources / Network），
+      仅当前会话有效。
+
+   本文件为纯 CSS 覆盖层，不修改业务逻辑；所有增强均在此文件内集中维护。
+   ============================================================================= */
+
+:root {
+  --glass-bg: rgba(18, 22, 30, 0.48);
+  --glass-bg-elevated: rgba(22, 26, 36, 0.58);
+  --glass-bg-sidebar: rgba(10, 14, 22, 0.42);
+  --glass-blur: blur(24px);
+  --glass-blur-sm: blur(16px);
+  --glass-blur-xs: blur(10px);
+  --glass-saturate: saturate(1.45);
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --glass-border-cyan: rgba(74, 231, 253, 0.22);
+  --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.32);
+  --glass-transition: 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* ---------------------------------------------------------------------------
+   0. 环境光背景层（毛玻璃必须叠在「有层次」的背景上才看得见）
+   --------------------------------------------------------------------------- */
+html.layout-home-new .home-new-page {
+  position: relative;
+  isolation: isolate;
+  background: #060a12;
+}
+
+html.layout-home-new .home-new-page::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 52% 42% at 8% 14%, rgba(14, 89, 250, 0.2), transparent 58%),
+    radial-gradient(ellipse 48% 38% at 92% 8%, rgba(74, 231, 253, 0.14), transparent 55%),
+    radial-gradient(ellipse 55% 45% at 78% 88%, rgba(0, 171, 216, 0.12), transparent 58%),
+    radial-gradient(ellipse 40% 35% at 42% 52%, rgba(14, 89, 250, 0.06), transparent 62%),
+    linear-gradient(165deg, #001731 0%, #0d0d0f 42%, #121212 100%);
+}
+
+html.layout-home-new .home-new-sidebar,
+html.layout-home-new .home-new-main-wrap {
+  position: relative;
+  z-index: 1;
+}
+
+/* 子页 / 首页主内容区透出环境光，避免实色盖住模糊 */
+html.layout-home-new .home-new-index,
+html.layout-home-new .home-new-sub-page {
+  background: transparent !important;
+}
+
+html.layout-home-new .home-new-main {
+  background: transparent;
+}
+
+/* 案例广场区块：轻微浮层感 */
+html.layout-home-new .home-new-index .gallery-section {
+  margin: 0 16px 24px;
+  padding: 16px 20px 28px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(12, 16, 24, 0.28);
+  backdrop-filter: var(--glass-blur-xs) var(--glass-saturate);
+  -webkit-backdrop-filter: var(--glass-blur-xs) var(--glass-saturate);
+  box-shadow: var(--glass-highlight);
+}
+
+/* ---------------------------------------------------------------------------
+   1. 左侧窄侧栏（首页 + 创作流程共用）
+   --------------------------------------------------------------------------- */
+.home-new-sidebar {
+  background: var(--glass-bg-sidebar);
+  backdrop-filter: var(--glass-blur) var(--glass-saturate);
+  -webkit-backdrop-filter: var(--glass-blur) var(--glass-saturate);
+  border-right: 1px solid var(--glass-border);
+  box-shadow: var(--glass-highlight);
+}
+
+.home-new-nav-item {
+  transition:
+    color var(--glass-transition),
+    background var(--glass-transition),
+    box-shadow var(--glass-transition),
+    transform var(--glass-transition);
+}
+
+.home-new-nav-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: var(--glass-highlight);
+}
+
+.home-new-nav-item.is-active {
+  background: rgba(74, 231, 253, 0.12);
+  backdrop-filter: var(--glass-blur-xs) var(--glass-saturate);
+  -webkit-backdrop-filter: var(--glass-blur-xs) var(--glass-saturate);
+  box-shadow:
+    var(--glass-highlight),
+    0 0 0 1px rgba(74, 231, 253, 0.15);
+}
+
+.home-new-avatar-frame {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: var(--glass-blur-xs);
+  -webkit-backdrop-filter: var(--glass-blur-xs);
+}
+
+.home-new-login {
+  background: rgba(74, 231, 253, 0.06);
+  backdrop-filter: var(--glass-blur-xs);
+  -webkit-backdrop-filter: var(--glass-blur-xs);
+  transition:
+    color var(--glass-transition),
+    border-color var(--glass-transition),
+    background var(--glass-transition);
+}
+
+.home-new-login:hover {
+  background: rgba(74, 231, 253, 0.12);
+}
+
+/* ---------------------------------------------------------------------------
+   2. 首页 Hero 轮播条（Cover Flow 风格，去掉底板磨砂层以免压缩视觉宽度）
+   --------------------------------------------------------------------------- */
+.home-hero-carousel::before {
+  content: none;
+}
+
+.home-hero-carousel__viewport,
+.home-hero-carousel__dots {
+  position: relative;
+  z-index: 1;
+}
+
+.home-hero-carousel__card {
+  background: #121212;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  transition:
+    box-shadow var(--glass-transition),
+    border-color var(--glass-transition);
+}
+
+.home-hero-carousel__slide.is-active .home-hero-carousel__card {
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow:
+    0 28px 60px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.home-hero-carousel__dot {
+  background: rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  transition:
+    width var(--glass-transition),
+    background var(--glass-transition),
+    box-shadow var(--glass-transition),
+    transform var(--glass-transition);
+}
+
+.home-hero-carousel__dot.is-active {
+  background: rgba(255, 255, 255, 0.88) !important;
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.25);
+}
+
+/* ---------------------------------------------------------------------------
+   3. 首页搜索框 + 筛选 Tab + 操作按钮
+   --------------------------------------------------------------------------- */
+.home-new-index .search-box {
+  background: rgba(32, 36, 52, 0.32);
+  backdrop-filter: var(--glass-blur-sm) var(--glass-saturate);
+  -webkit-backdrop-filter: var(--glass-blur-sm) var(--glass-saturate);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: var(--glass-highlight);
+  transition:
+    border-color var(--glass-transition),
+    box-shadow var(--glass-transition);
+}
+
+.home-new-index .search-box:focus-within {
+  border-color: var(--glass-border-cyan);
+  box-shadow:
+    var(--glass-highlight),
+    0 0 0 3px rgba(74, 231, 253, 0.08);
+}
+
+.home-new-index .filter-tab {
+  background: rgba(32, 36, 52, 0.32);
+  backdrop-filter: var(--glass-blur-xs) var(--glass-saturate);
+  -webkit-backdrop-filter: var(--glass-blur-xs) var(--glass-saturate);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: var(--glass-highlight);
+  transition:
+    color var(--glass-transition),
+    background var(--glass-transition),
+    border-color var(--glass-transition),
+    box-shadow var(--glass-transition);
+}
+
+.home-new-index .filter-tab:hover {
+  background: rgba(32, 36, 52, 0.55);
+  border-color: rgba(74, 231, 253, 0.2);
+}
+
+.home-new-index .filter-tab.active {
+  background: rgba(32, 36, 52, 0.78);
+  border-color: rgba(74, 231, 253, 0.22);
+  box-shadow:
+    var(--glass-highlight),
+    0 4px 16px rgba(0, 0, 0, 0.2);
+}

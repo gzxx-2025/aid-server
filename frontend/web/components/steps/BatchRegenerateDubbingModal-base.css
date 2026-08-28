@@ -1,0 +1,219 @@
+/* Tailwind/PostCSS component styles for BatchRegenerateDubbingModal. */
+/* BatchRegenerateDubbingModal 伴随样式（原 \3c style scoped> 平移；:deep() 转普通后代选择器） */
+
+.batch-regenerate-dubbing-modal .ant-modal-content {
+  padding: 0 !important;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #191a1d;
+  border: 1px solid rgba(74, 231, 253, 0.22);
+}
+
+.batch-regenerate-dubbing-modal .ant-modal-header {
+  display: none;
+}
+
+.batch-regenerate-dubbing-modal .ant-modal-body {
+  padding: 0 !important;
+}
+
+.batch-regenerate-dubbing-wrap .brdm {
+  color: #e6edf3;
+  height: 698px;
+  max-height: calc(100vh - 80px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.batch-regenerate-dubbing-wrap .brdm-header {
+  flex-shrink: 0;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.batch-regenerate-dubbing-wrap .brdm-title {
+  margin: 0;
+  font-size: 18px;
+  line-height: 24px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.batch-regenerate-dubbing-wrap .brdm-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: rgba(142, 151, 165, 1);
+  cursor: pointer;
+  font-size: 24px;
+  flex-shrink: 0;
+}
+
+.batch-regenerate-dubbing-wrap .brdm-close:hover {
+  color: #4ae7fd;
+}
+
+.batch-regenerate-dubbing-wrap .brdm-toolbar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding-bottom: 14px;
+}
+
+.batch-regenerate-dubbing-wrap .brdm-check-icon {
+  width: 24px;
+  height: 24px;
+  display: block;
+  object-fit: contain;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
+.batch-regenerate-dubbing-wrap .brdm-select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  user-select: none;
+  color: inherit;
+}
+
+.batch-regenerate-dubbing-wrap .brdm-select-all-text {
+  font-size: 14px;
+  color: #fff;
+}
+
+.batch-regenerate-dubbing-wrap .brdm-pending {
+  font-size: 14px;
+  color: #4ae7fd;
+}
+
+.batch-regenerate-dubbing-wrap .brdm-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.batch-regenerate-dubbing-wrap .brdm-body::-webkit-scrollbar {
+  display: none;
+}
+
+.batch-regenerate-dubbing-wrap .brdm-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 240px;
+  font-size: 14px;
+  color: #8e97a5;
+}
+
+.batch-regenerate-dubbing-wrap .brdm-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.batch-regenerate-dubbing-wrap .brdm-card {
+  position: relative;
+  border: 1px solid rgba(74, 231, 253, 0.3);
+  border-radius: 6px;
+  background: #121212;
+  overflow: hidden;
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    opacity 0.2s ease;
+}
+
+.batch-regenerate-dubbing-wrap .brdm-card:hover:not(.brdm-card--disabled):not(.brdm-card--selected) {
+  border-color: rgba(74, 231, 253, 0.5);
+}
+
+.batch-regenerate-dubbing-wrap .brdm-card--selected {
+  border-color: rgba(74, 231, 253, 0.6);
+  box-shadow: 0 0 0 1px rgba(74, 231, 253, 0.25);
+}
+
+.batch-regenerate-dubbing-wrap .brdm-card--disabled {
+  cursor: not-allowed;
+  opacity: 0.85;
+}
+
+.batch-regenerate-dubbing-wrap .brdm-card-media {
+  position: relative;
+  height: 165px;
+  background: #101522;
+  overflow: hidden;
+}
+
+.batch-regenerate-dubbing-wrap .brdm-card-media .shimmer-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.batch-regenerate-dubbing-wrap .brdm-card-media-cover {
+  width: 100%;
+  height: 165px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.batch-regenerate-dubbing-wrap .brdm-card-img,
+.batch-regenerate-dubbing-wrap .brdm-card-media .brdm-card-img,
+.batch-regenerate-dubbing-wrap .brdm-card-media video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.batch-regenerate-dubbing-wrap .brdm-card-placeholder-img {
+  opacity: 0.75;
+}
+
+.batch-regenerate-dubbing-wrap .brdm-card-select {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 24px;
+  height: 24px;
+  display: block;
+  object-fit: contain;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.batch-regenerate-dubbing-wrap .brdm-card-meta {
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.batch-regenerate-dubbing-wrap .brdm-card-name {
+  font-size: 14px;
+  color: #fff;
+  line-height: 20px;
+  margin-bottom: 2px;
+}

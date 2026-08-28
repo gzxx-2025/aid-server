@@ -1,0 +1,143 @@
+/* Tailwind/PostCSS component styles for home-legacy-page. */
+
+
+.home-legacy-page .hero-buttons button img {
+  width: 16px;
+  height: 16px;
+}
+
+.home-legacy-page .btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 24px;
+  background: var(--home-grad);
+  color: #fff;
+  border: none;
+  border-radius: var(--home-radius-btn);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin: 0;
+}
+
+.home-legacy-page .btn-primary:hover {
+  filter: brightness(1.1);
+  transform: translateY(-2px);
+}
+
+.home-legacy-page .btn-secondary {
+  padding: 12px 24px;
+  background: rgba(18, 18, 18, 1);
+  color: #fff;
+  border: 1px solid rgba(74, 231, 253, 0.3);
+  border-radius: var(--home-radius-btn);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  backdrop-filter: blur(10px);
+}
+
+.home-legacy-page .btn-secondary .text {
+  background: linear-gradient(270deg, #4ae7fd 0%, #ffffff 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.home-legacy-page .btn-secondary:hover {
+  filter: brightness(1.1);
+  transform: translateY(-2px);
+}
+
+/* 案例广场 */
+.home-legacy-page .gallery-section {
+  background: transparent;
+  padding-bottom: 20px;
+}
+
+.home-legacy-page .section-header {
+  margin-bottom: 24px;
+}
+
+.home-legacy-page .algc {
+  margin-bottom: 16px;
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+.home-legacy-page .section-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  height: 36px;
+}
+
+.home-legacy-page .filter-tabs {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.home-legacy-page .filter-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 8px 10px;
+  background: rgba(18, 22, 30, 0.6);
+  border: 1px solid var(--home-border-input);
+  border-radius: var(--home-radius-input);
+  color: var(--home-muted);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.home-legacy-page .filter-tab:hover {
+  color: #c9d1d9;
+  border-color: rgba(74, 231, 253, 0.4);
+}
+
+.home-legacy-page .filter-tab.active {
+  background: var(--home-grad-tab);
+  border-color: rgba(0, 171, 216, 0.5);
+  color: var(--home-cyan);
+}
+
+@media (max-width: 768px) {
+  .home-legacy-page .section-controls {
+    flex-direction: column;
+    align-items: stretch;
+    height: auto;
+  }
+
+  .home-legacy-page .search-box {
+    width: 100%;
+  }
+
+  .home-legacy-page .works-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .home-legacy-page .hero-content {
+    padding: 0 24px 16px;
+  }
+
+  .home-legacy-page .page-content {
+    padding: 16px;
+  }
+}
+
+@media (max-width: 480px) {
+  .home-legacy-page .page-content {
+    padding: 12px;
+  }
+}

@@ -1,0 +1,228 @@
+/* Tailwind/PostCSS component styles for home-theme. */
+
+
+.home-theme-static .user-list-section .section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--home-border-subtle);
+  text-align: left;
+}
+
+.home-theme-static .user-list-section .section-title {
+  justify-content: flex-start;
+  margin-bottom: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #fff;
+  display: block;
+}
+
+.home-theme-static .user-count {
+  color: var(--home-muted);
+  font-size: 14px;
+  padding: 0.35rem 0.85rem;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 999px;
+}
+
+.home-theme-static .user-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1rem;
+}
+
+.home-theme-static .user-page .page-header {
+  margin-bottom: 2rem;
+  text-align: center;
+}
+
+.home-theme-static .user-page .header-content {
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+
+.home-theme-static .user-page .page-title {
+  font-size: 2.25rem;
+  font-weight: 800;
+  color: #fff;
+  justify-content: center;
+}
+
+.home-theme-static .user-page .title-icon {
+  font-size: 2rem;
+  color: var(--home-cyan);
+}
+
+.home-theme-static .user-page .page-subtitle {
+  color: var(--home-muted);
+  font-size: 1.125rem;
+}
+
+.home-theme-static .user-card {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  padding: 1.25rem 1.5rem;
+  background: var(--home-surface-soft);
+  border: 1px solid var(--home-border-subtle);
+  border-radius: var(--home-radius-panel);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.home-theme-static .user-card:hover {
+  border-color: rgba(74, 231, 253, 0.35);
+  transform: translateY(-2px);
+}
+
+.home-theme-static .user-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--home-grad);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.home-theme-static .user-name {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  color: #fff;
+  margin: 0 0 0.25rem;
+}
+
+.home-theme-static .user-email {
+  font-size: 0.875rem;
+  color: var(--home-muted);
+  margin: 0 0 0.5rem;
+}
+
+.home-theme-static .user-role-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.home-theme-static .user-role-badge.admin {
+  background: rgba(14, 89, 250, 0.25);
+  color: var(--home-cyan);
+}
+
+.home-theme-static .user-role-badge.user {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--home-muted);
+}
+
+.home-theme-static .card-arrow {
+  margin-left: auto;
+  color: var(--home-muted);
+}
+
+.home-theme-static .breadcrumb {
+  margin-bottom: 1.5rem;
+}
+
+.home-theme-static .user-detail-card {
+  background: var(--home-surface-soft);
+  border: 1px solid var(--home-border-subtle);
+  border-radius: var(--home-radius-panel);
+  padding: 2rem;
+}
+
+.home-theme-static .user-detail-page .page-title {
+  color: #fff;
+  font-size: 2rem;
+  font-weight: 800;
+  margin-bottom: 0;
+}
+
+.home-theme-static .user-detail-card .user-info {
+  display: flex;
+  gap: 2rem;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  padding-bottom: 1.5rem;
+  margin-bottom: 0;
+  border-bottom: 1px solid var(--home-border-subtle);
+}
+
+.home-theme-static .user-card .user-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.home-theme-static .user-avatar-large {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  background: var(--home-grad);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 2rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.home-theme-static .user-details .user-name {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #fff;
+  margin: 0 0 1rem;
+}
+
+.home-theme-static .detail-item {
+  margin-bottom: 0.75rem;
+  font-size: 15px;
+  color: var(--home-text);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.home-theme-static .detail-label {
+  color: var(--home-muted);
+  margin-right: 0.5rem;
+  font-weight: 600;
+  min-width: 3rem;
+}
+
+.home-theme-static .detail-value {
+  color: var(--home-text);
+  font-weight: 500;
+}
+
+.home-theme-static .role-badge {
+  padding: 2px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.home-theme-static .role-badge.admin {
+  background: rgba(14, 89, 250, 0.25);
+  color: var(--home-cyan);
+}
+
+.home-theme-static .role-badge.user {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--home-muted);
+}
+
+.home-theme-static .user-actions {
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--home-border-subtle);
+}

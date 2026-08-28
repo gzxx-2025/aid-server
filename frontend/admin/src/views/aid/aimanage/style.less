@@ -1,0 +1,303 @@
+@import '@/assets/styles/variables.less';
+
+// 选中态与全局主色一致的蓝色系
+@active-bg: linear-gradient(135deg, rgba(37, 99, 235, 0.10) 0%, rgba(99, 102, 241, 0.10) 100%);
+@active-border: rgba(37, 99, 235, 0.45);
+@active-text: #1d4ed8;
+
+.aimanage {
+  display: flex;
+  height: calc(100vh - 140px);
+  background: #ffffff;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 2px 12px rgba(15, 23, 42, 0.04);
+  border: 1px solid rgba(15, 23, 42, 0.04);
+}
+
+// 官方API统一网关卡片：置于模型管理页顶部，视觉上与厂商列表区分
+.official-gateway-card {
+  margin-bottom: 14px;
+  padding: 16px 20px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.06) 0%, rgba(99, 102, 241, 0.08) 100%);
+  border: 1px solid rgba(37, 99, 235, 0.18);
+  box-shadow: 0 2px 12px rgba(37, 99, 235, 0.06);
+
+  &__head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  &__brand {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  &__brand-icon {
+    font-size: 26px;
+    color: @primary-color;
+    margin-top: 2px;
+  }
+
+  &__title {
+    font-size: 15px;
+    font-weight: 700;
+    color: #1f2937;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  &__desc {
+    margin-top: 4px;
+    font-size: 12.5px;
+    color: rgba(31, 41, 55, 0.65);
+  }
+
+  &__site-link {
+    margin-left: 8px;
+    color: @primary-color;
+    font-weight: 500;
+    white-space: nowrap;
+
+    &:hover {
+      color: #6366f1;
+    }
+
+    .anticon {
+      margin-right: 3px;
+    }
+  }
+
+  &__form {
+    display: flex;
+    gap: 10px;
+    margin-top: 14px;
+    flex-wrap: wrap;
+
+    .ant-input-group-wrapper {
+      flex: 1;
+      min-width: 280px;
+    }
+  }
+
+  &__exclude {
+    margin-top: 12px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.65);
+    border: 1px dashed rgba(217, 119, 6, 0.35);
+  }
+
+  &__exclude-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: #92400e;
+    margin-bottom: 8px;
+  }
+}
+
+.aimanage-sidebar {
+  width: 280px;
+  flex-shrink: 0;
+  background: #fbfcfe;
+  border-right: 1px solid rgba(15, 23, 42, 0.05);
+  display: flex;
+  flex-direction: column;
+
+  &__header {
+    padding: 16px 20px;
+    font-size: 15px;
+    font-weight: 600;
+    color: #1f2937;
+    border-bottom: 1px solid rgba(15, 23, 42, 0.05);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: #ffffff;
+
+    .anticon {
+      color: @primary-color;
+      font-size: 16px;
+    }
+
+    .provider-total {
+      margin-left: auto;
+      font-size: 12px;
+      font-weight: 500;
+      color: @active-text;
+      background: rgba(37, 99, 235, 0.10);
+      border-radius: 10px;
+      padding: 1px 10px;
+    }
+  }
+
+  &__search {
+    padding: 12px 14px;
+    border-bottom: 1px solid rgba(15, 23, 42, 0.04);
+  }
+
+  &__list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px 10px 10px;
+  }
+
+  &__item {
+    padding: 12px 14px;
+    border-radius: 10px;
+    cursor: pointer;
+    margin-bottom: 6px;
+    transition: all 0.22s ease;
+    border: 1px solid transparent;
+
+    .provider-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .provider-logo {
+      width: 24px;
+      height: 24px;
+      border-radius: 4px;
+      object-fit: cover;
+      flex-shrink: 0;
+      background: #fff;
+
+      &--placeholder {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(148, 163, 184, 0.2);
+        color: #94a3b8;
+        font-size: 12px;
+        font-weight: 600;
+      }
+    }
+
+    .provider-name {
+      font-weight: 500;
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: #1f2937;
+    }
+
+    .provider-sub {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 4px;
+      font-size: 12px;
+      // 左侧给 logo(24) + gap(8) 留出缩进，让 code 与名称对齐
+      padding-left: 32px;
+    }
+
+    .provider-code {
+      color: #94a3b8;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .model-count {
+      background: rgba(15, 23, 42, 0.06);
+      color: @text-color-secondary;
+      padding: 1px 8px;
+      border-radius: 10px;
+      font-size: 11px;
+      flex-shrink: 0;
+    }
+
+    // 选中后展开的内联操作条
+    .provider-actions {
+      display: flex;
+      gap: 6px;
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px dashed rgba(37, 99, 235, 0.25);
+
+      .ant-btn {
+        flex: 1;
+        border-radius: 8px;
+        font-size: 12px;
+        height: 26px;
+        padding: 0 4px;
+        color: @active-text;
+        border-color: rgba(37, 99, 235, 0.28);
+        background: rgba(255, 255, 255, 0.65);
+
+        &:hover {
+          color: #1d4ed8;
+          border-color: @primary-color;
+          background: #eff6ff;
+        }
+
+        &:last-child:hover {
+          color: #dc2626;
+          border-color: #dc2626;
+          background: #fef2f2;
+        }
+      }
+    }
+
+    &:hover {
+      background: rgba(37, 99, 235, 0.05);
+      border-color: rgba(37, 99, 235, 0.25);
+    }
+
+    // 已停用：整行淡化 + 名称加删除线提示
+    &.stopped {
+      .provider-logo,
+      .provider-name,
+      .provider-code {
+        opacity: 0.55;
+      }
+
+      .provider-name {
+        text-decoration: line-through;
+        text-decoration-color: rgba(148, 163, 184, 0.8);
+      }
+    }
+
+    // 选中态：品牌蓝
+    &.active {
+      background: @active-bg;
+      border-color: @active-border;
+      box-shadow: 0 6px 16px rgba(37, 99, 235, 0.16);
+
+      .provider-name {
+        color: @active-text;
+        font-weight: 600;
+      }
+
+      .provider-code {
+        color: rgba(29, 78, 216, 0.7);
+      }
+
+      .model-count {
+        background: rgba(37, 99, 235, 0.12);
+        color: @active-text;
+      }
+
+      .provider-logo--placeholder {
+        background: rgba(37, 99, 235, 0.12);
+        color: @active-text;
+      }
+    }
+  }
+
+  &__footer {
+    padding: 12px 14px;
+    border-top: 1px solid rgba(15, 23, 42, 0.05);
+    background: #ffffff;
+  }
+}

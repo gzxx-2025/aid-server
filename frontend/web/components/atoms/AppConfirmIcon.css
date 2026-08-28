@@ -1,0 +1,23 @@
+/* 原 AppConfirmIcon.vue scoped 样式（类名即作用域，无泄漏面） */
+.app-confirm-icon {
+  flex: none;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  line-height: 1;
+}
+
+.app-confirm-icon__img {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  display: block;
+}
+
+.app-confirm-icon--danger .app-confirm-icon__img {
+  width: 20px;
+  height: 20px;
+}

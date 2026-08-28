@@ -1,0 +1,233 @@
+/**
+ * 与 utils/viewportCompactScale.ts / plugins/viewport-compact-scale.client.ts 配合：根节点 zoom 0.75 时，
+ * 可通过页面右下角「界面缩放」开关或 NUXT_PUBLIC_VIEWPORT_COMPACT_SCALE=0 关闭。
+ *
+ * 依赖 document.documentElement 上的 data-viewport-compact-scale="1"。
+ */
+
+html[data-viewport-compact-scale='1'] body,
+html[data-viewport-compact-scale='1'] #app {
+  min-height: calc(100vh / 0.75) !important;
+}
+
+html[data-viewport-compact-scale='1'].app-shell-create body {
+  min-height: calc(100vh / 0.75) !important;
+}
+
+html[data-viewport-compact-scale='1'].app-shell-login body {
+  min-height: calc(100vh / 0.75) !important;
+}
+
+html[data-viewport-compact-scale='1'] .home-page,
+html[data-viewport-compact-scale='1'] .home-new-page {
+  height: calc(100vh / 0.75) !important;
+  min-height: calc(100vh / 0.75) !important;
+}
+
+html[data-viewport-compact-scale='1'] .create-page {
+  height: calc(100vh / 0.75) !important;
+  min-height: calc(100vh / 0.75) !important;
+}
+
+/* 与首页一致：主区占满壳层高度，侧栏随 flex stretch 拉满，不再扣减侧栏宽度 */
+html[data-viewport-compact-scale='1'] .create-page .main-layout {
+  flex: 1 1 auto !important;
+  height: auto !important;
+  min-height: 0 !important;
+}
+
+html[data-viewport-compact-scale='1'] .login-page {
+  min-height: calc(100vh / 0.75) !important;
+}
+
+html[data-viewport-compact-scale='1'] .home-new-sub-page .assets-library-figma__inner,
+html[data-viewport-compact-scale='1'] .home-new-sub-page .works-library-figma__inner {
+  min-height: 0 !important;
+}
+
+html[data-viewport-compact-scale='1'] .ant-modal-wrap.create-flow-modal.edit-scene-image-modal {
+  align-items: stretch !important;
+  justify-content: stretch !important;
+}
+
+html[data-viewport-compact-scale='1'] .ant-modal-wrap.create-flow-modal.edit-scene-image-modal .ant-modal {
+  width: 100% !important;
+  max-width: none !important;
+  height: calc(100vh / 0.75) !important;
+  max-height: calc(100vh / 0.75) !important;
+  margin: 0 !important;
+  top: 0 !important;
+  padding: 0 !important;
+}
+
+html[data-viewport-compact-scale='1'] .ant-modal-wrap.create-flow-modal.edit-scene-image-modal .ant-modal-content {
+  height: calc(100vh / 0.75) !important;
+  max-height: calc(100vh / 0.75) !important;
+  border-radius: 0 !important;
+}
+
+html[data-viewport-compact-scale='1'] .ant-modal-wrap.create-flow-modal.edit-scene-image-modal .edit-scene-image-container {
+  height: calc(100vh / 0.75 - 8px) !important;
+  max-height: calc(100vh / 0.75) !important;
+}
+
+html[data-viewport-compact-scale='1'] .ant-modal-wrap.create-flow-modal.touch-edit-modal-wrap {
+  align-items: stretch !important;
+  justify-content: stretch !important;
+}
+
+html[data-viewport-compact-scale='1'] .ant-modal-wrap.create-flow-modal.touch-edit-modal-wrap .ant-modal {
+  width: 100% !important;
+  max-width: none !important;
+  height: calc(100vh / 0.75) !important;
+  max-height: calc(100vh / 0.75) !important;
+  margin: 0 !important;
+  top: 0 !important;
+  padding: 0 !important;
+}
+
+html[data-viewport-compact-scale='1'] .ant-modal-wrap.create-flow-modal.touch-edit-modal-wrap .ant-modal-content {
+  height: calc(100vh / 0.75) !important;
+  max-height: calc(100vh / 0.75) !important;
+  border-radius: 0 !important;
+}
+
+html[data-viewport-compact-scale='1'] .ant-modal-wrap.create-flow-modal.touch-edit-modal-wrap .touch-edit {
+  height: calc(100vh / 0.75 - 24px) !important;
+  max-height: calc(100vh / 0.75 - 16px) !important;
+}
+
+/* 选择场景/角色/道具：zoom 0.75 且矮屏时，与批量生成分镜图同高 */
+@media (max-height: 900px) {
+html[data-viewport-compact-scale='1'] .select-asset-image-modal-wrap .saim-inner {
+  height: min(698px, calc(100vh / 0.75 - 80px)) !important;
+  max-height: min(698px, calc(100vh / 0.75 - 80px)) !important;
+}
+
+html[data-viewport-compact-scale='1'] .select-asset-image-modal-wrap .saim-body-shell {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+html[data-viewport-compact-scale='1'] .select-asset-image-modal-wrap .saim-content-row {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+
+html[data-viewport-compact-scale='1'] .select-asset-image-modal-wrap .saim-sidebar {
+  min-height: 0 !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+html[data-viewport-compact-scale='1'] .select-asset-image-modal-wrap .saim-sidebar-scroll {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  overflow-y: auto !important;
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+
+html[data-viewport-compact-scale='1'] .select-asset-image-modal-wrap .saim-sidebar-scroll::-webkit-scrollbar {
+  width: 0 !important;
+  background: transparent !important;
+}
+
+html[data-viewport-compact-scale='1'] .select-asset-image-modal-wrap .saim-sidebar-scroll:hover {
+  scrollbar-width: thin !important;
+  scrollbar-color: rgba(120, 140, 170, 0.45) transparent !important;
+}
+
+html[data-viewport-compact-scale='1'] .select-asset-image-modal-wrap .saim-sidebar-scroll:hover::-webkit-scrollbar {
+  width: 4px !important;
+}
+
+html[data-viewport-compact-scale='1'] .select-asset-image-modal-wrap .saim-sidebar-scroll:hover::-webkit-scrollbar-thumb {
+  background: rgba(120, 140, 170, 0.45) !important;
+  border-radius: 4px !important;
+}
+
+html[data-viewport-compact-scale='1'] .select-asset-image-modal-wrap .saim-main {
+  min-height: 0 !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+html[data-viewport-compact-scale='1'] .select-asset-image-modal-wrap .saim-main-scroll {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  overflow-y: auto !important;
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+
+html[data-viewport-compact-scale='1'] .select-asset-image-modal-wrap .saim-main-scroll::-webkit-scrollbar {
+  width: 0 !important;
+  background: transparent !important;
+}
+
+html[data-viewport-compact-scale='1'] .select-asset-image-modal-wrap .saim-main-scroll:hover {
+  scrollbar-width: thin !important;
+  scrollbar-color: rgba(120, 140, 170, 0.45) transparent !important;
+}
+
+html[data-viewport-compact-scale='1'] .select-asset-image-modal-wrap .saim-main-scroll:hover::-webkit-scrollbar {
+  width: 4px !important;
+}
+
+html[data-viewport-compact-scale='1'] .select-asset-image-modal-wrap .saim-main-scroll:hover::-webkit-scrollbar-thumb {
+  background: rgba(120, 140, 170, 0.45) !important;
+  border-radius: 4px !important;
+}
+}
+
+html[data-viewport-compact-scale='1'] .ant-select-dropdown,
+html[data-viewport-compact-scale='1'] .ant-popover,
+html[data-viewport-compact-scale='1'] .ant-dropdown,
+html[data-viewport-compact-scale='1'] .ant-tooltip,
+html[data-viewport-compact-scale='1'] .ant-picker-dropdown {
+  zoom: calc(1 / var(--viewport-scale-factor, 0.75));
+}
+
+html[data-viewport-compact-scale='1'] .options-list[style*='position: fixed'],
+html[data-viewport-compact-scale='1'] .enhance-mode-panel[style*='position: fixed'] {
+  zoom: calc(1 / 0.75);
+}
+
+html[data-viewport-compact-scale='1'] body {
+  overflow-x: hidden;
+}
+
+html[data-viewport-compact-scale='1'] #__nuxt,
+html[data-viewport-compact-scale='1'] #app {
+  min-height: calc(100vh / 0.75) !important;
+}
+
+/* 风格库缩略图：抵消根节点 zoom 0.75 导致的发糊 */
+html[data-viewport-compact-scale='1'] .global-setting .style-card .style-thumb {
+  zoom: calc(1 / 0.75);
+}
+
+/* 场景/分镜设定弹窗 + 批量配音：zoom 0.75 时与 brdm 同高 */
+@media (max-height: 900px) {
+  html[data-viewport-compact-scale='1'] .scene-setting-modal-wrap .setting-modal-shell,
+  html[data-viewport-compact-scale='1'] .storyboard-script-modal-wrap .setting-modal-shell,
+  html[data-viewport-compact-scale='1'] .storyboard-param-settings-modal-wrap .spsm-inner,
+  html[data-viewport-compact-scale='1'] .import-scene-image-modal-wrap .import-scene-shell,
+  html[data-viewport-compact-scale='1'] .import-script-modal-wrap .import-script-modal-shell,
+  html[data-viewport-compact-scale='1'] .select-scene-image-modal-wrap .select-scene-shell,
+  html[data-viewport-compact-scale='1'] .batch-regenerate-dubbing-wrap .brdm,
+  html[data-viewport-compact-scale='1'] .multi-angle-modal-wrap .ma-shell,
+  html[data-viewport-compact-scale='1'] .batch-generate-storyboard-wrap .bgsm,
+  html[data-viewport-compact-scale='1'] .select-asset-image-modal-wrap .saim-inner,
+  html[data-viewport-compact-scale='1'] .batch-generate-asset-wrap .bgam {
+    height: min(698px, calc(100vh / 0.75 - 80px)) !important;
+    max-height: min(698px, calc(100vh / 0.75 - 80px)) !important;
+  }
+}

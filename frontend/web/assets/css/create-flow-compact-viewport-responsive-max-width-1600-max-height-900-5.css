@@ -1,0 +1,166 @@
+/* Tailwind/PostCSS component styles for create-flow-compact-viewport. */
+
+@media (max-width: 1600px) and (max-height: 900px) {
+  html.app-shell-create .video-preview-step {
+    --vp-preview-player-min-h: clamp(220px, 40vh, 420px);
+    --vp-timeline-ruler-h: 26px;
+    --vp-timeline-track-video-min-h: 56px;
+    --vp-timeline-track-aux-min-h: 32px;
+    --vp-timeline-strip-video-h: 50px;
+    --vp-timeline-strip-h: 30px;
+    --vp-timeline-clip-video-h: 44px;
+    --vp-timeline-clip-h: 26px;
+    --vp-timeline-vol-bar-h: 26px;
+  }
+
+  html.app-shell-create .video-preview-step .preview-player-wrap {
+    flex: 1 1 0 !important;
+    min-height: var(--vp-preview-player-min-h) !important;
+  }
+
+  html.app-shell-create .video-preview-step .timeline-wrap {
+    flex: 0 0 auto !important;
+  }
+
+  html.app-shell-create .video-preview-step .timeline-ruler,
+  html.app-shell-create .video-preview-step .timeline-ruler-gutter {
+    height: var(--vp-timeline-ruler-h) !important;
+  }
+
+  html.app-shell-create .video-preview-step .timeline-ruler-gutter {
+    margin-bottom: calc(-1 * var(--vp-timeline-ruler-h)) !important;
+  }
+
+  html.app-shell-create .video-preview-step .track-row-video {
+    min-height: var(--vp-timeline-track-video-min-h) !important;
+  }
+
+  html.app-shell-create .video-preview-step .track-row-volume,
+  html.app-shell-create .video-preview-step .track-row-aux {
+    min-height: var(--vp-timeline-track-aux-min-h) !important;
+  }
+
+  html.app-shell-create .video-preview-step .track-strip,
+  html.app-shell-create .video-preview-step .track-strip-volume,
+  html.app-shell-create .video-preview-step .track-strip-dubbing,
+  html.app-shell-create .video-preview-step .track-strip-subtitle,
+  html.app-shell-create .video-preview-step .track-strip-music,
+  html.app-shell-create .video-preview-step .track-strip-aux {
+    height: var(--vp-timeline-strip-h) !important;
+  }
+
+  html.app-shell-create .video-preview-step .track-strip-video {
+    height: var(--vp-timeline-strip-video-h) !important;
+  }
+
+  html.app-shell-create .video-preview-step .track-clip-video {
+    height: var(--vp-timeline-clip-video-h) !important;
+  }
+
+  html.app-shell-create .video-preview-step .track-clip:not(.track-clip-video) {
+    height: var(--vp-timeline-clip-h) !important;
+  }
+
+  html.app-shell-create .video-preview-step .volume-bar-segment {
+    top: 2px !important;
+    height: var(--vp-timeline-vol-bar-h) !important;
+  }
+
+  html.app-shell-create .video-preview-step .clip-text {
+    line-height: var(--vp-timeline-clip-h) !important;
+  }
+
+  html.app-shell-create .video-preview-step .ruler-label {
+    top: 14px !important;
+    font-size: 11px !important;
+  }
+
+  html.app-shell-create .video-preview-step .track-label {
+    font-size: 11px !important;
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Tier 2：更矮屏（高 ≤768）                                                    */
+/* -------------------------------------------------------------------------- */
+@media (max-width: 1600px) and (max-height: 768px) {
+  html.app-shell-create {
+    --cf-c-modal-edge: 8px;
+    --cf-c-modal-shell-h: min(560px, calc(100dvh - 16px));
+    --cf-c-modal-header-h: 44px;
+    /* Tier2 刻度由 home-new-compact Tier2 的 --hn-c-* 驱动，此处仅保留布局 token */
+    --cf-c-modal-title-fs: var(--hn-c-fs-md, 14px);
+    --cf-c-modal-body-fs: var(--hn-c-fs-sm, 12px);
+    --cf-c-modal-btn-h: var(--hn-c-btn-h, 28px);
+    --cf-c-modal-btn-fs: var(--hn-c-btn-fs, 12px);
+    --cf-c-modal-pad: var(--hn-c-gap-md, 12px);
+    --cf-c-modal-pad-lg: var(--hn-c-gap-md, 12px);
+    --cf-c-modal-gap: var(--hn-c-gap, 10px);
+    --cf-c-scene-picker-chrome: 164px;
+    --cf-c-asset-picker-chrome: 156px;
+  }
+
+  html.app-shell-create .storyboard-param-settings-modal .spsm-preview-block,
+  html.app-shell-create .storyboard-param-settings-modal .spsm-preview-slot {
+    min-height: 150px !important;
+  }
+
+  html.app-shell-create .batch-generate-asset-wrap .bgam-card {
+    height: 120px !important;
+  }
+
+  html.app-shell-create .scene-setting-modal-wrap .setting-modal-shell,
+  html.app-shell-create .storyboard-script-modal-wrap .setting-modal-shell,
+  html.app-shell-create .storyboard-param-settings-modal-wrap .spsm-inner,
+  html.app-shell-create .import-scene-image-modal-wrap .import-scene-shell,
+  html.app-shell-create .import-script-modal-wrap .import-script-modal-shell,
+  html.app-shell-create .import-asset-preview-modal-wrap .import-asset-preview-modal-shell,
+  html.app-shell-create .select-scene-image-modal-wrap .select-scene-shell,
+  html.app-shell-create .batch-regenerate-dubbing-wrap .brdm,
+  html.app-shell-create .multi-angle-modal-wrap .ma-shell,
+  html.app-shell-create .batch-generate-storyboard-wrap .bgsm,
+  html.app-shell-create .select-asset-image-modal-wrap .saim-inner,
+  html.app-shell-create .batch-generate-asset-wrap .bgam {
+    height: min(698px, calc(100dvh - 80px)) !important;
+    max-height: min(698px, calc(100dvh - 80px)) !important;
+  }
+
+  html.app-shell-create .storyboard-param-settings-modal .spsm-textarea-wrap--rich {
+    height: min(140px, 22vh) !important;
+  }
+
+  html.app-shell-create .storyboard-param-settings-modal .spsm-textarea-wrap--rich .ql-editor {
+    min-height: min(140px, 22vh) !important;
+    height: min(140px, 22vh) !important;
+  }
+
+  html.app-shell-create .music-picker-wrap .music-card-list {
+    max-height: min(28vh, 300px) !important;
+  }
+
+  html.app-shell-create .voice-timbre-picker-wrap {
+    --voice-picker-list-max-h: min(50vh, 500px);
+  }
+
+  html.app-shell-create .video-preview-step {
+    --vp-preview-player-min-h: clamp(200px, 38vh, 360px);
+    --vp-timeline-ruler-h: 22px;
+    --vp-timeline-track-video-min-h: 50px;
+    --vp-timeline-track-aux-min-h: 28px;
+    --vp-timeline-strip-video-h: 44px;
+    --vp-timeline-strip-h: 26px;
+    --vp-timeline-clip-video-h: 38px;
+    --vp-timeline-clip-h: 22px;
+    --vp-timeline-vol-bar-h: 22px;
+  }
+
+  html.app-shell-create .video-preview-step .ruler-label {
+    top: 12px !important;
+    font-size: 10px !important;
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* 大屏（与小分辨率档位互斥）：恢复列表区自然高度，避免内容区被压扁              */
+/* 条件：宽 > 1600 或 高 > 900                                                */
+/* -------------------------------------------------------------------------- */

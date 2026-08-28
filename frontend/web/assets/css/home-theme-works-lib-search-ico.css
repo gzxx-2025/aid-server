@@ -1,0 +1,228 @@
+/* Tailwind/PostCSS component styles for home-theme. */
+
+
+.works-lib-search__ico {
+  font-size: 16px;
+  color: var(--home-muted);
+  flex-shrink: 0;
+}
+
+.works-lib-search__input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: #fff;
+  font-size: 14px;
+  outline: none;
+}
+
+.works-lib-search__input::placeholder {
+  color: var(--home-muted);
+}
+
+.works-lib-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(18%, 1fr));
+  gap: 12px;
+  /* 行高随封面 aspect-ratio + 底部信息区自适应 */
+  grid-auto-rows: max-content;
+  align-content: start;
+  /* 封面比例与底部信息区：作品库 / 资产库共用，保证「新增」与列表卡片同高 */
+  --works-lib-cover-ratio: 16 / 10;
+  --works-lib-body-h: 68px;
+}
+
+.works-lib-card {
+  display: flex;
+  flex-direction: column;
+  align-self: start;
+  height: auto;
+  box-sizing: border-box;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 108, 143, 1);
+  background:rgba(18, 18, 18, 1);
+  overflow: hidden;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.works-lib-card:hover {
+  border-color: rgba(0, 108, 143, 1);
+}
+
+/* 与 .works-lib-card 同宽同高：内部撑高 + 封面铺满，用于网格内「新建」入口 */
+.works-lib-add-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-self: start;
+  width: 100%;
+  height: auto;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 108, 143, 1);
+  background: rgba(18, 18, 18, 1);
+  overflow: hidden;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+  box-sizing: border-box;
+}
+
+.works-lib-add-card:hover:not(:disabled) {
+  border-color: rgba(74, 231, 253, 0.5);
+}
+
+/*.works-lib-add-card:focus-visible {*/
+/*  outline: 2px solid rgba(74, 231, 253, 0.65);*/
+/*  outline-offset: 2px;*/
+/*}*/
+
+.works-lib-add-card:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 仅用于撑开高度，与普通卡片封面比例一致 */
+.works-lib-add-card__sizer {
+  display: block;
+  width: 100%;
+  aspect-ratio: var(--works-lib-cover-ratio, 16 / 10);
+  max-height: 200px;
+  flex: 0 0 auto;
+  pointer-events: none;
+  visibility: hidden;
+}
+
+.works-lib-add-card__cover {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+  max-height: none;
+  min-height: 0;
+  overflow: hidden;
+  background: #0a0f14;
+  box-sizing: border-box;
+}
+
+.works-lib-add-card__content {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  height: 100%;
+  padding: 10px;
+  border-radius: 8px;
+  box-sizing: border-box;
+}
+
+.works-lib-add-card__icon-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color:rgba(142, 151, 165, 1);
+}
+
+.works-lib-add-card__icon {
+  font-size: 52px;
+}
+
+.works-lib-add-card__label {
+  font-size: 15px;
+  font-weight: 600;
+  color: rgba(142, 151, 165, 1);
+  line-height: 1.3;
+  padding: 0 8px;
+  text-align: center;
+}
+
+.works-lib-add-card__hint {
+  font-size: 12px;
+  color: var(--home-muted, #8e97a5);
+  line-height: 1.35;
+  padding: 0 12px;
+  text-align: center;
+  max-width: 100%;
+}
+
+/* 与 .works-lib-card__body 等高，保证「新增」卡片总高度与列表一致 */
+.works-lib-add-card__body {
+  flex: 0 0 auto;
+  height: var(--works-lib-body-h, 68px);
+  min-height: var(--works-lib-body-h, 68px);
+  padding: 0;
+  box-sizing: border-box;
+  pointer-events: none;
+  visibility: hidden;
+}
+
+.works-lib-card__cover {
+  position: relative;
+  flex: 0 0 auto;
+  width: 100%;
+  aspect-ratio: var(--works-lib-cover-ratio, 16 / 10);
+  height: auto;
+  min-height: unset;
+  max-height: 200px;
+  overflow: hidden;
+  background: #0a0f14;
+}
+
+/* 无封面占位：我的作品 / 资产库共用 */
+.works-lib-card__cover--placeholder {
+  background: rgba(142, 151, 165, 0.15);
+}
+
+.works-lib-card__cover--placeholder .card-cover-placeholder-icon {
+  z-index: 1;
+  opacity: 1;
+  width: 88px !important;
+  height: 88px !important;
+  max-width: 56%;
+  max-height: 72%;
+  filter: brightness(1.15);
+}
+
+.works-lib-card__cover-img {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  object-fit: cover;
+}
+
+.works-lib-card__cover-img.is-loaded {
+  opacity: 1;
+}
+
+.works-lib-card__cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.35s ease;
+}
+
+/* 直接 img 标签：加载完成前隐藏；ShimmerImage 由组件内 is-loaded 控制 */
+.works-lib-card__cover img.works-lib-card__cover-img:not(.shimmer-image__img) {
+  opacity: 0;
+  transition:
+    opacity 0.2s ease,
+    transform 0.35s ease;
+}

@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.ico" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
+    <meta name="theme-color" content="#2563EB" />
+    <meta name="renderer" content="webkit" />
+    <title>管理系统</title>
+    <style>
+      html,
+      body,
+      #root {
+        height: 100%;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue',
+          Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+        background-color: #f5f7fb;
+      }
+      .app-preloader {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, #eef3ff 0%, #f8fbff 60%, #fff 100%);
+        z-index: 999;
+      }
+      .app-preloader .ring {
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        border: 3px solid #e5e7ff;
+        border-top-color: #2563eb;
+        animation: ring 1s linear infinite;
+      }
+      @keyframes ring {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <div class="app-preloader">
+        <div class="ring"></div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

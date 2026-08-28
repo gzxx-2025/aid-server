@@ -1,0 +1,320 @@
+/* 与创建流程深色主题一致 */
+.voice-timbre-picker-wrap {
+  --voice-picker-modal-surface: #191a1d;
+  --voice-picker-control-surface: #242529;
+  --voice-picker-control-surface-active: #2a2b30;
+  --voice-picker-list-max-h: min(48vh, 520px);
+}
+
+.voice-timbre-picker-wrap .ant-modal-content {
+  background: var(--voice-picker-modal-surface) !important;
+  border-radius: var(--radius-lg, 1rem) !important;
+  padding: 0 !important;
+  box-shadow: var(--shadow-lg, 0 10px 24px -4px rgba(0, 0, 0, 0.12)) !important;
+  overflow: hidden;
+}
+.voice-timbre-picker-wrap .ant-modal-header {
+  display: none !important;
+}
+.voice-timbre-picker-wrap .ant-modal-close {
+  color: var(--home-muted, #8e97a5) !important;
+  top: 16px !important;
+  right: 16px !important;
+  width: 32px;
+  height: 32px;
+  line-height: 32px;
+  font-size: 24px;
+}
+.voice-timbre-picker-wrap .ant-modal-close:hover {
+  color: var(--accent-400, #38bdf8) !important;
+}
+.voice-timbre-picker-wrap .ant-modal-body {
+  padding: 0 !important;
+  background: var(--voice-picker-modal-surface) !important;
+}
+/* 压过 create-steps-ant-overrides 全局青边，与 GenerateModelConfigBlock · setting-select 一致 */
+html.app-shell-create .voice-timbre-picker-wrap .voice-picker-select.ant-select {
+  --ant-select-selector-bg: var(--voice-picker-control-surface);
+  --ant-color-border: rgba(78, 94, 122, 0.42);
+}
+html.app-shell-create .voice-timbre-picker-wrap .voice-picker-select.ant-select .ant-select-selector,
+.voice-timbre-picker-wrap .voice-picker-select .ant-select-selector {
+  height: 44px !important;
+  min-height: 44px !important;
+  border-radius: 10px !important;
+  background: var(--voice-picker-control-surface) !important;
+  background-color: var(--voice-picker-control-surface) !important;
+  border: 1px solid rgba(78, 94, 122, 0.42) !important;
+  border-color: rgba(78, 94, 122, 0.42) !important;
+  box-shadow: none !important;
+}
+html.app-shell-create .voice-timbre-picker-wrap .voice-picker-select.ant-select:not(.ant-select-disabled):hover .ant-select-selector,
+html.app-shell-create .voice-timbre-picker-wrap .voice-picker-select.ant-select-open .ant-select-selector,
+.voice-timbre-picker-wrap .voice-picker-select:hover .ant-select-selector,
+.voice-timbre-picker-wrap .voice-picker-select.ant-select-open .ant-select-selector {
+  background: var(--voice-picker-control-surface-active) !important;
+  background-color: var(--voice-picker-control-surface-active) !important;
+  border-color: rgba(120, 140, 170, 0.45) !important;
+  box-shadow: none !important;
+}
+html.app-shell-create
+  .voice-timbre-picker-wrap
+  .voice-picker-select.ant-select-focused:not(.ant-select-disabled)
+  .ant-select-selector,
+.voice-timbre-picker-wrap
+  .voice-picker-select.ant-select-focused:not(.ant-select-disabled)
+  .ant-select-selector {
+  background: var(--voice-picker-control-surface-active) !important;
+  background-color: var(--voice-picker-control-surface-active) !important;
+  border-color: rgba(120, 140, 170, 0.45) !important;
+  box-shadow: none !important;
+}
+.voice-timbre-picker-wrap .voice-picker-select .ant-select-selection-item {
+  line-height: 42px !important;
+  font-size: 13px;
+  color: rgba(225, 239, 255, 0.92) !important;
+}
+.voice-timbre-picker-wrap .voice-picker-select .ant-select-selection-placeholder {
+  line-height: 42px !important;
+  font-size: 13px;
+  color: var(--home-muted, #8e97a5) !important;
+}
+.voice-timbre-picker-wrap .voice-picker-select .ant-select-arrow {
+  color: var(--home-muted, #8e97a5) !important;
+}
+
+/* 下拉面板：与 create-steps-ant-overrides 中 app-shell-create 选择器一致 */
+.voice-picker-select-popup.ant-select-dropdown {
+  background: var(--voice-picker-control-surface) !important;
+  border: 1px solid rgba(74, 231, 253, 0.1) !important;
+}
+.voice-picker-select-popup .ant-select-item {
+  color: #e6edf3 !important;
+}
+.voice-picker-select-popup .ant-select-item-option-selected:not(.ant-select-item-option-disabled) {
+  background: rgba(14, 89, 250, 0.22) !important;
+  color: #4ae7fd !important;
+  font-weight: 600;
+}
+.voice-picker-select-popup .ant-select-item-option-active:not(.ant-select-item-option-disabled) {
+  background: rgba(14, 89, 250, 0.12) !important;
+}
+
+.voice-picker-close {
+  font-size: 24px;
+}
+
+.voice-picker-shell {
+  padding: 20px 24px 24px;
+}
+
+.voice-picker-title {
+  margin: 0 0 16px;
+  font-size: 18px;
+  font-weight: 600;
+  color: #f1f5f9;
+  line-height: 1.4;
+}
+
+.voice-picker-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.voice-picker-select {
+  min-width: 0;
+  flex: 1;
+}
+
+.voice-picker-list {
+  display: grid;
+  grid-template-columns: repeat(3, 32%);
+  grid-auto-rows: max-content;
+  align-content: start;
+  gap: 2%;
+  max-height: var(--voice-picker-list-max-h, min(48vh, 520px));
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.voice-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: rgba(13, 17, 23, 0.95);
+  border: 1px solid rgba(96, 124, 158, 0.15);
+  border-radius: 8px;
+  min-height: 64px;
+  transition:
+    background 0.2s,
+    border-color 0.2s;
+}
+
+.voice-card.is-selected {
+  border-color: rgba(74, 231, 253, 0.25);
+}
+
+.voice-card-avatar-wrap {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.voice-card-avatar-wrap .voice-card-avatar-shimmer {
+  width: 100%;
+  height: 100%;
+}
+
+.voice-card-avatar-wrap .voice-card-avatar {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.voice-card-avatar-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  background: rgba(0, 0, 0, 0.45);
+  opacity: 0;
+  transition: opacity 0.2s;
+  pointer-events: none;
+}
+
+.voice-card-avatar-wrap:hover .voice-card-avatar-mask,
+.voice-card-avatar-wrap.is-audio-playing .voice-card-avatar-mask {
+  opacity: 1;
+}
+
+.voice-card-play-inner {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s;
+  pointer-events: none;
+}
+
+.voice-card-play-icon {
+  display: block;
+  width: 24px;
+  height: 24px;
+}
+
+.voice-card-avatar-wrap:hover .voice-card-play-inner,
+.voice-card-avatar-wrap.is-audio-playing .voice-card-play-inner {
+  opacity: 1;
+}
+
+.voice-card-pause {
+  opacity: 1 !important;
+}
+
+.voice-card-eq {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 16px;
+}
+
+.eq-bar {
+  width: 3px;
+  background: #4ae7fd;
+  border-radius: 2px;
+  transform-origin: center bottom;
+  animation: voice-eq 0.45s ease-in-out infinite alternate;
+}
+
+.eq-bar-1 {
+  height: 8px;
+  animation-delay: 0s;
+}
+
+.eq-bar-2 {
+  height: 16px;
+  animation-delay: 0.12s;
+}
+
+.eq-bar-3 {
+  height: 11px;
+  animation-delay: 0.24s;
+}
+
+@keyframes voice-eq {
+  0% {
+    transform: scaleY(0.35);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+.voice-card-text {
+  min-width: 0;
+  flex: 1;
+}
+
+.voice-card-name {
+  font-weight: 600;
+  color: #f1f5f9;
+  font-size: 14px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.voice-card-tags {
+  font-size: 12px;
+  color: #8e97a5;
+  margin-top: 4px;
+  line-height: 1.3;
+}
+
+.voice-card-select-btn {
+  flex-shrink: 0;
+  padding: 4px 12px;
+  border: 1px solid rgba(96, 124, 158, 0.35);
+  border-radius: 6px;
+  background: transparent;
+  color: #e6edf3;
+  font-size: 13px;
+  line-height: 1.5;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    border-color 0.2s,
+    color 0.2s,
+    background 0.2s;
+}
+
+.voice-card-select-btn:hover {
+  background: rgba(74, 231, 253, 0.1);
+  color: #4ae7fd;
+}
+
+.voice-card-select-btn.is-active {
+  background: rgba(74, 231, 253, 0.1);
+  color: #4ae7fd;
+}
+
+.voice-picker-audio {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+}

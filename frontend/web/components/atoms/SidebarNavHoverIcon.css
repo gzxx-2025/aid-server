@@ -1,0 +1,52 @@
+.sidebar-nav-hover-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  /* 默认白色；跟随侧栏选中态仍为白，避免继承父级灰字 */
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.sidebar-nav-hover-icon__svg {
+  display: block;
+  width: 24px;
+  height: 24px;
+  overflow: visible;
+}
+
+.sidebar-nav-hover-icon--gallery .sidebar-nav-hover-icon__draw-flap {
+  transform-origin: 12px 6px;
+}
+
+.sidebar-nav-hover-icon--works .sidebar-nav-hover-icon__draw-flap {
+  transform-origin: 12px 4px;
+}
+
+.sidebar-nav-hover-icon--assets .sidebar-nav-hover-icon__draw-flap {
+  transform-origin: 4px 11px;
+}
+
+/* 填充图标：静态层始终可见，与原版 al-new / work-new 一致 */
+.sidebar-nav-hover-icon__fill {
+  fill: currentColor;
+}
+
+/* 填充图标：hover 时叠一层描摹线，不影响静止态 */
+.sidebar-nav-hover-icon__stroke-trace {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* 资产库：与原版 zc-new 一致（描边线稿） */
+.sidebar-nav-hover-icon__stroke {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}

@@ -1,0 +1,231 @@
+/* Tailwind/PostCSS component styles for storyboard-step-shared. */
+/**
+ * 创作流程：分镜设计 / 视频生成 / 音画同步 共用列表与工具条样式
+ * 根节点需带 class：storyboard-step
+ */
+
+html.app-shell-create {
+  --storyboard-list-item-height: 300px;
+  --storyboard-list-header-height: 40px;
+  --storyboard-card-media-min-height: 220px;
+  /*
+   * 列表内媒体卡高度：随行高推导（标题约 28px + body 内边距约 24px），
+   * 避免大分辨率下行高下调后，分镜图/参考图仍写死 200px 撑破。
+   */
+  --storyboard-list-media-height: calc(
+    var(--storyboard-list-item-height) - var(--storyboard-list-header-height) - 52px
+  );
+}
+
+.storyboard-step {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.storyboard-step .storyboard-step-shell,
+.storyboard-step .storyboard-script-empty,
+.storyboard-step .storyboard-video-empty,
+.storyboard-step .dubbing-wrap {
+  border: 1px solid rgba(74, 231, 253, 0.3);
+  border-radius: 10px;
+  min-height: 0;
+  height: 100%;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  overflow: hidden;
+}
+
+.storyboard-step .storyboard-step-shell--has-list,
+.storyboard-step .storyboard-script-empty--has-list,
+.storyboard-step .dubbing-wrap--has-list {
+  border: none;
+  background: transparent;
+  border-radius: 0;
+  min-height: 0;
+  padding: 0;
+}
+
+.storyboard-step .storyboard-step-shell--bootstrap-pending {
+  position: relative;
+}
+
+.storyboard-step .storyboard-list-bootstrap-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  text-align: center;
+  background: rgba(8, 14, 26, 0.97);
+  backdrop-filter: blur(6px);
+  border-radius: var(--radius-m, 10px);
+  pointer-events: auto;
+}
+
+.storyboard-step .storyboard-list-bootstrap-mask__icon {
+  font-size: 28px;
+  color: var(--home-accent, #4ae7fd);
+}
+
+.storyboard-step .storyboard-list-bootstrap-mask__text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.storyboard-step .storyboard-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.125rem 0.125rem 0.5rem;
+}
+
+.storyboard-step .storyboard-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.storyboard-step .storyboard-view-toggle {
+  display: inline-flex;
+  gap: 0.25rem;
+  background: transparent;
+  border: 1px solid #2f3949;
+  border-radius: 8px;
+  height: 28px;
+}
+
+.storyboard-step .storyboard-view-toggle button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.storyboard-step .storyboard-view-toggle .ant-btn {
+  border-radius: 8px !important;
+  height: 28px;
+  min-width: 48px;
+  padding: 0 0.55rem;
+  font-weight: 600;
+  font-size: 12px;
+  line-height: 1;
+  border: 1px solid transparent !important;
+  background: transparent !important;
+  color: #d7e2ee !important;
+  box-shadow: none !important;
+  transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease !important;
+}
+
+.storyboard-step .storyboard-view-toggle .ant-btn:hover,
+.storyboard-step .storyboard-view-toggle .ant-btn:active {
+  border-color: #2f3949 !important;
+  background: rgba(47, 57, 73, 0.35) !important;
+  color: #d7e2ee !important;
+}
+
+.storyboard-step .storyboard-view-toggle .ant-btn-primary {
+  border: 1px solid #335678 !important;
+  background: linear-gradient( 270deg, rgba(14, 89, 250, .3) 0%, rgba(0, 171, 216, .3) 100%) !important;
+  color: #ffffff !important;
+  box-shadow: none !important;
+}
+
+.storyboard-step .storyboard-view-toggle .ant-btn-primary:hover{
+  border: 1px solid #335678 !important;
+  background: linear-gradient( 270deg, rgba(14, 89, 250, .3) 0%, rgba(0, 171, 216, .3) 100%) !important;
+  color: #ffffff !important;
+  box-shadow: none !important;
+}
+
+.storyboard-step .storyboard-view-icon {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+.storyboard-step .storyboard-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0 0.5rem;
+  height: 22px;
+  border-radius: 999px;
+  background: #0f1422;
+  font-weight: 600;
+  color: #d7e2ee;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.storyboard-step .storyboard-progress-icon {
+  color: #4ae7fd;
+  font-size: 12px;
+}
+
+.storyboard-step .storyboard-progress-loading {
+  margin-left: 0.35rem;
+  color: var(--accent-500, #4ae7fd);
+  font-size: 0.9rem;
+}
+
+.storyboard-step .storyboard-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.storyboard-step .storyboard-toolbar-right button {
+  height: 28px;
+}
+.storyboard-step .storyboard-action-btn {
+  border-radius: var(--radius-m, 8px);
+  height: 28px;
+  padding: 0 0.75rem;
+  font-weight: 600;
+  font-size: 0.8rem;
+}
+
+.storyboard-step .storyboard-action-btn.ant-btn-primary {
+  box-shadow: none;
+  background: linear-gradient(270deg, #0e59fa 0%, #00abd8 100%);
+  border: none;
+}
+
+.storyboard-step .storyboard-action-btn:not(.ant-btn-primary) {
+  border-color: rgba(74, 231, 253, 0.24);
+  background: #101a2b;
+  color: #e6edf3;
+}
+
+/*
+ * 分镜设计 / 视频生成 / 音画同步：顶栏「自动生成」主按钮统一样式
+ *（实心青 #4AE7FD + 字/图标 #121212）
+ * 须带 html.app-shell-create，否则会被 create-steps-ant-overrides 里 .ant-btn-primary 渐变盖住。
+ */
+html.app-shell-create .storyboard-step .storyboard-toolbar-right .storyboard-toolbar-cyan-btn.ant-btn-primary,
+html.app-shell-create .storyboard-step .storyboard-toolbar-right .storyboard-toolbar-cyan-btn.ant-btn-primary:hover,
+html.app-shell-create .storyboard-step .storyboard-toolbar-right .storyboard-toolbar-cyan-btn.ant-btn-primary:active {
+  box-shadow: none !important;
+  background: #4ae7fd !important;
+  border: none !important;
+  color: #121212 !important;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transform: none !important;
+}
+
+html.app-shell-create .storyboard-step .storyboard-toolbar-right .storyboard-toolbar-cyan-btn.ant-btn-primary .anticon {
+  color: #121212 !important;
+}

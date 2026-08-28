@@ -1,0 +1,90 @@
+@import '@/assets/styles/variables.less';
+
+.app-layout {
+  min-height: 100vh;
+  background: @bg-layout;
+
+  &__sider {
+    background: #ffffff;
+    box-shadow: 0 0 24px rgba(15, 23, 42, 0.04);
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    height: 100vh;
+    position: sticky;
+    top: 0;
+    left: 0;
+    z-index: 20;
+
+    .ant-layout-sider-children {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+  }
+
+  &__mask {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.5);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    z-index: 19;
+    animation: fadeIn 0.25s ease-out;
+  }
+
+  &__main {
+    background: @bg-layout;
+    min-height: 100vh;
+    overflow: hidden;
+  }
+
+  &__header {
+    padding: 0 !important;
+    background: #ffffff !important;
+    height: @header-height !important;
+    line-height: @header-height !important;
+    border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+    box-shadow: 0 1px 0 rgba(15, 23, 42, 0.02);
+    position: relative;
+    z-index: 10;
+
+    &.is-fixed {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+  }
+
+  &__tags {
+    background: #ffffff;
+    border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+
+    &.is-fixed {
+      position: sticky;
+      top: @header-height;
+      z-index: 9;
+    }
+  }
+
+  &__content {
+    padding: 18px;
+    min-height: calc(100vh - @header-height);
+    &.has-tags {
+      min-height: calc(100vh - @header-height - @tags-height);
+    }
+  }
+
+  &.is-mobile {
+    .app-layout__sider {
+      position: fixed;
+      z-index: 30;
+    }
+    .app-layout__content {
+      padding: 12px;
+    }
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}

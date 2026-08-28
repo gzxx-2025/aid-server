@@ -1,0 +1,38 @@
+.model-billing-rules {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+  margin-top: 6px;
+}
+
+.model-billing-rules__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.model-billing-rules__condition {
+  min-width: 0;
+  overflow: hidden;
+  color: rgba(166, 178, 195, 0.92);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-billing-rules__price {
+  flex: 0 0 auto;
+  color: #75e7f7;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.model-billing-rules__more {
+  color: rgba(142, 151, 165, 0.84);
+  font-size: 11px;
+  line-height: 15px;
+}

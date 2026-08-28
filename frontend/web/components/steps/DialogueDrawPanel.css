@@ -1,0 +1,11 @@
+/* 原 DialogueDrawPanel.vue <style scoped>：类名与声明原样保留，统一以 .dialogue-draw-panel 作用域前缀替代 scoped */
+.dialogue-draw-panel {
+  width: 100%;
+  min-height: 0;
+}
+
+.dialogue-draw-panel .dialogue-instruction {
+  flex: 1 1 0;
+  min-height: 0;
+  height: 100%;
+}

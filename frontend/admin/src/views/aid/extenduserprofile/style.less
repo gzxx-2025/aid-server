@@ -1,0 +1,140 @@
+.user-manage {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+
+  &__search {
+    .ant-form-item {
+      margin-bottom: 0;
+    }
+  }
+
+  .money {
+    color: #16a34a;
+    font-weight: 600;
+  }
+
+  .muted {
+    color: #94a3b8;
+  }
+
+  // 列表内用户单元格：头像 + 昵称 + ID
+  .user-cell {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+
+    &__info {
+      min-width: 0;
+    }
+
+    &__name {
+      font-weight: 500;
+      color: #1f2937;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    &__sub {
+      font-size: 12px;
+      color: #94a3b8;
+    }
+  }
+}
+
+.credential-result {
+  padding: 4px 2px;
+
+  &__label {
+    margin-bottom: 4px;
+    color: #64748b;
+    font-size: 13px;
+  }
+
+  .ant-typography {
+    margin-bottom: 16px;
+    font-size: 16px;
+  }
+
+  &__all.ant-typography {
+    margin-bottom: 0;
+    color: #1677ff;
+    font-size: 14px;
+  }
+}
+
+// 详情抽屉
+.user-manage__drawer {
+  .detail-hero {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px 20px;
+    margin-bottom: 16px;
+    background: linear-gradient(135deg, #f5f7ff 0%, #eef2ff 100%);
+    border-radius: 12px;
+
+    &__main {
+      flex: 1;
+      min-width: 0;
+    }
+
+    &__name {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 4px;
+      font-size: 18px;
+      font-weight: 600;
+      color: #1f2937;
+    }
+
+    &__sub {
+      margin-top: 4px;
+      font-size: 13px;
+      color: #6b7280;
+    }
+  }
+
+  .detail-stats {
+    margin-bottom: 20px;
+  }
+
+  /* 余额流水金额正负着色 */
+  .money--in {
+    color: #16a34a;
+    font-weight: 600;
+  }
+
+  .money--out {
+    color: #dc2626;
+    font-weight: 600;
+  }
+
+  .detail-desc {
+    margin-bottom: 20px;
+
+    .ant-descriptions-title {
+      font-size: 14px;
+    }
+  }
+
+  .detail-tabs {
+    margin-top: 8px;
+  }
+}
+
+// 弹窗内提示条
+.adjust-hint {
+  padding: 10px 14px;
+  background: #f8fafc;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #475569;
+
+  .money {
+    color: #16a34a;
+    font-weight: 600;
+  }
+}

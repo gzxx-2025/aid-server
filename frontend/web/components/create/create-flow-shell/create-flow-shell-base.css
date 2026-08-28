@@ -1,0 +1,228 @@
+/* Tailwind/PostCSS component styles for create-flow-shell. */
+/* 原 CreateFlowShell.vue scoped SCSS 展开（1/2）：骨架屏 / 顶部工具栏 / 主布局 / 流程条容器。
+   根类 .create-page 前缀防泄漏；:deep() 转普通后代选择器。 */
+.create-page .home-theme-page {
+  padding: 0 !important;
+}
+
+.create-page {
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+  background: var(
+    --home-bg-gradient,
+    linear-gradient(165deg, #001731 0%, #0d0d0f 42%, #121212 100%)
+  );
+  background-color: var(--home-bg-solid, #060a12);
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  color: var(--home-text, #e6edf3);
+}
+
+.create-page::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image:
+    radial-gradient(circle at 10% 20%, rgba(14, 89, 250, 0.08) 0%, transparent 50%),
+    radial-gradient(circle at 90% 80%, rgba(0, 171, 216, 0.05) 0%, transparent 50%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* 剧集「上传剧本」首屏：与设计稿一致的渐变底 */
+.create-page--series-upload {
+  background: linear-gradient(172deg, #001731 0%, #121212 48%);
+  background-color: #121212;
+}
+
+/* 骨架屏样式 */
+.create-page .skeleton-title,
+.create-page .skeleton-subtitle,
+.create-page .skeleton-line,
+.create-page .skeleton-circle,
+.create-page .skeleton-btn,
+.create-page .skeleton-block,
+.create-page .skeleton-back,
+.create-page .skeleton-title-input,
+.create-page .skeleton-btn-toolbar {
+  position: relative;
+  overflow: hidden;
+  background-color: rgba(74, 231, 253, 0.12);
+}
+
+.create-page .skeleton-title {
+  width: 120px;
+  height: 18px;
+  border-radius: 999px;
+  margin-bottom: 0.5rem;
+}
+
+.create-page .skeleton-title-lg {
+  width: 160px;
+  height: 22px;
+}
+
+.create-page .skeleton-subtitle {
+  width: 80px;
+  height: 12px;
+  border-radius: 999px;
+}
+
+.create-page .skeleton-step {
+  cursor: default;
+}
+
+.create-page .skeleton-circle {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+}
+
+.create-page .skeleton-line {
+  height: 10px;
+  border-radius: 999px;
+  margin-bottom: 6px;
+}
+
+.create-page .skeleton-line-lg {
+  width: 70%;
+}
+
+.create-page .skeleton-line-sm {
+  width: 50%;
+}
+
+.create-page .skeleton-btn {
+  width: 80px;
+  height: 32px;
+  border-radius: 999px;
+}
+
+.create-page .skeleton-btn-primary {
+  width: 96px;
+}
+
+.create-page .skeleton-block {
+  width: 100%;
+  height: 100%;
+  min-height: 360px;
+  border-radius: var(--radius-xl);
+}
+
+/* 头部骨架：返回按钮、标题输入框、右侧按钮 */
+.create-page .skeleton-back {
+  width: 72px;
+  height: 40px;
+  border-radius: var(--radius-md);
+}
+
+.create-page .skeleton-title-input {
+  width: 300px;
+  height: 40px;
+  border-radius: var(--radius-md);
+}
+
+.create-page .skeleton-btn-toolbar {
+  width: 100px;
+  height: 40px;
+  border-radius: var(--radius-md);
+}
+
+.create-page .skeleton-btn-toolbar-primary {
+  width: 110px;
+}
+
+.create-page .skeleton-title::after,
+.create-page .skeleton-subtitle::after,
+.create-page .skeleton-line::after,
+.create-page .skeleton-circle::after,
+.create-page .skeleton-btn::after,
+.create-page .skeleton-block::after,
+.create-page .skeleton-back::after,
+.create-page .skeleton-title-input::after,
+.create-page .skeleton-btn-toolbar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.6) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  animation: skeleton-shimmer 1.4s infinite;
+}
+
+@keyframes skeleton-shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* 顶部工具栏 */
+.create-page .toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: sticky;
+  top: 0;
+  padding: 4px 14px 0;
+}
+
+.create-page .toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.create-page .toolbar-title-block {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.create-page .toolbar-title-input-wrap {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  max-width: min(50vw, 560px);
+  vertical-align: middle;
+}
+
+.create-page .toolbar-title-input-wrap .ant-input,
+.create-page .toolbar-title-input-wrap .ant-input-affix-wrapper {
+  width: 100%;
+  padding-inline: 0;
+}
+
+.create-page .title-input-measure {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: -1;
+  visibility: hidden;
+  white-space: pre;
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.5;
+  font-family: inherit;
+  pointer-events: none;
+}
+
+.create-page .toolbar-episode {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--home-muted, #8e97a5);
+  white-space: nowrap;
+}

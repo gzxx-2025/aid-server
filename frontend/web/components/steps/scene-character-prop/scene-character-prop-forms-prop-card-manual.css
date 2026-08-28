@@ -1,0 +1,228 @@
+/* Tailwind/PostCSS component styles for scene-character-prop-forms. */
+
+.create-step-scp .character-card-manual,
+.create-step-scp .prop-card-manual {
+  flex-shrink: 0;
+}
+
+/* 角色形态相关 */
+.create-step-scp .character-forms-list,
+.create-step-scp .prop-forms-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 0.75rem;
+}
+
+.create-step-scp .character-form-item {
+  padding-left: 12px;
+}
+.create-step-scp .prop-form-item {
+  padding-left: 12px;
+}
+.create-step-scp .character-form-header,
+.create-step-scp .prop-form-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: -4px;
+  gap: 1rem;
+  padding-left: 12px;
+}
+
+.create-step-scp .character-form-title-wrapper,
+.create-step-scp .prop-form-title-wrapper {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.create-step-scp .character-form-title-prefix,
+.create-step-scp .prop-form-title-prefix {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--home-text, #e6edf3);
+  white-space: nowrap;
+}
+
+.create-step-scp .character-form-title-editable,
+.create-step-scp .prop-form-title-editable {
+  font-size: 14px;
+  color: var(--home-text, #e6edf3);
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  transition: all 0.2s ease;
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.create-step-scp .character-form-title-editable:hover,
+.create-step-scp .prop-form-title-editable:hover {
+  background: rgba(14, 89, 250, 0.12);
+  color: var(--home-cyan, #4ae7fd);
+}
+
+.create-step-scp .form-name-input,
+.create-step-scp .prop-form-name-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.create-step-scp .character-form-voiceover {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-left: 24px;
+  min-height: 28px;
+}
+
+.create-step-scp .voiceover-label {
+  font-size: 14px;
+  line-height: 1;
+  color: var(--home-muted, #8e97a5);
+  white-space: nowrap;
+}
+
+/* 配音 / 试听：同一套尺寸，避免大/小分辨率下高度、内边距不一致 */
+.create-step-scp .voiceover-btn.ant-btn,
+.create-step-scp .voice-preview-btn.ant-btn {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  box-sizing: border-box;
+  height: 28px !important;
+  min-height: 28px !important;
+  padding: 0 12px !important;
+  font-size: 14px !important;
+  line-height: 1 !important;
+  color: var(--home-muted, #8e97a5) !important;
+  border: 1px solid #8e97a5 !important;
+  border-radius: 999px !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.create-step-scp .voiceover-btn.ant-btn:hover,
+.create-step-scp .voice-preview-btn.ant-btn:hover {
+  color: #4ae7fd !important;
+  border-color: rgba(74, 231, 253, 0.7) !important;
+}
+
+.create-step-scp .voiceover-btn .anticon {
+  font-size: 12px;
+  line-height: 1;
+}
+
+.create-step-scp .voice-preview-btn.is-playing {
+  color: #ffd089 !important;
+  border-color: rgba(255, 166, 77, 0.6) !important;
+  background: rgba(255, 166, 77, 0.12) !important;
+}
+
+.create-step-scp .voice-preview-eq {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 12px;
+}
+
+.create-step-scp .voice-preview-eq-bar {
+  width: 2px;
+  background: currentColor;
+  border-radius: 1px;
+  animation: voice-preview-eq 0.45s ease-in-out infinite alternate;
+}
+
+.create-step-scp .voice-preview-eq-bar-1 {
+  height: 6px;
+  animation-delay: 0s;
+}
+
+.create-step-scp .voice-preview-eq-bar-2 {
+  height: 11px;
+  animation-delay: 0.12s;
+}
+
+.create-step-scp .voice-preview-eq-bar-3 {
+  height: 8px;
+  animation-delay: 0.24s;
+}
+
+@keyframes voice-preview-eq {
+  0% {
+    transform: scaleY(0.35);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+.create-step-scp .voice-preview-audio {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.create-step-scp .character-form-content,
+.create-step-scp .prop-form-content {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+/* 场景主图区：与角色/道具「形态内容区」同一底衬与缩进，生成中/失败不再套虚线大框 */
+.create-step-scp .scene-image-form-content {
+  padding-left: 12px;
+  padding-right: 12px;
+  padding-bottom: 12px;
+  background: #080d14;
+}
+
+.create-step-scp .scene-image-form-content .asset-visual-generating-block {
+  margin: 12px 0 0 0;
+}
+
+.create-step-scp .scene-image-form-content > .character-form-generate-failed {
+  margin: 12px 0 0 0;
+}
+
+.create-step-scp .scene-image-form-content > .character-form-card.manual-generate-card {
+  margin: 12px 0 0 0;
+}
+
+.create-step-scp .form-images-list,
+.create-step-scp .character-form-images-list,
+.create-step-scp .prop-form-images-list {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+}
+
+.create-step-scp .form-image-card {
+  border: 1px solid rgba(74, 231, 253, 0.15);
+  border-radius: var(--radius-lg);
+  padding: 1rem;
+  background: rgba(12, 16, 24, 0.65);
+  flex-shrink: 0;
+}
+
+/* 手动添加后已有图片时，角色/道具形态卡片样式对齐自动卡片 */
+.create-step-scp .form-image-card.scene-card-auto {
+  padding: 0;
+  background: rgba(8, 13, 24, 0.92);
+  border-color: rgba(74, 231, 253, 0.34);
+  overflow: hidden;
+  flex-shrink: 0;
+}

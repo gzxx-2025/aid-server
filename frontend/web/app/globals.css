@@ -1,0 +1,12 @@
+@import 'tailwindcss';
+
+/* 全局字体：与原项目 app.vue `#app { font-family: PingFang SC }` 对齐 */
+body {
+  font-family:
+    'PingFang SC',
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    'Microsoft YaHei',
+    sans-serif;
+}

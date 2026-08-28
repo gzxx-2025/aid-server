@@ -1,8 +1,8 @@
 #!/bin/sh
 # AID_SOURCE_BUILD_MODE_CAPABILITY=explicit-v1
 # AID_BUILD_RESOURCE_CONTROL_CAPABILITY=governor-v1
-# AID 远程源码构建器：从同一版本标签拉取三端公开源码，在临时目录完成构建并组装本地安装包。
-# Gitee 三仓均可访问时优先使用 Gitee；任一不可用则整组回退到 GitHub，禁止混用来源。
+# AID 远程源码构建器：从统一公开仓的版本标签拉取服务端、后台管理端与 Web 源码，
+# 在临时目录完成构建并组装本地安装包。Gitee 不可用时整仓回退到 GitHub。
 
 set -eu
 
@@ -38,8 +38,6 @@ PAUSED_CPU_MILLI="${AID_BUILD_PAUSED_CPU_MILLI:-50}"
 GITHUB_BASE="https://github.com/gzxx-2025"
 GITEE_BASE="https://gitee.com/gzxx-2025"
 SERVER_REPO="aid-server"
-ADMIN_REPO="aid-admin"
-WEB_REPO="aid-web"
 GIT_IMAGE="${AID_GIT_IMAGE:-alpine/git:2.47.2}"
 MAVEN_IMAGE="${AID_MAVEN_IMAGE:-maven:3.9.9-eclipse-temurin-17}"
 NODE_IMAGE="${AID_NODE_IMAGE:-node:22.22.0-bookworm-slim}"
@@ -1794,28 +1792,25 @@ git_probe() {
 
 probe_forge() {
   base="$1"
-  for repo in "$SERVER_REPO" "$ADMIN_REPO" "$WEB_REPO"; do
-    git_probe "$base/$repo.git" >/dev/null || return 1
-  done
-  return 0
+  git_probe "$base/$SERVER_REPO.git" >/dev/null
 }
 
 select_forge() {
   case "$FORGE" in
     github)
-      probe_forge "$GITHUB_BASE" || die "GitHub 三端源码标签 $TAG 不完整或网络不可达"
+      probe_forge "$GITHUB_BASE" || die "GitHub 统一源码标签 $TAG 不完整或网络不可达"
       SOURCE_BASE="$GITHUB_BASE"; SOURCE_FORGE=github ;;
     gitee)
-      probe_forge "$GITEE_BASE" || die "Gitee 三端源码标签 $TAG 不完整或网络不可达"
+      probe_forge "$GITEE_BASE" || die "Gitee 统一源码标签 $TAG 不完整或网络不可达"
       SOURCE_BASE="$GITEE_BASE"; SOURCE_FORGE=gitee ;;
     auto)
-      log "检测 Gitee 三端源码标签 $TAG"
+      log "检测 Gitee 统一源码标签 $TAG"
       if probe_forge "$GITEE_BASE"; then
         SOURCE_BASE="$GITEE_BASE"; SOURCE_FORGE=gitee
         log 'Gitee 可用，使用 Gitee 主源'
       else
         warn 'Gitee 不可用或标签不完整，整组切换到 GitHub 备用源'
-        probe_forge "$GITHUB_BASE" || die "Gitee 与 GitHub 均无法提供完整的三端标签 $TAG"
+        probe_forge "$GITHUB_BASE" || die "Gitee 与 GitHub 均无法提供统一源码标签 $TAG"
         SOURCE_BASE="$GITHUB_BASE"; SOURCE_FORGE=github
         log 'GitHub 可用，使用 GitHub 备用源'
       fi ;;
@@ -1849,8 +1844,14 @@ clone_repo() {
 clone_release_set() {
   rm -rf -- "$WORK_DIR/repos/server" "$WORK_DIR/repos/admin" "$WORK_DIR/repos/web"
   clone_repo "$SERVER_REPO" "$WORK_DIR/repos/server" || return 1
-  clone_repo "$ADMIN_REPO" "$WORK_DIR/repos/admin" || return 1
-  clone_repo "$WEB_REPO" "$WORK_DIR/repos/web" || return 1
+  [ -f "$WORK_DIR/repos/server/frontend/admin/package.json" ] || {
+    warn '统一源码仓缺少 frontend/admin/package.json'
+    return 1
+  }
+  [ -f "$WORK_DIR/repos/server/frontend/web/package.json" ] || {
+    warn '统一源码仓缺少 frontend/web/package.json'
+    return 1
+  }
   return 0
 }
 
@@ -2400,28 +2401,28 @@ select_forge
 prepare_dependency_mirrors
 
 SERVER_DIR="$WORK_DIR/repos/server"
-ADMIN_DIR="$WORK_DIR/repos/admin"
-WEB_DIR="$WORK_DIR/repos/web"
+ADMIN_DIR="$SERVER_DIR/frontend/admin"
+WEB_DIR="$SERVER_DIR/frontend/web"
 STAGING_DIR="$WORK_DIR/staging"
 
-log "按版本标签拉取三端源码: $TAG"
+log "按版本标签拉取统一公开源码: $TAG"
 if ! clone_release_set; then
   if [ "$FORGE" = auto ] && [ "$SOURCE_FORGE" = gitee ]; then
-    warn 'Gitee 探测成功但拉取中断，清理未完成源码后整组重试 GitHub 备用源'
-    probe_forge "$GITHUB_BASE" || die "GitHub 三端源码标签 $TAG 不完整或网络不可达"
+    warn 'Gitee 探测成功但拉取中断，清理未完成源码后重试 GitHub 备用源'
+    probe_forge "$GITHUB_BASE" || die "GitHub 统一源码标签 $TAG 不完整或网络不可达"
     SOURCE_BASE="$GITHUB_BASE"
     SOURCE_FORGE=github
     prepare_dependency_mirrors
-    clone_release_set || die "从 GitHub 备用源拉取三端源码失败"
+    clone_release_set || die "从 GitHub 备用源拉取统一源码失败"
   elif [ "$FORGE" = auto ] && [ "$SOURCE_FORGE" = github ]; then
     warn 'GitHub 备用源探测成功但拉取中断，重新检查 Gitee 主源'
-    probe_forge "$GITEE_BASE" || die "Gitee 与 GitHub 均无法稳定提供三端源码标签 $TAG"
+    probe_forge "$GITEE_BASE" || die "Gitee 与 GitHub 均无法稳定提供统一源码标签 $TAG"
     SOURCE_BASE="$GITEE_BASE"
     SOURCE_FORGE=gitee
     prepare_dependency_mirrors
-    clone_release_set || die "从 Gitee 主源拉取三端源码失败"
+    clone_release_set || die "从 Gitee 主源拉取统一源码失败"
   else
-    die "从 $SOURCE_FORGE 拉取三端源码失败"
+    die "从 $SOURCE_FORGE 拉取统一源码失败"
   fi
 fi
 

@@ -1,0 +1,110 @@
+/* Tailwind/PostCSS component styles for edit-storyboard-image-modal. */
+
+
+.edit-storyboard-image-modal .card-image-top-actions .card-action-btn:hover {
+  background: rgba(74, 231, 253, 0.12) !important;
+  border-color: rgba(74, 231, 253, 0.5) !important;
+  color: #4ae7fd !important;
+}
+
+.edit-storyboard-image-modal .card-bottom-right .card-action-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(8, 12, 20, 0.75);
+  border: 1px solid rgba(78, 94, 122, 0.42);
+  color: rgba(225, 239, 255, 0.88);
+  transition: all 0.2s ease;
+}
+
+.edit-storyboard-image-modal .card-bottom-right .card-action-btn:hover {
+  background: rgba(74, 231, 253, 0.1);
+  border-color: rgba(74, 231, 253, 0.45);
+  color: #4ae7fd;
+}
+
+.edit-storyboard-image-modal .card-image-body {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.edit-storyboard-image-modal .card-main-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.edit-storyboard-image-modal .card-image-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  color: rgba(188, 205, 228, 0.45);
+}
+
+.edit-storyboard-image-modal .card-image-placeholder .anticon {
+  font-size: 3rem;
+}
+
+.edit-storyboard-image-modal .card-actions-bar {
+  width: 100%;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 0.5rem;
+  background: rgba(17, 22, 33, 0.95);
+  border-top: 1px solid rgba(128, 154, 188, 0.22);
+  flex-shrink: 0;
+}
+
+.edit-storyboard-image-modal .card-bottom-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+}
+
+.edit-storyboard-image-modal .card-bottom-left .ant-btn {
+  height: 28px;
+  font-size: 0.75rem;
+  padding: 0 0.75rem;
+}
+
+.edit-storyboard-image-modal .card-bottom-left .ant-btn-default {
+  background: rgba(8, 12, 20, 0.9) !important;
+  border: 1px solid rgba(78, 94, 122, 0.42) !important;
+  color: rgba(225, 239, 255, 0.88) !important;
+}
+
+.edit-storyboard-image-modal .card-bottom-left .ant-btn-primary {
+  background: linear-gradient(270deg, #2a6cfb 0%, #4ae7fd 100%) !important;
+  border: none !important;
+}
+
+.edit-storyboard-image-modal .image-card-header .ant-input {
+  background: rgba(8, 12, 20, 0.9) !important;
+  border: 1px solid rgba(78, 94, 122, 0.42) !important;
+  color: #d7e8ff !important;
+}
+
+.edit-storyboard-image-modal .card-bottom-right {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.edit-storyboard-image-modal .storyboard-stage-config .ql-editor.ql-blank::before {
+  color: #8e97a5 !important;
+  -webkit-text-fill-color: #8e97a5 !important;
+  opacity: 1 !important;
+}

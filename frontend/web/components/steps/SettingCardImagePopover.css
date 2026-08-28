@@ -1,0 +1,200 @@
+/* 原 SettingCardImagePopover.vue <style scoped>：类名与声明原样保留（setting-card-* 前缀已具名，无需额外作用域） */
+.setting-card-popover-root {
+  display: inline-flex;
+  vertical-align: middle;
+}
+
+.setting-card-popover-trigger {
+  display: inline-flex;
+}
+
+.setting-card-popover-trigger.is-disabled {
+  cursor: not-allowed;
+}
+
+.setting-card-panel {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgba(19, 23, 34, 0.98);
+  border: 1px solid rgba(74, 231, 253, 0.22);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
+  box-sizing: border-box;
+  max-height: min(420px, 62vh);
+  overflow: hidden;
+}
+
+.setting-card-panel.is-open-down {
+  border-top-left-radius: 10px;
+  border-top-right-radius: 10px;
+}
+
+.setting-card-panel.is-open-up {
+  border-bottom-left-radius: 10px;
+  border-bottom-right-radius: 10px;
+}
+
+.setting-card-alert {
+  flex-shrink: 0;
+  margin-bottom: 0;
+}
+
+.setting-card-scroll {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  margin: 0 -2px;
+  padding: 0 2px 2px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(120, 140, 170, 0.4) transparent;
+}
+
+.setting-card-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+
+.setting-card-scroll::-webkit-scrollbar-thumb {
+  background: rgba(120, 140, 170, 0.35);
+  border-radius: 4px;
+}
+
+.setting-card-section-label {
+  flex-shrink: 0;
+  margin: 6px 0 4px;
+  padding: 0 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #8e97a5;
+}
+
+.setting-card-section-label:first-of-type {
+  margin-top: 0;
+}
+
+.setting-card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.setting-card-empty {
+  padding: 12px 8px;
+  font-size: 13px;
+  color: #8e97a5;
+  text-align: center;
+}
+
+.setting-card-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 8px;
+  margin: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  color: #e8ecf4;
+  transition: background 0.15s ease;
+  box-sizing: border-box;
+}
+
+.setting-card-item:hover:not(:disabled) {
+  background: rgba(74, 231, 253, 0.08);
+}
+
+.setting-card-item:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.setting-card-thumb {
+  position: relative;
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #1a2233;
+}
+
+.setting-card-thumb--agent {
+  background: linear-gradient(135deg, #2a3550 0%, #3d4a68 100%);
+}
+
+.setting-card-thumb__shimmer {
+  width: 100%;
+  height: 100%;
+}
+
+.setting-card-thumb .setting-card-thumb__shimmer {
+  width: 100%;
+  height: 100%;
+}
+
+.setting-card-thumb__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.setting-card-thumb__letter {
+  line-height: 1;
+  font-weight: 600;
+}
+
+.setting-card-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.setting-card-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.setting-card-title {
+  color: #f1f5ff;
+}
+
+.setting-card-tag {
+  font-size: 12px;
+  font-weight: 500;
+  color: #a8b4c8;
+}
+
+.setting-card-desc {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #8e97a5;
+}
+
+.setting-card-fade-enter-active,
+.setting-card-fade-leave-active {
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.setting-card-fade-enter-from,
+.setting-card-fade-leave-to {
+  opacity: 0;
+  transform: translateY(4px);
+}
+
+.setting-card-panel.is-open-up.setting-card-fade-enter-from,
+.setting-card-panel.is-open-up.setting-card-fade-leave-to {
+  transform: translateY(-4px);
+}

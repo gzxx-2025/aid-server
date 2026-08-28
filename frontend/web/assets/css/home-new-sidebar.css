@@ -1,0 +1,249 @@
+/* 新版首页 / 创作流程页 共用左侧栏（大屏 80px；小分辨率见 home-new-compact-viewport.css 固定物理 px） */
+:root {
+  --home-new-sidebar-w: 80px;
+}
+
+.home-new-sidebar {
+  width: var(--home-new-sidebar-w);
+  align-self: stretch;
+  min-height: 0;
+  height: auto;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0 0 20px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.home-new-brand {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 10px;
+  text-decoration: none;
+  border: none;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.home-new-logo {
+  display: block;
+  width: 38px;
+  height: 38px;
+}
+
+.home-new-nav {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.home-new-nav-divider {
+  flex-shrink: 0;
+  width: 56px;
+  height: 1px;
+  margin: 12px 0 8px;
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.home-new-nav--secondary {
+  gap: 8px;
+}
+
+.home-new-nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 64px;
+  min-height: 56px;
+  padding: 8px 4px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  /* 文字默认灰；仅悬停 / 选中变白。图标保持白色见下方规则 */
+  color: var(--home-muted, #8e97a5);
+  font-size: 12px;
+  line-height: 1.2;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    color 0.2s ease,
+    background 0.2s ease;
+  margin-bottom: 4px;
+}
+
+.home-new-nav-item:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.home-new-nav-item.is-active {
+  color: #fff;
+  background: rgba(74, 231, 253, 0.1);
+}
+
+/* 导航图标保持白色（覆盖父级灰字 currentColor） */
+.home-new-nav-item .home-new-nav-ico,
+.home-new-nav-item .sidebar-nav-hover-icon {
+  color: #fff !important;
+}
+
+/* 导航图标 hover 动画：描边绘制 + 局部翻起 */
+@media (prefers-reduced-motion: no-preference) {
+  .home-new-nav-item:hover .sidebar-nav-hover-icon__draw-flap {
+    animation: home-nav-icon-flap 500ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .home-new-nav-item:hover .sidebar-nav-hover-icon__stroke,
+  .home-new-nav-item:hover .sidebar-nav-hover-icon__stroke-trace {
+    animation: home-nav-icon-draw 420ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .home-new-nav-item:hover .sidebar-nav-hover-icon__stroke-trace {
+    opacity: 1;
+  }
+
+  .home-new-nav-item:hover .sidebar-nav-hover-icon__stroke--body {
+    animation-delay: 80ms;
+  }
+}
+
+@keyframes home-nav-icon-flap {
+  0% {
+    transform: rotate(0deg) translateY(0);
+  }
+  40% {
+    transform: rotate(-14deg) translateY(-1px);
+  }
+  100% {
+    transform: rotate(0deg) translateY(0);
+  }
+}
+
+@keyframes home-nav-icon-draw {
+  0% {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+  }
+  100% {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 0;
+  }
+}
+
+.home-new-nav-ico {
+  display: block;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+}
+
+.home-new-nav-ico-img {
+  object-fit: contain;
+  opacity: 1;
+  /* 教程 / 开源等位图图标统一为白色 */
+  filter: brightness(0) invert(1);
+}
+
+.home-new-sidebar-spacer {
+  flex: 1 1 auto;
+  min-height: 16px;
+  width: 100%;
+}
+
+/* 积分 + 头像：固定在侧栏底部 */
+.home-new-sidebar-bottom {
+  margin-top: auto;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.home-new-user {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.home-new-points {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 64px;
+  min-height: 20px;
+}
+
+.home-new-points-ico {
+  display: block;
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  object-fit: contain;
+}
+
+.home-new-points-num {
+  font-size: 12px;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  color: #4ae7fd;
+  white-space: nowrap;
+}
+
+.home-new-user-btn {
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.home-new-avatar-frame {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  box-sizing: border-box;
+  border-radius: 10px;
+  transition: border-color 0.2s ease;
+}
+
+.home-new-user-btn:hover .home-new-avatar-frame {
+  border-color: rgba(74, 231, 253, 0.55);
+}
+
+.home-new-avatar-img {
+  display: block;
+  width: 30px;
+  height: 30px;
+  object-fit: contain;
+  border-radius: 50%;
+}
+
+.home-new-login {
+  width: 56px;
+  padding: 6px 4px;
+  border-radius: 8px;
+  border: 1px solid rgba(74, 231, 253, 0.35);
+  background: transparent;
+  color: #4ae7fd;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.home-new-login:hover {
+  color: #fff;
+  border-color: #4ae7fd;
+}

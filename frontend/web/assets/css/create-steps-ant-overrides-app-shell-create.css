@@ -1,0 +1,412 @@
+/* Tailwind/PostCSS component styles for create-steps-ant-overrides. */
+/* =============================================================================
+   深蓝青主题 Ant 覆盖（html.app-shell-create）
+   - 流程页：layouts/create.vue 为 html 添加 app-shell-create
+   - 首页壳（案例广场/我的作品/资产库）：layouts/home.vue 同步添加 app-shell-create，否则 Modal/Message 挂 body 仍为默认浅色
+   - 覆盖 main.css 中橙色 --accent-* / --gradient-accent
+   - 弹窗/下拉挂载到 body，须用 html 类选择器
+   ============================================================================= */
+
+html.app-shell-create {
+  /*
+   * 创作页中性色重映射：原 --gray-100/200 为浅灰，在深蓝底上会像「白线」。
+   * 改为低饱和蓝灰描边，与分镜脚本主界面（图二）一致。
+   */
+  --gray-100: rgba(104, 132, 168, 0.12);
+  --gray-200: rgba(96, 124, 158, 0.22);
+  /* 虚线占位框：略可见的青灰，勿用浅灰 */
+  --create-border-dashed: rgba(74, 168, 188, 0.38);
+  /* 表面分层：避免纯黑块过于突兀 */
+  --create-surface-modal: rgba(25, 26, 29, 1);
+  --create-surface-panel: rgba(18, 18, 18, 1);
+  --create-surface-canvas: rgba(30, 40, 58, 0.9);
+  --create-surface-input: rgba(28, 38, 54, 0.92);
+  --create-border-custom: rgba(18, 18, 18, 1);
+  /* 对齐首页：青色系替代全局橙色 accent */
+  --accent-50: rgba(74, 231, 253, 0.06);
+  --accent-100: rgba(74, 231, 253, 0.1);
+  --accent-200: rgba(74, 231, 253, 0.16);
+  --accent-300: rgba(74, 231, 253, 0.28);
+  --accent-400: rgba(74, 231, 253, 0.42);
+  --accent-500: #4ae7fd;
+  --accent-600: #00abd8;
+  --accent-700: #007ea8;
+  --accent-800: #005f7a;
+  --accent-900: #004052;
+  --gradient-primary: linear-gradient(270deg, #0e59fa 0%, #00abd8 100%);
+  --gradient-accent: linear-gradient(270deg, #2563eb 0%, #4ae7fd 100%);
+  --gradient-warm: linear-gradient(270deg, #0e59fa 0%, #00abd8 100%);
+  --gradient-warm-glow: linear-gradient(135deg, rgba(14, 89, 250, 0.2) 0%, rgba(0, 171, 216, 0.12) 100%);
+  --shadow-glow: 0 0 40px rgba(14, 89, 250, 0.22);
+  --shadow-warm: 0 8px 32px rgba(0, 171, 216, 0.18);
+}
+
+/* ---------- Ant Design：主按钮（覆盖 main.css 橙 hover） ---------- */
+html.app-shell-create .ant-btn-primary {
+  background: var(--home-grad, linear-gradient(270deg, #0e59fa 0%, #00abd8 100%)) ;
+  border: none !important;
+  color: #fff ;
+}
+
+/* 弹窗主操作按钮在 hover/focus 时保持无描边，避免 antd 状态切换短暂绘出单侧边框。 */
+html.app-shell-create .create-flow-modal .ant-btn-primary,
+html.app-shell-create .create-flow-modal .ant-btn-primary:hover,
+html.app-shell-create .create-flow-modal .ant-btn-primary:focus,
+html.app-shell-create .create-flow-modal .ant-btn-primary:active {
+  border: none !important;
+  box-shadow: none !important;
+}
+
+html.app-shell-create .create-flow-modal .ant-btn-primary:focus-visible {
+  outline: 2px solid rgba(52, 209, 255, 0.72);
+  outline-offset: 2px;
+}
+
+/* 四个编辑弹窗右侧主生成按钮：去掉 antd hover 白边，圆角统一 8px */
+html.app-shell-create .edit-scene-image-modal .generate-btn.ant-btn-primary,
+html.app-shell-create .edit-scene-image-modal .generate-btn.ant-btn-primary:hover,
+html.app-shell-create .edit-scene-image-modal .generate-btn.ant-btn-primary:focus,
+html.app-shell-create .edit-scene-image-modal .generate-btn.ant-btn-primary:active,
+html.app-shell-create .edit-scene-image-modal .dubbing-start-btn.ant-btn-primary,
+html.app-shell-create .edit-scene-image-modal .dubbing-start-btn.ant-btn-primary:hover,
+html.app-shell-create .edit-scene-image-modal .dubbing-start-btn.ant-btn-primary:focus,
+html.app-shell-create .edit-scene-image-modal .dubbing-start-btn.ant-btn-primary:active {
+  border: none !important;
+  outline: none !important;
+  border-radius: 8px !important;
+}
+
+/* html.app-shell-create .ant-btn-primary:hover,
+html.app-shell-create .ant-btn-primary:focus {
+  background: linear-gradient(270deg, #2a6cfb 0%, #4ae7fd 100%) !important;
+  color: #fff !important;
+  box-shadow: 0 8px 24px rgba(0, 171, 216, 0.35) !important;
+} */
+
+
+/* 空状态「自动提取」主按钮：仅鼠标聚焦时去掉套影（:focus:not(:focus-visible)），保留 Tab 键盘的 :focus-visible 环 */
+html.app-shell-create .scp-actions .ant-btn-primary:focus:not(:focus-visible) {
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+/* 「生成形态」：透明描边 + text-gradient，压过 primary hover 渐变实底 */
+html.app-shell-create .create-step-scp .scp-pending-form-card__gen-btn.ant-btn-primary,
+html.app-shell-create .create-step-scp .scp-pending-form-card__gen-btn.ant-btn-primary:not(:disabled):not(.ant-btn-disabled):hover,
+html.app-shell-create .create-step-scp .scp-pending-form-card__gen-btn.ant-btn-primary:not(:disabled):not(.ant-btn-disabled):focus,
+html.app-shell-create .create-step-scp .scp-pending-form-card__gen-btn.ant-btn-primary:not(:disabled):not(.ant-btn-disabled):active {
+  background: transparent !important;
+  border: 1px solid rgba(74, 231, 253, 0.3) !important;
+  box-shadow: none !important;
+  transform: none !important;
+  color: inherit !important;
+}
+
+html.app-shell-create .create-step-scp .scp-pending-form-card__gen-btn.ant-btn-primary:not(:disabled):not(.ant-btn-disabled):hover,
+html.app-shell-create .create-step-scp .scp-pending-form-card__gen-btn.ant-btn-primary:not(:disabled):not(.ant-btn-disabled):focus {
+  background: rgba(14, 89, 250, 0.12) !important;
+  border-color: rgba(74, 231, 253, 0.55) !important;
+}
+
+/* 「新增形态」：同款透明描边 + text-gradient，去掉 antd hover 白边，圆角 8px */
+html.app-shell-create .create-step-scp .character-add-form .ant-btn-primary,
+html.app-shell-create .create-step-scp .character-add-form .ant-btn-primary:not(:disabled):not(.ant-btn-disabled):hover,
+html.app-shell-create .create-step-scp .character-add-form .ant-btn-primary:not(:disabled):not(.ant-btn-disabled):focus,
+html.app-shell-create .create-step-scp .character-add-form .ant-btn-primary:not(:disabled):not(.ant-btn-disabled):active {
+  background: transparent !important;
+  border: 1px solid rgba(74, 231, 253, 0.3) !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+  outline: none !important;
+  transform: none !important;
+  color: inherit !important;
+}
+
+html.app-shell-create .create-step-scp .character-add-form .ant-btn-primary:not(:disabled):not(.ant-btn-disabled):hover,
+html.app-shell-create .create-step-scp .character-add-form .ant-btn-primary:not(:disabled):not(.ant-btn-disabled):focus {
+  background: rgba(14, 89, 250, 0.12) !important;
+  border-color: rgba(74, 231, 253, 0.55) !important;
+}
+
+html.app-shell-create .ant-btn-default {
+  background: var(--create-surface-panel, rgba(38, 50, 72, 0.92)) !important;
+  border-color: rgba(74, 231, 253, 0.3) !important;
+  color: #e6edf3 !important;
+}
+
+html.app-shell-create .ant-btn-default:hover {
+  border-color: rgba(74, 231, 253, 0.55) !important;
+  color: #4ae7fd !important;
+  background: rgba(14, 89, 250, 0.15) !important;
+}
+
+/*
+ * 「生成提示词」描边按钮：压过 antd default hover/focus 的浅色边与状态切换闪白。
+ * 编辑分镜图 / 分镜视频弹窗（modal-dark）共用 PromptScriptFileHeader。
+ */
+html.app-shell-create .prompt-script-file-header .generate-prompt-btn--outline.ant-btn,
+html.app-shell-create .prompt-script-file-header .generate-prompt-btn--outline.ant-btn:hover,
+html.app-shell-create .prompt-script-file-header .generate-prompt-btn--outline.ant-btn:focus,
+html.app-shell-create .prompt-script-file-header .generate-prompt-btn--outline.ant-btn:active,
+html.app-shell-create .prompt-script-file-header .generate-prompt-btn--outline.ant-btn:focus-visible,
+html.app-shell-create .ant-modal .prompt-script-file-header .generate-prompt-btn--outline.ant-btn,
+html.app-shell-create .ant-modal .prompt-script-file-header .generate-prompt-btn--outline.ant-btn:hover,
+html.app-shell-create .ant-modal .prompt-script-file-header .generate-prompt-btn--outline.ant-btn:focus,
+html.app-shell-create .ant-modal .prompt-script-file-header .generate-prompt-btn--outline.ant-btn:active {
+  background: transparent !important;
+  border: 1px solid rgba(74, 231, 253, 0.65) !important;
+  box-shadow: none !important;
+  outline: none !important;
+  color: #4ae7fd !important;
+  --ant-button-default-border-color: rgba(74, 231, 253, 0.65);
+  --ant-button-default-hover-border-color: rgba(74, 231, 253, 0.65);
+  --ant-button-default-active-border-color: rgba(74, 231, 253, 0.65);
+  --ant-color-border: rgba(74, 231, 253, 0.65);
+}
+
+html.app-shell-create .prompt-script-file-header .generate-prompt-btn--outline.ant-btn:hover,
+html.app-shell-create .prompt-script-file-header .generate-prompt-btn--outline.ant-btn:focus,
+html.app-shell-create .prompt-script-file-header .generate-prompt-btn--outline.ant-btn:active,
+html.app-shell-create .ant-modal .prompt-script-file-header .generate-prompt-btn--outline.ant-btn:hover,
+html.app-shell-create .ant-modal .prompt-script-file-header .generate-prompt-btn--outline.ant-btn:focus,
+html.app-shell-create .ant-modal .prompt-script-file-header .generate-prompt-btn--outline.ant-btn:active {
+  background: rgba(9, 13, 20, 0.9) !important;
+}
+
+/* panel / scene-modal：primary 描边按钮，压过 main-btn-accent 的 border transparent */
+html.app-shell-create .prompt-script-file-header .generate-prompt-btn:not(.generate-prompt-btn--outline).ant-btn-primary,
+html.app-shell-create .prompt-script-file-header .generate-prompt-btn:not(.generate-prompt-btn--outline).ant-btn-primary:hover,
+html.app-shell-create .prompt-script-file-header .generate-prompt-btn:not(.generate-prompt-btn--outline).ant-btn-primary:focus,
+html.app-shell-create .prompt-script-file-header .generate-prompt-btn:not(.generate-prompt-btn--outline).ant-btn-primary:active,
+html.app-shell-create .ant-modal .prompt-script-file-header .generate-prompt-btn:not(.generate-prompt-btn--outline).ant-btn-primary,
+html.app-shell-create .ant-modal .prompt-script-file-header .generate-prompt-btn:not(.generate-prompt-btn--outline).ant-btn-primary:hover,
+html.app-shell-create .ant-modal .prompt-script-file-header .generate-prompt-btn:not(.generate-prompt-btn--outline).ant-btn-primary:focus,
+html.app-shell-create .ant-modal .prompt-script-file-header .generate-prompt-btn:not(.generate-prompt-btn--outline).ant-btn-primary:active {
+  background: rgba(18, 18, 18, 1) !important;
+  border: 1px solid rgba(74, 231, 253, 0.3) !important;
+  box-shadow: none !important;
+  outline: none !important;
+  transform: none !important;
+  color: inherit !important;
+}
+
+html.app-shell-create .prompt-script-file-header .generate-prompt-btn:not(.generate-prompt-btn--outline).ant-btn-primary:hover,
+html.app-shell-create .prompt-script-file-header .generate-prompt-btn:not(.generate-prompt-btn--outline).ant-btn-primary:focus,
+html.app-shell-create .ant-modal .prompt-script-file-header .generate-prompt-btn:not(.generate-prompt-btn--outline).ant-btn-primary:hover,
+html.app-shell-create .ant-modal .prompt-script-file-header .generate-prompt-btn:not(.generate-prompt-btn--outline).ant-btn-primary:focus {
+  border-color: rgba(74, 231, 253, 0.55) !important;
+  background: rgba(14, 89, 250, 0.12) !important;
+}
+
+html.app-shell-create .ant-modal .prompt-script-file-header .generate-prompt-btn--outline .text-gradient {
+  -webkit-text-fill-color: transparent !important;
+  color: transparent !important;
+}
+
+html.app-shell-create .ant-btn-text:not(:disabled):hover {
+  color: #4ae7fd !important;
+  background: rgba(14, 89, 250, 0.12) !important;
+}
+
+html.app-shell-create .ant-btn-link {
+  color: #4ae7fd !important;
+}
+
+html.app-shell-create .ant-btn-link:hover {
+  color: #7ef0ff !important;
+}
+
+html.app-shell-create .ant-btn-dangerous.ant-btn-default:hover {
+  color: #ff7875 !important;
+  border-color: rgba(255, 77, 79, 0.45) !important;
+  background: rgba(40, 10, 10, 0.35) !important;
+}
+
+/* ---------- 输入框（覆盖 main 中橙色 focus 光晕） ---------- */
+html.app-shell-create .ant-input,
+html.app-shell-create .ant-input-affix-wrapper,
+html.app-shell-create .ant-input-textarea textarea {
+  background: none !important;
+  color: #e6edf3 !important;
+  border-color:transparent !important;
+}
+
+html.app-shell-create .ant-input::placeholder,
+html.app-shell-create .ant-input-textarea textarea::placeholder {
+  color: #8e97a5 !important;
+}
+
+html.app-shell-create .ant-input:hover:not(.ant-input-borderless),
+html.app-shell-create .ant-input-affix-wrapper:hover:not(.ant-input-affix-wrapper-borderless),
+html.app-shell-create .ant-input-textarea:hover textarea {
+  border-color: rgba(74, 231, 253, 0.45) !important;
+}
+
+/* 带边框输入：focus 描边 + 光晕（勿作用于 borderless，否则内联标题会出现「光标后一圈框」） */
+html.app-shell-create .ant-input:focus:not(.ant-input-borderless),
+html.app-shell-create .ant-input:focus-visible:not(.ant-input-borderless),
+html.app-shell-create .ant-input-affix-wrapper:focus:not(.ant-input-affix-wrapper-borderless),
+html.app-shell-create .ant-input-affix-wrapper:focus-visible:not(.ant-input-affix-wrapper-borderless),
+html.app-shell-create .ant-input-affix-wrapper-focused:not(.ant-input-affix-wrapper-borderless),
+html.app-shell-create .ant-input-textarea-focused textarea {
+  border-color: rgba(0, 171, 216, 0.65) !important;
+  box-shadow: 0 0 0 2px rgba(14, 89, 250, 0.2) !important;
+}
+
+/* 无边框输入（:bordered="false"）：全程不出现描边与 focus 环，与纯文字切换一致 */
+html.app-shell-create .ant-input-borderless:hover,
+html.app-shell-create .ant-input-affix-wrapper-borderless:hover {
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+html.app-shell-create .ant-input-borderless:focus,
+html.app-shell-create .ant-input-borderless:focus-visible,
+html.app-shell-create .ant-input-affix-wrapper-borderless:focus,
+html.app-shell-create .ant-input-affix-wrapper-borderless:focus-visible,
+html.app-shell-create .ant-input-affix-wrapper-borderless.ant-input-affix-wrapper-focused {
+  border-color: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+html.app-shell-create .ant-input-textarea-show-count::after,
+html.app-shell-create .ant-input-data-count {
+  color: #8e97a5 !important;
+}
+
+/* 卡片更多菜单：下拉挂载到 body，使用 overlay-class-name 精准覆盖 */
+ .ant-dropdown-menu{
+  background: rgba(17, 24, 39, 0.98) !important;
+  border: 1px solid rgba(74, 231, 253, 0.22) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45) !important;
+}
+
+ .ant-dropdown-menu-item {
+  color: rgba(225, 239, 255, 0.9) !important;
+  line-height: 36px;
+  height: 36px;
+}
+
+ .ant-dropdown-menu-item:hover,
+.ant-dropdown-menu-item-active,
+.ant-dropdown-menu-item-selected {
+  background: rgba(74, 231, 253, 0.12) !important;
+  color: #4ae7fd !important;
+}
+.ant-dropdown-menu-item:last-child{
+  color: #ff4d4f !important;
+
+}
+/* ---------- 选择器 / 级联 ---------- */
+html.app-shell-create .ant-select:not(.ant-select-disabled):hover .ant-select-selector {
+  border-color: rgba(74, 231, 253, 0.45) !important;
+}
+
+html.app-shell-create .ant-select-focused:not(.ant-select-disabled).ant-select:not(.ant-select-customize-input) .ant-select-selector {
+  border-color: rgba(0, 171, 216, 0.65) !important;
+  box-shadow: 0 0 0 2px rgba(14, 89, 250, 0.2) !important;
+}
+
+html.app-shell-create .ant-select .ant-select-selector {
+  /* background: var(--create-surface-input, rgba(28, 38, 54, 0.92)) !important; */
+  color: #e6edf3 !important;
+  border-color: rgba(74, 231, 253, 0.16) !important;
+}
+
+/* 生成配置 · 比例/清晰度：设计稿炭灰底 + 灰边，压过上面全局青边与 Select.selectorBg */
+html.app-shell-create .ant-modal-wrap.project-gen-config-modal-wrap .pgc-select--param.ant-select {
+  --ant-select-selector-bg: #121212;
+}
+
+html.app-shell-create .ant-modal-wrap.project-gen-config-modal-wrap .pgc-select--param.ant-select .ant-select-selector {
+  background: #1e2028 !important;
+  background-color: #1e2028 !important;
+  border-color: #30363d !important;
+  color: #c0c4cc !important;
+  box-shadow: none !important;
+}
+
+html.app-shell-create .ant-modal-wrap.project-gen-config-modal-wrap .pgc-select--param.ant-select:not(.ant-select-disabled):hover .ant-select-selector,
+html.app-shell-create .ant-modal-wrap.project-gen-config-modal-wrap .pgc-select--param.ant-select-focused:not(.ant-select-disabled).ant-select:not(.ant-select-customize-input) .ant-select-selector,
+html.app-shell-create .ant-modal-wrap.project-gen-config-modal-wrap .pgc-select--param.ant-select-open .ant-select-selector {
+  background: #1e2028 !important;
+  background-color: #1e2028 !important;
+  border-color: #4a5560 !important;
+  box-shadow: none !important;
+}
+
+html.app-shell-create .ant-modal-wrap.project-gen-config-modal-wrap .pgc-select--param .ant-select-selection-item,
+html.app-shell-create .ant-modal-wrap.project-gen-config-modal-wrap .pgc-select--param .ant-select-arrow {
+  color: #c0c4cc !important;
+}
+
+/* 批量生成分镜视频 · 底部清晰度/时长/音频 */
+html.app-shell-create .ant-modal-wrap.batch-generate-storyboard-wrap .bgsm-select.ant-select {
+  --ant-select-selector-bg: #0a0d12;
+  --ant-color-border: rgba(78, 94, 122, 0.42);
+}
+
+html.app-shell-create .ant-modal-wrap.batch-generate-storyboard-wrap .bgsm-select.ant-select .ant-select-selector {
+  background: #0a0d12 !important;
+  background-color: #0a0d12 !important;
+  border-color: rgba(78, 94, 122, 0.42) !important;
+  box-shadow: none !important;
+}
+
+html.app-shell-create .ant-modal-wrap.batch-generate-storyboard-wrap .bgsm-select.ant-select:not(.ant-select-disabled):hover .ant-select-selector,
+html.app-shell-create .ant-modal-wrap.batch-generate-storyboard-wrap .bgsm-select.ant-select-focused:not(.ant-select-disabled).ant-select:not(.ant-select-customize-input) .ant-select-selector,
+html.app-shell-create .ant-modal-wrap.batch-generate-storyboard-wrap .bgsm-select.ant-select-open .ant-select-selector {
+  background: #0a0d12 !important;
+  background-color: #0a0d12 !important;
+  border-color: rgba(120, 140, 170, 0.45) !important;
+  box-shadow: none !important;
+}
+
+html.app-shell-create .ant-modal-wrap.batch-generate-storyboard-wrap .bgsm-field--video-model .model-select-dropdown .selected-model {
+  background: #0a0d12 !important;
+  border: 1px solid rgba(78, 94, 122, 0.42) !important;
+  box-shadow: none !important;
+}
+
+html.app-shell-create .ant-select-dropdown {
+  background: var(--create-surface-panel, rgba(38, 50, 72, 0.98)) !important;
+  border: 1px solid rgba(74, 231, 253, 0.1) !important;
+}
+
+html.app-shell-create .ant-select-item {
+  color: #e6edf3 !important;
+}
+
+html.app-shell-create .ant-select-item-option-selected:not(.ant-select-item-option-disabled) {
+  background: rgba(14, 89, 250, 0.22) !important;
+  color: #4ae7fd !important;
+  font-weight: 600;
+}
+
+html.app-shell-create .ant-select-item-option-active:not(.ant-select-item-option-disabled) {
+  background: rgba(14, 89, 250, 0.12) !important;
+}
+
+html.app-shell-create .ant-cascader-dropdown .ant-cascader-menu {
+  background: rgba(18, 22, 30, 0.98) !important;
+  border-color: rgba(74, 231, 253, 0.12) !important;
+}
+
+html.app-shell-create .ant-cascader-menu-item:hover {
+  background: rgba(14, 89, 250, 0.12) !important;
+}
+
+/* ---------- Tabs / Radio / Checkbox / Switch ---------- */
+html.app-shell-create .ant-tabs-tab:hover {
+  color: #4ae7fd !important;
+}
+
+html.app-shell-create .ant-tabs-tab.ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: #4ae7fd !important;
+}
+
+html.app-shell-create .ant-tabs-ink-bar {
+  background: linear-gradient(270deg, #0e59fa 0%, #00abd8 100%) !important;
+}

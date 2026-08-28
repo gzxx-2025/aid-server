@@ -1,0 +1,233 @@
+/* Tailwind/PostCSS component styles for edit-scene-image-stage. */
+/* 原 EditSceneImageModal.vue 伴随 scoped 样式 第 3/3 部分：Figma 三栏布局、画布 meta、响应式 */
+/* Figma 三栏弹窗布局重构 */
+.figma-stage-layout {
+  display: grid;
+  grid-template-columns: 144px minmax(0, 1fr) 398px;
+  grid-template-rows: minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+  background: #0b0f17;
+}
+
+.figma-stage-layout > * {
+  min-height: 0;
+}
+
+.stage-history-panel,
+.stage-config-panel {
+  border: 1px solid rgba(128, 154, 188, 0.26);
+  background: rgba(25, 26, 29, 1);
+}
+
+.stage-history-panel {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 7px;
+  height: 100%;
+  min-height: 0;
+  overflow: visible;
+  box-sizing: border-box;
+}
+
+/* 通用类名（panel-title / history-list / history-item）以共享 wrap 根类 .edit-scene-image-modal
+   前缀还原原 scoped 隔离：四个全屏编辑弹窗均带该 wrap 类不受影响，
+   防止泄漏到 SceneSettingModal / MultiAngleCameraModal / 剧本历史抽屉等外部同名类。 */
+.edit-scene-image-modal .panel-title {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: rgba(225, 239, 255, 0.7);
+  flex-shrink: 0;
+}
+
+.edit-scene-image-modal .history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  overflow-x: visible;
+  min-height: 0;
+  flex: 1;
+  /* 与 EditStoryboardVideoModal 一致：20px 左右 padding 会在 144px 栏宽下撑出横向滚动条 */
+  padding: 0 12px 10px;
+  scrollbar-gutter: stable;
+}
+
+.edit-scene-image-modal .history-item {
+  width: 88px;
+  height: 88px;
+  flex: 0 0 88px;
+  padding: 0;
+  border-radius: 8px;
+  border: 2px solid rgba(120, 140, 170, 0.3);
+  overflow: hidden;
+  background: rgba(18, 24, 36, 0.92);
+  cursor: pointer;
+  position: relative;
+}
+
+.edit-scene-image-modal .history-item.active {
+  border-color: rgba(74, 231, 253, 1);
+  box-shadow: 0 0 0 2px rgba(74, 231, 253, 0.18);
+}
+
+.history-item__task-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 14, 22, 0.78);
+  backdrop-filter: blur(2px);
+}
+
+.history-item--generating {
+  border-color: rgba(74, 231, 253, 0.45);
+}
+
+.history-generating-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 14, 22, 0.82);
+  backdrop-filter: blur(3px);
+}
+
+.history-generating-mask__icon {
+  font-size: 16px;
+  color: #4ae7fd;
+}
+
+.history-delete-icon {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 5;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.history-delete-icon img {
+  width: 30px !important;
+  height: 30px !important;
+  max-width: none !important;
+  max-height: none !important;
+  display: block;
+}
+
+.history-item .shimmer-image,
+.history-item .history-item__image,
+.history-empty {
+  width: 100%;
+  height: 100%;
+}
+
+.history-item .history-item__image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.history-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(225, 239, 255, 0.55);
+  font-size: 12px;
+}
+
+.stage-history-panel .history-actions {
+  margin-top: auto;
+  padding: 0 0.25rem;
+  display: grid;
+  gap: 0.375rem;
+  flex-shrink: 0;
+  background: rgba(25, 26, 29, 1);
+}
+
+.stage-history-panel .history-actions .ant-btn {
+  width: 100%;
+  min-width: 0;
+  height: 1.75rem;
+  padding: 0 0.375rem;
+  font-size: 0.75rem;
+  line-height: 1;
+  overflow: visible;
+  border: 1px dashed rgba(74, 231, 253, 0.3);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.125rem;
+}
+
+.stage-history-panel .history-actions .ant-btn > .ant-btn-icon {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  margin-inline-end: 0 !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+  overflow: visible;
+}
+
+.stage-history-panel .history-actions .ant-btn .anticon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.stage-history-panel .history-actions .ant-btn .anticon svg {
+  display: block;
+  width: 14px;
+  height: 14px;
+}
+
+.stage-history-panel .history-actions .ant-btn > span:not(.ant-btn-icon) {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  margin-inline-start: 0 !important;
+}
+
+.stage-history-panel .history-actions .ant-btn .ellipsis-tooltip-text {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+}
+
+.stage-canvas-panel {
+  min-width: 0;
+  border: 1px solid rgba(128, 154, 188, 0.22);
+  background:
+    radial-gradient(circle at 1px 1px, rgba(74, 231, 253, 0.1) 1px, transparent 0),
+    #07090d;
+  background-size: 14px 14px, auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+}
+
+.canvas-content-stack {
+  width: 562px;
+  max-width: 100%;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 56px;
+}

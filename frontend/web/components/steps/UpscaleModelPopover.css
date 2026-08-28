@@ -1,0 +1,189 @@
+/* 原 UpscaleModelPopover.vue <style scoped>：类名与声明原样保留（upscale-model-* 前缀已具名，无需额外作用域） */
+.upscale-model-popover-root {
+  display: inline-flex;
+  vertical-align: middle;
+}
+
+.upscale-model-popover-trigger {
+  display: inline-flex;
+}
+
+.upscale-model-popover-trigger.is-disabled {
+  cursor: not-allowed;
+}
+
+.upscale-model-panel {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgba(19, 23, 34, 0.98);
+  border: 1px solid rgba(74, 231, 253, 0.22);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
+  box-sizing: border-box;
+  max-height: min(420px, 62vh);
+  overflow: hidden;
+}
+
+.upscale-model-panel.is-open-down {
+  border-top-left-radius: 10px;
+  border-top-right-radius: 10px;
+}
+
+.upscale-model-panel.is-open-up {
+  border-bottom-left-radius: 10px;
+  border-bottom-right-radius: 10px;
+}
+.upscale-model-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  margin: 0 -2px;
+  padding: 0 2px 2px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(120, 140, 170, 0.4) transparent;
+}
+
+.upscale-model-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.upscale-model-list::-webkit-scrollbar-thumb {
+  background: rgba(120, 140, 170, 0.35);
+  border-radius: 4px;
+}
+
+.upscale-model-empty {
+  padding: 12px 8px;
+  font-size: 13px;
+  color: #8e97a5;
+  text-align: center;
+}
+
+/* 悬停/聚焦项的价格详情置于列表外，选项 button 高度保持不变。 */
+.upscale-model-billing-preview {
+  flex: 0 0 auto;
+  display: grid;
+  gap: 5px;
+  margin: 8px 0 0;
+  padding: 8px;
+  border-top: 1px solid rgba(74, 231, 253, 0.14);
+  min-width: 0;
+}
+
+.upscale-model-billing-preview__name {
+  overflow: hidden;
+  color: rgba(232, 236, 244, 0.9);
+  font-size: 12px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upscale-model-billing-preview .model-billing-rules {
+  margin-top: 0;
+}
+
+.upscale-model-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 8px;
+  margin: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  color: #e8ecf4;
+  transition: background 0.15s ease;
+  box-sizing: border-box;
+}
+
+.upscale-model-item:hover:not(:disabled) {
+  background: rgba(74, 231, 253, 0.08);
+}
+
+.upscale-model-item:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.upscale-model-thumb {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 14px;
+  background: rgba(6, 10, 18, 0.55);
+  font-weight: 600;
+}
+
+.upscale-model-thumb__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.upscale-model-thumb__letter {
+  line-height: 1;
+}
+
+.upscale-model-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.upscale-model-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.upscale-model-title {
+  color: #f1f5ff;
+}
+
+.upscale-model-tag {
+  font-size: 12px;
+  font-weight: 500;
+  color: #4ae7fd;
+}
+
+.upscale-model-desc {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #8e97a5;
+}
+
+.upscale-model-fade-enter-active,
+.upscale-model-fade-leave-active {
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
+}
+
+.upscale-model-fade-enter-from,
+.upscale-model-fade-leave-to {
+  opacity: 0;
+  transform: translateY(4px);
+}
+
+.upscale-model-panel.is-open-up.upscale-model-fade-enter-from,
+.upscale-model-panel.is-open-up.upscale-model-fade-leave-to {
+  transform: translateY(-4px);
+}

@@ -1,0 +1,252 @@
+/* Tailwind/PostCSS component styles for ImportSceneImageModal. */
+/* 原 scoped 样式：统一挂在 .import-scene-image-modal-wrap 下，避免 import-tab 等通用类名全局串扰 */
+/* 与 BatchRegenerateDubbingModal .brdm 同高 */
+.import-scene-image-modal-wrap .import-scene-shell {
+  color: #e6edf3;
+  height: 698px;
+  max-height: calc(100vh - 80px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #191a1d;
+}
+
+.import-scene-image-modal-wrap .import-scene-header {
+  position: relative;
+  flex-shrink: 0;
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 48px 8px 16px;
+}
+
+.import-scene-image-modal-wrap .import-scene-close {
+  position: absolute;
+  top: 50%;
+  right: 16px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.75);
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.import-scene-image-modal-wrap .import-scene-close:hover {
+  color: #4ae7fd;
+}
+
+.import-scene-image-modal-wrap .import-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0 16px;
+  background: #191a1d;
+}
+
+.import-scene-image-modal-wrap .import-subtitle {
+  margin: 0 0 1rem;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: #8e97a5;
+  text-align: center;
+}
+
+/* Tab 条：Figma #202434 底条 + 选中青底 */
+.import-scene-image-modal-wrap .import-tab-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 40px;
+  padding: 6px 0.75rem;
+  margin-bottom: 12px;
+  border-radius: 8px;
+  background: #202434;
+  flex-shrink: 0;
+}
+
+.import-scene-image-modal-wrap .import-tab-bar__inner {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.import-scene-image-modal-wrap .import-tab {
+  position: relative;
+  margin: 0;
+  padding: 0.35rem 1.1rem;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  background: transparent;
+  color: #ffffff;
+  transition:
+    color 0.2s ease,
+    background 0.2s ease;
+}
+
+.import-scene-image-modal-wrap .import-tab:hover {
+  color: #e6edf3;
+}
+.import-scene-image-modal-wrap .import-tab-bar .import-tab-bar__inner {
+  background: rgba(41, 75, 93,1);
+  border-radius: 8px;
+}
+.import-scene-image-modal-wrap .import-tab-bar .import-tab-bar__inner .import-tab--active {
+  background: #4ae7fd;
+  color: #121212 !important;
+}
+
+.import-scene-image-modal-wrap .import-tab-bar__count {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: #8e97a5;
+  font-family: 'PingFang SC', system-ui, sans-serif;
+}
+
+.import-scene-image-modal-wrap .import-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  border-radius: 8px;
+}
+
+.import-scene-image-modal-wrap .import-scenes-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  padding: 0.25rem 0 0.5rem;
+}
+
+@media (max-width: 900px) {
+  .import-scene-image-modal-wrap .import-scenes-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .import-scene-image-modal-wrap .import-scenes-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.import-scene-image-modal-wrap .import-scene-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  aspect-ratio: 328 / 154;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  background: #111621;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.import-scene-image-modal-wrap .import-scene-card:hover {
+  border-color: rgba(74, 231, 253, 0.45);
+  box-shadow: 0 0 0 1px rgba(74, 231, 253, 0.15);
+}
+
+.import-scene-image-modal-wrap .import-scene-card--selected {
+  border: 2px solid #4ae7fd;
+  box-shadow:
+    0 0 0 1px rgba(74, 231, 253, 0.25),
+    0 8px 24px rgba(0, 163, 255, 0.12);
+}
+
+.import-scene-image-modal-wrap .import-scene-card__thumb {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  overflow: hidden;
+  background: #111621;
+}
+
+.import-scene-image-modal-wrap .import-scene-card__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.import-scene-image-modal-wrap .import-scene-card__placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(142, 151, 165, 0.6);
+  font-size: 2rem;
+}
+
+.import-scene-image-modal-wrap .import-scene-card__label {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-height: 34px;
+  padding: 0.45rem 0.5rem;
+  background: rgba(18,18,18,.7);
+}
+
+.import-scene-image-modal-wrap .import-scene-card__select {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 4;
+  display: flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.import-scene-image-modal-wrap .import-scene-card__select img {
+  display: block;
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+}
+
+.import-scene-image-modal-wrap .import-scene-card__select:focus-visible {
+  border-radius: 4px;
+  outline: 2px solid #4ae7fd;
+  outline-offset: 1px;
+}
+
+.import-scene-image-modal-wrap .import-scene-card__name {
+  font-size: 14px;
+  line-height: 1.43;
+  color: #ffffff;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}

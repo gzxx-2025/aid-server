@@ -1,0 +1,211 @@
+.saim-voice-tab {
+  --create-ref-audio-bg: var(--accent-100, rgba(74, 231, 253, 0.1));
+  --create-ref-audio-border: var(--accent-400, rgba(74, 231, 253, 0.42));
+  --create-ref-audio-text: var(--accent-500, #4ae7fd);
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.saim-voice-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex: 1 1 auto;
+  min-height: 280px;
+  color: var(--home-muted, #8e97a5);
+}
+
+.saim-voice-empty__text {
+  margin: 0;
+  font-size: 13px;
+}
+
+.saim-voice-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  align-content: start;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 2px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(120, 140, 170, 0.45) transparent;
+}
+
+.saim-voice-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.saim-voice-list::-webkit-scrollbar-thumb {
+  background: rgba(120, 140, 170, 0.45);
+  border-radius: 4px;
+}
+
+.saim-voice-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: rgba(13, 17, 23, 0.95);
+  border: 1px solid rgba(96, 124, 158, 0.15);
+  border-radius: 8px;
+  min-height: 64px;
+}
+
+.saim-voice-card.is-selected {
+  border-color: var(--create-ref-audio-border);
+  background: var(--create-ref-audio-bg);
+}
+
+.saim-voice-card__avatar-wrap {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.saim-voice-card__avatar-wrap .saim-voice-card__shimmer {
+  width: 100%;
+  height: 100%;
+}
+
+.saim-voice-card__avatar-wrap .saim-voice-card__avatar {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  border-radius: 50%;
+}
+
+.saim-voice-card__avatar-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  background: rgba(0, 0, 0, 0.45);
+  opacity: 0;
+  transition: opacity 0.2s;
+  pointer-events: none;
+}
+
+.saim-voice-card__avatar-wrap:hover .saim-voice-card__avatar-mask,
+.saim-voice-card__avatar-wrap.is-audio-playing .saim-voice-card__avatar-mask,
+.saim-voice-card:hover .saim-voice-card__avatar-mask {
+  opacity: 1;
+}
+
+.saim-voice-card__play-inner {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s;
+  pointer-events: none;
+}
+
+.saim-voice-card__play-icon {
+  display: block;
+  width: 24px;
+  height: 24px;
+}
+
+.saim-voice-card__avatar-wrap:hover .saim-voice-card__play-inner,
+.saim-voice-card__avatar-wrap.is-audio-playing .saim-voice-card__play-inner,
+.saim-voice-card:hover .saim-voice-card__play-inner {
+  opacity: 1;
+}
+
+.saim-voice-card__pause {
+  opacity: 1 !important;
+}
+
+.saim-voice-card__eq {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 16px;
+}
+
+.saim-eq-bar {
+  width: 3px;
+  background: var(--create-ref-audio-text, #4ae7fd);
+  border-radius: 2px;
+  transform-origin: center bottom;
+  animation: saim-voice-eq 0.45s ease-in-out infinite alternate;
+}
+
+.saim-eq-bar-1 {
+  height: 8px;
+  animation-delay: 0s;
+}
+
+.saim-eq-bar-2 {
+  height: 16px;
+  animation-delay: 0.12s;
+}
+
+.saim-eq-bar-3 {
+  height: 11px;
+  animation-delay: 0.24s;
+}
+
+@keyframes saim-voice-eq {
+  0% {
+    transform: scaleY(0.35);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+.saim-voice-card__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.saim-voice-card__name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #f1f5f9;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.saim-voice-card__tags {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--home-muted, #8e97a5);
+}
+
+.saim-voice-card__select-btn {
+  flex-shrink: 0;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(96, 124, 158, 0.35);
+  background: rgba(10, 13, 18, 0.9);
+  color: #e6edf3;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.saim-voice-card__select-btn.is-active,
+.saim-voice-card__select-btn:hover {
+  border-color: var(--create-ref-audio-border);
+  color: var(--create-ref-audio-text);
+}

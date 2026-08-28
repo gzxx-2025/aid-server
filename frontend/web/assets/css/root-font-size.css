@@ -1,0 +1,28 @@
+/**
+ * 根字号档位 — 与 postcss-pxtorem（rootValue: 16）配合
+ *
+ * 大屏：html 16px → 1rem = 16px
+ * 小屏：压低根字号，rem 同比缩小（创作流程各步骤、弹窗等依赖此档位）
+ *
+ * 【不压根字号】
+ *   - layout-home-new：首页 / 作品 / 资产 由 --hn-c-* 控制
+ *   - app-shell-login：登录页用设计框 zoom 等比缩放，根字号必须恒 16，避免 rem+zoom 双缩
+ *
+ * 其它壳小屏仍用 14px。
+ */
+
+html {
+  font-size: 16px;
+}
+
+@media (max-width: 1600px) and (max-height: 900px) {
+  html:not([data-viewport-compact-scale='1']):not(.layout-home-new):not(.app-shell-login) {
+    font-size: 14px;
+  }
+}
+
+@media (max-width: 1600px) and (max-height: 768px) {
+  html:not([data-viewport-compact-scale='1']):not(.layout-home-new):not(.app-shell-login) {
+    font-size: 14px;
+  }
+}

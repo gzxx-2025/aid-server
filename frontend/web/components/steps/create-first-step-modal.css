@@ -1,0 +1,137 @@
+/*
+ * CreateFirstStepModal 伴随样式：由原 components/steps/CreateFirstStepModal.vue <style scoped> 平移。
+ * scoped 等价处理：原 :global() 规则原样保留；组件内规则加 .create-first-step-wrap（弹窗 wrap）前缀，
+ * :deep() 展开为普通后代选择器。
+ */
+
+.create-first-step-wrap .ant-modal-content {
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+
+.create-first-step-wrap .ant-modal-container {
+  padding: 0 !important;
+}
+
+.create-first-step-wrap .ant-modal-body {
+  padding: 0 !important;
+}
+
+.create-first-step-wrap .modal-shell {
+  position: relative;
+  width: 1100px;
+  height: 698px;
+  max-height: calc(100dvh - 80px);
+  background: #191a1d;
+  border-radius: 8px;
+  color: #fff;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.create-first-step-wrap .close-btn {
+  position: absolute;
+  top: 22px;
+  right: 24px;
+  border: none;
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+  z-index: 2;
+  font-size: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+}
+
+.create-first-step-wrap .close-btn.is-disabled {
+  opacity: 0.45;
+  pointer-events: none;
+  cursor: not-allowed;
+}
+
+.create-first-step-wrap .modal-title {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 16px 16px 0;
+  height: 54px;
+  box-sizing: border-box;
+  line-height: 54px;
+  flex-shrink: 0;
+}
+
+.create-first-step-wrap .modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 16px 21px 0;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.create-first-step-wrap .modal-body .create-first-step-form {
+  height: 100%;
+  min-height: 0;
+}
+
+.create-first-step-wrap .modal-body .left-panel,
+.create-first-step-wrap .modal-body .right-panel {
+  height: 100%;
+  border-color: rgba(74, 231, 253, 0.3);
+  background: #111621;
+  border-radius: 8px;
+}
+
+.create-first-step-wrap .modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 24px;
+  flex-shrink: 0;
+  background: #191a1d;
+}
+
+.create-first-step-wrap .btn {
+  height: 40px;
+  border-radius: 10px;
+  padding: 0 24px;
+  border: 1px solid rgba(74, 231, 253, 0.3);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 22px;
+}
+
+.create-first-step-wrap .btn-secondary {
+  background: #121212;
+  color: #fff;
+}
+
+.create-first-step-wrap .btn-secondary.is-disabled {
+  opacity: 0.45;
+  pointer-events: none;
+  cursor: not-allowed;
+}
+
+.create-first-step-wrap .btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: linear-gradient(270deg, #0e59fa 0%, #00abd8 100%);
+  color: #fff;
+  border: none;
+}
+
+.create-first-step-wrap .btn-primary:disabled {
+  opacity: 0.85;
+  cursor: not-allowed;
+}
+
+.create-first-step-wrap .btn-loading-icon {
+  font-size: 16px;
+}

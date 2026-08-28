@@ -1,0 +1,224 @@
+/* Tailwind/PostCSS component styles for dubbing. */
+/* Dubbing 步骤伴随样式（原 Dubbing.vue \3c style scoped> 平移）：
+   通用类名（storyboard-* 等）统一加 .dubbing-step 根前缀，防止与其他步骤同名 scoped 样式串扰 */
+
+.dubbing-step {
+  width: 100%;
+}
+
+/* 关键：空态撑满，有列表可滚动 */
+.dubbing-step .storyboard-step-shell {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.dubbing-step .storyboard-empty-content,
+.dubbing-step .storyboard-generating-view {
+  flex: 1;
+  min-height: 0;
+}
+
+.dubbing-step .storyboard-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.dubbing-step .storyboard-generating-view {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem;
+}
+
+.dubbing-step .storyboard-generating-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  text-align: center;
+}
+
+.dubbing-step .storyboard-generating-center-icon {
+  width: 200px;
+  max-width: 42vw;
+  height: auto;
+}
+
+.dubbing-step .storyboard-generating-center-title {
+  color: var(--home-text, #e6edf3);
+  font-size: 15px;
+  line-height: 1.5;
+  font-weight: 500;
+}
+
+.dubbing-step .storyboard-generating-center-progress {
+  color: var(--home-muted, #8e97a5);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.dubbing-step .dubbing-empty-desc {
+  margin: 0;
+  font-size: 13px;
+  color: #8e97a5;
+  text-align: center;
+  max-width: 22rem;
+  line-height: 1.5;
+}
+
+.dubbing-step .storyboard-drag-handle {
+  cursor: grab;
+}
+
+.dubbing-step .storyboard-list--dragging .storyboard-drag-handle {
+  cursor: grabbing;
+}
+
+.dubbing-step .storyboard-list-item--ghost {
+  opacity: 0.45;
+}
+
+.dubbing-step .storyboard-list-item--chosen {
+  border-color: rgba(74, 231, 253, 0.45);
+}
+
+.dubbing-step .storyboard-list-item--fallback,
+.storyboard-list-item--fallback {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.dubbing-step .dubbing-edit-btn-loading,
+.dubbing-card-menu-overlay .dubbing-edit-btn-loading {
+  margin-right: 6px;
+  font-size: 14px;
+}
+
+.dubbing-step .dubbing-list-body--compact {
+  display: grid;
+  grid-template-columns: 1fr 4fr;
+  gap: 0.75rem;
+  align-items: stretch;
+  height: 100%;
+  min-height: 0;
+  padding: 0.75rem;
+  box-sizing: border-box;
+}
+
+.dubbing-step .dubbing-video-block {
+  min-width: 0;
+}
+
+.dubbing-step .storyboard-block-title {
+  font-size: 0.82rem;
+  color: var(--home-muted, #8e97a5);
+  margin-bottom: 0.35rem;
+  font-weight: 600;
+}
+
+.dubbing-step .dubbing-video-area {
+  position: relative;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: rgba(6, 10, 18, 0.55);
+}
+
+/* 列表：与视频生成步骤预览区同高 200px */
+.dubbing-step .dubbing-video-area--list {
+  height: 200px;
+  min-height: 200px;
+  max-height: 200px;
+  border: 1px dashed rgba(74, 231, 253, 0.3);
+}
+
+.dubbing-step .dubbing-video-area.is-generating {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dubbing-step .dubbing-video-generating {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--accent-600);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.dubbing-step .dubbing-video-generating-icon {
+  font-size: 28px;
+}
+
+.dubbing-step .dubbing-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dubbing-step .dubbing-skeleton-line {
+  height: 12px;
+  border-radius: 4px;
+  background: linear-gradient(
+    90deg,
+    rgba(74, 231, 253, 0.12) 25%,
+    rgba(74, 231, 253, 0.22) 50%,
+    rgba(74, 231, 253, 0.12) 75%
+  );
+  background-size: 200% 100%;
+  animation: dubbing-skeleton-shine 1.2s ease-in-out infinite;
+}
+
+.dubbing-step .dubbing-skeleton-line--lg {
+  width: 100%;
+}
+
+.dubbing-step .dubbing-skeleton-line--md {
+  width: 75%;
+}
+
+.dubbing-step .dubbing-skeleton-line--sm {
+  width: 50%;
+}
+
+.dubbing-step .dubbing-skeleton--card .dubbing-skeleton-line--lg {
+  width: 100%;
+}
+
+/* 注：原项目未定义 @keyframes dubbing-skeleton-shine（动画名悬空、不生效），
+   为保持视觉 1:1 此处同样不补定义 */
+
+.dubbing-step .dubbing-video-area.has-video .dubbing-video-shimmer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.dubbing-step .dubbing-video-area.has-video .dubbing-video-preview {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.dubbing-step .dubbing-card-video-title {
+  margin-bottom: 0.35rem;
+}
+
+.dubbing-step .dubbing-video-placeholder--list {
+  width: 100%;
+  height: 100%;
+  min-height: 200px;
+  background: transparent;
+}
+
+/* 原 <Transition name="dubbing-mask-fade"> + v-show 的 React 替代：
+   默认隐藏（不可点），--visible 时 0.3s 淡入，与原 dubbing-mask-fade 过渡一致 */

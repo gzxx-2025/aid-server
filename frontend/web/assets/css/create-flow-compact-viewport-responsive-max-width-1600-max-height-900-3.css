@@ -1,0 +1,230 @@
+/* Tailwind/PostCSS component styles for create-flow-compact-viewport. */
+
+@media (max-width: 1600px) and (max-height: 900px) {
+
+  html.app-shell-create .batch-generate-storyboard-wrap .bgsm-subtitle {
+    font-size: 11px !important;
+  }
+
+  /* 场景/分镜设定 / 灵感空间 / 导入场景：小分辨率与 brdm 同高（100dvh - 80px） */
+  html.app-shell-create .scene-setting-modal-wrap .setting-modal-shell,
+  html.app-shell-create .storyboard-script-modal-wrap .setting-modal-shell,
+  html.app-shell-create .storyboard-param-settings-modal-wrap .spsm-inner,
+  html.app-shell-create .import-scene-image-modal-wrap .import-scene-shell,
+  html.app-shell-create .import-script-modal-wrap .import-script-modal-shell,
+  html.app-shell-create .import-asset-preview-modal-wrap .import-asset-preview-modal-shell,
+  html.app-shell-create .select-scene-image-modal-wrap .select-scene-shell,
+  html.app-shell-create .batch-regenerate-dubbing-wrap .brdm,
+  html.app-shell-create .multi-angle-modal-wrap .ma-shell,
+  html.app-shell-create .batch-generate-storyboard-wrap .bgsm,
+  html.app-shell-create .select-asset-image-modal-wrap .saim-inner,
+  html.app-shell-create .batch-generate-asset-wrap .bgam {
+    height: min(698px, calc(100dvh - 80px)) !important;
+    max-height: min(698px, calc(100dvh - 80px)) !important;
+  }
+
+  html.app-shell-create .scene-setting-modal-wrap .setting-modal-header,
+  html.app-shell-create .storyboard-script-modal-wrap .setting-modal-header,
+  html.app-shell-create .storyboard-param-settings-modal-wrap .spsm-header,
+  html.app-shell-create .import-scene-image-modal-wrap .import-scene-header,
+  html.app-shell-create .import-script-modal-wrap .modal-header,
+  html.app-shell-create .import-asset-preview-modal-wrap .import-asset-preview-modal-header,
+  html.app-shell-create .select-scene-image-modal-wrap .modal-header {
+    min-height: var(--cf-c-modal-header-h) !important;
+  }
+
+  html.app-shell-create .agent-picker-modal .picker-grid {
+    min-height: 0 !important;
+  }
+
+  html.app-shell-create .batch-generate-asset-wrap .bgam-body,
+  html.app-shell-create .batch-generate-storyboard-wrap .bgsm-body,
+  html.app-shell-create .select-asset-image-modal-wrap .saim-main-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  html.app-shell-create .batch-generate-asset-wrap .bgam-header {
+    height: var(--cf-c-modal-header-h) !important;
+  }
+
+  html.app-shell-create .batch-generate-asset-wrap .bgam-title {
+    font-size: 18px !important;
+  }
+
+  html.app-shell-create .batch-generate-asset-wrap .bgam-card {
+    height: 140px !important;
+  }
+
+  /* ---------- 中大型内容弹窗：中间区 flex 撑满，内部滚动 ---------- */
+  html.app-shell-create .scene-setting-modal-wrap .modal-content,
+  html.app-shell-create .storyboard-script-modal-wrap .modal-content,
+  html.app-shell-create .import-scene-image-modal-wrap .import-body,
+  html.app-shell-create .import-asset-preview-modal-wrap .import-asset-preview-modal-content,
+  html.app-shell-create .select-scene-image-modal-wrap .select-scene-body {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ---------- 多机位弹窗：与批量配音 brdm 同高，左右布局 flex 撑满 ---------- */
+  html.app-shell-create .multi-angle-modal-wrap.ant-modal,
+  html.app-shell-create .multi-angle-modal.ant-modal {
+    width: var(--cf-c-modal-w-lg) !important;
+    max-width: var(--cf-c-modal-w-lg) !important;
+  }
+
+  html.app-shell-create .multi-angle-modal-wrap .ant-modal-content,
+  html.app-shell-create .multi-angle-modal .ant-modal-content {
+    height: auto !important;
+    max-height: calc(100dvh - var(--cf-c-modal-edge) * 2) !important;
+    display: flex !important;
+    flex-direction: column !important;
+  }
+
+  html.app-shell-create .multi-angle-modal-wrap .ma-shell,
+  html.app-shell-create .multi-angle-modal .ma-shell {
+    height: min(698px, calc(100dvh - 80px)) !important;
+    max-height: min(698px, calc(100dvh - 80px)) !important;
+  }
+
+  html.app-shell-create .multi-angle-modal-wrap .ant-modal-body,
+  html.app-shell-create .multi-angle-modal .ant-modal-body {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+  }
+
+  html.app-shell-create .multi-angle-modal-wrap .multi-angle-layout,
+  html.app-shell-create .multi-angle-modal .multi-angle-layout {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    overflow: hidden;
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: stretch;
+    gap: var(--cf-c-modal-gap);
+    margin-bottom: var(--cf-c-modal-gap);
+  }
+
+  html.app-shell-create .multi-angle-modal-wrap .viewport-panel,
+  html.app-shell-create .multi-angle-modal .viewport-panel {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  html.app-shell-create .multi-angle-modal-wrap .three-canvas-stage,
+  html.app-shell-create .multi-angle-modal .three-canvas-stage {
+    flex: 1 1 auto;
+    min-height: 360px;
+    width: 100%;
+  }
+
+  html.app-shell-create .multi-angle-modal-wrap .control-panel,
+  html.app-shell-create .multi-angle-modal .control-panel {
+    flex: 0 0 auto;
+    width: min(280px, 34%);
+    min-width: 210px;
+    padding: 8px 14px 14px;
+  }
+
+  html.app-shell-create .multi-angle-modal-wrap .footer-actions,
+  html.app-shell-create .multi-angle-modal .footer-actions {
+    flex-shrink: 0;
+  }
+
+  html.app-shell-create .multi-angle-modal-wrap .import-btn-dashed.ant-btn,
+  html.app-shell-create .multi-angle-modal .import-btn-dashed.ant-btn {
+    height: 40px !important;
+    min-height: 40px !important;
+    line-height: 1 !important;
+    padding: 0 12px !important;
+    overflow: visible !important;
+  }
+
+  html.app-shell-create .multi-angle-modal-wrap .import-btn-dashed .ant-btn-icon,
+  html.app-shell-create .multi-angle-modal-wrap .import-btn-dashed .anticon,
+  html.app-shell-create .multi-angle-modal .import-btn-dashed .ant-btn-icon,
+  html.app-shell-create .multi-angle-modal .import-btn-dashed .anticon {
+    line-height: 0 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+  }
+
+  html.app-shell-create .import-script-modal-wrap .import-container {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    min-width: 0 !important;
+    overflow: hidden !important;
+    display: flex !important;
+    flex-direction: row !important;
+  }
+
+  html.app-shell-create .import-script-modal-wrap .main-content,
+  html.app-shell-create .import-script-modal-wrap .content-area {
+    min-width: 0 !important;
+    overflow: hidden !important;
+  }
+
+  html.app-shell-create .scene-setting-modal-wrap .toolbar,
+  html.app-shell-create .storyboard-script-modal-wrap .toolbar,
+  html.app-shell-create .scene-setting-modal-wrap .setting-warm-tip,
+  html.app-shell-create .import-scene-image-modal-wrap .import-tab-bar,
+  html.app-shell-create .select-scene-image-modal-wrap .header-tabs {
+    flex-shrink: 0;
+  }
+
+  html.app-shell-create .select-asset-image-modal-wrap .saim-preview {
+    min-height: 0 !important;
+  }
+
+  html.app-shell-create .select-scene-image-modal-wrap .import-container {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+    display: flex !important;
+    flex-direction: column !important;
+  }
+
+  html.app-shell-create .select-scene-image-modal-wrap .content-area {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    overflow-y: auto !important;
+  }
+
+  /* ---------- 选择场景/角色/道具（SelectAssetImageModal）：与批量生成分镜图同高，内容区 flex 滚动 ---------- */
+  html.app-shell-create .select-asset-image-modal-wrap .saim-body-shell {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+    display: flex !important;
+    flex-direction: column !important;
+  }
+
+  html.app-shell-create .select-asset-image-modal-wrap .saim-content-row {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+  }
+
+  html.app-shell-create .select-asset-image-modal-wrap .saim-sidebar {
+    min-height: 0 !important;
+    overflow: hidden !important;
+    display: flex !important;
+    flex-direction: column !important;
+  }
+
+  html.app-shell-create .select-asset-image-modal-wrap .saim-sidebar-scroll {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    overflow-y: auto !important;
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+  }
+}

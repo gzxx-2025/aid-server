@@ -1,0 +1,226 @@
+/* Tailwind/PostCSS component styles for storyboard-script. */
+/* StoryboardScript 步骤伴随样式（原 StoryboardScript.vue \3c style scoped> 平移）：
+   通用类名（storyboard-* 等）统一加 .create-step-storyboard-script 根前缀，防止与其他步骤同名 scoped 样式串扰 */
+
+.create-step-storyboard-script {
+  width: 100%;
+}
+
+.create-step-storyboard-script .storyboard-toolbar .storyboard-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+/* 关键：空态撑满，有列表可滚动 */
+.create-step-storyboard-script .storyboard-step-shell {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.create-step-storyboard-script .storyboard-empty-content,
+.create-step-storyboard-script .storyboard-generating-view,
+.create-step-storyboard-script .storyboard-error-view {
+  flex: 1;
+  min-height: 0;
+}
+
+.create-step-storyboard-script .storyboard-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.create-step-storyboard-script .storyboard-generating-view {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem;
+}
+
+.create-step-storyboard-script .storyboard-generating-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  text-align: center;
+}
+
+.create-step-storyboard-script .storyboard-generating-center-icon {
+  width: 200px;
+  max-width: 42vw;
+  height: auto;
+}
+
+.create-step-storyboard-script .storyboard-generating-center-title {
+  color: var(--home-text, #e6edf3);
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  font-weight: 500;
+}
+
+.create-step-storyboard-script .storyboard-generating-center-progress {
+  color: var(--home-muted, #8e97a5);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+.create-step-storyboard-script .storyboard-error-view {
+  flex: 1;
+  padding: 1rem;
+  background: var(--red-50);
+  border: 1px solid var(--red-200);
+  border-radius: var(--radius-lg);
+}
+
+.create-step-storyboard-script .storyboard-partial-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  background: rgba(251, 191, 36, 0.08);
+  border-radius: 8px;
+}
+
+.create-step-storyboard-script .storyboard-partial-banner__text {
+  flex: 1;
+  color: #fbbf24;
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
+.create-step-storyboard-script .storyboard-resume-btn {
+  flex-shrink: 0;
+}
+
+.create-step-storyboard-script .storyboard-error-text {
+  color: var(--red-700);
+  font-size: 0.9rem;
+}
+
+.create-step-storyboard-script .storyboard-failed-list {
+  margin-top: 0.85rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 0.65rem;
+}
+
+.create-step-storyboard-script .storyboard-failed-list--inline {
+  margin-top: 0;
+  margin-bottom: 0.85rem;
+}
+
+.create-step-storyboard-script .storyboard-failed-item {
+  border: 1px solid rgba(255, 82, 97, 0.35);
+  background: rgba(255, 82, 97, 0.08);
+  border-radius: 8px;
+  padding: 0.65rem 0.75rem;
+}
+
+.create-step-storyboard-script .storyboard-failed-item__title {
+  font-size: 0.9rem;
+  color: var(--home-text, #e6edf3);
+  font-weight: 600;
+}
+
+.create-step-storyboard-script .storyboard-failed-item__desc {
+  margin-top: 0.25rem;
+  font-size: 0.8rem;
+  color: #ff7a84;
+}
+
+/* 空状态样式见 assets/css/storyboard-step-shared.css */
+
+/* 卡片视图布局见 assets/css/storyboard-step-shared.css */
+
+/* 部分失败提示区：占满卡片网格整行，避免与 .storyboard-card 同列并排 */
+.create-step-storyboard-script .storyboard-cards-status {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: 100%;
+  padding-top: 0.25rem;
+}
+
+.create-step-storyboard-script .storyboard-cards-status .storyboard-partial-banner {
+  margin-bottom: 0;
+}
+
+.create-step-storyboard-script .storyboard-failed-list--card {
+  margin: 0;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+
+@media (max-width: 640px) {
+  .create-step-storyboard-script .storyboard-cards-status .storyboard-partial-banner {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .create-step-storyboard-script .storyboard-cards-status .storyboard-resume-btn {
+    align-self: flex-start;
+  }
+}
+
+.create-step-storyboard-script .storyboard-card-title-text {
+  font-size: inherit;
+  line-height: inherit;
+  font-weight: inherit;
+  color: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.create-step-storyboard-script .storyboard-card-more {
+  color: var(--home-muted, #8e97a5);
+  flex-shrink: 0;
+}
+
+.create-step-storyboard-script .storyboard-card-more:hover {
+  color: var(--home-cyan, #4ae7fd);
+}
+
+.create-step-storyboard-script .storyboard-block-title {
+  font-size: 12px;
+  color: var(--home-muted, #8e97a5);
+  margin-bottom: 0.45rem;
+  font-weight: 600;
+}
+
+.create-step-storyboard-script .storyboard-block-card {
+  border: 1px dashed rgba(74, 231, 253, 0.28);
+  border-radius: 8px;
+  padding: 0.75rem;
+  display: flex;
+  gap: 4px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--home-muted, #8e97a5);
+  background: transparent;
+  cursor: pointer;
+}
+
+.create-step-storyboard-script .storyboard-list .storyboard-block-card {
+  height: var(--storyboard-list-media-height, 200px);
+}
+
+.create-step-storyboard-script .storyboard-block-card.has-image {
+  padding: 0;
+  border-style: solid;
+  border-color: rgba(74, 231, 253, 0.12);
+  cursor: default;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}

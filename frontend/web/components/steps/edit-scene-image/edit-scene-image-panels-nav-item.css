@@ -1,0 +1,229 @@
+/* Tailwind/PostCSS component styles for edit-scene-image-panels. */
+
+
+.nav-item {
+  width: 100%;
+  aspect-ratio: 1;
+  border: 2px solid var(--gray-200);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  overflow: hidden;
+  transition: all 0.2s ease;
+}
+
+.nav-item.active {
+  border-color: var(--accent-500);
+  box-shadow: var(--shadow-warm);
+}
+
+.nav-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.nav-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  font-size: 0.75rem;
+  color: var(--gray-500);
+  background: rgba(6, 10, 18, 0.55);
+  border-radius: var(--radius-md);
+}
+
+.main-content-area {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.5rem;
+}
+
+.empty-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--gray-500);
+}
+
+.images-container {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.image-card {
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+  background: var(--create-surface-panel);
+  transition: all 0.2s ease;
+}
+
+.image-card.active {
+  border-color: var(--accent-500);
+  box-shadow: 0 0 0 3px var(--accent-100);
+}
+
+.image-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.image-header-left {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.image-title {
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius-md);
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.image-title:hover {
+  background: rgba(6, 10, 18, 0.55);
+}
+
+.image-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.75rem;
+  color: var(--gray-500);
+}
+
+.image-source {
+  padding: 0.125rem 0.5rem;
+  background: rgba(6, 10, 18, 0.55);
+  border-radius: var(--radius-sm);
+  color: var(--gray-600);
+}
+
+.image-date {
+  color: var(--gray-500);
+}
+
+.image-card-body {
+  margin-bottom: 1rem;
+}
+
+.main-image {
+  width: 100%;
+  max-height: 400px;
+  object-fit: contain;
+  border-radius: var(--radius-md);
+}
+
+/* 四宫格图样式 */
+.four-grid-images {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.5rem;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.grid-image-item {
+  position: relative;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+}
+
+.grid-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.angle-label {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.7), transparent);
+  color: white;
+  padding: 0.5rem;
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+.image-placeholder {
+  aspect-ratio: 16 / 9;
+  border: 2px dashed var(--create-border-dashed);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  color: var(--gray-400);
+}
+
+.image-placeholder .anticon {
+  font-size: 3rem;
+}
+
+.image-card-footer {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.image-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.image-card-actions-right {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.bottom-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.5rem;
+  border-top: 1px solid var(--gray-200);
+  background: var(--create-surface-panel);
+  flex-shrink: 0;
+}
+
+.bottom-right-actions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.dialogue-content {
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.dialogue-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}

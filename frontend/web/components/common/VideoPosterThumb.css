@@ -1,0 +1,10 @@
+/* 原 scoped :deep 后代选择器：内部 shimmer 容器铺满缩略图 */
+.video-poster-thumb .shimmer-image,
+.video-poster-thumb .shimmer-video {
+  width: 100%;
+  height: 100%;
+}
+
+.video-poster-thumb__empty {
+  background: rgba(6, 10, 18, 0.55);
+}

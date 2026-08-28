@@ -1,0 +1,44 @@
+@import '@/assets/styles/variables.less';
+
+.project-workspace {
+  &__header-card {
+    margin-bottom: 16px;
+
+    &.ant-card .ant-card-body {
+      padding: 18px;
+    }
+  }
+
+  &__avatar {
+    background: #6366f1;
+  }
+
+  &__title {
+    font-size: 18px;
+    font-weight: 700;
+  }
+
+  &__body {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+  }
+
+  &__nav {
+    width: 200px;
+    flex-shrink: 0;
+
+    &.ant-card .ant-card-body {
+      padding: 8px;
+    }
+
+    .ant-menu {
+      border-inline-end: none;
+    }
+  }
+
+  &__content {
+    flex: 1;
+    min-width: 0;
+  }
+}

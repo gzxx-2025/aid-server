@@ -1,0 +1,118 @@
+/* Tailwind/PostCSS component styles for BatchGenerateAssetModal. */
+
+
+.batch-generate-asset-wrap .bgam-card-meta {
+  padding: 8px;
+  background: #0f1118;
+}
+
+.batch-generate-asset-wrap .bgam-card-name {
+  font-size: 16px;
+  color: #fff;
+  line-height: 22px;
+  margin-bottom: 4px;
+}
+
+.batch-generate-asset-wrap .bgam-footer {
+  flex-shrink: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  padding-top: 16px;
+}
+
+.batch-generate-asset-wrap .bgam-config {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  gap: 10px;
+  min-width: 0;
+}
+
+.batch-generate-asset-wrap .bgam-field {
+  min-width: 0;
+}
+
+.batch-generate-asset-wrap .bgam-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: #8e97a5;
+}
+
+.batch-generate-asset-wrap .bgam-select {
+  width: 100%;
+}
+
+.batch-generate-asset-wrap .bgam-select .ant-select-selector {
+  height: 36px !important;
+  border-radius: 4px !important;
+  background: #0d1018 !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: none !important;
+}
+
+.batch-generate-asset-wrap .bgam-select .ant-select-selection-item,
+.batch-generate-asset-wrap .bgam-select.ant-select-open .ant-select-selection-item {
+  line-height: 34px !important;
+  color: #e6edf3 !important;
+}
+
+.batch-generate-asset-wrap .bgam-select .ant-select-selection-placeholder {
+  line-height: 34px !important;
+  color: #8e97a5 !important;
+}
+
+.batch-generate-asset-wrap .bgam-select .ant-select-arrow {
+  color: rgba(255, 255, 255, 0.45) !important;
+}
+
+.batch-generate-asset-wrap .bgam-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.batch-generate-asset-wrap .bgam-btn-cancel {
+  width: 96px;
+  height: 40px;
+  border-radius: 6px !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  background: #0d1018 !important;
+  color: #fff !important;
+}
+
+.batch-generate-asset-wrap .bgam-btn-ok {
+  width: 120px;
+  height: 40px;
+  border-radius: 6px !important;
+  border: none !important;
+  background: linear-gradient(270deg, #0e59fa 0%, #00abd8 100%) !important;
+}
+
+.batch-generate-asset-wrap .bgam-btn-ok:hover,
+.batch-generate-asset-wrap .bgam-btn-ok:focus,
+.batch-generate-asset-wrap .bgam-btn-ok:active {
+  background: linear-gradient(270deg, #0e59fa 0%, #00abd8 100%) !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* 原 BatchGenerateAssetModal.vue 非 scoped \3c style>：下拉弹层全局样式，选择器原样 */
+.bgam-select-popup.ant-select-dropdown {
+  background: #111621 !important;
+  border: 1px solid rgba(74, 231, 253, 0.28) !important;
+}
+
+.bgam-select-popup .ant-select-item {
+  color: #e6edf3 !important;
+}
+
+.bgam-select-popup .ant-select-item-option-selected:not(.ant-select-item-option-disabled) {
+  background: rgba(74, 231, 253, 0.2) !important;
+  color: #4ae7fd !important;
+}
+
+.bgam-select-popup .ant-select-item-option-active:not(.ant-select-item-option-disabled) {
+  background: rgba(74, 231, 253, 0.12) !important;
+}

@@ -1,0 +1,281 @@
+/* 与首页深蓝青主题一致（创作页右侧主内容区） */
+.story-script {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 600px;
+  background: transparent;
+  color: #e6edf3;
+}
+
+.story-script .content-header {
+  margin-bottom: 1.5rem;
+}
+
+.story-script .step-description-text {
+  color: #8e97a5;
+  font-size: 1rem;
+  line-height: 1.6;
+  margin: 0;
+  font-weight: 500;
+}
+
+.story-script .toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.story-script .toolbar-left {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.story-script .toolbar-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 4px 10px;
+  border: 1px solid #2f3949;
+  border-radius: var(--radius-m);
+  background: none;
+  color: #e6edf3;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 0.875rem;
+}
+
+.story-script .toolbar-btn:hover:not(:disabled) {
+  border-color: rgba(74, 231, 253, 0.55);
+  color: #4ae7fd;
+  /* background: rgba(14, 89, 250, 0.18); */
+}
+
+.story-script .toolbar-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* 有正文时：撤销/重做/复制/清空 的图标为主色（仅图标，不影响右侧导入/历史按钮） */
+.story-script .toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.story-script-save-status {
+  font-size: 12px;
+  color: #8e97a5;
+  white-space: nowrap;
+}
+
+.story-script-save-status.is-dirty,
+.story-script-save-status.is-saving {
+  color: #f4bf4f;
+}
+
+.story-script-save-status.is-error,
+.story-script-save-status.is-conflict {
+  color: #ff7875;
+}
+
+.story-script-save-status.is-saved {
+  color: #63d9a5;
+}
+
+.story-script .toolbar-right .import-btn,
+.story-script .toolbar-right .history-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #2f3949 !important;
+  background: transparent !important;
+  font-size: 14px;
+}
+
+.story-script .editor-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 500px;
+  width: 100%;
+  overflow: visible;
+}
+
+.story-script .script-editor {
+  width: 100%;
+  font-size: 1rem;
+  line-height: 1.8;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+}
+
+.story-script .script-editor .ql-container {
+  min-height: 500px;
+  font-size: 1rem;
+  border: none !important;
+}
+
+.story-script .script-editor .ql-editor {
+  min-height: 82vh;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  line-height: 1.8;
+  padding: 1rem;
+  font-size: 14px;
+}
+
+/* 剧本空态使用次级文字色；同时覆盖公共编辑器强制设置的 WebKit 白色填充。 */
+.story-script .script-editor .ql-editor.ql-blank::before {
+  color: rgba(142, 151, 165, 0.55) !important;
+  -webkit-text-fill-color: rgba(142, 151, 165, 0.55) !important;
+}
+
+/* 历史版本抽屉标题插槽 */
+.history-drawer .drawer-title,
+.create-theme-drawer .drawer-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #fff;
+}
+
+.create-theme-drawer .empty-history {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4rem 2rem;
+  text-align: center;
+}
+
+.create-theme-drawer .empty-icon {
+  font-size: 4rem;
+  color: rgba(74, 231, 253, 0.25);
+  margin-bottom: 1rem;
+}
+
+.create-theme-drawer .empty-history p {
+  color: #8e97a5;
+  font-size: 1rem;
+}
+
+.create-theme-drawer .history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.create-theme-drawer .history-loading {
+  display: flex;
+  justify-content: center;
+  padding: 4rem 0;
+}
+
+.create-theme-drawer .history-item {
+  padding: 1rem;
+  border: 1px solid rgba(74, 231, 253, 0.15);
+  border-radius: var(--radius-lg);
+  background: rgba(12, 16, 24, 0.65);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.create-theme-drawer .history-item:hover {
+  border-color: rgba(74, 231, 253, 0.4);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+}
+
+.create-theme-drawer .history-item.active {
+  border-color: rgba(0, 171, 216, 0.55);
+  background: rgba(14, 89, 250, 0.2);
+}
+
+.create-theme-drawer .history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.create-theme-drawer .history-title {
+  font-weight: 600;
+  color: #fff;
+  font-size: 0.9375rem;
+}
+
+.create-theme-drawer .history-time {
+  font-size: 0.8125rem;
+  color: #8e97a5;
+}
+
+.create-theme-drawer .history-preview {
+  font-size: 0.875rem;
+  color: #c9d1d9;
+  line-height: 1.6;
+  margin-bottom: 0.75rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.create-theme-drawer .history-full-content {
+  max-height: 320px;
+  margin: 0 0 0.75rem;
+  padding: 0.75rem;
+  overflow: auto;
+  border-radius: var(--radius-m);
+  background: rgba(2, 8, 17, 0.72);
+  color: #dce4ec;
+  font-family: inherit;
+  font-size: 0.8125rem;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.create-theme-drawer .history-actions {
+  display: flex;
+  gap: 0.5rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(74, 231, 253, 0.1);
+}
+
+.create-theme-drawer .history-readonly {
+  padding: 4px 8px;
+  color: #8e97a5;
+  font-size: 0.8125rem;
+}
+
+.create-theme-drawer .history-load-more {
+  width: 100%;
+  border-color: rgba(74, 231, 253, 0.2);
+  background: transparent;
+}
+
+@media (max-width: 768px) {
+  .story-script .toolbar {
+    flex-direction: column;
+    gap: 1rem;
+    align-items: stretch;
+  }
+
+  .story-script .toolbar-left {
+    flex-wrap: wrap;
+  }
+
+  .story-script .toolbar-right {
+    flex-direction: column;
+  }
+
+  .story-script .import-btn,
+  .story-script .history-btn {
+    width: 100%;
+    justify-content: center;
+  }
+}

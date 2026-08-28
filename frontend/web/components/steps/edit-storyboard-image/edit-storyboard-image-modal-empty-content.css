@@ -1,0 +1,228 @@
+/* Tailwind/PostCSS component styles for edit-storyboard-image-modal. */
+
+
+.edit-storyboard-image-modal .empty-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: rgba(188, 205, 228, 0.55);
+  font-size: 14px;
+}
+
+.edit-storyboard-image-modal .images-container {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.edit-storyboard-image-modal .image-card {
+  border: 1px solid rgba(128, 154, 188, 0.26);
+  border-radius: 12px;
+  padding: 1.5rem;
+  background: rgba(25, 26, 29, 0.95);
+  transition: all 0.2s ease;
+}
+
+.edit-storyboard-image-modal .image-card.active {
+  border-color: #4ae7fd;
+  box-shadow: 0 0 0 2px rgba(74, 231, 253, 0.2), 0 10px 24px rgba(4, 11, 23, 0.45);
+}
+
+.edit-storyboard-image-modal .image-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.edit-storyboard-image-modal .image-header-left {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.edit-storyboard-image-modal .image-title {
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius-md);
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: rgba(225, 239, 255, 0.95);
+}
+
+.edit-storyboard-image-modal .image-title:hover {
+  background: rgba(74, 231, 253, 0.1);
+}
+
+.edit-storyboard-image-modal .image-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.75rem;
+  color: rgba(188, 205, 228, 0.65);
+}
+
+.edit-storyboard-image-modal .image-source {
+  padding: 0.125rem 0.5rem;
+  background: rgba(8, 12, 20, 0.9);
+  border-radius: var(--radius-sm);
+  color: rgba(188, 205, 228, 0.8);
+}
+
+.edit-storyboard-image-modal .image-date {
+  color: rgba(188, 205, 228, 0.55);
+}
+
+.edit-storyboard-image-modal .image-card-body {
+  margin-bottom: 1rem;
+}
+
+.edit-storyboard-image-modal .main-image {
+  width: 100%;
+  max-height: 400px;
+  object-fit: contain;
+  border-radius: var(--radius-md);
+}
+
+/* 四宫格图样式 */
+.edit-storyboard-image-modal .four-grid-images {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.5rem;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.edit-storyboard-image-modal .grid-image-item {
+  position: relative;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+}
+
+.edit-storyboard-image-modal .grid-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.edit-storyboard-image-modal .angle-label {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.7), transparent);
+  color: white;
+  padding: 0.5rem;
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+.edit-storyboard-image-modal .image-placeholder {
+  aspect-ratio: 16/9;
+  border: 2px dashed rgba(74, 231, 253, 0.28);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  color: rgba(188, 205, 228, 0.5);
+  background: rgba(8, 12, 20, 0.5);
+}
+
+.edit-storyboard-image-modal .image-placeholder .anticon {
+  font-size: 3rem;
+}
+
+.edit-storyboard-image-modal .image-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.edit-storyboard-image-modal .image-card-actions-right {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.edit-storyboard-image-modal .image-card-actions .ant-btn,
+.edit-storyboard-image-modal .image-card-actions-right .ant-btn {
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.edit-storyboard-image-modal .image-card-actions .ant-btn-default {
+  background: rgba(8, 12, 20, 0.9) !important;
+  border: 1px solid rgba(78, 94, 122, 0.42) !important;
+  color: rgba(225, 239, 255, 0.88) !important;
+}
+
+.edit-storyboard-image-modal .image-card-actions .ant-btn-primary {
+  background: linear-gradient(270deg, #2a6cfb 0%, #4ae7fd 100%) !important;
+  border: none !important;
+}
+
+/* 卡片视图样式 */
+.edit-storyboard-image-modal .images-container-card {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 286px);
+  gap: 1.5rem;
+}
+
+.edit-storyboard-image-modal .image-card-view {
+  width: 286px;
+  height: 130px;
+  border: 1px solid rgba(128, 154, 188, 0.26);
+  border-radius: 12px;
+  background: rgba(25, 26, 29, 0.95);
+  overflow: hidden;
+  transition: all 0.2s ease;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+}
+
+.edit-storyboard-image-modal .image-card-view:hover {
+  border-color: rgba(74, 231, 253, 0.45);
+  box-shadow: 0 8px 24px rgba(4, 11, 23, 0.5);
+}
+
+.edit-storyboard-image-modal .image-card-view.active {
+  border-color: #4ae7fd;
+  box-shadow: 0 0 0 2px rgba(74, 231, 253, 0.2), 0 10px 24px rgba(4, 11, 23, 0.45);
+}
+
+.edit-storyboard-image-modal .card-image-wrapper {
+  position: relative;
+  width: 100%;
+  height: 90px;
+  overflow: hidden;
+  background: rgba(8, 12, 20, 0.94);
+}
+
+.edit-storyboard-image-modal .card-image-top-actions {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  display: flex;
+  gap: 0.5rem;
+  z-index: 10;
+}
+
+.edit-storyboard-image-modal .card-image-top-actions .card-action-btn {
+  background: rgba(8, 12, 20, 0.85) !important;
+  backdrop-filter: blur(6px);
+  border: 1px solid rgba(78, 94, 122, 0.45) !important;
+  color: rgba(225, 239, 255, 0.92) !important;
+  transition: all 0.2s ease;
+}

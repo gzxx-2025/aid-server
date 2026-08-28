@@ -1,0 +1,239 @@
+/* Tailwind/PostCSS component styles for edit-scene-image-stage. */
+
+
+.canvas-toolbar {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  width: 492px;
+  max-width: 100%;
+  margin: 0 auto;
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(17, 22, 33, 1);
+  box-sizing: border-box;
+}
+
+.canvas-toolbar > * {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.canvas-toolbar-tooltip-wrap {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  width: 100%;
+  vertical-align: middle;
+}
+
+.canvas-toolbar .ant-tooltip-open {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+}
+
+.canvas-toolbar .upscale-model-popover-root,
+.canvas-toolbar .setting-card-popover-root {
+  flex: 1 1 0;
+  min-width: 0;
+  width: 100%;
+  display: flex;
+}
+
+.canvas-toolbar .upscale-model-popover-trigger,
+.canvas-toolbar .setting-card-popover-trigger {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.canvas-toolbar .ant-btn {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  height: 36px;
+  padding: 0 4px;
+  border-radius: 8px;
+  font-size: 0.75rem;
+  color: rgba(142, 151, 165, 1);
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  transition: background 0.2s linear, color 0.2s linear;
+}
+
+.canvas-toolbar .ant-btn .ant-btn-icon {
+  margin-inline-end: 0 !important;
+  margin-inline-start: 0 !important;
+  line-height: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.canvas-toolbar .ant-btn.toolbar-tab-hover,
+.canvas-toolbar .ant-btn:hover:not(:disabled) {
+  background: #121212 !important;
+}
+
+.canvas-toolbar .ant-btn > span:not(.ant-btn-icon) {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.canvas-toolbar .ant-btn .toolbar-tab-icon {
+  width: 14px;
+  height: 14px;
+  max-width: 14px;
+  max-height: 14px;
+  object-fit: contain;
+  display: block;
+  flex-shrink: 0;
+}
+
+.canvas-toolbar .ant-btn.toolbar-tab-hover,
+.canvas-toolbar .ant-btn.toolbar-tab-hover > span,
+.canvas-toolbar .ant-btn.toolbar-tab-hover .ant-btn-icon {
+  color: #fff !important;
+}
+
+.figma-stage-layout .canvas-toolbar .ant-btn-text,
+.figma-stage-layout .canvas-toolbar .ant-btn-text .ant-btn-icon,
+.figma-stage-layout .canvas-toolbar .ant-btn-text .anticon,
+.figma-stage-layout .canvas-toolbar .ant-btn-text > span {
+  color: rgba(142, 151, 165, 1) !important;
+  transition: all .2s linear;
+}
+
+.figma-stage-layout .canvas-toolbar .ant-btn-text.toolbar-tab-hover,
+.figma-stage-layout .canvas-toolbar .ant-btn-text.toolbar-tab-hover > span,
+.figma-stage-layout .canvas-toolbar .ant-btn-text.toolbar-tab-hover .ant-btn-icon {
+  color: #fff !important;
+}
+
+/* 与 EditStoryboardImageModal .storyboard-canvas-meta 同位置、同尺寸 */
+.scene-canvas-meta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.75rem;
+  margin: 0 auto;
+  padding: 0;
+  width: 492px;
+  max-width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+.scene-canvas-meta-left {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  min-width: 0;
+  flex: 1;
+  font-size: 12px;
+  overflow: hidden;
+}
+
+.scene-canvas-meta-title {
+  font-weight: 600;
+  color: rgba(225, 239, 255, 0.95);
+  cursor: pointer;
+  min-width: 0;
+  flex: 1 1 auto;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scene-meta-title-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.canvas-preview {
+  margin: auto;
+  width: 492px;
+  max-width: 100%;
+  height: 278px;
+  flex: 0 0 auto;
+  border-radius: 12px;
+  border: 1px solid rgba(128, 154, 188, 0.34);
+  background: rgba(8, 12, 20, 0.94);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.canvas-preview.is-selected {
+  border-color: #4ae7fd;
+  box-shadow: 0 0 0 2px rgba(74, 231, 253, 0.2), 0 10px 24px rgba(4, 11, 23, 0.55);
+}
+
+.canvas-image-frame {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.canvas-image-frame--enhance-wrap {
+  position: relative;
+}
+
+.canvas-upscale-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 16px;
+  text-align: center;
+  background: rgba(10, 14, 22, 0.85);
+  backdrop-filter: blur(5px);
+}
+
+.canvas-upscale-mask--failed {
+  gap: 12px;
+}
+
+.canvas-upscale-mask__icon {
+  font-size: 32px;
+  color: #4ae7fd;
+}
+
+.canvas-upscale-mask__text {
+  margin: 0;
+  font-size: 13px;
+  color: rgba(225, 239, 255, 0.88);
+  max-width: 90%;
+}
+
+.canvas-upscale-mask__err {
+  margin: 0;
+  font-size: 13px;
+  color: #ff9db4;
+  max-width: 92%;
+  line-height: 1.45;
+}

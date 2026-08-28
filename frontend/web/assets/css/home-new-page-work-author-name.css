@@ -1,0 +1,94 @@
+/* Tailwind/PostCSS component styles for home-new-page. */
+
+
+.home-new-index .work-author-name {
+  font-size: 12px;
+  color: #8e97a5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-new-index .work-stats {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.home-new-index .work-views {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #8e97a5;
+  line-height: 1;
+}
+
+.home-new-index .work-views-icon {
+  font-size: 12px;
+  color: #8e97a5;
+}
+
+.home-new-index .work-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 4px;
+  background: rgba(40, 44, 56, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 12px;
+  color: #c9d1d9;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+@media (max-width: 1024px) {
+  .home-new-index,
+  .home-new-sub-page {
+    padding: 16px 20px 24px;
+  }
+
+  .home-new-index .works-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .home-new-index .section-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .home-new-index .search-box {
+    width: 100%;
+  }
+
+  .home-new-index .filter-tabs {
+    width: 100%;
+  }
+}
+
+@media (max-width: 640px) {
+  .home-new-index .works-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .home-new-index .home-new-actions {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .home-new-index .home-new-actions .btn-primary,
+  .home-new-index .home-new-actions .btn-secondary {
+    width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .home-new-index .page-content,
+  .home-new-sub-page .page-content {
+    padding: 0;
+  }
+}

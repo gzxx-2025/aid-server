@@ -1,0 +1,252 @@
+/* Tailwind/PostCSS component styles for home-new-compact-viewport. */
+/**
+ * 新版首页 / 我的作品 / 资产库 — 小分辨率专用样式
+ *
+ * 目标视口（与大分辨率样式隔离，仅在此文件内覆盖）：
+ *   1440×900、1600×900、1366×768、1360×768、1280×768
+ *
+ * 触发条件：宽 ≤1600 且 高 ≤900
+ * 作用域：:is(:is(html.layout-home-new, html.app-shell-create), html.app-shell-create)（首页壳）与 html.app-shell-create（创作流程壳，含内嵌我的作品/资产库）
+ * 更矮屏（高 ≤768）在文件末尾追加一档更强压缩。
+ *
+ * 统一尺寸 token 见 --hn-c-* 变量，便于后续微调。
+ * 尺寸按 postcss-pxtorem（rootValue 16）编译为 rem。
+ * layout-home-new：html 保持 16px 根字号，token 视觉尺寸与写入 px 一致。
+ * layout-create-flow：html 为 13px/12px 根字号（步骤页不放大）；侧栏固定物理 px 与首页一致。
+ * 物理字号不得低于 12px 的 token 写为 12Px（大写 P 跳过 pxtorem）。
+ */
+
+/* -------------------------------------------------------------------------- */
+/* Tier 1：小分辨率（宽 ≤1600 且 高 ≤900）                                    */
+/* -------------------------------------------------------------------------- */
+@media (max-width: 1600px) and (max-height: 900px) {
+  :is(html.layout-home-new, html.app-shell-create) {
+    /* 按钮 / 输入 */
+    --hn-c-btn-h: 30px;
+    --hn-c-btn-h-sm: 28px;
+    --hn-c-btn-fs: 13px;
+    --hn-c-btn-fs-lg: 14px;
+    --hn-c-btn-pad-x: 20px;
+    --hn-c-btn-pad-y: 6px;
+    --hn-c-input-h: 30px;
+    --hn-c-input-fs: 13px;
+    --hn-c-icon-sm: 14px;
+    --hn-c-icon-md: 16px;
+    /* 文字 */
+    --hn-c-fs-xs: 12Px;
+    --hn-c-fs-sm: 12Px;
+    --hn-c-fs-base: 13px;
+    --hn-c-fs-md: 14px;
+    --hn-c-fs-lg: 15px;
+    --hn-c-fs-xl: 18px;
+    --hn-c-fs-title: 20px;
+    --hn-c-fs-page-title: 16px;
+    --hn-c-fs-stat: 26px;
+    /* 间距 */
+    --hn-c-gap: 10px;
+    --hn-c-gap-md: 12px;
+    --hn-c-gap-lg: 16px;
+    --hn-c-page-pad-y: 16px;
+    --hn-c-page-pad-x: 20px;
+    --hn-c-section-mb: 14px;
+    --hn-c-grid-gap: 12px;
+    --hn-c-radius: 8px;
+    /* 卡片 */
+    --hn-c-card-cover-min: 130px;
+    --hn-c-card-cover-max: 142px;
+    --hn-c-card-row-min: 220px;
+    --hn-c-cover-btn: 28px;
+    /* 首页案例广场卡片封面（小分辨率压缩高度，大屏默认 16/9） */
+    --home-gallery-cover-ratio: 16 / 10;
+    --hn-c-gallery-body-pad: 8px 10px 9px;
+    --hn-c-gallery-title-mb: 6px;
+    --hn-c-gallery-stats-gap: 4px;
+    /* 首页 Hero 视频区：14:7，比 16:9 略矮 */
+    --hn-c-hero-h: auto;
+  }
+
+  /* —— 侧栏（固定物理 px，首页壳 / 流程壳完全一致，不受 html 根字号与 zoom 影响）—— */
+  :is(html.layout-home-new, html.app-shell-create) .home-new-sidebar {
+    width: 68Px;
+    padding: 0 0 14px;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .home-new-brand {
+    margin-bottom: 10Px;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .home-new-logo {
+    width: 32Px;
+    height: 32Px;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .home-new-nav {
+    gap: 6Px;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .home-new-nav-item {
+    width: 56Px;
+    min-height: 46Px;
+    padding: 6Px 2Px;
+    gap: 4Px;
+    font-size: 12Px;
+    border-radius: 8Px;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .home-new-nav-ico {
+    width: 20Px;
+    height: 20Px;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .home-new-nav-divider {
+    width: 48Px;
+    margin: 10Px 0 6Px;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .home-new-sidebar-spacer {
+    min-height: 16Px;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .home-new-sidebar-bottom {
+    gap: 8Px;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .home-new-user {
+    gap: 12Px;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .home-new-points {
+    width: 56Px;
+    min-height: 20Px;
+    gap: 4Px;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .home-new-points-ico {
+    width: 12Px;
+    height: 12Px;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .home-new-points-num {
+    font-size: 12Px;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .home-new-avatar-frame {
+    width: 34Px;
+    height: 34Px;
+    border-radius: 8Px;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .home-new-avatar-img {
+    width: 26Px;
+    height: 26Px;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .home-new-login {
+    width: 50Px;
+    padding: 4Px 2Px;
+    font-size: 12Px;
+    border-radius: 8Px;
+  }
+
+  /* —— 子页通用（我的作品 / 资产库）—— */
+  :is(html.layout-home-new, html.app-shell-create) .home-new-sub-page {
+    padding: var(--hn-c-page-pad-y) var(--hn-c-page-pad-x) var(--hn-c-page-pad-x);
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .works-lib-header {
+    margin-bottom: var(--hn-c-gap-lg);
+    gap: var(--hn-c-gap-md);
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .works-lib-header__title {
+    font-size: var(--hn-c-fs-page-title);
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .works-lib-stats {
+    gap: var(--hn-c-gap-md);
+    margin-bottom: var(--hn-c-gap-lg);
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .works-lib-stat-card {
+    width: 220px;
+    height: 96px;
+    padding: 12px 14px 10px;
+    border-radius: var(--hn-c-radius);
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .works-lib-stat-card__label {
+    font-size: var(--hn-c-fs-md);
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .works-lib-stat-card__value {
+    font-size: var(--hn-c-fs-stat);
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .works-lib-toolbar {
+    gap: var(--hn-c-gap-lg);
+    margin-bottom: var(--hn-c-gap-lg);
+    height: var(--hn-c-input-h);
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .works-lib-type-tabs {
+    border-radius: 8px;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .works-lib-type-tabs__btn {
+    height: var(--hn-c-input-h);
+    padding: 0 14px;
+    font-size: var(--hn-c-input-fs);
+    border-radius: 6px;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .works-lib-search {
+    min-width: 160px;
+    height: var(--hn-c-input-h);
+    padding: 0 12px;
+    gap: 8px;
+    border-radius: 8px;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .works-lib-search__ico {
+    font-size: var(--hn-c-icon-sm);
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .works-lib-search__input {
+    font-size: var(--hn-c-input-fs);
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .works-lib-grid {
+    gap: var(--hn-c-grid-gap);
+    grid-auto-rows: max-content;
+    --works-lib-body-h: 60px;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .works-lib-card {
+    border-radius: var(--hn-c-radius);
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .works-lib-card__cover {
+    aspect-ratio: 16 / 10;
+    height: auto;
+    min-height: unset;
+    max-height: min(200px, 42vw);
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .works-lib-add-card__sizer {
+    aspect-ratio: 16 / 10;
+    max-height: min(200px, 42vw);
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .works-lib-add-card__cover {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    aspect-ratio: auto;
+    max-height: none;
+    min-height: 0;
+  }
+
+  /* 资产库内部滚动网格：行高按内容，禁止把卡片压进视口 */
+
+}

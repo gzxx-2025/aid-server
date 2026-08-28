@@ -1,0 +1,193 @@
+/* Tailwind/PostCSS component styles for create-flow-shell-steps. */
+
+
+.create-page .placeholder-icon {
+  font-size: 4rem;
+  margin-bottom: 1rem;
+  color: rgba(74, 231, 253, 0.35);
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .create-page .main-layout {
+    flex-direction: column;
+    height: auto;
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
+
+  .create-page .create-workflow {
+    flex-wrap: wrap;
+    padding: 0.5rem 0.75rem;
+  }
+
+  .create-page .create-workflow__meta {
+    width: 100%;
+    padding-left: 0;
+    padding-top: 0.25rem;
+  }
+
+  .create-page .preview-panel {
+    margin: 0 1rem 1rem;
+  }
+
+  .create-page .preview-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+
+  .create-page .preview-actions {
+    width: 100%;
+  }
+
+  .create-page .preview-actions .ant-btn {
+    flex: 1;
+  }
+
+  .create-page .toolbar {
+    flex-direction: column;
+    gap: 1rem;
+    align-items: flex-start;
+  }
+
+  .create-page .toolbar-right {
+    width: 100%;
+  }
+
+  .create-page .toolbar-right .ant-btn {
+    flex: 1;
+  }
+
+  .create-page .toolbar-title-input-wrap {
+    width: 100% !important;
+    max-width: none !important;
+  }
+
+  .create-page .title-input {
+    width: 100% !important;
+  }
+
+  .create-page .assets-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  .create-page .flow-step-pill--strip {
+    min-width: auto;
+    max-width: none;
+    padding: 0 0.5rem;
+  }
+
+  .create-page .preview-content {
+    padding: 1rem;
+  }
+
+  .create-page .assets-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* —— 以下为原非 scoped 段：下拉/引导 tooltip 挂到 body，不加 .create-page 前缀 —— */
+.preview-export-dropdown-overlay,
+.preview-export-dropdown-overlay .ant-dropdown-menu {
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  border: none !important;
+}
+
+/* 蓝湖「成品预览」导出下拉：面板 230×130、按钮 182×32、描边/悬停半透明青底 */
+.preview-export-menu {
+  width: 230px;
+  padding: 12px 24px 16px;
+  border-radius: 8px;
+  border: 1px solid rgba(74, 231, 253, 0.3);
+  background: #121212;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-sizing: border-box;
+}
+
+.preview-export-menu__btn-wrap {
+  display: block;
+  width: 182px;
+  max-width: 100%;
+}
+
+.preview-export-menu__btn-wrap .preview-export-menu__btn {
+  width: 100%;
+}
+
+.preview-export-menu__title {
+  color: #8e97a5;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+  text-align: left;
+  margin-bottom: 0;
+}
+
+.preview-export-menu__btn {
+  width: 182px;
+  max-width: 100%;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(74, 231, 253, 1);
+  background: rgba(18, 18, 18, 0.8);
+  color: transparent;
+  font-size: 14px;
+  line-height: 20px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease;
+}
+
+.preview-export-menu__btn .text-gradient,
+.preview-export-menu__btn-text {
+  display: inline;
+  white-space: nowrap;
+  line-height: 1.2;
+  color: #fff;
+  -webkit-text-fill-color: #fff;
+  background: none;
+  -webkit-background-clip: unset;
+  background-clip: unset;
+}
+
+.preview-export-menu__btn:hover:not(:disabled) {
+  background: rgba(74, 231, 253, 0.2);
+  border-color: rgba(74, 231, 253, 1);
+}
+
+.preview-export-menu__btn:hover:not(:disabled) .text-gradient,
+.preview-export-menu__btn:hover:not(:disabled) .preview-export-menu__btn-text {
+  color: #fff;
+  -webkit-text-fill-color: #fff;
+}
+
+.preview-export-menu__btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* 顶栏「导出视频」：取消悬停上移与背景色变化 */
+.toolbar-right .toolbar-btn-export.ant-btn-primary:hover,
+.toolbar-right .toolbar-btn-export.ant-btn-primary:focus {
+  transform: none !important;
+  box-shadow: none !important;
+  background: var(--home-grad, linear-gradient(270deg, #0e59fa 0%, #00abd8 100%)) !important;
+  color: #fff !important;
+}
+
+.toolbar-right .toolbar-btn-export.ant-btn-primary:active {
+  transform: none !important;
+}

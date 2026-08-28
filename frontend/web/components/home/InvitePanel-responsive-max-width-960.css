@@ -1,0 +1,54 @@
+/* Tailwind/PostCSS component styles for InvitePanel. */
+
+
+@media (max-width: 960px) {
+  .invite-page {
+    --invite-title-size: 24px;
+    --invite-subtitle-size: 13px;
+    --invite-section-title: 16px;
+    --invite-code-size: 22px;
+    --invite-label-size: 15px;
+    --invite-code-h: 44px;
+    --invite-btn-w: 100%;
+    --invite-row-h: 44px;
+    --invite-gap: 20px;
+    --invite-pic-w: min(220px, 48vw);
+    --invite-pic-h: auto;
+  }
+
+  .invite-page__top {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+
+  .invite-page__pic-wrap {
+    width: var(--invite-pic-w);
+    height: auto;
+    aspect-ratio: 310 / 268;
+    margin: 0 auto;
+  }
+
+  .invite-page__code-row {
+    flex-wrap: wrap;
+  }
+
+  .invite-page__link-btn {
+    width: 100%;
+  }
+
+  .invite-page__thead,
+  .invite-page__tr {
+    grid-template-columns: 40px minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 0.7fr);
+    column-gap: 8px;
+    padding: 0 10px;
+  }
+
+  .invite-page__th,
+  .invite-page__td {
+    font-size: 12px;
+  }
+
+  .invite-page__col-time {
+    font-size: 11px;
+  }
+}

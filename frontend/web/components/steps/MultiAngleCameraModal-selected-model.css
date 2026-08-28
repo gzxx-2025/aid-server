@@ -1,0 +1,225 @@
+/* Tailwind/PostCSS component styles for MultiAngleCameraModal. */
+/* 原 MultiAngleCameraModal.vue \3c style scoped>：:deep() 展开；
+   原 scoped 数据属性隔离改为 .multi-angle-modal-wrap / .multi-angle-modal 前缀模拟，选择器主体原样 */
+.multi-angle-modal-wrap .selected-model {
+  background: #0a0d12 ;
+}
+.multi-angle-modal .ant-modal-content {
+  padding: 0;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(74, 231, 253, 0.45);
+  background: #191a1d;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+  display: flex;
+  flex-direction: column;
+}
+
+.multi-angle-modal .ant-modal-header {
+  display: none;
+}
+
+.multi-angle-modal-wrap .ma-shell {
+  color: #e6edf3;
+  height: 698px;
+  max-height: calc(100vh - 80px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.multi-angle-modal-wrap .ma-header {
+  flex-shrink: 0;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 1.5rem;
+}
+
+.multi-angle-modal-wrap .ma-title {
+  margin: 0;
+  font-size: 20px;
+  line-height: 24px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.multi-angle-modal-wrap .ma-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.75);
+  cursor: pointer;
+}
+
+.multi-angle-modal-wrap .ma-close:hover {
+  color: #4ae7fd;
+}
+
+.multi-angle-modal .ant-modal-body {
+  padding: 0;
+  background: #191a1d;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.multi-angle-modal-wrap .multi-angle-layout {
+  --ma-preview-max-w: min(82%, 720px);
+  --ma-preview-max-h: min(72%, 480px);
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  flex: 1 1 auto;
+  min-height: 0;
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 0;
+  gap: 24px;
+  padding: 0 1.5rem;
+}
+
+.multi-angle-modal-wrap .control-panel {
+  width: 320px;
+  padding: 10px 18px 18px;
+  border: 1px solid rgba(142, 151, 165, 0.2);
+  border-radius: 8px;
+}
+
+.multi-angle-modal-wrap .control-panel--disabled {
+  opacity: 0.45;
+  pointer-events: none;
+  user-select: none;
+}
+
+.multi-angle-modal-wrap .nine-grid-fixed-hint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 10px 0 0;
+  color: #5adf8b;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.multi-angle-modal-wrap .nine-grid-fixed-hint__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #16b955;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.multi-angle-modal-wrap .panel-title {
+  margin: 0 0 14px;
+  color: #f4f7ff;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.multi-angle-modal-wrap .slider-block {
+  margin-bottom: 22px;
+}
+
+.multi-angle-modal-wrap .label {
+  color: #8e97a5 !important;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.multi-angle-modal-wrap .label-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.multi-angle-modal-wrap .value-input {
+  width: 56px;
+}
+
+.multi-angle-modal-wrap .control-panel .value-input .ant-input-number-input {
+  height: 22px;
+  padding: 0 8px;
+  text-align: center;
+}
+
+.multi-angle-modal-wrap .control-panel .value-input.ant-input-number {
+  border-radius: 4px;
+  border: 1px solid rgba(142, 151, 165, 0.35);
+  background: rgba(12, 16, 24, 0.9);
+}
+
+.multi-angle-modal-wrap .control-panel .value-input.ant-input-number .ant-input-number-input-wrap {
+  color: #e6edf3;
+}
+
+.multi-angle-modal-wrap .focal-presets {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.multi-angle-modal-wrap .focal-preset {
+  min-width: 82px;
+  height: 24px;
+  border-radius: 4px;
+  border: 1px solid rgba(142, 151, 165, 0.35);
+  background: rgba(12, 16, 24, 0.9);
+  color: #8e97a5;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.multi-angle-modal-wrap .focal-preset:hover {
+  color: #dce6f2;
+  border-color: rgba(74, 231, 253, 0.45);
+}
+
+.multi-angle-modal-wrap .viewport-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.multi-angle-modal-wrap .three-canvas-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 360px;
+  width: 100%;
+  background: rgba(18, 18, 18, 1);
+}
+
+.multi-angle-modal-wrap .three-canvas-root {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.multi-angle-modal-wrap .image-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}

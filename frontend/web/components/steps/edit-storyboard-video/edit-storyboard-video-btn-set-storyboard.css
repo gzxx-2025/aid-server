@@ -1,0 +1,250 @@
+/* Tailwind/PostCSS component styles for edit-storyboard-video. */
+
+
+.edit-storyboard-video-modal .video-stage-canvas .video-card-actions .btn-set-storyboard,
+.edit-storyboard-dubbing-modal .video-stage-canvas .video-card-actions .btn-set-storyboard {
+  font-size: 14px;
+  background: none !important;
+  flex-shrink: 0;
+  border: 1px solid rgba(74, 231, 253, 0.3) !important;
+}
+
+.edit-storyboard-video-modal .video-canvas-toolbar,
+.edit-storyboard-dubbing-modal .video-canvas-toolbar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  margin-bottom: 10px;
+}
+
+.edit-storyboard-video-modal .video-canvas-body,
+.edit-storyboard-dubbing-modal .video-canvas-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 4px;
+}
+
+.edit-storyboard-video-modal .video-canvas-body--enhance-wrap,
+.edit-storyboard-dubbing-modal .video-canvas-body--enhance-wrap {
+  position: relative;
+}
+
+.edit-storyboard-video-modal .video-card--generating .video-preview-wrap,
+.edit-storyboard-dubbing-modal .video-card--generating .video-preview-wrap {
+  border: 1px solid rgba(74, 231, 253, 0.35);
+}
+
+.edit-storyboard-video-modal .video-placeholder--blank,
+.edit-storyboard-dubbing-modal .video-placeholder--blank {
+  min-height: 100%;
+  background: rgba(12, 18, 28, 0.88);
+}
+
+.edit-storyboard-video-modal .video-card-generating-mask,
+.edit-storyboard-dubbing-modal .video-card-generating-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: rgba(10, 14, 22, 0.82);
+  backdrop-filter: blur(4px);
+}
+
+.edit-storyboard-video-modal .video-card-generating-mask__icon,
+.edit-storyboard-dubbing-modal .video-card-generating-mask__icon {
+  font-size: 28px;
+  color: #4ae7fd;
+}
+
+.edit-storyboard-video-modal .video-card-generating-mask__text,
+.edit-storyboard-dubbing-modal .video-card-generating-mask__text {
+  margin: 0;
+  font-size: 12px;
+  color: rgba(225, 239, 255, 0.88);
+  text-align: center;
+  padding: 0 12px;
+}
+
+.edit-storyboard-video-modal .video-canvas-empty,
+.edit-storyboard-dubbing-modal .video-canvas-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  color: rgba(188, 205, 228, 0.65);
+  font-size: 0.9rem;
+  text-align: center;
+  padding: 2rem;
+}
+
+.edit-storyboard-video-modal .videos-list--in-canvas,
+.edit-storyboard-dubbing-modal .videos-list--in-canvas {
+  padding-bottom: 0.5rem;
+}
+
+/* 与 EditStoryboardImageModal 右栏「生成分镜图 / 生成设定图 / 九宫格」Tab 一致 */
+.edit-storyboard-video-modal .video-stage-config {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  padding: 12px 12px 12px;
+  overflow: hidden;
+}
+
+.edit-storyboard-video-modal .config-tabs--three,
+.edit-storyboard-video-modal .config-tabs--two {
+  display: flex;
+  width: 100%;
+  justify-content: center;
+  gap: 4px;
+  border-radius: 8px;
+  background: rgba(35, 67, 74, 1);
+  margin-bottom: 12px;
+  flex-shrink: 0;
+}
+
+.edit-storyboard-video-modal .config-tabs--three .config-tab,
+.edit-storyboard-video-modal .config-tabs--two .config-tab {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(225, 239, 255, 0.7);
+  font-size: 14px;
+  line-height: 1.2;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 4px;
+}
+
+.edit-storyboard-video-modal .config-tabs--three .config-tab.active,
+.edit-storyboard-video-modal .config-tabs--two .config-tab.active {
+  color: #0b1522 !important;
+  font-weight: 600;
+  background: rgba(74, 231, 253, 1);
+}
+
+.edit-storyboard-video-modal .video-config-below-tabs {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-right: 0;
+}
+
+.edit-storyboard-video-modal .video-config-scroll {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding-right: 4px;
+}
+
+.edit-storyboard-video-modal .video-config-scroll::-webkit-scrollbar {
+  width: 0px;
+}
+
+.edit-storyboard-video-modal .video-config-scroll::-webkit-scrollbar-thumb {
+  background: rgba(120, 140, 170, 0.55);
+  border-radius: 4px;
+}
+
+.edit-storyboard-video-modal .video-config-footer {
+  flex-shrink: 0;
+  padding: 10px 2px 4px;
+  border-top: 1px solid rgba(128, 154, 188, 0.2);
+  background: rgba(25, 26, 29, 1);
+}
+
+.edit-storyboard-video-modal .video-config-footer .generate-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 0;
+  font-size: 16px;
+  border: none !important;
+  outline: none !important;
+  border-radius: 8px !important;
+}
+
+.edit-storyboard-video-modal .video-config-footer .generate-btn:hover,
+.edit-storyboard-video-modal .video-config-footer .generate-btn:focus,
+.edit-storyboard-video-modal .video-config-footer .generate-btn:active {
+  border: none !important;
+  outline: none !important;
+}
+
+.edit-storyboard-video-modal .video-config-footer .generate-btn img {
+  width: 18px;
+  height: 18px;
+}
+
+.edit-storyboard-video-modal .video-config-below-tabs .storyboard-generate-panel {
+  height: auto !important;
+  max-height: none !important;
+  overflow: visible !important;
+}
+
+.edit-storyboard-video-modal .video-config-below-tabs .storyboard-generate-panel.is-compact-height {
+  overflow-y: visible !important;
+}
+
+.edit-storyboard-video-modal .video-config-body {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.edit-storyboard-video-modal .video-left-content {
+  flex: 1 1 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-height: 0;
+}
+
+.edit-storyboard-video-modal .video-left-content .storyboard-generate-panel {
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.edit-storyboard-video-modal .video-config-below-tabs .storyboard-generate-panel.use-param-modal {
+  height: 100% !important;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden !important;
+}
+
+@media (max-height: 900px) {
+  .edit-storyboard-video-modal .video-stage-config {
+    padding: 8px 8px 8px;
+  }
+
+  .edit-storyboard-video-modal .config-tabs--three {
+    margin-bottom: 8px;
+  }
+
+  .edit-storyboard-video-modal .config-tabs--three .config-tab {
+    height: 28px;
+    font-size: 13px;
+  }
+}

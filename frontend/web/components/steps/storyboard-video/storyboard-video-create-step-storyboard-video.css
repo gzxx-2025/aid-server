@@ -1,0 +1,226 @@
+/* Tailwind/PostCSS component styles for storyboard-video. */
+/*
+ * 原 components/steps/StoryboardVideo.vue \3c style scoped> 展开。
+ * scoped 防泄漏：全部选择器以根类 .create-step-storyboard-video 收口（根元素同时带
+ * storyboard-video / storyboard-step 语义类，全局 CSS 契约不变）。
+ * 卡片视图布局见 assets/css/storyboard-step-shared.css。
+ */
+
+.create-step-storyboard-video {
+  width: 100%;
+}
+
+.create-step-storyboard-video .storyboard-toolbar .storyboard-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+/* 关键：空态撑满，有列表可滚动 */
+.create-step-storyboard-video .storyboard-step-shell {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.create-step-storyboard-video .storyboard-empty-content,
+.create-step-storyboard-video .storyboard-generating-view {
+  flex: 1;
+  min-height: 0;
+}
+
+.create-step-storyboard-video .storyboard-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.create-step-storyboard-video .storyboard-generating-view {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem;
+}
+
+.create-step-storyboard-video .storyboard-generating-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  text-align: center;
+}
+
+.create-step-storyboard-video .storyboard-generating-center-icon {
+  width: 200px;
+  max-width: 42vw;
+  height: auto;
+}
+
+.create-step-storyboard-video .storyboard-generating-center-title {
+  color: var(--home-text, #e6edf3);
+  font-size: 15px;
+  line-height: 1.5;
+  font-weight: 500;
+}
+
+.create-step-storyboard-video .storyboard-generating-center-progress {
+  color: var(--home-muted, #8e97a5);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+/* 卡片视图布局见 assets/css/storyboard-step-shared.css */
+.create-step-storyboard-video .storyboard-cards {
+  padding-top: 0.5rem;
+}
+
+.create-step-storyboard-video .storyboard-card-title-text {
+  font-size: inherit;
+  line-height: inherit;
+  font-weight: inherit;
+  color: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.create-step-storyboard-video .storyboard-card-more {
+  color: var(--home-muted, #8e97a5);
+  flex-shrink: 0;
+}
+
+.create-step-storyboard-video .storyboard-card-more:hover {
+  color: var(--home-text, #e6edf3);
+}
+
+.create-step-storyboard-video .storyboard-block-title {
+  font-size: 0.82rem;
+  color: var(--home-muted, #8e97a5);
+  margin-bottom: 0.35rem;
+  font-weight: 600;
+}
+
+.create-step-storyboard-video .storyboard-list-body .storyboard-block-video .storyboard-block-card {
+  height: var(--storyboard-list-media-height, 200px);
+}
+
+.create-step-storyboard-video .storyboard-video-placeholder {
+  border: 1px dashed rgba(74, 231, 253, 0.28);
+  border-radius: var(--radius-md);
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  color: var(--home-muted, #8e97a5);
+  cursor: pointer;
+}
+
+.create-step-storyboard-video .storyboard-video-loading {
+  border: none;
+  padding: 0;
+  background: transparent;
+  min-height: 140px;
+}
+
+.create-step-storyboard-video .asset-visual-generating-block {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 180px;
+  width: 100%;
+  height: 100%;
+  padding: 24px 16px;
+  border: 1px solid rgba(74, 231, 253, 0.35);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(145deg, rgba(18, 22, 38, 0.96) 0%, rgba(25, 32, 52, 0.99) 100%);
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.create-step-storyboard-video .asset-visual-generating-block__shimmer {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(74, 231, 253, 0.06) 42%,
+    rgba(74, 231, 253, 0.14) 50%,
+    rgba(74, 231, 253, 0.06) 58%,
+    transparent 100%
+  );
+  background-size: 220% 100%;
+  animation: storyboard-video-shimmer 1.6s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes storyboard-video-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+.create-step-storyboard-video .asset-visual-generating-block__icon {
+  position: relative;
+  z-index: 1;
+  font-size: 28px;
+  color: #4ae7fd;
+}
+
+.create-step-storyboard-video .asset-visual-generating-block__text {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: rgba(230, 237, 243, 0.88);
+  text-align: center;
+}
+
+.create-step-storyboard-video .storyboard-video-loading-icon {
+  font-size: 1.5rem;
+  color: var(--accent-500);
+}
+
+.create-step-storyboard-video .storyboard-video-loading-text {
+  font-size: 0.9rem;
+}
+
+.create-step-storyboard-video .storyboard-video-stop-link {
+  font-size: 0.85rem;
+  color: var(--accent-600);
+  cursor: pointer;
+}
+
+.create-step-storyboard-video .storyboard-video-generate-failed {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  min-height: 140px;
+  padding: 0.75rem;
+  background: rgba(8, 13, 24, 0.92);
+  border: 1px dashed rgba(74, 231, 253, 0.34);
+  border-radius: var(--radius-lg);
+  box-sizing: border-box;
+}
+
+.create-step-storyboard-video .scene-card-failed-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}

@@ -1,0 +1,124 @@
+.savft-root {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  border-right: 1px solid rgba(74, 231, 253, 0.3);
+  border-bottom: 1px solid rgba(74, 231, 253, 0.3);
+  border-left: 1px solid rgba(74, 231, 253, 0.3);
+  background: rgb(17, 22, 33);
+}
+
+.savft-scroll {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 14px;
+  scrollbar-color: rgba(120, 140, 170, 0.45) transparent;
+  scrollbar-width: thin;
+}
+
+.savft-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
+  gap: 12px;
+}
+
+.savft-add-card,
+.savft-card {
+  height: 132px;
+  overflow: hidden;
+  border-radius: 10px;
+  background: rgba(18, 18, 18, 1);
+  cursor: pointer;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s,
+    color 0.2s;
+}
+
+.savft-add-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 1px dashed rgba(74, 231, 253, 0.55);
+  color: var(--home-muted, #8e97a5);
+}
+
+.savft-add-card:hover {
+  border-color: var(--accent-500, #4ae7fd);
+  color: var(--accent-500, #4ae7fd);
+  background: rgba(74, 231, 253, 0.06);
+}
+
+.savft-add-card__icon {
+  font-size: 28px;
+}
+
+.savft-card {
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--home-muted, #8e97a5);
+}
+
+.savft-card:hover:not(.is-selected) {
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.savft-card.is-selected {
+  border-color: var(--accent-500, #4ae7fd);
+  box-shadow:
+    0 0 0 1px rgba(74, 231, 253, 0.25),
+    0 0 16px rgba(74, 231, 253, 0.12);
+}
+
+.savft-card__media {
+  position: relative;
+  height: 100px;
+  background: rgba(6, 10, 18, 0.85);
+}
+
+.savft-card__shimmer,
+.savft-card__media .shimmer-image {
+  width: 100%;
+  height: 100%;
+}
+
+.savft-card__img,
+.savft-card__media .shimmer-image__img.savft-card__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.savft-card__select {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 2;
+  display: block;
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.savft-card__meta {
+  display: block;
+  padding: 6px 8px;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 20px;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .savft-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

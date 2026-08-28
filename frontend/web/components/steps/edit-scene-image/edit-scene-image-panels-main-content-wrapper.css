@@ -1,0 +1,213 @@
+/* Tailwind/PostCSS component styles for edit-scene-image-panels. */
+/* 原 EditSceneImageModal.vue 伴随 scoped 样式 第 2/3 部分：主要内容区域、左右面板、四宫格/卡片视图 */
+/* 主要内容区域 */
+.main-content-wrapper {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.left-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--gray-200);
+  flex-shrink: 0;
+}
+
+.left-tab {
+  flex: 1;
+  padding: 1rem;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s ease;
+}
+
+.left-tab.active {
+  border-bottom-color: var(--accent-500);
+  color: var(--accent-600);
+  font-weight: 600;
+}
+
+.generate-content {
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.scene-file-info {
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  cursor: pointer;
+  background: rgba(17, 22, 33, 1);
+  width: fit-content;
+  max-width: 100%;
+  align-self: flex-start;
+  border-radius: 6px;
+  box-sizing: border-box;
+}
+
+.file-icon {
+  font-size: 1.5rem;
+  color: var(--accent-600);
+}
+
+.scene-file-name {
+  font-weight: 600;
+  color: var(--accent-700);
+}
+
+.reference-images {
+  display: flex;
+  justify-content: space-between;
+}
+
+.reference-image-item {
+  aspect-ratio: 1;
+  border: 2px dashed var(--create-border-dashed);
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  background: var(--create-surface-canvas);
+  width: 24%;
+  height: 56px;
+}
+
+.reference-image-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.add-icon {
+  font-size: 2rem;
+  color: var(--gray-400);
+}
+
+.remove-ref {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  width: 24px;
+  height: 24px;
+  background: rgba(0, 0, 0, 0.6);
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.input-section {
+  position: relative;
+}
+
+.prompt-input {
+  width: 100%;
+  height: 48vh;
+}
+
+.char-count {
+  position: absolute;
+  bottom: 0.5rem;
+  right: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--gray-500);
+  background: var(--create-surface-panel);
+  padding: 0 0.5rem;
+}
+
+
+.generate-settings-stacked .setting-item--model,
+.dialogue-settings .setting-item:first-child {
+  position: relative;
+  z-index: 10;
+}
+
+.generate-btn {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+/* 右侧面板（4/6宽度） */
+.right-panel {
+  width: 100%;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: transparent;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.right-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--gray-200);
+  flex-shrink: 0;
+}
+
+.view-switcher {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.view-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--gray-200);
+  background: var(--create-surface-panel);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.view-btn-icon {
+  font-size: 1rem;
+}
+
+.view-btn.active {
+  border-color: var(--accent-500);
+  background: var(--accent-50);
+  color: var(--accent-600);
+}
+
+.right-actions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.right-content {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.navigation-panel {
+  width: 120px;
+  border-right: 1px solid var(--gray-200);
+  padding: 1rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}

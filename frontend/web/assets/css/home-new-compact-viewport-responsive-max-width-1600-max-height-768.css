@@ -1,0 +1,174 @@
+/* Tailwind/PostCSS component styles for home-new-compact-viewport. */
+
+@media (max-width: 1600px) and (max-height: 768px) {
+  :is(html.layout-home-new, html.app-shell-create) {
+    --hn-c-btn-h: 28px;
+    --hn-c-btn-h-sm: 26px;
+    --hn-c-btn-fs: 12Px;
+    --hn-c-btn-fs-lg: 13px;
+    --hn-c-btn-pad-x: 16px;
+    --hn-c-input-h: 28px;
+    --hn-c-input-fs: 12Px;
+    --hn-c-fs-title: 18px;
+    --hn-c-fs-page-title: 15px;
+    --hn-c-fs-stat: 22px;
+    --hn-c-page-pad-y: 12px;
+    --hn-c-page-pad-x: 16px;
+    --hn-c-section-mb: 10px;
+    --hn-c-grid-gap: 10px;
+    --hn-c-card-cover-min: 110px;
+    --hn-c-card-cover-max: 120px;
+    --hn-c-card-row-min: 190px;
+    --hn-c-cover-btn: 26px;
+    --hn-c-hero-h: auto;
+    --home-gallery-cover-ratio: 2 / 1;
+    --hn-c-gallery-body-pad: 6px 8px 7px;
+    --hn-c-gallery-title-mb: 4px;
+    --hn-c-gallery-stats-gap: 3px;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .home-new-index .home-new-hero-stage {
+    width: 100%;
+    height: clamp(240px, 66vh, calc(100vh - 130px));
+    height: clamp(240px, 66dvh, calc(100dvh - 130px));
+    max-height: none;
+    aspect-ratio: auto;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .home-new-index .home-new-hero {
+    margin-bottom: 6px;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .home-new-index .home-new-actions {
+    margin-bottom: 10px;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .works-lib-stat-card {
+    width: 200px;
+    height: 84px;
+    padding: 10px 12px 8px;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .works-lib-header {
+    margin-bottom: 12px;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .works-lib-stats,
+  :is(html.layout-home-new, html.app-shell-create) .works-lib-toolbar {
+    margin-bottom: 12px;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .works-lib-card--series .works-lib-card__body {
+    height: auto;
+    min-height: 44px;
+    padding: 0 10px 8px;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create)
+    .works-library-figma.works-library-figma--series-tab,
+  :is(html.layout-home-new, html.app-shell-create)
+    .works-library-figma:has(.works-lib-card--series) {
+    --works-lib-body-h: 44px;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create)
+    .works-library-figma.works-library-figma--series-tab
+    .works-lib-grid {
+    align-items: stretch;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create)
+    .works-library-figma.works-library-figma--series-tab
+    .works-lib-card,
+  :is(html.layout-home-new, html.app-shell-create)
+    .works-library-figma.works-library-figma--series-tab
+    .works-lib-add-card {
+    align-self: stretch;
+    height: auto;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create)
+    .works-library-figma.works-library-figma--series-tab
+    .works-lib-add-card__body {
+    height: auto;
+    min-height: var(--works-lib-body-h, 44px);
+    flex: 1 0 auto;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .works-lib-card__episodes--series {
+    min-height: 0;
+    padding-top: 6px;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .works-lib-add-card {
+    min-height: 0;
+    height: auto;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .works-lib-add-card__body {
+    height: var(--works-lib-body-h, 60px);
+    min-height: var(--works-lib-body-h, 60px);
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .home-hero-carousel {
+    --carousel-viewport-h: 120px;
+    --carousel-card-w: 150px;
+    --carousel-card-h: 120px;
+  }
+
+  /* —— 邀请有礼：小分辨率压缩间距与字号，保持左右并排结构 —— */
+  :is(html.layout-home-new, html.app-shell-create) .home-new-sub-page.invite-page {
+    padding: var(--hn-c-page-pad-y, 16px) var(--hn-c-page-pad-x, 20px) 24px;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .invite-page {
+    --invite-title-size: var(--hn-c-fs-title, 20px);
+    --invite-subtitle-size: var(--hn-c-fs-sm, 12Px);
+    --invite-section-title: var(--hn-c-fs-md, 14px);
+    --invite-label-size: var(--hn-c-fs-md, 14px);
+    --invite-code-size: 22px;
+    --invite-code-h: 40px;
+    --invite-btn-w: 100px;
+    --invite-card-pad-x: 16px;
+    --invite-card-pad-y: 14px;
+    --invite-row-h: 40px;
+    --invite-head-h: 32px;
+    --invite-gap: var(--hn-c-gap-lg, 16px);
+    --invite-top-gap: 12px;
+    --invite-pic-w: 180px;
+    --invite-pic-h: 156px;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .invite-page__top {
+    gap: 12px 20px;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .invite-page__card-label {
+    margin-bottom: 8px;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .invite-page__link-btn-text {
+    font-size: var(--hn-c-btn-fs, 13px);
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .invite-page__stat-num {
+    font-size: 18px;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .invite-page__stat,
+  :is(html.layout-home-new, html.app-shell-create) .invite-page__records-meta,
+  :is(html.layout-home-new, html.app-shell-create) .invite-page__th,
+  :is(html.layout-home-new, html.app-shell-create) .invite-page__td {
+    font-size: var(--hn-c-fs-sm, 12Px);
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .invite-page__empty {
+    padding: 36px 12px 28px;
+  }
+
+}
+@media (max-width: 1600px) and (max-height: 768px) {
+  html.layout-create-flow.app-shell-create:not(.layout-home-new) .create-main.create-main--embed-lib {
+    zoom: calc(16 / 12);
+  }
+}

@@ -1,0 +1,76 @@
+/* Tailwind/PostCSS component styles for global-setting. */
+
+
+/* 上拉加载：新卡片淡入上移，避免生硬跳出（原 TransitionGroup enter，React 侧改为一次性 keyframe） */
+.global-setting .style-card-append-enter {
+  animation: style-card-append-in 0.36s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes style-card-append-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.96);
+  }
+}
+
+.global-setting .styles-grid--appending {
+  transition: opacity 0.2s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .global-setting .style-card,
+  .global-setting .style-selected-mark,
+  .global-setting .style-active-ring,
+  .global-setting .style-overlay,
+  .global-setting .style-card .style-thumb-img,
+  .global-setting .style-more-button__arrow,
+  /* 原 .style-card-append-enter-active / -from：追加动效整体关闭 */
+  .global-setting .style-card-append-enter {
+    transition: none !important;
+    animation: none !important;
+  }
+
+  .global-setting .style-card.active .style-active-ring {
+    animation: none;
+  }
+
+  .global-setting .style-card--located {
+    animation: none;
+  }
+
+  .global-setting .style-card:hover:not(.active),
+  .global-setting .style-card.active {
+    transform: none;
+  }
+}
+
+@media (max-width: 768px) {
+  .global-setting .option-group {
+    flex-direction: column;
+  }
+
+  .global-setting .option-card {
+    width: 100%;
+  }
+
+  .global-setting .styles-grid {
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 1rem;
+  }
+
+  .asset-form-modal__grid {
+    grid-template-columns: 1fr;
+    column-gap: 0;
+  }
+
+  .asset-form-item--half,
+  .asset-form-item--full,
+  .asset-form-item--upload {
+    grid-column: 1 / -1;
+  }
+
+  .style-cover-upload--header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

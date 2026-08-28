@@ -1,0 +1,226 @@
+/* Tailwind/PostCSS component styles for home-new-page. */
+
+
+.home-new-index .home-new-actions .btn-secondary .text {
+  color: #fff;
+  -webkit-text-fill-color: #fff;
+  background: none;
+}
+
+.home-new-index .home-new-actions .btn-secondary:hover {
+  border-color: rgba(74, 231, 253, 0.5);
+}
+
+/* 搜索 */
+.home-new-index .search-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(32,36,52,0.5);
+  border-radius: var(--home-radius-input);
+  padding: 0 14px;
+  width: 220px;
+  max-width: 100%;
+  height: 36px;
+  min-width: 0;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+.home-new-index .search-icon {
+  color: var(--home-muted);
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.home-new-index .search-input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  color: #fff;
+  font-size: 14px;
+  outline: none;
+}
+
+.home-new-index .search-input::placeholder {
+  color: var(--home-muted);
+}
+
+/* 案例广场 */
+.home-new-index .gallery-section {
+  background: transparent;
+  padding: 8px 24px 32px;
+}
+
+.home-new-index .section-header {
+  margin-bottom: 20px;
+}
+
+.home-new-index .section-title {
+  margin: 0 0 16px;
+  font-family: AlimamaShuHeiTi-Bold;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: #fff;
+  letter-spacing: 0.02em;
+}
+
+.home-new-index .section-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.home-new-index .filter-tabs {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.home-new-index .filter-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 8px;
+  background: rgba(32, 36, 52, .5);
+  color: #8e97a5;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    color 0.2s ease,
+    background 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.home-new-index .filter-tab:hover {
+  color: #c9d1d9;
+  border-color: rgba(74, 231, 253, 0.25);
+}
+
+.home-new-index .filter-tab.active {
+  background:rgba(32, 36, 52, 1);
+  color: #fff;
+}
+
+/* 案例卡片网格 */
+.home-new-index .works-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.home-new-index .work-card {
+  background: rgba(22, 26, 36, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  overflow: hidden;
+  transition:
+    transform 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.home-new-index .work-card--gallery {
+  cursor: pointer;
+}
+
+.home-new-index .work-card--gallery:hover {
+  transform: translateY(-3px);
+  border-color: rgba(74, 231, 253, 0.28);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+}
+
+.home-new-index .work-cover {
+  position: relative;
+  aspect-ratio: var(--home-gallery-cover-ratio, 16 / 9);
+  overflow: hidden;
+  border-radius: 12px 12px 0 0;
+}
+
+.home-new-index .work-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.35s ease;
+}
+
+.home-new-index .work-card--gallery:hover .work-img {
+  transform: scale(1.04);
+}
+
+.home-new-index .work-play-badge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.home-new-index .work-play-badge img {
+  display: block;
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+}
+
+.home-new-index .work-play-badge:hover {
+  transform: scale(1.08);
+}
+
+.home-new-index .work-body {
+  padding: 12px 14px 14px;
+}
+
+.home-new-index .work-title {
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: #fff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-new-index .work-footer {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.home-new-index .work-author {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.home-new-index .work-author-avatar {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}

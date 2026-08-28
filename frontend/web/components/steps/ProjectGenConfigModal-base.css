@@ -1,0 +1,234 @@
+/* Tailwind/PostCSS component styles for ProjectGenConfigModal. */
+/* 原 components/steps/ProjectGenConfigModal.vue \3c style scoped lang="scss">；
+   所有选择器加根前缀 .project-gen-config-modal（antd Modal className，挂在 .ant-modal 上）防泄漏，
+   :deep() 展开为普通后代选择器；文末为原全局 \3c style> 块（body 浮层 .pgc-select-popup 等）原样保留 */
+
+.project-gen-config-modal .ant-modal-container {
+  display: flex;
+  flex-direction: column;
+  padding: 20px 24px;
+  overflow: hidden;
+  height: min(740px, calc(100dvh - 48px));
+  max-height: calc(100dvh - 48px);
+}
+
+.project-gen-config-modal .ant-modal-content {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid rgba(74, 231, 253, 0.35);
+  background: #13161c;
+  height: 100%;
+  max-height: 100%;
+}
+
+.project-gen-config-modal .ant-modal-header {
+  margin: 0;
+  padding: 1.25rem 1.5rem 0.75rem;
+  background: #13161c;
+  border-bottom: none;
+  flex-shrink: 0;
+}
+
+.project-gen-config-modal .ant-modal-body {
+  padding: 0;
+  background: #13161c;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.project-gen-config-modal .pgc-shell {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+
+.project-gen-config-modal .pgc-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.project-gen-config-modal .pgc-desc {
+  flex-shrink: 0;
+  margin: 0 0 16px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #8e97a5 !important;
+  text-align: center;
+}
+
+.project-gen-config-modal .pgc-loading {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  text-align: center;
+}
+
+.project-gen-config-modal .pgc-loading__icon {
+  font-size: 28px;
+  color: var(--home-accent, #4ae7fd);
+}
+
+.project-gen-config-modal .pgc-loading__text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.project-gen-config-modal .header-tabs {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  margin-bottom: 0.875rem;
+}
+
+.project-gen-config-modal .import-tab-bar__inner {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  padding: 6px 16px;
+  background: #202434;
+  border-radius: 8px;
+}
+
+.project-gen-config-modal .import-tab-bar__inner .import-tab-inner {
+  display: inline-flex;
+  flex-shrink: 0;
+  max-width: 100%;
+  background: #294b5d;
+  border-radius: 8px;
+}
+
+.project-gen-config-modal .import-tab-bar__inner .import-tab-inner .import-tab--active {
+  background: #4ae7fd;
+  color: #121212 !important;
+}
+
+.project-gen-config-modal .import-tab {
+  position: relative;
+  margin: 0;
+  padding: 0.25rem 1rem;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #d9e6f2;
+  cursor: pointer;
+  background: transparent;
+  flex-shrink: 0;
+  white-space: nowrap;
+  transition:
+    color 0.2s ease,
+    background 0.2s ease;
+}
+
+.project-gen-config-modal .import-tab:hover:not(.import-tab--active) {
+  color: #ffffff;
+}
+
+.project-gen-config-modal .pgc-scenes-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 1rem;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.project-gen-config-modal .pgc-scenes-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.project-gen-config-modal .pgc-scenes {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.project-gen-config-modal .pgc-scene-panel {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 0;
+  align-items: stretch;
+  border-radius: 8px;
+  border: 1px solid rgba(74, 231, 253, 0.3);
+  background: rgba(8, 12, 20, 0.55);
+  overflow: hidden;
+}
+
+.project-gen-config-modal .pgc-scene-label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 100%;
+  padding: 12px 6px;
+  background: #202434;
+  font-size: 16px;
+  font-weight: 500;
+  color: rgba(230, 237, 243, 0.92);
+  line-height: 1.25;
+  text-align: center;
+  border-right: 1px solid rgba(74, 231, 253, 0.3);
+}
+
+.project-gen-config-modal .pgc-scene-label__line {
+  display: block;
+  white-space: nowrap;
+}
+
+.project-gen-config-modal .pgc-scene-config {
+  min-width: 0;
+  padding: 0.875rem 1rem;
+}
+
+.project-gen-config-modal .pgc-scene-config--image .pgc-config-head-row,
+.project-gen-config-modal .pgc-scene-config--image .pgc-config-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 108px 108px;
+  gap: 0.625rem;
+  align-items: end;
+}
+
+.project-gen-config-modal .pgc-scene-config--image .pgc-config-row {
+  align-items: stretch;
+}
+
+.project-gen-config-modal .pgc-config-head-row {
+  margin-bottom: 0.5rem;
+}
+
+.project-gen-config-modal .pgc-config-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.project-gen-config-modal .pgc-config-head--param {
+  justify-content: flex-start;
+}
+
+.project-gen-config-modal .pgc-config-head__text {
+  font-size: 16px;
+  color: #8e97a5 !important;
+}

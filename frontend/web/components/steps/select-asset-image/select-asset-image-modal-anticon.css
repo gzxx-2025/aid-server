@@ -1,0 +1,77 @@
+/* Tailwind/PostCSS component styles for select-asset-image-modal. */
+
+
+.saim-btn-tool .anticon {
+  color: inherit;
+}
+
+.saim-btn-cancel.ant-btn {
+  min-width: 104px;
+  height: 40px;
+  border-radius: 10px !important;
+  border: 1px solid rgba(74, 231, 253, 0.3) !important;
+  background: #121212 !important;
+  color: #e6edf3 !important;
+}
+
+.saim-btn-cancel.ant-btn:hover {
+  border-color: rgba(74, 231, 253, 0.45) !important;
+  color: #4ae7fd !important;
+}
+
+/* 须压过 html.app-shell-create .ant-btn-default 的暗底 !important，否则确定键会变黑 */
+html.app-shell-create .create-flow-modal .saim-btn-ok.ant-btn,
+.saim-btn-ok.ant-btn {
+  min-width: 104px;
+  height: 40px;
+  border-radius: 10px !important;
+  border: none !important;
+  font-weight: 600;
+  background: linear-gradient(270deg, #0e59fa 0%, #00abd8 100%) !important;
+  color: #fff !important;
+  box-shadow: none !important;
+}
+
+html.app-shell-create .create-flow-modal .saim-btn-ok.ant-btn:hover:not(:disabled):not(.ant-btn-disabled),
+.saim-btn-ok.ant-btn:hover:not(:disabled) {
+  background: linear-gradient(270deg, #2a6cfb 0%, #4ae7fd 100%) !important;
+  color: #fff !important;
+}
+
+html.app-shell-create .create-flow-modal .saim-btn-ok.ant-btn:disabled,
+html.app-shell-create .create-flow-modal .saim-btn-ok.ant-btn.ant-btn-disabled,
+.saim-btn-ok.ant-btn:disabled {
+  opacity: 0.45;
+  color: #fff !important;
+}
+
+@media (max-width: 720px) {
+  .saim-content-row {
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .saim-sidebar {
+    width: 100%;
+    flex: 0 0 140px;
+    max-height: 140px;
+    min-height: 0;
+    border-right: none;
+    border-bottom: 1px solid rgba(74, 231, 253, 0.3);
+  }
+
+  .saim-main {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+}
+
+/* 全局字色 .ant-modal-body * 会盖过 scoped，此处提高优先级保证左侧分类字色 */
+html.app-shell-create .create-flow-modal .select-asset-image-modal--figma .ant-modal-body .saim-cat {
+  color: #8e97a5 !important;
+}
+
+html.app-shell-create .create-flow-modal .select-asset-image-modal--figma .ant-modal-body .saim-cat:hover,
+html.app-shell-create .create-flow-modal .select-asset-image-modal--figma .ant-modal-body .saim-cat.saim-cat--active {
+  color: rgba(74, 231, 253, 1) !important;
+}

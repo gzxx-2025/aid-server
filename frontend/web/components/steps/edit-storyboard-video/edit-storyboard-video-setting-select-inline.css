@@ -1,0 +1,100 @@
+/* Tailwind/PostCSS component styles for edit-storyboard-video. */
+
+
+.edit-storyboard-video-modal .setting-select-inline {
+  width: 100%;
+  min-width: 0;
+}
+
+html.app-shell-create .edit-storyboard-video-modal .setting-select-inline.ant-select {
+  --ant-select-selector-bg: #0a0d12;
+  --ant-color-border: rgba(78, 94, 122, 0.42);
+}
+
+html.app-shell-create .edit-storyboard-video-modal .setting-select-inline .ant-select-selector,
+.edit-storyboard-video-modal .setting-select-inline .ant-select-selector {
+  height: 44px !important;
+  border-radius: 8px !important;
+  background: #0a0d12 !important;
+  background-color: #0a0d12 !important;
+  border: 1px solid rgba(78, 94, 122, 0.42) !important;
+  border-color: rgba(78, 94, 122, 0.42) !important;
+  box-shadow: none !important;
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+}
+
+.edit-storyboard-video-modal .setting-select-inline .ant-select-selection-wrap {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
+}
+
+html.app-shell-create .edit-storyboard-video-modal .setting-select-inline:not(.ant-select-disabled):hover .ant-select-selector,
+html.app-shell-create .edit-storyboard-video-modal .setting-select-inline.ant-select-focused .ant-select-selector,
+html.app-shell-create .edit-storyboard-video-modal .setting-select-inline.ant-select-open .ant-select-selector,
+.edit-storyboard-video-modal .setting-select-inline .ant-select-selector:hover,
+.edit-storyboard-video-modal .setting-select-inline.ant-select-focused .ant-select-selector,
+.edit-storyboard-video-modal .setting-select-inline.ant-select-open .ant-select-selector {
+  background: #0a0d12 !important;
+  background-color: #0a0d12 !important;
+  border-color: rgba(120, 140, 170, 0.45) !important;
+  box-shadow: none !important;
+}
+
+.edit-storyboard-video-modal .setting-select-inline .ant-select-selection-item {
+  line-height: 42px !important;
+  font-size: 13px;
+  color: #d7e8ff !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.edit-storyboard-video-modal .setting-select-inline .ant-select-arrow {
+  flex-shrink: 0 !important;
+}
+
+.edit-storyboard-video-modal .setting-duration-select-wrap,
+.edit-storyboard-video-modal .setting-duration-select-wrap > span,
+.edit-storyboard-video-modal .setting-duration-select-wrap > div {
+  display: block !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+}
+
+.edit-storyboard-video-modal .setting-duration-select-wrap .ant-select {
+  display: inline-flex !important;
+  align-items: center !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+}
+
+.edit-storyboard-video-modal .setting-duration-select-wrap .ant-select-selector {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+}
+
+.edit-storyboard-video-modal .setting-duration-select-wrap .ant-select-arrow {
+  position: static !important;
+  transform: none !important;
+  margin-inline-start: 4px !important;
+  flex-shrink: 0 !important;
+}
+
+/* 挂 body 的下拉浮层：转为具名全局类（wrapClassName 契约见 GenerateModelConfigBlock selectPopupClassName） */
+.video-modal-select-dropdown .ant-select-item-option-active:not(.ant-select-item-option-disabled),
+.video-modal-select-dropdown .ant-select-item-option-selected:not(.ant-select-item-option-disabled) {
+  background: rgba(18, 18, 18, 1) !important;
+}
+
+.edit-storyboard-video-modal .generate-btn {
+  margin-top: 0.5rem;
+}
+
+.edit-storyboard-video-modal .mr-1 {
+  margin-right: 0.25rem;
+}

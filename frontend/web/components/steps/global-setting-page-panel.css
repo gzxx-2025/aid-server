@@ -1,0 +1,39 @@
+/*
+ * GlobalSettingPagePanel 伴随样式：由原 components/steps/GlobalSettingPagePanel.vue <style scoped> 平移。
+ * scoped 等价处理：组件内规则加 .global-setting-page-panel 前缀（含原 :deep() 展开）。
+ */
+
+.global-setting-page-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  flex: 1;
+  padding: 0 14px 14px;
+  box-sizing: border-box;
+}
+
+.global-setting-page-panel .gsp-header {
+  flex-shrink: 0;
+  padding: 4px 0 12px;
+}
+
+.global-setting-page-panel .gsp-title {
+  margin: 0 0 6px;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--home-text, #e6edf3);
+  letter-spacing: 0.04em;
+}
+
+.global-setting-page-panel .gsp-desc {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--home-muted, #8e97a5);
+  line-height: 1.5;
+}
+
+.global-setting-page-panel .create-first-step-form--page {
+  flex: 1;
+  min-height: 0;
+}

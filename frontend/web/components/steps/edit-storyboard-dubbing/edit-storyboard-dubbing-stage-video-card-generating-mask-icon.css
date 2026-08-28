@@ -1,0 +1,226 @@
+/* Tailwind/PostCSS component styles for edit-storyboard-dubbing-stage. */
+
+
+.edit-storyboard-dubbing-modal .video-card-generating-mask__icon {
+  font-size: 28px;
+  color: #4ae7fd;
+}
+
+.edit-storyboard-dubbing-modal .video-card-generating-mask__text {
+  margin: 0;
+  font-size: 12px;
+  color: rgba(225, 239, 255, 0.88);
+  text-align: center;
+  padding: 0 12px;
+}
+
+.edit-storyboard-dubbing-modal .dubbing-canvas-actions {
+  margin-top: 0;
+}
+
+.edit-storyboard-dubbing-modal .dubbing-canvas-footer {
+  margin-top: auto;
+  padding-top: 0.75rem;
+}
+
+.edit-storyboard-dubbing-modal .nav-thumb-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* 分镜 tab：未选中无边框/背景；选中整卡青色描边 */
+.edit-storyboard-dubbing-modal .scene-image-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  width: 172px;
+  min-width: 172px;
+  max-width: 172px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+  box-shadow: none;
+}
+
+.edit-storyboard-dubbing-modal .scene-image-tab:hover:not(.active) {
+  border-color: transparent;
+  background: transparent;
+}
+
+.edit-storyboard-dubbing-modal .scene-image-tab.active {
+  border-color: rgba(74, 231, 253, 1);
+  background: transparent;
+  box-shadow: none;
+}
+
+.edit-storyboard-dubbing-modal .scene-image-thumbnail {
+  width: 100%;
+  height: 54px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: rgba(6, 10, 18, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.edit-storyboard-dubbing-modal .thumbnail-video-wrap {
+  width: 100%;
+  height: 100%;
+}
+
+.edit-storyboard-dubbing-modal .thumbnail-video-wrap .video-poster-thumb,
+.edit-storyboard-dubbing-modal .thumbnail-video-wrap .shimmer-image {
+  width: 100%;
+  height: 100%;
+}
+
+.edit-storyboard-dubbing-modal .thumbnail-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.edit-storyboard-dubbing-modal .thumbnail-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--home-muted, #8e97a5);
+  font-size: 1.25rem;
+}
+
+.edit-storyboard-dubbing-modal .thumbnail-loading-wrap {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(6, 10, 18, 0.55);
+  color: var(--accent-600);
+}
+
+.edit-storyboard-dubbing-modal .thumbnail-loading-icon {
+  font-size: 1.25rem;
+}
+
+.edit-storyboard-dubbing-modal .scene-label {
+  font-size: 0.75rem;
+  color: rgba(188, 205, 228, 0.85);
+  max-width: 100%;
+}
+
+.edit-storyboard-dubbing-modal .scene-image-tab.active .scene-label--dubbing {
+  font-weight: 500;
+}
+
+.edit-storyboard-dubbing-modal .dubbing-video-hero {
+  /*
+   * 与分镜视频弹窗一致：小分辨率不再额外压矮预览，
+   * 用更高 vh 吃满中间列，上限 560 对齐 1920 观感。
+   */
+  --dubbing-hero-max-h: clamp(240px, 68vh, 560px);
+  position: relative;
+  width: min(100%, calc(var(--dubbing-hero-max-h) * 16 / 9));
+  max-width: 100%;
+  margin-inline: auto;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--gray-200, rgba(96, 124, 158, 0.22));
+  background: rgba(6, 10, 18, 0.55);
+  aspect-ratio: 16 / 9;
+  height: auto;
+  flex: 0 0 auto;
+}
+
+@media (min-height: 1100px) {
+  .edit-storyboard-dubbing-modal .dubbing-video-hero {
+    --dubbing-hero-max-h: clamp(280px, 72vh, 720px);
+  }
+}
+
+.edit-storyboard-dubbing-modal .dubbing-video-hero--in-card {
+  box-shadow: none;
+}
+
+.edit-storyboard-dubbing-modal .dubbing-video-hero .shimmer-video {
+  width: 100%;
+  height: 100%;
+}
+
+.edit-storyboard-dubbing-modal .dubbing-hero-video,
+.edit-storyboard-dubbing-modal .dubbing-video-hero .dubbing-hero-video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.edit-storyboard-dubbing-modal .dubbing-hero-top-actions {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  display: flex;
+  gap: 0.25rem;
+  z-index: 2;
+}
+
+.edit-storyboard-dubbing-modal .dubbing-hero-action {
+  color: #fff !important;
+  background: rgba(0, 0, 0, 0.45) !important;
+  border-radius: var(--radius-sm);
+}
+
+.edit-storyboard-dubbing-modal .dubbing-gen-main {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.edit-storyboard-dubbing-modal .dubbing-gen-card {
+  border: 1px solid rgba(128, 154, 188, 0.26);
+  border-radius: var(--radius-md);
+  padding: 1rem 1.25rem;
+  background: rgba(18, 24, 36, 0.92);
+  transition: box-shadow 0.2s;
+}
+
+.edit-storyboard-dubbing-modal .dubbing-gen-card--active {
+  box-shadow: 0 0 0 2px rgba(74, 231, 253, 0.45);
+}
+
+.edit-storyboard-dubbing-modal .dubbing-gen-card--loading {
+  border: 2px solid var(--accent-500, #22c55e);
+  background: var(--gray-900, #1a1a1a);
+}
+
+.edit-storyboard-dubbing-modal .dubbing-gen-card--loading .dubbing-gen-card-title {
+  color: #e5e5e5;
+}
+
+.edit-storyboard-dubbing-modal .dubbing-gen-card-title {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--home-text, #e6edf3);
+  margin-bottom: 0.75rem;
+}
+
+.edit-storyboard-dubbing-modal .dubbing-gen-card-body {
+  margin-bottom: 0.75rem;
+}
+
+.edit-storyboard-dubbing-modal .dubbing-gen-card-actions {
+  margin-top: 0.5rem;
+}
+
+/* 与 EditStoryboardVideoModal 的「设置为分镜视频」按钮一致（原 SCSS 嵌套展开） */

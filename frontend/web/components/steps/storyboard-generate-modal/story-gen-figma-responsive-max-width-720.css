@@ -1,0 +1,62 @@
+/* Tailwind/PostCSS component styles for story-gen-figma. */
+
+
+@media (max-width: 720px) {
+  .story-gen-video-select-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.story-gen-figma__footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 1rem 0 0;
+  border-top: 1px solid rgba(74, 231, 253, 0.12);
+  background: #191a1d;
+}
+
+.story-gen-figma__footer-cost {
+  font-size: 14px;
+  color: #8e97a5;
+  line-height: 40px;
+}
+
+.story-gen-figma__footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+}
+
+.story-gen-figma__btn-cancel {
+  min-width: 104px;
+  border-radius: 10px !important;
+  border: 1px solid rgba(74, 231, 253, 0.3) !important;
+  background: #121212 !important;
+  color: #e6edf3 !important;
+  height: 40px;
+}
+
+.story-gen-figma__btn-cancel:hover {
+  border-color: rgba(74, 231, 253, 0.45) !important;
+  color: #4ae7fd !important;
+}
+
+.story-gen-figma__btn-ok {
+  min-width: 104px;
+  height: 40px;
+  border-radius: 10px !important;
+  border: none !important;
+  font-weight: 600;
+  background: linear-gradient(270deg, #0e59fa 0%, #00abd8 100%) !important;
+  color: #fff !important;
+  box-shadow: none !important;
+}
+
+.story-gen-figma__btn-ok:hover:not(:disabled) {
+  background: linear-gradient(270deg, #2a6cfb 0%, #4ae7fd 100%) !important;
+  color: #fff !important;
+}

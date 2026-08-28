@@ -1,0 +1,231 @@
+/* Tailwind/PostCSS component styles for CaptureVideoFrameModal. */
+.cvfm-content {
+  display: flex;
+  min-height: 520px;
+  flex-direction: column;
+  gap: 16px;
+  color: var(--home-text, #e6edf3);
+}
+.cvfm-picker {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.cvfm-video-strip {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding: 2px;
+  scrollbar-width: none;
+  scroll-behavior: smooth;
+}
+
+.cvfm-video-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.cvfm-video-card {
+  width: 132px;
+  min-width: 132px;
+  height: 88px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: var(--create-surface-canvas, rgba(17, 22, 33, 0.96));
+  color: var(--home-text, #e6edf3);
+  cursor: pointer;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
+}
+
+.cvfm-video-card:hover,
+.cvfm-video-card.is-active {
+  border-color: var(--accent-500, #4ae7fd);
+}
+
+.cvfm-video-card.is-active {
+  box-shadow: 0 0 0 1px rgba(74, 231, 253, 0.25);
+}
+
+.cvfm-video-card__shimmer {
+  display: block;
+  width: 100%;
+  height: 62px;
+  background: #080b12;
+  pointer-events: none;
+}
+
+.cvfm-video-card__media {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+}
+
+.cvfm-video-card__label {
+  display: block;
+  padding: 4px 7px;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 18px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cvfm-scroll-btn {
+  position: absolute;
+  top: 25px;
+  z-index: 3;
+  display: flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(74, 231, 253, 0.35);
+  border-radius: 50%;
+  background: rgba(12, 18, 29, 0.92);
+  color: var(--accent-500, #4ae7fd);
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.38);
+}
+
+.cvfm-scroll-btn--left {
+  left: 6px;
+}
+.cvfm-scroll-btn--right {
+  right: 6px;
+}
+
+.cvfm-preview {
+  position: relative;
+  display: flex;
+  min-height: min(420px, 46vh);
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px solid rgba(74, 231, 253, 0.2);
+  border-radius: 10px;
+  background: #080b12;
+}
+
+.cvfm-preview__video {
+  display: block;
+  width: 100%;
+  height: min(52vh, 480px);
+  cursor: pointer;
+  object-fit: contain;
+}
+.cvfm-preview__error {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: #080b12;
+  color: var(--home-muted, #8e97a5);
+}
+
+.cvfm-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cvfm-timeline__main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.cvfm-timeline__quick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 44px;
+  color: var(--home-muted, #8e97a5);
+  font-size: 12px;
+}
+
+.cvfm-play-btn,
+.cvfm-boundary-btn {
+  flex-shrink: 0;
+  border: 1px solid rgba(74, 231, 253, 0.3);
+  border-radius: 6px;
+  background: var(--create-surface-input, rgba(28, 38, 54, 0.92));
+  color: var(--home-text, #e6edf3);
+  cursor: pointer;
+}
+
+.cvfm-play-btn:hover:not(:disabled),
+.cvfm-boundary-btn:hover:not(:disabled) {
+  border-color: var(--accent-500, #4ae7fd);
+  color: var(--accent-500, #4ae7fd);
+}
+
+.cvfm-play-btn:disabled,
+.cvfm-boundary-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.cvfm-play-btn {
+  display: flex;
+  width: 34px;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 18px;
+}
+
+.cvfm-boundary-btn {
+  height: 32px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+.cvfm-filmstrip {
+  position: relative;
+  display: flex;
+  height: 48px;
+  flex: 1 1 auto;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  background: #0a0e15;
+}
+
+.cvfm-filmstrip.is-disabled {
+  opacity: 0.5;
+}
+
+.cvfm-filmstrip__frame,
+.cvfm-filmstrip__placeholder {
+  min-width: 0;
+  flex: 1 1 0;
+  background-position: center;
+  background-size: cover;
+}
+
+.cvfm-filmstrip__frame + .cvfm-filmstrip__frame {
+  border-left: 1px solid rgba(8, 11, 18, 0.7);
+}
+
+.cvfm-filmstrip__placeholder {
+  background:
+    linear-gradient(90deg, rgba(74, 231, 253, 0.08), transparent 45%, rgba(74, 231, 253, 0.08)),
+    #0a0e15;
+}
+
+.cvfm-filmstrip__placeholder.is-loading,
+.cvfm-filmstrip.is-loading .cvfm-filmstrip__placeholder {
+  position: relative;
+  overflow: hidden;
+  background: rgba(14, 18, 28, 0.92);
+}

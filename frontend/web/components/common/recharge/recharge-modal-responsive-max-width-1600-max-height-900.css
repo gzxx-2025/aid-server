@@ -1,0 +1,94 @@
+/* Tailwind/PostCSS component styles for recharge-modal. */
+
+@media (max-width: 1600px) and (max-height: 900px) {
+  .recharge-package {
+    height: 168px;
+    padding: 28px 20px 20px;
+  }
+
+  .recharge-package__price {
+    font-size: 28px;
+  }
+
+  .recharge-package__price-block {
+    margin-bottom: 10px;
+  }
+
+  .recharge-modal__footer-bottom {
+    margin-top: 24px;
+    padding: 10px 16px 32px;
+  }
+
+  .ant-modal.recharge-main-modal .ant-modal-body .recharge-modal__body--step1 {
+    padding: 12px 20px 0;
+  }
+}
+
+@media (max-width: 1600px) and (max-height: 768px) {
+  .recharge-package {
+    height: 148px;
+    padding: 22px 16px 18px;
+  }
+
+  .recharge-package__price {
+    font-size: 24px;
+  }
+
+  .recharge-package__buy {
+    min-height: 32px;
+    font-size: 13px;
+  }
+
+  .recharge-modal__profile {
+    height: 48px;
+    margin-bottom: 12px;
+  }
+
+  .recharge-modal__footer-bottom {
+    margin-top: 16px;
+    padding: 8px 12px 24px;
+  }
+}
+
+/* 扫码支付弹窗：无标题栏，内容由 body 内自定义关闭与摘要区 */
+.ant-modal.recharge-pay-modal.recharge-modal-branded .ant-modal-header {
+  display: none !important;
+}
+
+.ant-modal.recharge-pay-modal .ant-modal-body .recharge-pay-modal__body {
+  padding: 64px 24px 12px !important;
+}
+
+/* 取消订单确认框：与流程弹窗深色主题一致 */
+.recharge-confirm-wrap .ant-modal-content,
+.recharge-confirm-modal .ant-modal-content {
+  background: var(--create-surface-modal, rgba(25, 26, 29, 1)) !important;
+  border: 1px solid rgba(74, 231, 253, 0.09) !important;
+  box-shadow: 0 24px 56px rgba(8, 12, 24, 0.45) !important;
+  border-radius: 8px !important;
+}
+
+.recharge-confirm-wrap .ant-modal-confirm-body,
+.recharge-confirm-modal .ant-modal-confirm-body {
+  color: #e6edf3 !important;
+}
+
+.recharge-confirm-wrap .ant-modal-confirm-title,
+.recharge-confirm-modal .ant-modal-confirm-title {
+  color: #fff !important;
+}
+
+.recharge-confirm-wrap .ant-modal-confirm-content,
+.recharge-confirm-modal .ant-modal-confirm-content {
+  color: #a8b4c4 !important;
+}
+
+.recharge-confirm-wrap .ant-modal-confirm-body > .anticon,
+.recharge-confirm-modal .ant-modal-confirm-body > .anticon {
+  color: #4ae7fd !important;
+}
+
+.recharge-confirm-wrap .ant-modal-confirm-btns .ant-btn,
+.recharge-confirm-modal .ant-modal-confirm-btns .ant-btn {
+  border-radius: 8px;
+}

@@ -1,0 +1,228 @@
+/* Tailwind/PostCSS component styles for DubbingEditLeftPanel. */
+/* DubbingEditLeftPanel 伴随样式（原 \3c style scoped lang="scss"> 平移）：
+   scoped/:deep() 统一以 .dubbing-edit-left 根前缀落地，防止通用类名（config-tab 等）串扰全局 */
+
+.dubbing-edit-left {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: rgba(25, 26, 29, 1);
+  border-right: none;
+}
+
+.dubbing-edit-left .ql-container.ql-snow {
+  background: rgba(18, 18, 18, 1);
+  border-radius: 8px;
+}
+
+.dubbing-edit-left .config-tabs--two {
+  display: flex;
+  width: 70%;
+  margin: auto;
+  justify-content: center;
+  gap: 4px;
+  border-radius: 8px;
+  background: rgba(35, 67, 74, 1);
+  margin-bottom: 12px;
+  flex-shrink: 0;
+  padding: 0;
+}
+
+.dubbing-edit-left .config-tabs--two .config-tab {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(225, 239, 255, 0.7);
+  font-size: 14px;
+  line-height: 1.2;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 4px;
+}
+
+.dubbing-edit-left .config-tabs--two .config-tab.active {
+  color: #0b1522 !important;
+  font-weight: 600;
+  background: rgba(74, 231, 253, 1);
+}
+
+.dubbing-edit-left .dubbing-edit-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+}
+
+.dubbing-edit-left .dubbing-edit-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.dubbing-edit-left .dubbing-edit-scroll::-webkit-scrollbar-thumb {
+  background: rgba(120, 140, 170, 0.55);
+  border-radius: 4px;
+}
+
+.dubbing-edit-left .dubbing-left-tts,
+.dubbing-edit-left .dubbing-left-upload {
+  padding: 10px 0 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.dubbing-edit-left .dubbing-dialogue-input {
+  resize: none;
+}
+
+.dubbing-edit-left .dubbing-dialogue-input .ql-editor {
+  resize: none;
+  font-size: 12px;
+}
+
+.dubbing-edit-left .dubbing-tts-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.dubbing-edit-left .dubbing-preview-btn {
+  padding: 0;
+  height: auto;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.dubbing-edit-left .dubbing-preview-btn__inner {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dubbing-edit-left .dubbing-preview-btn.is-playing {
+  color: rgba(74, 231, 253, 0.95);
+}
+
+.dubbing-edit-left .voice-preview-eq {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 12px;
+}
+
+.dubbing-edit-left .voice-preview-eq-bar {
+  width: 2px;
+  background: currentColor;
+  border-radius: 1px;
+  animation: voice-preview-eq 0.45s ease-in-out infinite alternate;
+}
+
+.dubbing-edit-left .voice-preview-eq-bar-1 {
+  height: 6px;
+  animation-delay: 0s;
+}
+
+.dubbing-edit-left .voice-preview-eq-bar-2 {
+  height: 11px;
+  animation-delay: 0.12s;
+}
+
+.dubbing-edit-left .voice-preview-eq-bar-3 {
+  height: 8px;
+  animation-delay: 0.24s;
+}
+
+@keyframes voice-preview-eq {
+  0% {
+    transform: scaleY(0.35);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+.dubbing-edit-left .dubbing-tts-hint {
+  font-size: 0.78rem;
+  color: var(--home-muted, #8e97a5);
+}
+
+.dubbing-edit-left .dubbing-tts-duration {
+  font-size: 0.78rem;
+  color: rgba(74, 231, 253, 0.95);
+  font-weight: 600;
+}
+
+.dubbing-edit-left .dubbing-dialogue-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: -0.5rem;
+}
+
+.dubbing-edit-left .dubbing-char-count {
+  font-size: 0.8rem;
+  color: var(--home-muted, #8e97a5);
+}
+
+.dubbing-edit-left .dubbing-clear-btn {
+  border: none;
+  background: none;
+  color: var(--home-muted, #8e97a5);
+  cursor: pointer;
+  padding: 0.25rem;
+  display: flex;
+  align-items: center;
+}
+
+.dubbing-edit-left .dubbing-clear-btn:hover {
+  color: var(--red-500);
+}
+
+.dubbing-edit-left .dubbing-field-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--home-text, #e6edf3);
+  margin-bottom: 0.5rem;
+}
+
+.dubbing-edit-left .dubbing-voice-picker {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.65rem 1rem;
+  border: 1px solid var(--gray-200, rgba(96, 124, 158, 0.22));
+  border-radius: var(--radius-md);
+  background: var(--create-surface-panel);
+  cursor: pointer;
+  text-align: left;
+}
+
+.dubbing-edit-left .dubbing-voice-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--home-muted, #8e97a5);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.dubbing-edit-left .dubbing-voice-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}

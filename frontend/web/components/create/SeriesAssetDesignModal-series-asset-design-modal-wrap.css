@@ -1,0 +1,226 @@
+/* Tailwind/PostCSS component styles for SeriesAssetDesignModal. */
+/* 原 SeriesAssetDesignModal.vue scoped SCSS 展开；:global 段原样保留 */
+.series-asset-design-modal-wrap .ant-modal-content {
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+
+.series-asset-design-modal-wrap .ant-modal-body {
+  padding: 0 !important;
+}
+
+.sad-shell {
+  width: 1100px;
+  max-width: calc(100vw - 32px);
+  height: 698px;
+  max-height: calc(100dvh - 80px);
+  background: #191a1d;
+  border-radius: 8px;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sad-shell .sad-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px 0;
+  flex-shrink: 0;
+}
+
+.sad-shell .sad-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.sad-shell .sad-close {
+  border: none;
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+  font-size: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+}
+
+.sad-shell .sad-close:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.sad-shell .sad-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
+  grid-template-rows: 1fr;
+  align-items: stretch;
+  gap: 16px;
+  padding: 16px 24px;
+  box-sizing: border-box;
+}
+
+.sad-shell .sad-media {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+}
+
+.sad-shell .sad-media__frame {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border-radius: 8px;
+  background: #111621;
+  border: 1px solid rgba(74, 231, 253, 0.2);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.sad-shell .sad-media__placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.sad-shell .sad-media__placeholder-icon {
+  font-size: 40px;
+  color: rgba(142, 151, 165, 0.85);
+}
+
+.sad-shell .sad-media__preview {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #0d1118;
+}
+
+.sad-shell .sad-media__overlay-actions {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: auto;
+  max-width: calc(100% - 32px);
+}
+
+.sad-shell .sad-media__generating-icon {
+  font-size: 22px;
+  color: #4ae7fd;
+}
+
+.sad-shell .sad-media__generating {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 20px;
+  text-align: center;
+}
+
+.sad-shell .sad-media__generating-text {
+  margin: 0;
+  font-size: 13px;
+  color: #8e97a5;
+}
+
+.sad-shell .sad-media__actions {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  width: auto;
+  max-width: calc(100% - 32px);
+}
+
+.sad-shell .sad-action-btn {
+  width: auto;
+  min-width: 0;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.sad-shell .sad-action-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.sad-shell .sad-action-btn--compact {
+  height: 32px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+.sad-shell .sad-action-btn--ghost {
+  border: 1px solid rgba(74, 231, 253, 0.45);
+  background: rgba(18, 18, 18, 0.9);
+  color: #fff;
+}
+
+.sad-shell .sad-action-btn--primary {
+  border: none;
+  background: linear-gradient(270deg, #0e59fa 0%, #00abd8 100%);
+  color: #fff;
+}
+
+.sad-shell .sad-action-btn__star {
+  width: 12px;
+  height: 12px;
+}
+
+.sad-shell .sad-action-btn__cost {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 2px;
+  font-size: 12px;
+}
+
+.sad-shell .sad-action-btn__diamond {
+  width: 12px;
+  height: 12px;
+}
+
+.sad-shell .sad-form {
+  height: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px solid rgba(74, 231, 253, 0.2);
+  overflow: auto;
+}

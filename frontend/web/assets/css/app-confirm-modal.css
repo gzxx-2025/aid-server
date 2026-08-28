@@ -1,0 +1,169 @@
+/**
+ * 全站 Modal.confirm / info / warning / error 统一视觉
+ * 替换 Ant Design 默认红色圆圈感叹号
+ */
+
+/* 尺寸与布局兜底：避免被 create-flow-modal 大屏规则拉伸变形（排除图/视频预览弹窗） */
+.ant-modal-wrap.app-confirm-wrap:not(.image-preview-modal-wrap):not(.image-gallery-preview-modal-wrap):not(.video-preview-modal-wrap)
+  .ant-modal,
+.ant-modal-wrap.home-confirm-wrap .ant-modal,
+.ant-modal-wrap.recharge-confirm-wrap .ant-modal {
+  width: min(420px, calc(100vw - 32px)) !important;
+  max-width: min(420px, calc(100vw - 32px)) !important;
+  margin: 0 auto;
+}
+
+.ant-modal-wrap.app-confirm-wrap:not(.image-preview-modal-wrap):not(.image-gallery-preview-modal-wrap):not(.video-preview-modal-wrap)
+  .ant-modal-content,
+.ant-modal-wrap.home-confirm-wrap .ant-modal-content,
+.ant-modal-wrap.recharge-confirm-wrap .ant-modal-content {
+  display: block !important;
+  overflow: visible !important;
+  max-height: none !important;
+}
+
+.ant-modal-wrap.app-confirm-wrap:not(.image-preview-modal-wrap):not(.image-gallery-preview-modal-wrap):not(.video-preview-modal-wrap)
+  .ant-modal-body,
+.ant-modal-wrap.home-confirm-wrap .ant-modal-body,
+.ant-modal-wrap.recharge-confirm-wrap .ant-modal-body {
+  display: block !important;
+  overflow: visible !important;
+  flex: none !important;
+  min-height: auto !important;
+  padding: 0 !important;
+}
+
+.ant-modal-wrap.app-confirm-wrap:not(.image-preview-modal-wrap):not(.image-gallery-preview-modal-wrap):not(.video-preview-modal-wrap)
+  .ant-modal-confirm-body,
+.ant-modal-wrap.home-confirm-wrap .ant-modal-confirm-body,
+.ant-modal-wrap.recharge-confirm-wrap .ant-modal-confirm-body,
+.app-confirm-modal .ant-modal-confirm-body,
+.home-confirm-modal .ant-modal-confirm-body,
+.recharge-confirm-modal .ant-modal-confirm-body {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  align-items: flex-start !important;
+}
+
+.ant-modal-wrap.app-confirm-wrap:not(.image-preview-modal-wrap):not(.image-gallery-preview-modal-wrap):not(.video-preview-modal-wrap)
+  .ant-modal-confirm-btns,
+.ant-modal-wrap.home-confirm-wrap .ant-modal-confirm-btns,
+.ant-modal-wrap.recharge-confirm-wrap .ant-modal-confirm-btns,
+.app-confirm-modal .ant-modal-confirm-btns,
+.home-confirm-modal .ant-modal-confirm-btns,
+.recharge-confirm-modal .ant-modal-confirm-btns {
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  justify-content: flex-end !important;
+  align-items: center !important;
+  gap: 8px !important;
+  width: 100% !important;
+  margin-top: 20px !important;
+  float: none !important;
+}
+
+.app-confirm-wrap:not(.image-preview-modal-wrap):not(.image-gallery-preview-modal-wrap):not(
+    .video-preview-modal-wrap
+  )
+  .ant-modal-content,
+.app-confirm-modal.ant-modal .ant-modal-content,
+.home-confirm-wrap .ant-modal-content,
+.home-confirm-modal.ant-modal .ant-modal-content,
+.recharge-confirm-wrap .ant-modal-content,
+.recharge-confirm-modal.ant-modal .ant-modal-content {
+  /* 与 --create-surface-modal 对齐（勿用旧的偏蓝 rgba(34,44,64)） */
+  background: var(--create-surface-modal, rgba(25, 26, 29, 1)) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 24px 56px rgba(8, 12, 24, 0.45) !important;
+}
+
+/* 预览全屏：压过 app-confirm-modal 圆角，贴边铺满 */
+.ant-modal-wrap.image-preview-modal-wrap .ant-modal.app-confirm-modal .ant-modal-content,
+.ant-modal-wrap.image-preview-modal-wrap .ant-modal.app-confirm-modal .ant-modal-container,
+.ant-modal-wrap.image-gallery-preview-modal-wrap .ant-modal.app-confirm-modal .ant-modal-content,
+.ant-modal-wrap.image-gallery-preview-modal-wrap .ant-modal.app-confirm-modal .ant-modal-container,
+.ant-modal-wrap.video-preview-modal-wrap .ant-modal.app-confirm-modal .ant-modal-content,
+.ant-modal-wrap.video-preview-modal-wrap .ant-modal.app-confirm-modal .ant-modal-container {
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+
+.app-confirm-wrap .ant-modal-confirm-body,
+.app-confirm-modal .ant-modal-confirm-body {
+  color: #e6edf3 !important;
+}
+
+.app-confirm-wrap .ant-modal-confirm-title,
+.app-confirm-modal .ant-modal-confirm-title {
+  color: #fff !important;
+  font-weight: 600;
+}
+
+.app-confirm-wrap .ant-modal-confirm-content,
+.app-confirm-modal .ant-modal-confirm-content {
+  color: #a8b4c4 !important;
+}
+
+/* 自定义图标与标题同一行（Ant Design 默认 flex 规则仅匹配 .anticon） */
+.app-confirm-wrap .ant-modal-confirm-body > .app-confirm-icon,
+.app-confirm-modal .ant-modal-confirm-body > .app-confirm-icon,
+.home-confirm-wrap .ant-modal-confirm-body > .app-confirm-icon,
+.home-confirm-modal .ant-modal-confirm-body > .app-confirm-icon,
+.recharge-confirm-wrap .ant-modal-confirm-body > .app-confirm-icon,
+.recharge-confirm-modal .ant-modal-confirm-body > .app-confirm-icon,
+html.app-shell-create .ant-modal-confirm .ant-modal-confirm-body > .app-confirm-icon {
+  flex: none;
+  margin-inline-end: 12px;
+  align-self: flex-start;
+  margin-top: 2px;
+}
+
+.app-confirm-wrap .ant-modal-confirm-body > .app-confirm-icon + .ant-modal-confirm-title,
+.app-confirm-modal .ant-modal-confirm-body > .app-confirm-icon + .ant-modal-confirm-title,
+.home-confirm-wrap .ant-modal-confirm-body > .app-confirm-icon + .ant-modal-confirm-title,
+.home-confirm-modal .ant-modal-confirm-body > .app-confirm-icon + .ant-modal-confirm-title,
+.recharge-confirm-wrap .ant-modal-confirm-body > .app-confirm-icon + .ant-modal-confirm-title,
+.recharge-confirm-modal .ant-modal-confirm-body > .app-confirm-icon + .ant-modal-confirm-title,
+html.app-shell-create .ant-modal-confirm .ant-modal-confirm-body > .app-confirm-icon + .ant-modal-confirm-title {
+  flex: 1 !important;
+  min-width: 0;
+}
+
+.app-confirm-wrap .ant-modal-confirm-body > .app-confirm-icon + .ant-modal-confirm-title + .ant-modal-confirm-content,
+.app-confirm-modal .ant-modal-confirm-body > .app-confirm-icon + .ant-modal-confirm-title + .ant-modal-confirm-content,
+.home-confirm-wrap .ant-modal-confirm-body > .app-confirm-icon + .ant-modal-confirm-title + .ant-modal-confirm-content,
+.home-confirm-modal .ant-modal-confirm-body > .app-confirm-icon + .ant-modal-confirm-title + .ant-modal-confirm-content,
+.recharge-confirm-wrap .ant-modal-confirm-body > .app-confirm-icon + .ant-modal-confirm-title + .ant-modal-confirm-content,
+.recharge-confirm-modal .ant-modal-confirm-body > .app-confirm-icon + .ant-modal-confirm-title + .ant-modal-confirm-content,
+html.app-shell-create .ant-modal-confirm .ant-modal-confirm-body > .app-confirm-icon + .ant-modal-confirm-title + .ant-modal-confirm-content {
+  margin-inline-start: 36px;
+  flex-basis: 100%;
+  max-width: calc(100% - 36px);
+}
+
+.app-confirm-wrap .ant-modal-confirm-btns .ant-btn,
+.app-confirm-modal .ant-modal-confirm-btns .ant-btn {
+  border-radius: 8px;
+  min-width: 72px;
+}
+
+.app-confirm-wrap .ant-modal-confirm-btns .ant-btn-primary:not(.ant-btn-dangerous),
+.app-confirm-modal .ant-modal-confirm-btns .ant-btn-primary:not(.ant-btn-dangerous) {
+  background: linear-gradient(270deg, #0e59fa 0%, #00abd8 100%) !important;
+  border-color: transparent !important;
+  color: #fff !important;
+}
+
+.app-confirm-wrap .ant-modal-confirm-btns .ant-btn-primary.ant-btn-dangerous,
+.app-confirm-modal .ant-modal-confirm-btns .ant-btn-primary.ant-btn-dangerous {
+  background: linear-gradient(270deg, #c62828 0%, #ff4d4f 100%) !important;
+  border-color: transparent !important;
+  color: #fff !important;
+}
+
+/* 兜底：若仍渲染 anticon，仅改颜色，不加圆底 */
+html.app-shell-create .ant-modal-confirm .ant-modal-confirm-body > .anticon {
+  color: #4ae7fd !important;
+}

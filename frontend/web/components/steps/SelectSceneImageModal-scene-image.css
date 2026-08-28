@@ -1,0 +1,125 @@
+/* Tailwind/PostCSS component styles for SelectSceneImageModal. */
+
+
+.select-scene-image-modal-wrap .image-wrapper .shimmer-image__img.scene-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.select-scene-image-modal-wrap .image-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--gray-400);
+  gap: 0.5rem;
+}
+
+.select-scene-image-modal-wrap .check-icon {
+  font-size: 3rem;
+  color: var(--primary-600);
+}
+
+.select-scene-image-modal-wrap .image-info {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  padding: 4px 8px;
+  background: rgba(18, 18, 18, 0.7);
+}
+
+.select-scene-image-modal-wrap .image-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #e6edf3;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.select-scene-image-modal-wrap .image-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.75rem;
+  color: #8e97a5;
+  line-height: 1;
+}
+
+.select-scene-image-modal-wrap .image-source {
+  padding: 0;
+  background: transparent;
+  color: #8e97a5;
+}
+
+.select-scene-image-modal-wrap .image-date {
+  color: #8e97a5;
+}
+
+/* 底部操作栏 */
+.select-scene-image-modal-wrap .modal-footer {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #191a1d;
+  padding: 12px 16px 16px;
+}
+
+.select-scene-image-modal-wrap .footer-left,
+.select-scene-image-modal-wrap .footer-right {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.select-scene-image-modal-wrap .footer-left .ant-btn {
+  min-width: 96px;
+  border-radius: 10px;
+  height: 28px;
+}
+.select-scene-image-modal-wrap .footer-right .ant-btn {
+  min-width: 96px;
+  border-radius: 10px;
+  height: 34px;
+}
+.select-scene-image-modal-wrap .footer-left .ant-btn {
+  font-size: 12px;
+  border: 1px dashed rgba(74, 231, 253, 0.3);
+}
+.select-scene-image-modal-wrap .footer-left .ant-btn-default,
+.select-scene-image-modal-wrap .footer-right .ant-btn-default {
+  background: rgba(18, 18, 18, 1);
+  color: #e6edf3;
+}
+
+.select-scene-image-modal-wrap .footer-right .ant-btn-primary {
+  border: none;
+  background: linear-gradient(270deg, #0e59fa 0%, #00abd8 100%);
+}
+
+/* 原非 scoped 全局块 */
+.ant-modal-wrap.select-scene-image-modal-wrap .ant-modal.select-scene-image-modal .ant-modal-content {
+  padding: 0 !important;
+  overflow: hidden;
+  border-radius: 12px;
+  background: #191a1d;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+}
+
+.ant-modal-wrap.select-scene-image-modal-wrap .ant-modal.select-scene-image-modal .ant-modal-header {
+  display: none !important;
+}
+
+.ant-modal-wrap.select-scene-image-modal-wrap .ant-modal.select-scene-image-modal .ant-modal-body {
+  padding: 0 !important;
+  background: #191a1d;
+}

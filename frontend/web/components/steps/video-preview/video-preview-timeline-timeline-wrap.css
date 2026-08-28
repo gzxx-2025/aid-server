@@ -1,0 +1,225 @@
+/* Tailwind/PostCSS component styles for video-preview-timeline. */
+/* VideoPreview 伴随样式（二）：时间轴 / 轨道 / 片段 / 手柄 / 吸附
+   原 components/steps/VideoPreview.vue \3c style scoped> 展开，统一加根类前缀防泄漏 */
+
+.video-preview-step .timeline-wrap {
+  flex: 0 0 auto;
+  position: relative;
+  background: linear-gradient(180deg, rgba(18, 24, 38, 0.98) 0%, rgba(12, 16, 26, 0.98) 100%);
+  border: 1px solid rgba(74, 231, 253, 0.12);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  overflow-y: hidden;
+  cursor: col-resize;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.video-preview-step .timeline-wrap::-webkit-scrollbar {
+  display: none;
+}
+
+.video-preview-step .timeline-inner {
+  position: relative;
+  min-width: 100%;
+  padding-left: var(--vp-timeline-label-w);
+}
+
+.video-preview-step .timeline-ruler {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  height: 34px;
+  flex-shrink: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(10, 14, 24, 0.96);
+  isolation: isolate;
+}
+
+.video-preview-step .timeline-grid-overlay {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--vp-timeline-label-w);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.video-preview-step .ruler-grid-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  pointer-events: none;
+}
+
+.video-preview-step .ruler-grid-line-major {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.video-preview-step .ruler-grid-line-medium {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.video-preview-step .ruler-grid-line-minor {
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.video-preview-step .ruler-tick {
+  position: absolute;
+  top: 0;
+  width: 1px;
+  pointer-events: none;
+}
+
+.video-preview-step .ruler-tick-major {
+  height: 16px;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.video-preview-step .ruler-tick-medium {
+  height: 10px;
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.video-preview-step .ruler-tick-minor {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.video-preview-step .ruler-label {
+  position: absolute;
+  top: 18px;
+  left: 4px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.72);
+  white-space: nowrap;
+}
+
+.video-preview-step .ruler-playhead-cap {
+  position: absolute;
+  top: 0;
+  width: 10px;
+  height: 10px;
+  margin-left: -5px;
+  background: #facc15;
+  clip-path: polygon(50% 100%, 0 0, 100% 0);
+  pointer-events: none;
+  z-index: 5;
+}
+
+.video-preview-step .timeline-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: linear-gradient(180deg, #facc15 0%, #22c55e 35%, #22c55e 100%);
+  pointer-events: none;
+  z-index: 6;
+  box-shadow: 0 0 8px rgba(34, 197, 94, 0.45);
+}
+
+.video-preview-step .playhead-head {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 10px;
+  height: 10px;
+  background: #facc15;
+  clip-path: polygon(50% 100%, 0 0, 100% 0);
+}
+
+.video-preview-step .timeline-tracks {
+  position: relative;
+  padding-top: 2px;
+  overflow: visible;
+}
+
+.video-preview-step .track-row {
+  display: flex;
+  align-items: center;
+  min-height: var(--vp-track-row-aux-min);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  position: relative;
+  overflow: visible;
+}
+
+.video-preview-step .track-row-video {
+  min-height: var(--vp-track-row-video-min);
+}
+
+.video-preview-step .track-row-volume {
+  min-height: var(--vp-track-row-aux-min);
+}
+
+.video-preview-step .track-row-aux {
+  min-height: var(--vp-track-row-aux-min);
+}
+
+.video-preview-step .track-strip-volume {
+  height: var(--vp-track-aux-h);
+}
+
+.video-preview-step .volume-bar-segment {
+  position: absolute;
+  top: var(--vp-track-aux-clip-top);
+  height: var(--vp-track-aux-clip-h);
+  pointer-events: auto;
+  overflow: visible;
+  z-index: 2;
+}
+
+.video-preview-step .volume-bar-segment-active {
+  z-index: 5;
+}
+
+.video-preview-step .volume-bar-shell {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  cursor: ns-resize;
+}
+
+.video-preview-step .volume-bar-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(180deg, rgba(74, 231, 253, 0.54), rgba(59, 130, 246, 0.32));
+  transition: height 0.08s ease, background 0.18s ease;
+  pointer-events: none;
+}
+
+.video-preview-step .volume-bar-segment-active .volume-bar-shell {
+  border-color: rgba(74, 231, 253, 0.18);
+}
+
+.video-preview-step .volume-bar-segment-active .volume-bar-fill,
+.video-preview-step .volume-bar-fill-dragging {
+  background: linear-gradient(180deg, rgba(74, 231, 253, 0.48), rgba(59, 130, 246, 0.34));
+}
+
+.video-preview-step .volume-bar-fill-dragging {
+  transition: none;
+}
+
+.video-preview-step .volume-bar-value {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11PX;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
+  pointer-events: none;
+  z-index: 2;
+}

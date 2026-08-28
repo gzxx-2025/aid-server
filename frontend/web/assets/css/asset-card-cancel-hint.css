@@ -1,0 +1,53 @@
+/* 列表卡片右上角取消图标 + 悬停提示（非按钮，仅展示文案） */
+
+.asset-card-cancel-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  cursor: pointer;
+  line-height: 0;
+}
+
+.asset-card-cancel-icon__img {
+  display: block;
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+
+.asset-card-cancel-hint {
+  position: fixed;
+  transform: translate(-50%, calc(-100% - 6px));
+  z-index: 10050;
+  padding: 6px 10px;
+  font-size: 12px;
+  line-height: 1.25;
+  color: rgba(255, 255, 255, 0.95);
+  white-space: nowrap;
+  border-radius: 8px;
+  border: 1px solid rgba(74, 231, 253, 0.3);
+  background: rgba(74, 231, 253, 0.3);
+  pointer-events: none;
+  user-select: none;
+}
+
+.asset-card-cancel-hint-fade-enter-active,
+.asset-card-cancel-hint-fade-leave-active {
+  transition:
+    opacity 0.22s ease,
+    transform 0.22s ease;
+}
+
+.asset-card-cancel-hint-fade-enter-from,
+.asset-card-cancel-hint-fade-leave-to {
+  opacity: 0;
+  transform: translate(-50%, calc(-100% - 2px));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .asset-card-cancel-hint-fade-enter-active,
+  .asset-card-cancel-hint-fade-leave-active {
+    transition: none;
+  }
+}

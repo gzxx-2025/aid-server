@@ -1,0 +1,235 @@
+/* Tailwind/PostCSS component styles for scene-character-prop-cards. */
+
+
+.create-step-scp .scene-card-auto .scene-card-delete-btn:hover {
+  color: #ff7a84;
+  background: rgba(255, 82, 97, 0.12);
+}
+
+.create-step-scp .scene-card-auto .scene-card-header-row {
+  padding-right: 0;
+}
+
+.create-step-scp .scene-card-actions-row {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.create-step-scp .scene-card-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--home-text, #e6edf3);
+  margin: 0;
+}
+
+.create-step-scp .scene-card-delete-btn {
+  color: var(--home-muted, #8e97a5);
+  padding: 0.25rem;
+  width: auto;
+  height: auto;
+}
+
+.create-step-scp .scene-card-delete-btn:hover {
+  color: var(--red-600);
+  background: var(--red-50);
+}
+
+.create-step-scp .scene-card-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.create-step-scp .scene-card-auto .scene-card-content,
+.create-step-scp .character-card-auto .character-card-content,
+.create-step-scp .prop-card-auto .prop-card-content {
+  min-height: 250px;
+  padding: 1.15rem 1rem 1.1rem;
+  justify-content: center;
+}
+
+.create-step-scp .asset-generate-card__actions {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.95rem;
+}
+
+.create-step-scp .asset-generate-card__action-icon {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  object-fit: contain;
+  display: block;
+}
+
+.create-step-scp .asset-generate-card__or {
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 0.82rem;
+  flex-shrink: 0;
+}
+
+.create-step-scp .asset-generate-card__action.ant-btn {
+  width: 100px;
+  height: 100px;
+  border-radius: 10px !important;
+  border: 1px dashed rgba(74, 231, 253, 0.42) !important;
+  background: rgba(12, 16, 24, 0.62) !important;
+  color: rgba(230, 237, 243, 0.9) !important;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  line-height: 1.25;
+  padding: 0.45rem;
+  box-shadow: none !important;
+}
+
+.create-step-scp .asset-generate-card__action.ant-btn > span {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  line-height: 1.25;
+}
+
+.create-step-scp .asset-generate-card__action.ant-btn .anticon {
+  font-size: 1.02rem;
+}
+
+.create-step-scp .asset-generate-card__action.ant-btn:hover {
+  border-color: rgba(74, 231, 253, 0.72) !important;
+  color: #e9fbff !important;
+  background: rgba(20, 40, 68, 0.72) !important;
+}
+
+/*.asset-generate-card__action--primary.ant-btn { */
+/*  border-style: solid !important; */
+/*  border-color: rgba(74, 231, 253, 0.55) !important; */
+/*  background: linear-gradient(180deg, rgba(18, 127, 233, 0.86) 0%, rgba(33, 97, 242, 0.84) 100%) !important; */
+/*} */
+
+.create-step-scp .asset-generate-card__action--primary.ant-btn:hover {
+  border-color: rgba(74, 231, 253, 0.72) !important;
+  color: #e9fbff !important;
+  background: rgba(20, 40, 68, 0.72) !important;
+}
+
+.create-step-scp .scene-card-new {
+  border-color: rgba(0, 171, 216, 0.45);
+  background: rgba(14, 89, 250, 0.12);
+}
+
+.create-step-scp .scene-card-divider {
+  text-align: center;
+  color: var(--home-muted, #8e97a5);
+  font-size: 0.875rem;
+  font-weight: 500;
+  padding: 0.25rem 0;
+}
+
+/* 有图片时的场景卡片样式（图6） */
+.create-step-scp .scene-card-auto:has(.scene-card-header-with-image) {
+  border: 1px solid rgba(74, 231, 253, 0.3);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.create-step-scp .scene-card-header-with-image {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0;
+  gap: 0.75rem;
+  padding: 8px 4px;
+  min-height: 36px;
+  border: none;
+  border-bottom: 1px solid rgba(74, 231, 253, 0.3);
+  border-radius: 0;
+}
+
+.create-step-scp .scene-card-header-with-image .scene-card-title-editable {
+  padding: 0;
+}
+
+.create-step-scp .scene-card-header-with-image > .ant-dropdown-trigger,
+.create-step-scp .scene-card-header-with-image .ant-btn {
+  color: var(--home-muted, #8e97a5);
+}
+
+.create-step-scp .scene-card-image-body {
+  margin-bottom: 0;
+  text-align: center;
+  box-sizing: border-box;
+  overflow: hidden;
+  background: var(--create-surface-canvas);
+  position: relative;
+  height: var(--scp-image-body-height, 11rem);
+  flex-shrink: 0;
+  isolation: isolate;
+}
+
+.create-step-scp .scene-card-image-body .ant-image {
+  width: 100%;
+  height: 100% !important;
+}
+
+.create-step-scp .scene-card-image-body .shimmer-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.create-step-scp .scene-main-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  cursor: pointer;
+}
+/* 图片底部操作条布局见 storyboard-step-shared.css；按钮字号见 scp-step-shared.css */
+
+.create-step-scp .footer-action-icon {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+/* AImage 默认按原尺寸展示，强制导入图充满卡片区域（对齐设计稿） */
+.create-step-scp .scene-main-image .ant-image,
+.create-step-scp .scene-main-image .ant-image-img {
+  width: 100%;
+  height: 100%;
+}
+
+.create-step-scp .scene-main-image .ant-image-img {
+  object-fit: cover;
+}
+
+/* 角色形态图：保持原高度，完整展示不裁剪、不拉伸 */
+.create-step-scp .character-form-images-list .scene-card-image-body {
+  display: block;
+}
+
+.create-step-scp .character-form-images-list .scene-main-image {
+  object-fit: contain;
+  object-position: center;
+}
+
+.create-step-scp .character-form-images-list .scene-main-image .ant-image-img {
+  object-fit: contain;
+  object-position: center;
+}
+
+.create-step-scp .empty-asset-view {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  flex: 1;
+  min-height: 0;
+}

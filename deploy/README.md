@@ -1,6 +1,6 @@
 # AID 部署指南
 
-本目录包含 AID 全部部署设施。**普通用户无需预先下载 `aid.sh`，复制一条官方命令即可安装或更新**：命令先从 Gitee 获取最新脚本，失败时可使用 GitHub 备用地址，再由 Bash 执行；脚本会读取签名版本清单，优先检查 Gitee 的三端版本标签，无法访问时整组切换到 GitHub，然后在服务器临时目录构建服务端、后台管理端、Web 用户端和升级器。构建全部成功并通过包结构校验后才进入安装或升级。两种部署方式均可使用脚本或后台「一键在线升级」。
+本目录包含 AID 全部部署设施。**普通用户无需预先下载 `aid.sh`，复制一条官方命令即可安装或更新**：命令先从 Gitee 获取最新脚本，失败时可使用 GitHub 备用地址，再由 Bash 执行；脚本会读取签名版本清单，优先检查 Gitee 统一公开仓的版本标签，无法访问时整仓切换到 GitHub，然后在服务器临时目录构建服务端、后台管理端、Web 用户端和升级器。构建全部成功并通过包结构校验后才进入安装或升级。两种部署方式均可使用脚本或后台「一键在线升级」。
 
 | 方式 | 适用场景 | 说明 |
 |------|---------|------|
@@ -14,7 +14,7 @@
 ```text
 deploy/
 ├── aid.sh                         # 统一部署管理脚本（菜单式，见下）
-├── build-release-from-source.sh   # 三端版本标签拉取、构建与本地组包
+├── build-release-from-source.sh   # 统一仓版本标签拉取、三端构建与本地组包
 ├── docker/                        # Docker 部署套件
 │   ├── docker-compose.yml         # 生产编排（MySQL/Redis/后端/用户端/Nginx + 可选 RocketMQ）
 │   ├── docker-compose.middleware.yml # 本地开发环境（仅中间件，配置与后端开发默认值对齐）
@@ -42,9 +42,9 @@ Gitee 原始文件访问失败时，可改用 GitHub 备用地址：
 if command -v curl >/dev/null 2>&1; then curl -fL --retry 3 -o aid-install.sh https://raw.githubusercontent.com/gzxx-2025/aid-server/master/deploy/aid.sh; elif command -v wget >/dev/null 2>&1; then wget -O aid-install.sh https://raw.githubusercontent.com/gzxx-2025/aid-server/master/deploy/aid.sh; else echo '请先安装 curl 或 wget'; false; fi && sudo env AID_REMOTE_BOOTSTRAP=1 bash aid-install.sh install
 ```
 
-首次执行会自动完成：读取官方签名版本清单 → 正式版/Beta 渠道判断 → 检测 Gitee 三仓标签 → 失败时整组回退 GitHub → 在独立临时目录构建三端与升级器 → 本地 SHA256 与包结构校验 → 提取受管安装器到 `/data/aid/installer` → 自动生成安全配置和强随机密钥 → 硬件检查 → 部署三端与中间件 → 初始化空数据库 → 安装在线升级器 → 健康检查。源码拉取或构建失败不会替换现有服务。
+首次执行会自动完成：读取官方签名版本清单 → 正式版/Beta 渠道判断 → 检测 Gitee 统一仓标签 → 失败时整仓回退 GitHub → 在独立临时目录构建三端与升级器 → 本地 SHA256 与包结构校验 → 提取受管安装器到 `/data/aid/installer` → 自动生成安全配置和强随机密钥 → 硬件检查 → 部署三端与中间件 → 初始化空数据库 → 安装在线升级器 → 健康检查。源码拉取或构建失败不会替换现有服务。
 
-配置是首次部署的强制前置步骤：脚本先生成正式配置文件，要求管理员检查、校验并明确确认；在确认完成前不会检查或安装环境、拉取三端源码、构建程序、初始化数据库或启动服务。无人值守部署必须同时设置 `AID_ASSUME_YES=1` 与 `AID_CONFIG_CONFIRMED=1`，避免流水线误用默认配置直接上线。
+配置是首次部署的强制前置步骤：脚本先生成正式配置文件，要求管理员检查、校验并明确确认；在确认完成前不会检查或安装环境、拉取统一源码、构建程序、初始化数据库或启动服务。无人值守部署必须同时设置 `AID_ASSUME_YES=1` 与 `AID_CONFIG_CONFIRMED=1`，避免流水线误用默认配置直接上线。
 
 生成配置文件不等于已经部署。即使管理员在最终确认处选择 `n`，再次执行 `sudo env AID_REMOTE_BOOTSTRAP=1 bash aid-install.sh install` 仍会继续走首次部署，不会误进入升级流程；受管安装器一旦落盘就会创建 `sudo aid` 恢复命令，只有服务健康检查成功后才记录已部署状态。
 
@@ -76,7 +76,7 @@ sudo env AID_REMOTE_BOOTSTRAP=1 AID_RELEASE_CHANNEL=beta bash aid-install.sh upd
 
 ### 自动化的安全边界
 
-- 脚本只接受 HTTPS 版本清单，并只拉取 AID 官方 GitHub/Gitee 三个公开仓库；三端必须使用完全相同的 `v<版本>` 标签，禁止混用分支或平台。构建后的本地包仍会检查目录结构、路径穿越、特殊链接和内置脚本语法。
+- 脚本只接受 HTTPS 版本清单，并只拉取 AID 官方 GitHub/Gitee 统一公开仓；三端必须来自同一个 `v<版本>` 标签，禁止混用分支或平台。构建后的本地包仍会检查目录结构、路径穿越、特殊链接和内置脚本语法。
 - OpenSSL 支持 Ed25519 `pkeyutl -rawin` 时会验证清单签名；较老的 OpenSSL 会以黄色信息明确提示。高安全环境建议升级 OpenSSL，后台在线升级器始终执行完整签名校验。
 - 脚本不会静默开放防火墙、修改 DNS/域名、配置 HTTPS 证书、删除已有数据库，也不会自动导入大体积官方资产包。Docker 缺失或版本过低时会先单独提示对现有容器的风险，只有管理员明确同意后才配置软件源并安装/升级。
 - 发现 `/data/aid` 已有非安装缓存内容、版本降级、数据库恢复、低于推荐硬件等情况时，默认拒绝或要求再次确认。`AID_ASSUME_YES=1` 只应在你已做好外部备份且明确授权的自动化环境使用。
@@ -181,7 +181,7 @@ MySQL 首次启动自动创建 `aid_test` 库并导入 `sql/` 初始化脚本（
 
 ## 一、版本标签源码构建
 
-正常部署和更新都由 `aid.sh` 自动处理，不需要用户访问发布页。版本清单、源码标签和小型升级器均以 Gitee 为主源、GitHub 为备用源；源码平台会先实际检测 Gitee 的 `aid-server`、`aid-admin`、`aid-web` 三个仓库是否都存在目标标签，任一失败就整组切换到 GitHub。构建固定使用 `v<版本>` 标签，绝不拉取会继续变化的 `master`，也不会在同一次构建中混用两个平台。
+正常部署和更新都由 `aid.sh` 自动处理，不需要用户访问发布页。版本清单、源码标签和小型升级器均以 Gitee 为主源、GitHub 为备用源；源码平台会先实际检测 `aid-server` 统一公开仓是否存在目标标签，失败后整仓切换到 GitHub。构建固定使用 `v<版本>` 标签，绝不拉取会继续变化的 `master`，也不会在同一次构建中混用两个平台。服务端位于仓库根目录，后台管理端与 Web 用户端分别位于 `frontend/admin` 和 `frontend/web`。
 
 源码构建按部署方式强制隔离，不以“服务器上是否恰好安装 Docker”自动判断：Docker 部署与 Docker 升级固定传入 `AID_SOURCE_BUILD_MODE=docker`，只使用容器完成三端构建；手动 systemd 部署与升级固定传入 `AID_SOURCE_BUILD_MODE=host`，只使用宿主机的 Git、JDK、Node.js、Maven 和 Go，**不会探测、拉取或调用 Docker**。该变量由官方 `aid.sh` 和在线升级器自动设置，管理员无需手工配置；`auto` 仅保留给直接运行构建器的开发调试场景。
 
@@ -295,7 +295,7 @@ DOCKER_MIRRORS=专属加速域名,docker.m.daocloud.io,dockerproxy.net
 
 Docker Engine/Compose 缺失或版本过旧时由管理员单独确认是否自动安装；现有合格版本直接跳过。外部 MySQL、Redis、RocketMQ 只做配置、认证和连通性校验，绝不会在宿主机安装同名服务或覆盖外部配置。手动模式配置本机地址且未发现数据库时，会安装隔离的 Oracle MySQL 5.7.44 通用二进制，下载文件必须匹配官方归档摘要，绝不会用发行版默认的 MySQL 8/MariaDB 冒充。
 
-脚本自动完成：依赖预检 → 三仓同标签源码拉取与隔离构建 → `.env` 校验（缺失密钥自动生成）→ 硬件校验（按 `.env` 实际配置评估）→ 本地构建包摆位到 `/data/aid/app` → 自动安装升级器 → 启动编排 → 首次启动自动建库导入 `sql/` 全部脚本 → 健康等待（最长 5 分钟）→ 成功摘要 / 失败诊断。
+脚本自动完成：依赖预检 → 统一仓固定标签源码拉取与三端隔离构建 → `.env` 校验（缺失密钥自动生成）→ 硬件校验（按 `.env` 实际配置评估）→ 本地构建包摆位到 `/data/aid/app` → 自动安装升级器 → 启动编排 → 首次启动自动建库导入 `sql/` 全部脚本 → 健康等待（最长 5 分钟）→ 成功摘要 / 失败诊断。
 
 后续所有配置调整都编辑 `.env` 后执行菜单「重启服务」生效（菜单 9 也提供快捷编辑入口）。
 
@@ -458,7 +458,7 @@ sudo aid restart
 | 组件 | 版本 | 说明 |
 |------|------|------|
 | JDK | Oracle JDK 17.0.8 | 脚本按架构下载到数据目录，写入 `/etc/profile.d/aid-java.sh`，并给 AID systemd 服务注入固定 `JAVA_HOME/PATH` |
-| Git | 1.8.3+ | 拉取三个公开仓库的固定版本标签；启动时校验最低版本 |
+| Git | 1.8.3+ | 拉取统一公开仓库的固定版本标签；启动时校验最低版本 |
 | Maven | 3.9.9 | 下载到隔离缓存，用于服务端源码构建 |
 | MySQL | 5.7.44（受管安装）/ 5.7.x（已有或外部） | 业务数据库（本机或远程均可） |
 | Redis | 8.0.5（受管安装）/ 6.x+（已有或外部） | 缓存与分布式锁 |
@@ -487,7 +487,7 @@ if command -v curl >/dev/null 2>&1; then curl -fL --retry 3 -o aid-install.sh ht
 
 手动部署始终使用宿主机隔离工具链，不因服务器碰巧存在 Docker 而改变构建方式。JDK、Nginx、Redis、Node.js、Maven、Go 与 MySQL 归档会从 AID 国内依赖镜像池或各组件官方地址完整下载，只有固定摘要校验通过才会解压或编译；中断后保留 `.part` 文件，重试时支持续传，已完成且版本匹配则直接跳过。Java 固定使用 Oracle JDK 17.0.8，Web 固定使用 Node.js 22.22.0。安装器会在当前进程立即导出 `JAVA_HOME/PATH`，同时持久化 `/etc/profile.d/aid-java.sh`；当前登录终端若要直接执行 `java`，重新登录或运行 `source /etc/profile.d/aid-java.sh`。脚本会先识别宿主机 glibc：glibc 2.28+ 使用 Node.js 官方构建；CentOS 7 等 x64/glibc 2.17 系统自动改用 Node.js `unofficial-builds` 社区兼容构建及 Gitee 国内字节镜像，并强制核对其发布的固定 SHA-256，不升级或替换系统 glibc。AArch64 的旧 glibc 系统没有对应兼容构建，脚本会明确阻止安装并提示升级操作系统或改用 Docker。配置调整后执行 `sudo aid restart` 只会重新校验现有版本和连通性，符合要求的组件全部跳过，不会重复安装或初始化。
 
-脚本自动完成：依赖检测与按需安装 → 三仓同标签源码构建（后台 `build`、Web `generate`）→ 配置文件校验 → 硬件校验 → 数据库连通性校验 → 空库自动导入基线（已有表跳过）→ 本地构建包摆位到 `/data/aid/app` → 注册后端 `aid` systemd 服务（环境变量含 `LOG_PATH=/data/aid/logs`，日志统一落数据目录）→ 由 Nginx 直接托管 `web-dist` 静态站点 → 自动安装升级器 → 健康等待。升级旧部署时，脚本只会在确认 unit 带有当前 AID 根目录标记后安全停用并移除旧 `aid-web.service`，不会删除其他同名服务。
+脚本自动完成：依赖检测与按需安装 → 统一仓固定标签三端源码构建（后台 `build`、Web `generate`）→ 配置文件校验 → 硬件校验 → 数据库连通性校验 → 空库自动导入基线（已有表跳过）→ 本地构建包摆位到 `/data/aid/app` → 注册后端 `aid` systemd 服务（环境变量含 `LOG_PATH=/data/aid/logs`，日志统一落数据目录）→ 由 Nginx 直接托管 `web-dist` 静态站点 → 自动安装升级器 → 健康等待。升级旧部署时，脚本只会在确认 unit 带有当前 AID 根目录标记后安全停用并移除旧 `aid-web.service`，不会删除其他同名服务。
 
 全新服务器会安装隔离的 Nginx 1.30.4，主配置在 `/data/aid/runtime/nginx-1.30.4/conf/nginx.conf`，AID 站点在 `/data/aid/config/nginx/conf.d/aid.conf`，由 `aid-nginx.service` 管理。已有 Nginx 1.30.4+ 会直接复用：标准系统安装写入 `/etc/nginx/conf.d/aid.conf`，服务器面板安装写入 `/www/server/panel/vhost/nginx/aid.conf`。脚本写入前会备份现有同名文件，执行配置校验成功后才重载；校验失败自动恢复旧文件。正在运行的旧版 Nginx 不会被静默覆盖。
 

@@ -1,0 +1,85 @@
+/* Tailwind/PostCSS component styles for case-detail-page. */
+
+
+.case-detail-protagonist {
+  width: 72px;
+  height: 72px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--case-detail-protagonist-bg);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
+}
+
+.case-detail-protagonist img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.case-detail-protagonist--empty {
+  border: 1px solid rgba(142, 151, 165, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.case-detail-protagonist__empty-icon {
+  opacity: 0.72;
+}
+
+.case-detail-loading,
+.case-detail-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--case-detail-glass-bg);
+  backdrop-filter: var(--case-detail-glass-blur) var(--case-detail-glass-saturate);
+  -webkit-backdrop-filter: var(--case-detail-glass-blur) var(--case-detail-glass-saturate);
+  color: var(--case-detail-muted);
+  font-size: 14px;
+}
+
+.case-detail-error {
+  flex-direction: column;
+  gap: 16px;
+}
+
+.case-detail-error .case-detail-back-btn {
+  margin: 0;
+}
+
+@media (max-width: 960px) {
+  .case-detail-page {
+    flex-direction: column;
+  }
+
+  .case-detail-main {
+    padding: 20px 16px 0;
+  }
+
+  .case-detail-nav {
+    margin-bottom: 20px;
+  }
+
+  .case-detail-sidebar {
+    width: 100%;
+    border-left: none;
+    border-top: 0.5px solid var(--case-detail-divider);
+    padding: 24px 16px 32px;
+  }
+
+  .case-detail-video-wrap {
+    max-width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .case-detail-back-btn {
+    transition: none;
+  }
+}

@@ -1,0 +1,146 @@
+/* Tailwind/PostCSS component styles for create-flow-compact-viewport. */
+
+@media (min-width: 1601px), (min-height: 901px) {
+  /* 选择场景 / 导入参考图：大屏与批量生成分镜图同高，内容区 flex 内部滚动 */
+  html.app-shell-create .select-asset-image-modal-wrap .saim-inner {
+    height: min(698px, calc(100dvh - 80px)) !important;
+    max-height: min(698px, calc(100dvh - 80px)) !important;
+  }
+
+  html.app-shell-create .select-asset-image-modal-wrap .saim-body-shell {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+    display: flex !important;
+    flex-direction: column !important;
+  }
+
+  html.app-shell-create .select-asset-image-modal-wrap .saim-content-row {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+  }
+
+  html.app-shell-create .select-asset-image-modal-wrap .saim-sidebar {
+    min-height: 0 !important;
+    overflow: hidden !important;
+    display: flex !important;
+    flex-direction: column !important;
+  }
+
+  html.app-shell-create .select-asset-image-modal-wrap .saim-sidebar-scroll {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    overflow-y: auto !important;
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+  }
+
+  html.app-shell-create .select-asset-image-modal-wrap .saim-sidebar-scroll::-webkit-scrollbar {
+    width: 0 !important;
+    background: transparent !important;
+  }
+
+  html.app-shell-create .select-asset-image-modal-wrap .saim-sidebar-scroll:hover {
+    scrollbar-width: thin !important;
+    scrollbar-color: rgba(120, 140, 170, 0.45) transparent !important;
+  }
+
+  html.app-shell-create .select-asset-image-modal-wrap .saim-sidebar-scroll:hover::-webkit-scrollbar {
+    width: 4px !important;
+  }
+
+  html.app-shell-create .select-asset-image-modal-wrap .saim-sidebar-scroll:hover::-webkit-scrollbar-thumb {
+    background: rgba(120, 140, 170, 0.45) !important;
+    border-radius: 4px !important;
+  }
+
+  html.app-shell-create .select-asset-image-modal-wrap .saim-main {
+    min-height: 0 !important;
+    overflow: hidden !important;
+    display: flex !important;
+    flex-direction: column !important;
+  }
+
+  html.app-shell-create .select-asset-image-modal-wrap .saim-main-scroll {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    overflow-y: auto !important;
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+  }
+
+  html.app-shell-create .select-asset-image-modal-wrap .saim-main-scroll::-webkit-scrollbar {
+    width: 0 !important;
+    background: transparent !important;
+  }
+
+  html.app-shell-create .select-asset-image-modal-wrap .saim-main-scroll:hover {
+    scrollbar-width: thin !important;
+    scrollbar-color: rgba(120, 140, 170, 0.45) transparent !important;
+  }
+
+  html.app-shell-create .select-asset-image-modal-wrap .saim-main-scroll:hover::-webkit-scrollbar {
+    width: 4px !important;
+  }
+
+  html.app-shell-create .select-asset-image-modal-wrap .saim-main-scroll:hover::-webkit-scrollbar-thumb {
+    background: rgba(120, 140, 170, 0.45) !important;
+    border-radius: 4px !important;
+  }
+
+  /* 多机位弹窗：大屏与批量配音弹窗同高 */
+  html.app-shell-create .multi-angle-modal-wrap.ant-modal,
+  html.app-shell-create .multi-angle-modal.ant-modal {
+    width: min(1000px, calc(100vw - 48px)) !important;
+    max-width: min(1000px, calc(100vw - 48px)) !important;
+  }
+
+  html.app-shell-create .multi-angle-modal-wrap .ant-modal-content,
+  html.app-shell-create .multi-angle-modal .ant-modal-content {
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: hidden !important;
+  }
+
+  html.app-shell-create .multi-angle-modal-wrap .ant-modal-body,
+  html.app-shell-create .multi-angle-modal .ant-modal-body {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+    display: flex !important;
+    flex-direction: column !important;
+    padding: 0 !important;
+  }
+
+  html.app-shell-create .multi-angle-modal-wrap .ma-shell,
+  html.app-shell-create .multi-angle-modal .ma-shell {
+    height: min(698px, calc(100dvh - 80px)) !important;
+    max-height: min(698px, calc(100dvh - 80px)) !important;
+  }
+
+  html.app-shell-create .multi-angle-modal-wrap .multi-angle-layout,
+  html.app-shell-create .multi-angle-modal .multi-angle-layout {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    overflow: hidden;
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: stretch !important;
+  }
+
+  html.app-shell-create .multi-angle-modal-wrap .viewport-panel,
+  html.app-shell-create .multi-angle-modal .viewport-panel {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+  }
+
+  html.app-shell-create .multi-angle-modal-wrap .three-canvas-stage,
+  html.app-shell-create .multi-angle-modal .three-canvas-stage {
+    flex: 1 1 auto !important;
+    min-height: 360px !important;
+  }
+}

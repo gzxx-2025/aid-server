@@ -1,0 +1,12 @@
+@import '@/assets/styles/variables.less';
+
+/* 字典管理：左侧类型列表选中态（主色 8% 透明度，由 @primary-color 派生） */
+.dict-manager {
+  .dict-type-row {
+    cursor: pointer;
+
+    &--active > td {
+      background: @primary-color-soft !important;
+    }
+  }
+}

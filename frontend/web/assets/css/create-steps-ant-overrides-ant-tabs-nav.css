@@ -1,0 +1,231 @@
+/* Tailwind/PostCSS component styles for create-steps-ant-overrides. */
+
+
+/* 弹窗内 Tabs / Segmented / Tree / Breadcrumb / Empty */
+html.app-shell-create .ant-modal .ant-tabs-nav::before {
+  border-bottom-color: rgba(74, 231, 253, 0.12) !important;
+}
+
+html.app-shell-create .ant-modal .ant-tabs-tab {
+  color: #8e97a5 !important;
+}
+
+html.app-shell-create .ant-modal .ant-tabs-tab:hover {
+  color: #4ae7fd !important;
+}
+
+html.app-shell-create .ant-modal .ant-tabs-tab.ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: rgba(18, 18, 18, 1) !important;
+  font-weight: 300;
+}
+
+html.app-shell-create .ant-modal .ant-tabs-ink-bar {
+  background: linear-gradient(270deg, #0e59fa 0%, #00abd8 100%) !important;
+}
+
+html.app-shell-create .ant-modal .ant-segmented {
+  background: var(--create-surface-canvas, rgba(30, 40, 58, 0.9)) !important;
+  color: #e6edf3 !important;
+}
+
+html.app-shell-create .ant-modal .ant-segmented-item-selected {
+  background: rgba(14, 89, 250, 0.35) !important;
+  color: #4ae7fd !important;
+}
+
+html.app-shell-create .ant-modal .ant-tree {
+  background: transparent !important;
+  color: #e6edf3 !important;
+}
+
+html.app-shell-create .ant-modal .ant-tree .ant-tree-node-content-wrapper:hover {
+  background: rgba(14, 89, 250, 0.12) !important;
+}
+
+html.app-shell-create .ant-modal .ant-tree .ant-tree-node-selected .ant-tree-node-content-wrapper {
+  background: rgba(14, 89, 250, 0.22) !important;
+  color: #4ae7fd !important;
+}
+
+html.app-shell-create .ant-modal .ant-breadcrumb,
+html.app-shell-create .ant-modal .ant-breadcrumb a,
+html.app-shell-create .ant-modal .ant-breadcrumb-separator {
+  color: #8e97a5 !important;
+}
+
+html.app-shell-create .ant-modal .ant-breadcrumb a:hover {
+  color: #4ae7fd !important;
+}
+
+html.app-shell-create .ant-modal .ant-empty-description {
+  color: #8e97a5 !important;
+}
+
+html.app-shell-create .ant-modal .ant-divider {
+  border-color: rgba(74, 231, 253, 0.12) !important;
+}
+
+html.app-shell-create .ant-popover .ant-popover-inner {
+  background: #191A1D !important;
+  border: 1px solid rgba(74,231,253,0.3);
+  color: #e6edf3 !important;
+}
+
+html.app-shell-create .ant-tooltip .ant-tooltip-inner {
+  background: var(--create-surface-panel, rgba(38, 50, 72, 0.96)) !important;
+  border: 1px solid rgba(74, 231, 253, 0.1);
+  color: #e6edf3 !important;
+}
+
+/* 分镜设计：从视频生成页跳转后的引导 tooltip */
+html.app-shell-create .storyboard-edit-script-tooltip .ant-tooltip-inner {
+  background: rgba(6, 18, 32, 0.98) !important;
+  border: 1.5px solid rgba(74, 231, 253, 0.82) !important;
+  box-shadow:
+    0 0 0 1px rgba(74, 231, 253, 0.25),
+    0 8px 24px rgba(0, 0, 0, 0.5);
+  color: #e6edf3 !important;
+  font-weight: 500;
+  font-size: 13px;
+  padding: 6px 12px;
+  min-height: auto;
+}
+
+html.app-shell-create .storyboard-edit-script-tooltip .ant-tooltip-arrow::before {
+  background: rgba(6, 18, 32, 0.98) !important;
+}
+
+html.app-shell-create .storyboard-edit-script-tooltip.ant-tooltip-placement-bottom .ant-tooltip-arrow::before,
+html.app-shell-create
+  .storyboard-edit-script-tooltip.ant-tooltip-placement-bottomLeft
+  .ant-tooltip-arrow::before,
+html.app-shell-create
+  .storyboard-edit-script-tooltip.ant-tooltip-placement-bottomRight
+  .ant-tooltip-arrow::before {
+  border-top-color: rgba(74, 231, 253, 0.82) !important;
+  border-right-color: transparent !important;
+  border-bottom-color: transparent !important;
+  border-left-color: transparent !important;
+}
+
+html.app-shell-create .ant-dropdown .ant-dropdown-menu {
+  background: var(--create-surface-panel, rgba(38, 50, 72, 0.98)) !important;
+  border: 1px solid rgba(74, 231, 253, 0.09) !important;
+}
+
+html.app-shell-create .ant-dropdown-menu-item:hover,
+html.app-shell-create .ant-dropdown-menu-submenu-title:hover {
+  background: rgba(14, 89, 250, 0.15) !important;
+  color: #4ae7fd !important;
+}
+
+html.app-shell-create .ant-popconfirm .ant-popconfirm-message,
+html.app-shell-create .ant-popconfirm .ant-popconfirm-description {
+  color: #e6edf3 !important;
+}
+
+/* ---------- Card / Table / Pagination ---------- */
+html.app-shell-create .ant-card {
+  background: var(--create-surface-canvas, rgba(30, 40, 58, 0.88)) !important;
+  border-color: rgba(74, 231, 253, 0.08) !important;
+  color: #e6edf3 !important;
+}
+
+html.app-shell-create .ant-card:hover {
+  border-color: rgba(74, 231, 253, 0.28) !important;
+}
+
+html.app-shell-create .ant-table {
+  background: transparent !important;
+  color: #e6edf3 !important;
+}
+
+html.app-shell-create .ant-table-thead > tr > th {
+  background: var(--create-surface-panel, rgba(38, 50, 72, 0.92)) !important;
+  color: #c9d1d9 !important;
+  border-color: rgba(74, 231, 253, 0.08) !important;
+}
+
+html.app-shell-create .ant-table-tbody > tr > td {
+  border-color: rgba(74, 231, 253, 0.08) !important;
+}
+
+html.app-shell-create .ant-table-tbody > tr:hover > td {
+  background: rgba(14, 89, 250, 0.08) !important;
+}
+
+html.app-shell-create .ant-pagination .ant-pagination-item-active {
+  border-color: #00abd8 !important;
+}
+
+html.app-shell-create .ant-pagination .ant-pagination-item-active a {
+  color: #4ae7fd !important;
+}
+
+html.app-shell-create .ant-pagination .ant-pagination-item:hover {
+  border-color: rgba(74, 231, 253, 0.45) !important;
+}
+
+html.app-shell-create .ant-pagination .ant-pagination-item:hover a {
+  color: #4ae7fd !important;
+}
+
+/* ---------- Form ---------- */
+html.app-shell-create .ant-form-item-label > label {
+  color: #c9d1d9 !important;
+}
+
+html.app-shell-create .ant-upload.ant-upload-select-picture-card {
+  background: var(--create-surface-input, rgba(28, 38, 54, 0.92)) !important;
+  border-color: rgba(74, 231, 253, 0.14) !important;
+  color: #8e97a5 !important;
+}
+
+html.app-shell-create .ant-upload.ant-upload-select-picture-card:hover {
+  border-color: rgba(74, 231, 253, 0.45) !important;
+  color: #4ae7fd !important;
+}
+
+/* ---------- 骨架屏 ---------- */
+html.app-shell-create .ant-skeleton .ant-skeleton-content .ant-skeleton-title,
+html.app-shell-create .ant-skeleton .ant-skeleton-content .ant-skeleton-paragraph > li {
+  background: linear-gradient(
+    90deg,
+    rgba(74, 231, 253, 0.08) 25%,
+    rgba(74, 231, 253, 0.18) 37%,
+    rgba(74, 231, 253, 0.08) 63%
+  ) !important;
+}
+
+/* ---------- Progress / Spin ---------- */
+html.app-shell-create .ant-progress-bg {
+  background: linear-gradient(270deg, #0e59fa 0%, #00abd8 100%) !important;
+}
+
+html.app-shell-create .ant-spin-dot-item {
+  background-color: #4ae7fd !important;
+}
+
+/* ---------- Message / Notification ---------- */
+html.app-shell-create .ant-message-notice,
+html.app-shell-create .ant-message-notice-content,
+html.app-shell-create .ant-notification-notice {
+  background: var(--create-surface-modal, rgba(34, 44, 64, 0.96)) !important;
+  border: 1px solid rgba(74, 231, 253, 0.09) !important;
+  color: #e6edf3 !important;
+  box-shadow: 0 12px 40px rgba(8, 12, 24, 0.4) !important;
+}
+
+html.app-shell-create .ant-message .anticon {
+  color: #4ae7fd !important;
+}
+
+/* Drawer：带 root-class-name 的实例 */
+.create-theme-drawer .ant-drawer-content {
+  background: var(--create-surface-modal, #1c2638) !important;
+}
+
+.create-theme-drawer .ant-drawer-header {
+  background: var(--create-surface-panel, rgba(38, 50, 72, 0.95)) !important;
+  border-bottom: 1px solid rgba(74, 231, 253, 0.08) !important;
+}

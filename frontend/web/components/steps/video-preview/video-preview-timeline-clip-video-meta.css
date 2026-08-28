@@ -1,0 +1,157 @@
+/* Tailwind/PostCSS component styles for video-preview-timeline. */
+
+
+.video-preview-step .clip-video-meta {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  background: linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.72) 100%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.video-preview-step .clip-page-badge {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: #4ae7fd;
+}
+
+.video-preview-step .track-clip-video .clip-text {
+  font-size: 12px;
+  line-height: 1.3;
+  padding: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.video-preview-step .clip-hover-mask {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  background: rgba(8, 12, 20, 0.42);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: opacity 0.2s ease;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.video-preview-step .track-clip-video:hover .clip-hover-mask {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.video-preview-step .clip-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3PX;
+  padding: var(--vp-clip-edit-pad-y) var(--vp-clip-edit-pad-x);
+  border: 1px solid rgba(74, 231, 253, 0.45);
+  border-radius: 6PX;
+  background: rgba(74, 231, 253, 0.16);
+  color: #e8fbff;
+  font-size: var(--vp-clip-edit-font);
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
+.video-preview-step .clip-edit-btn:hover {
+  background: rgba(74, 231, 253, 0.28);
+  border-color: rgba(74, 231, 253, 0.75);
+}
+
+.video-preview-step .clip-edit-btn:active {
+  transform: scale(0.98);
+}
+
+.video-preview-step .track-clip-dubbing {
+  background: rgba(59, 130, 246, 0.6);
+}
+
+.video-preview-step .track-clip-subtitle {
+  background: rgba(34, 197, 94, 0.5);
+  cursor: pointer;
+}
+
+.video-preview-step .track-clip-music {
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.video-preview-step .track-clip-music-empty {
+  border: 1px dashed rgba(255, 255, 255, 0.35);
+  opacity: 0.88;
+  background: rgba(249, 115, 22, 0.18);
+}
+
+.video-preview-step .music-source-cycle {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: rgba(255, 255, 255, 0.16);
+  border-right: 1px dashed rgba(255, 255, 255, 0.45);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.video-preview-step .track-clip-music .clip-text {
+  position: relative;
+  z-index: 1;
+}
+
+.video-preview-step .track-clip-empty-record {
+  border: 1px dashed rgba(255, 255, 255, 0.35);
+  opacity: 0.88;
+  cursor: pointer;
+}
+
+.video-preview-step .track-clip-empty-record .clip-text {
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.video-preview-step .clip-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: ew-resize;
+}
+
+.video-preview-step .clip-handle-left {
+  left: 0;
+}
+
+.video-preview-step .clip-handle-right {
+  right: 0;
+}
+
+.video-preview-step .subtitle-range-mask {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  background: rgba(74, 231, 253, 0.25);
+  border: 1px dashed rgba(74, 231, 253, 0.85);
+}
+
+.video-preview-step .snap-indicator {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: #4ae7fd;
+  pointer-events: none;
+  z-index: 3;
+}

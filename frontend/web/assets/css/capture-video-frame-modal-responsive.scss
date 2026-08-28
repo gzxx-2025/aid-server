@@ -1,0 +1,23 @@
+@media (max-height: 820px) {
+  .cvfm-content {
+    min-height: 0;
+    gap: 12px;
+  }
+
+  .cvfm-preview {
+    min-height: 220px;
+  }
+
+  .cvfm-preview__video {
+    height: min(38vh, 320px);
+  }
+}
+
+:global(.capture-video-frame-modal-wrap .ant-modal) {
+  max-width: calc(100vw - 24px);
+}
+
+:global(.capture-video-frame-modal-wrap .ant-modal-body) {
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+}

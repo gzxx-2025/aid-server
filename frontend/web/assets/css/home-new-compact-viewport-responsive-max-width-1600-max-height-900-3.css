@@ -1,0 +1,127 @@
+/* Tailwind/PostCSS component styles for home-new-compact-viewport. */
+
+@media (max-width: 1600px) and (max-height: 900px) {
+
+  :is(html.layout-home-new, html.app-shell-create) .home-new-index .section-header {
+    margin-bottom: var(--hn-c-gap-md);
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .home-new-index .section-title {
+    margin: 0 0 var(--hn-c-gap-md);
+    font-size: var(--hn-c-fs-title);
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .home-new-index .section-toolbar {
+    gap: var(--hn-c-gap-md);
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .home-new-index .filter-tabs {
+    gap: 8px;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .home-new-index .filter-tab {
+    height: var(--hn-c-input-h);
+    padding: 0 12px;
+    font-size: var(--hn-c-input-fs);
+    border-radius: 6px;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .home-new-index .search-box {
+    height: var(--hn-c-input-h);
+    padding: 0 12px;
+    width: 200px;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .home-new-index .search-icon {
+    font-size: var(--hn-c-icon-sm);
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .home-new-index .search-input {
+    font-size: var(--hn-c-input-fs);
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .home-new-index .works-grid {
+    gap: var(--hn-c-grid-gap);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .home-new-index .work-cover {
+    aspect-ratio: var(--home-gallery-cover-ratio);
+    border-radius: var(--hn-c-radius) var(--hn-c-radius) 0 0;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .home-new-index .work-body {
+    padding: var(--hn-c-gallery-body-pad);
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .home-new-index .work-title {
+    margin: 0 0 var(--hn-c-gallery-title-mb);
+    font-size: var(--hn-c-fs-md);
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .home-new-index .work-footer {
+    gap: 8px;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .home-new-index .work-stats {
+    gap: var(--hn-c-gallery-stats-gap);
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .home-new-index .work-card {
+    border-radius: var(--hn-c-radius);
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .home-new-index .work-author-name,
+  :is(html.layout-home-new, html.app-shell-create) .home-new-index .work-views {
+    font-size: var(--hn-c-fs-xs);
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .home-new-index .work-play-badge {
+    width: 28px;
+    height: 28px;
+    top: 8px;
+    right: 8px;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .home-new-index .work-play-badge img {
+    width: 20px;
+    height: 20px;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .home-new-index .work-tag {
+    height: 20px;
+    padding: 0 6px;
+    font-size: 12Px;
+  }
+
+  /* Hero 轮播（scoped 组件类名仍可由全局覆盖） */
+  :is(html.layout-home-new, html.app-shell-create) .home-hero-carousel {
+    --carousel-viewport-h: 148px;
+    --carousel-card-w: 180px;
+    --carousel-card-h: 148px;
+    padding-bottom: 2px;
+  }
+
+  :is(html.layout-home-new, html.app-shell-create) .home-hero-carousel__dots {
+    margin-top: 2px;
+  }
+
+}
+
+/* 创作流程壳：内嵌作品库 / 资产库补正 compact token（×16/13），侧栏已用物理 px 不参与 zoom */
+@media (max-width: 1600px) and (max-height: 900px) {
+  html.layout-create-flow.app-shell-create:not(.layout-home-new) .create-main.create-main--embed-lib {
+    zoom: calc(16 / 13);
+  }
+}
+
+/* 矮屏小分辨率：我的作品网格列宽微调（案例广场保持 4 列） */
+@media (max-width: 1280px) and (max-height: 900px) {
+  :is(html.layout-home-new, html.app-shell-create) .works-lib-grid {
+    grid-template-columns: repeat(auto-fill, minmax(22%, 1fr));
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Tier 2：更矮屏（高 ≤768）— 在 Tier 1 基础上进一步压缩                       */
+/* -------------------------------------------------------------------------- */

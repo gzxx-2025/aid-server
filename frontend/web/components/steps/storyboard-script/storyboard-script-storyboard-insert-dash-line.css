@@ -1,0 +1,150 @@
+/* Tailwind/PostCSS component styles for storyboard-script. */
+
+
+.create-step-storyboard-script .storyboard-insert-dash-line {
+  flex: 1;
+  min-width: 0;
+  height: 0;
+  border-top: 2px dashed rgba(0, 171, 216, 0.65);
+}
+
+.create-step-storyboard-script .storyboard-insert-plus {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid var(--accent-500);
+  background: var(--create-surface-panel);
+  color: var(--accent-600);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  transition:
+    background 0.15s,
+    color 0.15s,
+    transform 0.15s;
+}
+
+.create-step-storyboard-script .storyboard-insert-plus:hover {
+  background: var(--accent-500);
+  color: white;
+  transform: scale(1.06);
+}
+
+.create-step-storyboard-script .storyboard-insert-label {
+  flex-shrink: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  max-width: 200px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+/* 列表末行「+ 添加」条保留正常流布局 */
+.create-step-storyboard-script .storyboard-list > .storyboard-insert-gap:last-child {
+  position: relative;
+  bottom: auto;
+  z-index: auto;
+  padding-top: 0;
+  background: transparent;
+}
+
+/* 分镜图批量生成：loading 块铺满外层卡片，避免双层边框与内边距 */
+.create-step-storyboard-script .storyboard-image-loading {
+  border: none;
+  padding: 0;
+  background: transparent;
+  cursor: default;
+  overflow: hidden;
+}
+
+.create-step-storyboard-script .asset-visual-generating-block {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
+  height: 100%;
+  min-height: 180px;
+  padding: 24px 16px;
+  border: 1px solid rgba(74, 231, 253, 0.35);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(145deg, rgba(18, 22, 38, 0.96) 0%, rgba(25, 32, 52, 0.99) 100%);
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.create-step-storyboard-script .storyboard-image-loading .asset-visual-generating-block {
+  min-height: 100%;
+  border-radius: 8px;
+}
+
+.create-step-storyboard-script .asset-visual-generating-block__shimmer {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(74, 231, 253, 0.06) 42%,
+    rgba(74, 231, 253, 0.14) 50%,
+    rgba(74, 231, 253, 0.06) 58%,
+    transparent 100%
+  );
+  background-size: 220% 100%;
+  animation: storyboard-image-shimmer 1.6s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes storyboard-image-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+.create-step-storyboard-script .asset-visual-generating-block__icon {
+  position: relative;
+  z-index: 1;
+  font-size: 28px;
+  color: #4ae7fd;
+}
+
+.create-step-storyboard-script .asset-visual-generating-block__text {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: rgba(230, 237, 243, 0.88);
+  text-align: center;
+}
+
+.create-step-storyboard-script .storyboard-script-insert-host {
+  position: relative;
+}
+
+.create-step-storyboard-script .storyboard-script-insert-edge {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 14px;
+  z-index: 2;
+  cursor: pointer;
+}
+
+.create-step-storyboard-script .storyboard-script-insert-edge--top {
+  top: -2px;
+}
+
+.create-step-storyboard-script .storyboard-script-insert-edge--bottom {
+  bottom: -2px;
+}

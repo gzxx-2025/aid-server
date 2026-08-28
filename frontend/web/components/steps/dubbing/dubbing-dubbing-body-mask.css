@@ -1,0 +1,230 @@
+/* Tailwind/PostCSS component styles for dubbing. */
+
+.dubbing-step .dubbing-body-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background: rgba(0, 0, 0, 0.52);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity 0.3s ease,
+    visibility 0.3s ease;
+}
+
+.dubbing-step .dubbing-body-mask--visible {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.dubbing-step .dubbing-mask-btn {
+  border-radius: var(--radius-full);
+  font-weight: 600;
+}
+
+.dubbing-step .dubbing-mask-btn--list {
+  height: 36px;
+  padding: 0 1.25rem;
+  font-size: 0.9rem;
+}
+
+.dubbing-step .dubbing-body-mask .dubbing-mask-tip {
+  margin: 0;
+  font-size: 0.82rem;
+  color: rgba(255, 255, 255, 0.92);
+  text-align: center;
+  padding: 0 1.25rem;
+  line-height: 1.45;
+  max-width: 420px;
+}
+
+.dubbing-step .dubbing-info-block--list {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+}
+
+.dubbing-step .dubbing-dialogue-render {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  font-size: 0.85rem;
+  line-height: 1.55;
+  color: var(--home-text, #e6edf3);
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 0.45rem 0.55rem;
+  border-radius: var(--radius-sm);
+}
+
+.dubbing-step .dubbing-meta--inline {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+  margin-top: 0.35rem;
+  flex-shrink: 0;
+}
+
+.dubbing-step .dubbing-status--list {
+  margin-top: auto;
+  padding-top: 0.35rem;
+  flex-shrink: 0;
+}
+
+.dubbing-step .dubbing-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.dubbing-step .dubbing-meta-item {
+  font-size: 0.85rem;
+  color: var(--home-text, #e6edf3);
+}
+
+.dubbing-step .dubbing-meta-label {
+  color: var(--home-muted, #8e97a5);
+  margin-right: 0.35rem;
+}
+
+.dubbing-step .dubbing-meta-value {
+  font-weight: 500;
+}
+
+.dubbing-step .dubbing-status {
+  margin-top: auto;
+  font-size: 0.85rem;
+}
+
+.dubbing-step .dubbing-status-label {
+  color: var(--home-muted, #8e97a5);
+  margin-right: 0.35rem;
+}
+
+.dubbing-step .dubbing-status-value.pending {
+  color: var(--home-muted, #8e97a5);
+}
+
+.dubbing-step .dubbing-status-value.done {
+  color: #52c41a;
+  font-weight: 600;
+}
+
+/* 卡片视图布局见 assets/css/storyboard-step-shared.css */
+.dubbing-step .storyboard-cards.dubbing-cards {
+  padding-top: 0.5rem;
+}
+
+.dubbing-step .storyboard-card-title-text {
+  font-size: inherit;
+  font-weight: inherit;
+  color: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dubbing-step .storyboard-card-more {
+  color: var(--home-muted, #8e97a5);
+  flex-shrink: 0;
+}
+
+.dubbing-step .dubbing-card-body-inner {
+  padding: 0.75rem 0 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.dubbing-step .dubbing-card-body-shell {
+  position: relative;
+  padding: 0 1rem;
+}
+
+.dubbing-step .dubbing-card .dubbing-video-block {
+  margin-bottom: 0;
+}
+
+.dubbing-step .dubbing-video-area--card {
+  cursor: default;
+}
+
+.dubbing-step .dubbing-list-body .dubbing-video-area--card {
+  height: 140px;
+  min-height: 140px;
+  max-height: 140px;
+}
+
+.dubbing-step .dubbing-video-area--card.has-video .dubbing-video-shimmer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.dubbing-step .dubbing-video-area--card.has-video .dubbing-video-preview {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.dubbing-step .dubbing-video-placeholder--card {
+  width: 100%;
+  height: 100%;
+  background: rgba(6, 10, 18, 0.55);
+}
+
+.dubbing-step .dubbing-card-subtitle {
+  margin-bottom: 0.15rem !important;
+}
+
+.dubbing-step .dubbing-dialogue-render--card {
+  max-height: 52px;
+  overflow-y: auto;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--home-text, #e6edf3);
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 0.35rem 0.45rem;
+  border: 1px solid rgba(74, 231, 253, 0.12);
+  border-radius: var(--radius-sm);
+  background: var(--create-surface-canvas);
+}
+
+.dubbing-step .dubbing-body-mask--card {
+  border-radius: 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+
+.dubbing-step .dubbing-body-mask--card .dubbing-mask-tip {
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 0.78rem;
+}
+
+/* 卡片底部：未配音 + 发言角色（不在遮罩内） */
+.dubbing-step .dubbing-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.6rem 1rem 0.85rem;
+  border-top: 1px solid rgba(74, 231, 253, 0.08);
+  font-size: 0.85rem;
+  color: var(--home-text, #e6edf3);
+}

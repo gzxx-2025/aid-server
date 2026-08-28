@@ -1,0 +1,229 @@
+/* Tailwind/PostCSS component styles for HomeLegacyShell. */
+/*
+ * 原 layouts/home.vue \3c style lang="scss" scoped> 平移。
+ * scoped 等价处理：布局容器规则加 .home-page 前缀；侧栏内部规则加 .home-page .sidebar 前缀，
+ * 避免 .user-name / .avatar 等通用类名泄漏到 slot 页面内容（如 /user 演示页同名类）。
+ */
+.home-page {
+  display: flex;
+  height: 100vh;
+  width: 100%;
+  background: linear-gradient(165deg, #001731 0%, #0d0d0f 42%, #121212 100%);
+  background-color: #060a12;
+  color: #4ae7fd;
+  --home-muted: #8e97a5;
+  --home-surface: rgba(18, 22, 30, 0.92);
+  --home-border: rgba(74, 231, 253, 0.28);
+  --home-border-strong: #006c8f;
+  --home-grad: linear-gradient(270deg, #0e59fa 0%, #00abd8 100%);
+  overflow: hidden;
+}
+
+.home-page .sidebar {
+  width: 180px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 10px 10px 24px;
+  box-sizing: border-box;
+  overflow-y: auto;
+}
+
+.home-page .sidebar .brand {
+  display: block;
+  margin-bottom: 14px;
+  text-decoration: none;
+}
+
+.home-page .sidebar .logo-img {
+  display: block;
+  width: 111px;
+  height: 43px;
+  max-width: 100%;
+}
+
+.home-page .sidebar .nav {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.home-page .sidebar .nav-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 11px 14px 11px 10px;
+  border-radius: 8px;
+  text-decoration: none;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--home-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition:
+    color 0.2s ease,
+    background 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+/* 原 v-bind(navActiveBgUrl)：由 .home-layout-root 内联 --home-nav-active-bg 注入 */
+.home-page .sidebar .nav-item.is-active {
+  color: rgba(74, 231, 253, 1);
+  border: none;
+  box-shadow: none;
+  background-color: transparent;
+  background-image: var(--home-nav-active-bg);
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 100% 100%;
+}
+
+.home-page .sidebar .nav-item.is-active > span {
+  position: relative;
+  z-index: 1;
+}
+
+.home-page .sidebar .nav-ico {
+  display: block;
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  position: relative;
+  z-index: 1;
+  flex-shrink: 0;
+}
+
+.home-page .sidebar .nav-item:hover:not(.is-active) {
+  color: rgba(74, 231, 253, 1);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.home-page .sidebar .spacer {
+  flex: 1;
+  min-height: 1rem;
+}
+
+.home-page .sidebar .wallet {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  box-sizing: border-box;
+  padding: 3px 4px 3px 10px;
+  margin-bottom: 14px;
+  border-radius: 8px;
+  background: linear-gradient(270deg, rgba(14, 89, 250, 0.2) 0%, rgba(0, 171, 216, 0.2) 100%);
+  border: 1px solid #006c8f;
+  box-shadow: inset 0 1px 0 rgba(74, 231, 253, 0.12);
+}
+
+.home-page .sidebar .points-num {
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #fff;
+}
+
+.home-page .sidebar .recharge {
+  height: 24px;
+  line-height: 24px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  cursor: pointer;
+  background: var(--home-grad);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.home-page .sidebar .recharge:hover {
+  filter: brightness(1.08);
+}
+
+.home-page .sidebar .user {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding-top: 2px;
+}
+
+.home-page .sidebar .user-menu {
+  position: relative;
+  width: 100%;
+}
+
+.home-page .sidebar .user-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.home-page .sidebar .user-meta {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.home-page .sidebar .user-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-page .sidebar .avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: linear-gradient(270deg, #0e59fa 0%, #00abd8 100%);
+  color: white;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.home-page .sidebar .user-id {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.68);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-page .sidebar .user--guest {
+  justify-content: stretch;
+}
+
+.home-page .sidebar .login {
+  width: 100%;
+  padding: 9px;
+  border-radius: 10px;
+  border: 1px solid var(--home-border);
+  background: transparent;
+  color: #4ae7fd;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.home-page .sidebar .login:hover {
+  border-color: #4ae7fd;
+  color: #fff;
+}

@@ -1,0 +1,231 @@
+/* Tailwind/PostCSS component styles for home-theme. */
+
+
+.home-theme-static .actions-title {
+  font-size: 1rem;
+  color: var(--home-muted);
+  margin-bottom: 1rem;
+}
+
+.home-theme-static .action-buttons {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.home-theme-static .not-found {
+  text-align: center;
+  padding: 4rem 2rem;
+  color: var(--home-muted);
+  background: var(--home-surface-soft);
+  border: 1px solid var(--home-border-subtle);
+  border-radius: var(--home-radius-panel);
+}
+
+.home-theme-static .not-found h3 {
+  color: #fff;
+  margin: 1rem 0 0.5rem;
+}
+
+.home-theme-static .not-found p {
+  margin-bottom: 1.5rem;
+}
+
+@media (max-width: 900px) {
+  .login-theme-container {
+    grid-template-columns: 1fr;
+  }
+
+  .login-theme-left {
+    display: none;
+  }
+
+  .login-theme-page {
+    background: var(--home-bg-solid);
+  }
+
+  .login-theme-right {
+    padding: 2rem 1.5rem;
+  }
+
+  .login-theme-form-title {
+    font-size: 1.75rem;
+  }
+
+  .home-theme-page .filter-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .home-theme-page .assets-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .home-theme-page .header-content {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .home-theme-page .page-title {
+    font-size: 20px;
+  }
+
+  .home-theme-page .filter-section {
+    padding: 16px;
+  }
+
+  .home-theme-page .page-content {
+    padding: 16px;
+  }
+}
+
+@media (max-width: 480px) {
+  .home-theme-page .page-content {
+    padding: 12px;
+  }
+
+  .home-theme-static .page-container {
+    padding: 0 1rem;
+  }
+}
+
+/* =============================================================================
+   我的作品页（Figma：统计卡 + 类型 Tab + 简化卡片）— .works-library-figma
+   ============================================================================= */
+
+.works-library-figma .works-library-figma__inner {
+    width: 100%;
+}
+
+.works-lib-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.works-lib-header__title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.02em;
+}
+
+
+.works-lib-header__create-ico {
+  font-size: 18px;
+}
+
+.works-lib-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+/* 统计卡：282×120，顶部 3px 品牌渐变条 */
+.works-lib-stat-card {
+  position: relative;
+  box-sizing: border-box;
+  width: 282px;
+  height: 120px;
+  padding: 16px 20px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(74, 231, 253, 0.12);
+  background: rgba(18, 22, 30, 0.96);
+  box-shadow: inset 0 1px 0 rgba(74, 231, 253, 0.04);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.works-lib-stat-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(270deg, #0e59fa 0%, #00abd8 100%);
+  border-radius: 12px 12px 0 0;
+}
+
+.works-lib-stat-card__label {
+  position: relative;
+  z-index: 1;
+  font-size: 16px;
+  color: var(--home-white);
+  font-weight: 500;
+}
+
+.works-lib-stat-card__value {
+  position: relative;
+  z-index: 1;
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: 0.02em;
+  background: linear-gradient(270deg, #4ae7fd 0%, #ffffff 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.works-lib-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+  height: 36px;
+}
+
+.works-lib-type-tabs {
+  display: inline-flex;
+  /* padding: 4px; */
+  border-radius: 10px;
+  background: #1d404d;
+}
+
+.works-lib-type-tabs__btn {
+  padding:0 20px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--home-muted);
+  background: transparent;
+  cursor: pointer;
+  height: 36px;
+  box-sizing: border-box;
+  transition:
+    color 0.2s ease,
+    background 0.2s ease;
+}
+
+.works-lib-type-tabs__btn:hover {
+  color: #fff;
+}
+
+.works-lib-type-tabs__btn.is-active {
+  color: #000000;
+  background: rgba(74, 231, 253, 1);
+}
+
+.works-lib-search {
+  flex: 1;
+  min-width: 200px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 36px;
+  padding: 12px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--home-border-input);
+  background: rgba(8, 12, 20, 0.92);
+}

@@ -1,0 +1,116 @@
+/* 生成记录列表卡片：主图/主视频选中态 + 悬停设为主图按钮 */
+.history-record-wrap {
+  position: relative;
+  width: 88px;
+  flex: 0 0 88px;
+}
+
+.history-item--main {
+  border-color: rgba(74, 231, 253, 1) !important;
+  box-shadow: 0 0 0 2px rgba(74, 231, 253, 0.18);
+}
+
+.history-main-toggle {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 24px;
+  height: 24px;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.history-main-toggle:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.history-main-toggle__icon {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.history-set-main-btn {
+  padding: 6px 10px;
+  font-size: 12px;
+  line-height: 1.25;
+  color: rgba(255, 255, 255, 0.95);
+  white-space: nowrap;
+  border-radius: 8px;
+  border: 1px solid rgba(74, 231, 253, 0.3);
+  background: rgba(74, 231, 253, 0.3);
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease;
+}
+
+.history-set-main-btn:hover:not(:disabled) {
+  background: rgba(74, 231, 253, 0.45);
+  border-color: rgba(74, 231, 253, 0.55);
+}
+
+.history-set-main-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.history-set-main-btn--status {
+  cursor: default;
+  background: rgba(74, 231, 253, 0.18);
+}
+
+/* 删除图标：默认可删项隐藏，悬停或选中时显示 */
+.history-item .history-delete-icon {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+/*
+ * Tailwind preflight 的 `img { max-width: 100% }` 会把 30px 图标压进 18px 容器。
+ * 各编辑弹窗生成记录共用此尺寸，避免只修场景弹窗、其它弹窗继续偏小。
+ */
+.history-item .history-delete-icon img {
+  width: 30px !important;
+  height: 30px !important;
+  max-width: none !important;
+  max-height: none !important;
+  display: block;
+  flex-shrink: 0;
+}
+
+.history-item:hover .history-delete-icon,
+.history-item.active .history-delete-icon,
+.history-item .history-delete-icon:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.history-set-main-btn-fade-enter-active,
+.history-set-main-btn-fade-leave-active {
+  transition:
+    opacity 0.22s ease,
+    transform 0.22s ease;
+}
+
+.history-set-main-btn-fade-enter-from,
+.history-set-main-btn-fade-leave-to {
+  opacity: 0;
+  transform: translate(-6px, -50%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .history-set-main-btn-fade-enter-active,
+  .history-set-main-btn-fade-leave-active {
+    transition: none;
+  }
+}

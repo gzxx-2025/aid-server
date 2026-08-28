@@ -1,0 +1,160 @@
+/* VideoPreview 伴随样式（三）：body 级浮层的具名全局类
+   1）字幕编辑弹窗（antd Modal 传送到 body，原 scoped 属性可命中，这里改用 wrapClassName 前缀）
+   2）导出进度 toast（原组件第二个 <style lang="scss">，本就是全局样式，原样保留） */
+
+.create-flow-modal .subtitle-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.create-flow-modal .subtitle-edit-form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.create-flow-modal .subtitle-edit-form-label {
+  color: var(--dark-text, #e6edf3);
+  font-size: 13px;
+}
+
+.create-flow-modal .subtitle-size-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* 原 .subtitle-size-row :deep(.ant-slider) */
+.create-flow-modal .subtitle-size-row .ant-slider {
+  flex: 1;
+  margin: 0;
+}
+
+.create-flow-modal .subtitle-size-value {
+  width: 52px;
+  text-align: right;
+  color: var(--dark-text-muted, #9db0c8);
+  font-size: 12px;
+}
+
+.episode-export-progress-toast {
+  width: min(280px, 62vw);
+  padding: 2px 0;
+  text-align: left;
+}
+
+.episode-export-progress-toast__hide-default-icon {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  margin: 0 !important;
+  overflow: hidden;
+}
+
+.episode-export-progress-toast__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 8px;
+  color: #eaf4ff;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.episode-export-progress-toast__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.episode-export-progress-toast__spin {
+  flex-shrink: 0;
+  font-size: 14px;
+  color: #4ae7fd;
+}
+
+.episode-export-progress-toast__percent {
+  min-width: 34px;
+  color: #55e7ff;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* AntD v6 的白底承载在 .ant-message-notice，不再是 v5 的 -notice-content。 */
+.ant-message-notice.episode-export-progress-toast-notice {
+  border: 1px solid rgba(74, 231, 253, 0.18) !important;
+  background: var(--create-surface-modal, rgba(34, 44, 64, 0.98)) !important;
+  color: #e6edf3 !important;
+  box-shadow: 0 12px 40px rgba(8, 12, 24, 0.48) !important;
+}
+
+.ant-message-notice.episode-export-progress-toast-notice .ant-message-notice-wrapper {
+  align-items: stretch;
+}
+
+.ant-message-notice.episode-export-progress-toast-notice .ant-message-notice-icon {
+  display: none !important;
+}
+
+/* 保留旧结构兼容：有本 toast 时隐藏 message.loading 默认图标。 */
+html.app-shell-create .ant-message-custom-content:has(.episode-export-progress-toast) > .anticon {
+  display: none !important;
+}
+
+html.app-shell-create .ant-message-custom-content:has(.episode-export-progress-toast) {
+  align-items: stretch;
+}
+
+.episode-export-progress-toast__track {
+  position: relative;
+  height: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(79, 225, 255, 0.24);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.28);
+}
+
+.episode-export-progress-toast__bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  overflow: hidden;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #19c6eb 0%, #49dfd0 58%, #7df6c7 100%);
+  box-shadow: 0 0 12px rgba(73, 223, 208, 0.7);
+  transition: width 420ms ease-out;
+}
+
+.episode-export-progress-toast__bar::after {
+  position: absolute;
+  inset: 0;
+  width: 46%;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.72) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  content: '';
+  transform: translateX(-130%) skewX(-18deg);
+  animation: episode-export-progress-shimmer 1.35s linear infinite;
+}
+
+@keyframes episode-export-progress-shimmer {
+  to {
+    transform: translateX(310%) skewX(-18deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .episode-export-progress-toast__bar {
+    transition: none;
+  }
+
+  .episode-export-progress-toast__bar::after {
+    animation: none;
+  }
+}

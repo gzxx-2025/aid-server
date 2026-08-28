@@ -1,0 +1,226 @@
+/* Tailwind/PostCSS component styles for create-steps-ant-overrides. */
+
+
+.create-theme-drawer .ant-drawer-title {
+  color: #fff !important;
+}
+
+.create-theme-drawer .ant-drawer-close {
+  color: #ffffff !important;
+}
+
+.create-theme-drawer .ant-drawer-close:hover {
+  color: #4ae7fd !important;
+}
+
+.create-theme-drawer .ant-drawer-body {
+  background: var(--create-surface-modal, #1c2638) !important;
+  color: #e6edf3 !important;
+}
+
+.create-theme-drawer .ant-drawer-body *:not(img):not(video):not(canvas):not(input):not(textarea):not(select) {
+  color: #e6edf3 !important;
+}
+
+.create-theme-drawer .ant-drawer-body input,
+.create-theme-drawer .ant-drawer-body textarea {
+  color: #e6edf3 !important;
+}
+
+.create-theme-drawer .ant-drawer-body *::placeholder {
+  color: #8e97a5 !important;
+}
+
+.create-theme-drawer .ant-drawer-body .ant-btn-primary,
+.create-theme-drawer .ant-drawer-body .ant-btn-primary * {
+  color: #fff !important;
+}
+
+/* 未加 root-class 的 Drawer 仍走创作页主题 */
+html.app-shell-create .ant-drawer .ant-drawer-content {
+  background: var(--create-surface-modal, #1c2638) !important;
+}
+
+html.app-shell-create .ant-drawer .ant-drawer-header {
+  background: var(--create-surface-panel, rgba(38, 50, 72, 0.95)) !important;
+  border-bottom: 1px solid rgba(74, 231, 253, 0.08) !important;
+}
+
+html.app-shell-create .ant-drawer .ant-drawer-title {
+  color: #fff !important;
+}
+
+html.app-shell-create .ant-drawer .ant-drawer-close {
+  color: #ffffff !important;
+}
+
+html.app-shell-create .ant-drawer .ant-drawer-close:hover {
+  color: #4ae7fd !important;
+}
+
+html.app-shell-create .ant-drawer .ant-drawer-close .anticon {
+  color: inherit !important;
+}
+
+html.app-shell-create .ant-drawer .ant-drawer-body {
+  color: #e6edf3 !important;
+}
+
+html.app-shell-create .ant-drawer .ant-drawer-body *:not(img):not(video):not(canvas):not(input):not(textarea):not(select) {
+  color: #e6edf3 !important;
+}
+
+html.app-shell-create .ant-drawer .ant-drawer-body input,
+html.app-shell-create .ant-drawer .ant-drawer-body textarea {
+  color: #e6edf3 !important;
+}
+
+html.app-shell-create .ant-drawer .ant-drawer-body *::placeholder {
+  color: #8e97a5 !important;
+}
+
+html.app-shell-create .ant-drawer .ant-drawer-body .ant-btn-primary,
+html.app-shell-create .ant-drawer .ant-drawer-body .ant-btn-primary * {
+  color: #fff !important;
+}
+.ql-container.ql-snow{
+  border: none !important;
+}
+
+/* =============================================================================
+   编辑弹窗右栏：Tab 切换时文本域区域等高（场景/角色/道具/分镜图/分镜视频）
+   ============================================================================= */
+html.app-shell-create .create-modal-config-scroll {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+html.app-shell-create .create-modal-config-body {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+html.app-shell-create .create-modal-tab-panel {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow: hidden;
+}
+
+html.app-shell-create .create-modal-tab-chrome {
+  flex-shrink: 0;
+}
+
+html.app-shell-create .create-modal-prompt-shell {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: none;
+  border-radius: 10px;
+  background: #121212 !important;
+}
+
+html.app-shell-create .create-modal-prompt-shell > .rich-text-editor {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #121212 !important;
+}
+
+html.app-shell-create .create-modal-prompt-shell > .prompt-footer {
+  flex-shrink: 0;
+  background: #121212;
+}
+
+html.app-shell-create .create-modal-prompt-shell .rich-text-editor__host,
+html.app-shell-create .create-modal-prompt-shell .ql-container.ql-snow {
+  flex: 1 1 0;
+  min-height: 0;
+  height: auto !important;
+  max-height: none !important;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  border: none !important;
+  background: #121212 !important;
+}
+
+html.app-shell-create .create-modal-prompt-shell .ql-editor {
+  flex: none !important;
+  min-height: 100% !important;
+  height: auto !important;
+  max-height: none !important;
+  resize: none !important;
+  overflow: visible !important;
+  color: #d7e8ff;
+  font-size: 13px;
+  line-height: 22px;
+  background: #121212 !important;
+  background-color: #121212 !important;
+  border: none !important;
+}
+
+/* 清粘贴残留底色；勿盖住 @资产 / @参数 chip（否则与编辑器同色 #121212，看起来像没背景） */
+html.app-shell-create .create-modal-prompt-shell .ql-editor *:not(.scp-prompt-asset-ref):not(.scp-prompt-param-ref):not(.scp-prompt-asset-ref__label):not(.scp-prompt-param-ref__label):not(.scp-prompt-asset-ref__thumb) {
+  background: #121212 !important;
+  background-color: #121212 !important;
+}
+
+/*
+ * 弹窗壳层只保证 chip 不被 #121212 盖住；分色交给 RichTextEditor.css 的 --scene/--audio/--camera_angle 等。
+ * 这里不再统一刷成同一种青蓝底。
+ */
+html.app-shell-create .create-modal-prompt-shell .ql-editor .scp-prompt-asset-ref,
+html.app-shell-create .create-modal-prompt-shell .ql-editor .scp-prompt-param-ref {
+  display: inline-block !important;
+  margin: 0 2px !important;
+  padding: 2px 8px !important;
+  border-radius: 4px !important;
+  line-height: 1.5 !important;
+  white-space: nowrap !important;
+  vertical-align: baseline !important;
+}
+
+html.app-shell-create .create-modal-prompt-shell .ql-editor .scp-prompt-asset-ref__label,
+html.app-shell-create .create-modal-prompt-shell .ql-editor .scp-prompt-param-ref__label {
+  background: transparent !important;
+  background-color: transparent !important;
+}
+
+html.app-shell-create .create-modal-prompt-shell .ql-editor.ql-blank::before {
+  color: rgba(188, 205, 228, 0.5);
+  font-style: normal;
+}
+
+html.app-shell-create .create-modal-config-body > .create-modal-tab-panel,
+html.app-shell-create .create-modal-tab-panel > .storyboard-generate-panel,
+html.app-shell-create .create-modal-config-body > .dialogue-draw-panel {
+  flex: 1 1 0;
+  min-height: 0;
+  height: 100%;
+}
+
+html.app-shell-create .create-modal-tab-panel > .generate-model-config-block {
+  flex-shrink: 0;
+}
+
+html.app-shell-create .storyboard-generate-panel.use-param-modal > .storyboard-slot-wrap {
+  flex-shrink: 0;
+}
+
+html.app-shell-create .storyboard-generate-panel.use-param-modal {
+  flex: 1 1 0;
+  min-height: 0;
+}

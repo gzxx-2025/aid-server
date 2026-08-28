@@ -1,0 +1,238 @@
+/* Tailwind/PostCSS component styles for scene-character-prop. */
+
+
+.create-step-scp .extracting-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  gap: 0.75rem;
+}
+
+.create-step-scp .extracting-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  min-height: 0;
+  width: auto;
+  border-top: none;
+  padding-top: 0;
+}
+
+.create-step-scp .extracting-placeholder-image {
+  width: 200px;
+  max-width: 42vw;
+  height: auto;
+  object-fit: contain;
+}
+
+/* 原 scoped @keyframes spin：scoped 编译会加哈希后缀，转全局后加 scp- 前缀避免覆盖同名全局动画（本文件内无引用） */
+@keyframes scp-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 提取后待生成形态：小卡片横条（与现有深蓝卡片风格一致） */
+.create-step-scp .scp-pending-form-strip-wrap {
+  padding: 0 4px;
+}
+
+.create-step-scp .scp-pending-form-strip-hint {
+  margin: 0 0 0.65rem;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--home-white);
+}
+
+.create-step-scp .scp-pending-form-strip {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 1%;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  scrollbar-width: thin;
+}
+
+.create-step-scp .scp-pending-form-card {
+  flex: 0 0 auto;
+  min-height: 250px;
+  border: 1px solid rgba(74, 231, 253, 0.22);
+  border-radius: var(--radius-sm, 8px);
+  background: rgba(12, 16, 24, 0.85);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+  margin-bottom: 10px;
+}
+
+.create-step-scp .scp-pending-form-card:hover {
+  border-color: rgba(74, 231, 253, 0.42);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+}
+
+.create-step-scp .scp-pending-form-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 10px 8px;
+  border-bottom: 1px solid rgba(74, 231, 253, 0.12);
+}
+
+.create-step-scp .scp-pending-form-card__title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.create-step-scp .scp-pending-form-card__title-ico {
+  flex-shrink: 0;
+  color: rgba(74, 231, 253, 0.85);
+  font-size: 14px;
+}
+
+.create-step-scp .scp-pending-form-card__title-text {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--home-text, #e6edf3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.create-step-scp .scp-pending-form-card__title-prefix {
+  flex-shrink: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--home-text, #e6edf3);
+  white-space: nowrap;
+}
+
+.create-step-scp .scp-pending-form-card__title-editable {
+  cursor: pointer;
+  border-radius: 4px;
+  transition:
+    color 0.15s ease,
+    background 0.15s ease;
+}
+
+.create-step-scp .scp-pending-form-card__title-editable:hover {
+  color: var(--home-cyan, #4ae7fd);
+  background: rgba(14, 89, 250, 0.12);
+}
+
+.create-step-scp .scp-pending-form-card__title-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.create-step-scp .scp-pending-form-card__more {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  color: var(--home-muted, #8e97a5);
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    background 0.15s ease;
+}
+
+.create-step-scp .scp-pending-form-card__more:hover {
+  color: var(--home-cyan, #4ae7fd);
+  background: rgba(74, 231, 253, 0.08);
+}
+
+.create-step-scp .scp-pending-form-card__body {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 10px 14px;
+}
+
+.create-step-scp .scp-pending-form-card__gen-btn {
+  font-size: 14px;
+  min-width: 108px;
+  padding: 4px 8px;
+  background: transparent !important;
+  border: 1px solid rgba(74, 231, 253, 0.3) !important;
+  box-shadow: none !important;
+  transform: none !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 压过 main-btn-accent / antd primary hover 渐变实底，保持描边 + text-gradient */
+.create-step-scp .scp-pending-form-card__gen-btn.ant-btn-primary:not(:disabled):not(.ant-btn-disabled):hover,
+.create-step-scp .scp-pending-form-card__gen-btn.ant-btn-primary:not(:disabled):not(.ant-btn-disabled):focus,
+.create-step-scp .scp-pending-form-card__gen-btn.ant-btn-primary:not(:disabled):not(.ant-btn-disabled):active {
+  background: rgba(14, 89, 250, 0.12) !important;
+  border-color: rgba(74, 231, 253, 0.55) !important;
+  box-shadow: none !important;
+  transform: none !important;
+  color: inherit !important;
+}
+
+.create-step-scp .scp-pending-form-card__gen-btn .text-gradient {
+  -webkit-text-fill-color: transparent;
+}
+
+@media (max-width: 768px) {
+  .create-step-scp .scp-asset-empty {
+    min-height: 0;
+    padding: 1.75rem 1rem;
+  }
+
+  .create-step-scp .scp-asset-empty__hint {
+    flex-direction: column;
+    text-align: center;
+  }
+
+  .create-step-scp .scp-topbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .create-step-scp .scp-tabs {
+    justify-content: center;
+  }
+  .create-step-scp .scp-actions {
+    justify-content: center;
+  }
+  .create-step-scp .scp-topbar__right {
+    justify-content: center;
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .create-step-scp .scp-topbar-hint {
+    width: 100%;
+    flex: none;
+    text-align: center;
+    padding: 0.35rem 0 0;
+  }
+}
+
+/* 原组件尾部非 scoped \3c style lang="css">：批量操作下拉外层去 antd 默认底/阴影（全局） */
+.scp-topbar-ops-dropdown-overlay,
+.scp-topbar-ops-dropdown-overlay .ant-dropdown-menu {
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  border: none !important;
+}

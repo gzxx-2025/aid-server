@@ -1,0 +1,245 @@
+/* Tailwind/PostCSS component styles for create-flow-compact-viewport. */
+/**
+ * 创作流程 + 首页壳（html.app-shell-create）弹窗 — 小分辨率统一适配
+ *
+ * 触发条件与 home-new-compact-viewport.css 一致：
+ *   宽 ≤1600 且 高 ≤900；高 ≤768 为第二档。
+ *
+ * 刻度类 token（按钮高/字号/间距）引用 --hn-c-*，与首页同视觉刻度；
+ * 布局类（弹窗宽、壳高、picker 列表高）仍用 --cf-c-* 本文件维护。
+ * 依赖 nuxt.config 中本文件排在 home-new-compact-viewport.css 之后。
+ *
+ * 大屏弹窗样式保持各组件 scoped 原样，仅在此文件内覆盖。
+ */
+
+/* -------------------------------------------------------------------------- */
+/* Tier 1：小分辨率弹窗 token                                                     */
+/* -------------------------------------------------------------------------- */
+@media (max-width: 1600px) and (max-height: 900px) {
+  html.app-shell-create {
+    --cf-c-modal-edge: 12px;
+    --cf-c-modal-w: calc(100vw - 24px);
+    --cf-c-modal-w-xl: min(1100px, calc(100vw - 24px));
+    --cf-c-modal-w-lg: min(1000px, calc(100vw - 24px));
+    --cf-c-modal-w-md: min(860px, calc(100vw - 24px));
+    --cf-c-modal-w-sm: min(520px, calc(100vw - 24px));
+    --cf-c-modal-w-xs: min(472px, calc(100vw - 24px));
+    --cf-c-modal-shell-h: min(620px, calc(100dvh - 24px));
+    --cf-c-modal-header-h: 48px;
+    /* 刻度对齐首页 --hn-c-*（fallback 防止加载顺序异常） */
+    --cf-c-modal-title-fs: var(--hn-c-fs-lg, 15px);
+    --cf-c-modal-body-fs: var(--hn-c-fs-base, 13px);
+    --cf-c-modal-btn-h: var(--hn-c-btn-h, 30px);
+    --cf-c-modal-btn-fs: var(--hn-c-btn-fs, 13px);
+    --cf-c-modal-pad: var(--hn-c-gap-md, 12px);
+    --cf-c-modal-pad-lg: var(--hn-c-gap-lg, 16px);
+    --cf-c-modal-gap: var(--hn-c-gap, 10px);
+    --cf-c-picker-edge: calc(var(--cf-c-modal-edge) * 2);
+    --cf-c-picker-viewport-h: calc(100dvh - var(--cf-c-picker-edge));
+    /* 弹窗内标题 + Tab + 底栏占用（选择场景 / 导入参考图） */
+    --cf-c-scene-picker-chrome: 176px;
+    --cf-c-asset-picker-chrome: 168px;
+    --cf-c-scene-picker-list-h: calc(var(--cf-c-picker-viewport-h) - var(--cf-c-scene-picker-chrome));
+    --cf-c-asset-picker-list-h: calc(var(--cf-c-picker-viewport-h) - var(--cf-c-asset-picker-chrome));
+  }
+
+  /* ---------- 全屏类弹窗（编辑图/视频/涂抹）---------- */
+  html.app-shell-create .ant-modal-wrap.create-flow-modal.edit-scene-image-modal,
+  html.app-shell-create .ant-modal-wrap.create-flow-modal.touch-edit-modal-wrap {
+    align-items: stretch !important;
+    justify-content: stretch !important;
+  }
+
+  html.app-shell-create .ant-modal-wrap.create-flow-modal.edit-scene-image-modal .ant-modal,
+  html.app-shell-create .ant-modal-wrap.create-flow-modal.touch-edit-modal-wrap .ant-modal {
+    width: 100% !important;
+    max-width: none !important;
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+    margin: 0 !important;
+    top: 0 !important;
+    padding: 0 !important;
+  }
+
+  html.app-shell-create .ant-modal-wrap.create-flow-modal.edit-scene-image-modal .ant-modal-content,
+  html.app-shell-create .ant-modal-wrap.create-flow-modal.touch-edit-modal-wrap .ant-modal-content {
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+    border-radius: 0 !important;
+  }
+
+  html.app-shell-create .ant-modal-wrap.create-flow-modal.edit-scene-image-modal .edit-scene-image-container {
+    height: calc(100dvh - 8px) !important;
+    max-height: 100dvh !important;
+  }
+
+  html.app-shell-create .ant-modal-wrap.create-flow-modal.touch-edit-modal-wrap .touch-edit {
+    height: calc(100dvh - 24px) !important;
+    max-height: calc(100dvh - 16px) !important;
+  }
+
+  /* ---------- 居中弹窗：宽度 / 最大高度 ---------- */
+  html.app-shell-create
+    .ant-modal-wrap.create-flow-modal:not(.edit-scene-image-modal):not(.touch-edit-modal-wrap):not(
+      .home-confirm-wrap
+    ):not(.app-confirm-wrap):not(.recharge-confirm-wrap):not(.recharge-modal-wrap)
+    .ant-modal {
+    top: var(--cf-c-modal-edge) !important;
+    padding-bottom: var(--cf-c-modal-edge);
+    max-height: calc(100dvh - var(--cf-c-modal-edge) * 2) !important;
+  }
+
+  /* 默认大弹窗（1100–1200） */
+  html.app-shell-create
+    .ant-modal-wrap.create-flow-modal:not(.edit-scene-image-modal):not(.touch-edit-modal-wrap):not(
+      .music-picker-wrap
+    ):not(.voice-timbre-picker-wrap):not(.speaker-role-picker-wrap):not(.extract-agent-modal-wrap):not(
+      .preview-export-success-modal-wrap
+    ):not(.publish-case-plaza-modal-wrap):not(.home-confirm-wrap):not(.app-confirm-wrap):not(
+      .recharge-confirm-wrap
+    ):not(.recharge-modal-wrap)
+    .ant-modal {
+    width: var(--cf-c-modal-w-xl) !important;
+    max-width: var(--cf-c-modal-w-xl) !important;
+  }
+
+  /* 自动提取弹窗：单项 420；三列勿用 xl(1100≈铺满小屏)，改用 md，避免列被横向拉空 */
+  html.app-shell-create
+    .ant-modal-wrap.create-flow-modal.extract-agent-modal-wrap:not(.extract-agent-modal-wrap--all)
+    .ant-modal {
+    width: min(420px, calc(100vw - 24px)) !important;
+    max-width: min(420px, calc(100vw - 24px)) !important;
+  }
+
+  html.app-shell-create .ant-modal-wrap.create-flow-modal.extract-agent-modal-wrap--all .ant-modal {
+    width: var(--cf-c-modal-w-md) !important;
+    max-width: var(--cf-c-modal-w-md) !important;
+  }
+
+  /* 导出成功弹窗：固定 420，勿吃默认大弹窗宽度（与 1920 设计一致） */
+  html.app-shell-create .ant-modal-wrap.create-flow-modal.preview-export-success-modal-wrap .ant-modal {
+    width: min(420Px, calc(100vw - 32Px)) !important;
+    max-width: min(420Px, calc(100vw - 32Px)) !important;
+  }
+
+  /* 发布至案例广场：固定 680，勿吃默认大弹窗宽度；底栏强制横排 */
+  html.app-shell-create .ant-modal-wrap.create-flow-modal.publish-case-plaza-modal-wrap .ant-modal {
+    width: min(680Px, calc(100vw - 32Px)) !important;
+    max-width: min(680Px, calc(100vw - 32Px)) !important;
+  }
+
+  html.app-shell-create .publish-case-plaza-modal-wrap .ant-modal-footer {
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    justify-content: flex-end !important;
+    gap: 8px !important;
+  }
+
+  html.app-shell-create .publish-case-plaza-modal-wrap .ant-modal-footer .ant-btn {
+    display: inline-flex !important;
+    width: auto !important;
+    flex: 0 0 auto !important;
+  }
+
+  /* 批量生成卡片：矮屏也随视口略增高，避免相对壳层过扁 */
+  html.app-shell-create .batch-generate-asset-wrap .bgam-card-media,
+  html.app-shell-create .batch-generate-storyboard-wrap .bgsm-card-media {
+    height: clamp(132px, 18dvh, 180px) !important;
+  }
+
+  html.app-shell-create .ant-modal-wrap.create-flow-modal.music-picker-wrap .ant-modal,
+  html.app-shell-create .ant-modal-wrap.create-flow-modal.voice-timbre-picker-wrap .ant-modal {
+    width: var(--cf-c-modal-w-md) !important;
+    max-width: var(--cf-c-modal-w-md) !important;
+  }
+
+  html.app-shell-create .ant-modal-wrap.create-flow-modal.speaker-role-picker-wrap .ant-modal {
+    width: var(--cf-c-modal-w-xs) !important;
+    max-width: var(--cf-c-modal-w-xs) !important;
+  }
+
+  html.app-shell-create
+    .ant-modal-wrap.create-flow-modal:not(.edit-scene-image-modal):not(.touch-edit-modal-wrap):not(
+      .home-confirm-wrap
+    ):not(.app-confirm-wrap):not(.recharge-confirm-wrap):not(.recharge-modal-wrap):not(
+      .preview-export-success-modal-wrap
+    ):not(.publish-case-plaza-modal-wrap)
+    .ant-modal-content {
+    max-height: calc(100dvh - var(--cf-c-modal-edge) * 2);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* 外层 body 不滚动，避免底部按钮被整体滚出视口；中间区域各自滚动 */
+  html.app-shell-create
+    .ant-modal-wrap.create-flow-modal:not(.edit-scene-image-modal):not(.touch-edit-modal-wrap):not(
+      .home-confirm-wrap
+    ):not(.app-confirm-wrap):not(.recharge-confirm-wrap):not(.recharge-modal-wrap):not(
+      .preview-export-success-modal-wrap
+    ):not(.publish-case-plaza-modal-wrap)
+    .ant-modal-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden !important;
+    display: flex !important;
+    flex-direction: column !important;
+    font-size: var(--cf-c-modal-body-fs);
+  }
+
+  /* 通用：弹窗内 Ant 按钮与标题 */
+  html.app-shell-create .create-flow-modal .ant-modal-header {
+    padding: var(--cf-c-modal-pad) var(--cf-c-modal-pad-lg) !important;
+    min-height: var(--cf-c-modal-header-h);
+    flex-shrink: 0;
+  }
+
+  html.app-shell-create .create-flow-modal .ant-modal-title {
+    font-size: var(--cf-c-modal-title-fs) !important;
+    line-height: 1.35 !important;
+  }
+
+  html.app-shell-create .create-flow-modal .ant-modal-footer {
+    padding: var(--cf-c-modal-pad) var(--cf-c-modal-pad-lg) !important;
+    flex-shrink: 0;
+  }
+
+  /* ---------- 自定义头尾（footer 在 body 内）的弹窗 ---------- */
+  html.app-shell-create .ant-modal.import-script-modal .modal-header,
+  html.app-shell-create .ant-modal.import-script-modal .modal-footer,
+  html.app-shell-create .import-script-modal-wrap .modal-header,
+  html.app-shell-create .import-script-modal-wrap .modal-footer,
+  html.app-shell-create .ant-modal.select-scene-image-modal .modal-header,
+  html.app-shell-create .ant-modal.select-scene-image-modal .modal-footer,
+  html.app-shell-create .select-scene-image-modal-wrap .modal-header,
+  html.app-shell-create .select-scene-image-modal-wrap .modal-footer,
+  html.app-shell-create .scene-setting-modal-wrap .setting-modal-header,
+  html.app-shell-create .storyboard-script-modal-wrap .setting-modal-header,
+  html.app-shell-create .scene-setting-modal .modal-footer,
+  html.app-shell-create .storyboard-script-modal .modal-footer,
+  html.app-shell-create .import-scene-image-modal-wrap .import-scene-header,
+  html.app-shell-create .import-scene-image-modal-wrap .import-tab-bar,
+  html.app-shell-create .import-scene-image-modal-wrap .import-footer,
+  html.app-shell-create .multi-angle-modal .ant-modal-header,
+  html.app-shell-create .select-asset-image-modal-wrap .saim-header,
+  html.app-shell-create .select-asset-image-modal-wrap .saim-footer,
+  html.app-shell-create .storyboard-param-settings-modal-wrap .spsm-header,
+  html.app-shell-create .storyboard-param-settings-modal-wrap .spsm-footer,
+  html.app-shell-create .batch-regenerate-dubbing-wrap .brdm-header,
+  html.app-shell-create .batch-regenerate-dubbing-wrap .brdm-toolbar,
+  html.app-shell-create .batch-regenerate-dubbing-wrap .brdm-footer,
+  html.app-shell-create .multi-angle-modal-wrap .ma-header,
+  html.app-shell-create .multi-angle-modal-wrap .footer-actions,
+  html.app-shell-create .batch-generate-storyboard-wrap .bgsm-header,
+  html.app-shell-create .batch-generate-storyboard-wrap .bgsm-toolbar,
+  html.app-shell-create .batch-generate-storyboard-wrap .bgsm-footer,
+  html.app-shell-create .create-first-step-wrap .modal-title,
+  html.app-shell-create .create-first-step-wrap .modal-actions,
+  html.app-shell-create .batch-generate-asset-wrap .bgam-toolbar,
+  html.app-shell-create .batch-generate-asset-wrap .bgam-header,
+  html.app-shell-create .batch-generate-asset-wrap .bgam-footer,
+  html.app-shell-create .create-flow-modal .asset-form-modal__footer {
+    flex-shrink: 0;
+  }
+}

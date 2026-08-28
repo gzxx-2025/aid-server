@@ -1,0 +1,128 @@
+/* Tailwind/PostCSS component styles for edit-scene-image. */
+
+
+.skeleton-history-actions {
+  margin-top: auto;
+  padding-top: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.skeleton-btn {
+  width: 100%;
+  height: 28px;
+  border-radius: 8px;
+}
+
+.skeleton-canvas-panel {
+  display: flex;
+  flex-direction: column;
+  padding: 14px;
+  background: rgba(25, 26, 29, 1);
+}
+
+.skeleton-canvas-toolbar {
+  width: 492px;
+  max-width: 100%;
+  margin: 0 auto 10px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(128, 154, 188, 0.22);
+  background: rgba(17, 22, 33, 0.75);
+  display: flex;
+  gap: 4px;
+  box-sizing: border-box;
+}
+
+.skeleton-canvas-toolbar .skeleton-chip {
+  flex: 1 1 0;
+  min-width: 0;
+  width: auto;
+  height: 26px;
+  border-radius: 6px;
+}
+
+.skeleton-chip {
+  width: 78px;
+  height: 26px;
+  border-radius: 6px;
+}
+
+.skeleton-canvas-main {
+  flex: 1;
+  min-height: 0;
+  border-radius: 12px;
+  border: 1px solid rgba(128, 154, 188, 0.24);
+}
+
+.skeleton-config-panel {
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  gap: 10px;
+}
+
+.skeleton-config-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 3px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 8px;
+}
+
+.skeleton-tab {
+  flex: 1;
+  height: 32px;
+  border-radius: 6px;
+}
+
+.skeleton-file-row {
+  height: 42px;
+  border-radius: 10px;
+}
+
+.skeleton-textarea {
+  height: 332px;
+  border-radius: 10px;
+}
+
+.skeleton-select-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.skeleton-select {
+  height: 36px;
+  border-radius: 8px;
+}
+
+.skeleton-primary-btn {
+  margin-top: auto;
+  height: 40px;
+  border-radius: 10px;
+}
+
+.skeleton-panel-title,
+.skeleton-history-item,
+.skeleton-btn,
+.skeleton-chip,
+.skeleton-canvas-main,
+.skeleton-tab,
+.skeleton-file-row,
+.skeleton-textarea,
+.skeleton-select,
+.skeleton-primary-btn {
+  background: linear-gradient(90deg, #2b2b2b 20%, #444444 50%, #2b2b2b 80%);
+  background-size: 300% 100%;
+  animation: modal-skeleton-shimmer 1.4s linear infinite;
+}
+
+@keyframes modal-skeleton-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: 0 0;
+  }
+}

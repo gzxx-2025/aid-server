@@ -1,0 +1,227 @@
+.rich-text-editor {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.rich-text-editor__host {
+  width: 100%;
+  min-width: 0;
+}
+
+/* 对齐创作页原 ant-input-textarea：默认无边线感，移入/聚焦时出现青色系描边 */
+.rich-text-editor__host .ql-container.ql-snow {
+  border: 1px solid transparent;
+  border-radius: var(--radius-md, 8px);
+  min-height: var(--rte-min-height, 120px);
+  max-height: var(--rte-max-height, none);
+  overflow-y: auto;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+  font-family: inherit;
+}
+
+.rich-text-editor__host .ql-container.ql-snow:hover {
+  border-color: rgba(74, 231, 253, 0.45);
+}
+
+/*.rich-text-editor__host .ql-container.ql-snow:focus-within {*/
+/*  border-color: rgba(0, 171, 216, 0.65);*/
+/*  box-shadow: 0 0 0 2px rgba(14, 89, 250, 0.2);*/
+/*}*/
+
+/* 强制正文白字、透明底，避免外部站点粘贴的背景色/字色在深色编辑器中不可见 */
+.rich-text-editor__host .ql-editor,
+.rich-text-editor__host .ql-editor * {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+.rich-text-editor__host .ql-editor *:not(.scp-prompt-asset-ref):not(.scp-prompt-param-ref) {
+  background: transparent !important;
+  background-color: transparent !important;
+}
+
+.rich-text-editor--lock-char-keys
+  .rich-text-editor__host
+  .ql-editor .scp-char-setting-section {
+  color: #4ae7fd !important;
+}
+
+.rich-text-editor__host .ql-editor {
+  min-height: var(--rte-min-height, 120px);
+  max-height: none;
+  overflow: visible;
+  padding: 10px 12px;
+  line-height: 1.6;
+  font-size: inherit;
+}
+
+.rich-text-editor__count {
+  position: absolute;
+  right: 12px;
+  bottom: 10px;
+  z-index: 2;
+  pointer-events: none;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.45);
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(12, 16, 24, 0.72);
+}
+
+.rich-text-editor__count--limit {
+  color: #ff7875;
+}
+
+.rich-text-editor:has(.rich-text-editor__count) .rich-text-editor__host .ql-editor {
+  padding-bottom: 28px;
+}
+
+.rich-text-editor__host .ql-editor.ql-blank::before {
+  color: rgba(142, 151, 165, 0.45);
+  font-style: normal;
+}
+
+.rich-text-editor__host .ql-container:focus-within .ql-editor.ql-blank::before,
+.rich-text-editor.is-inputting .ql-editor.ql-blank::before {
+  opacity: 0;
+}
+
+/* 分镜提示词 @图片 引用块：按资产类型区分背景色（对齐 master RichTextEditor.vue） */
+.rich-text-editor__host .ql-editor .scp-prompt-asset-ref {
+  display: inline-block;
+  margin: 0 2px;
+  padding: 2px 8px;
+  border: none;
+  border-radius: 4px;
+  vertical-align: baseline;
+  cursor: pointer;
+  user-select: none;
+  line-height: 1.5;
+  white-space: nowrap;
+  background: rgba(14, 89, 250, 0.22);
+  background-color: rgba(14, 89, 250, 0.22);
+  color: #ffffff;
+}
+
+.rich-text-editor__host .ql-editor .scp-prompt-asset-ref--scene {
+  background: rgba(14, 89, 250, 0.22) !important;
+  background-color: rgba(14, 89, 250, 0.22) !important;
+}
+
+.rich-text-editor__host .ql-editor .scp-prompt-asset-ref--character {
+  background: rgba(168, 85, 247, 0.22) !important;
+  background-color: rgba(168, 85, 247, 0.22) !important;
+}
+
+.rich-text-editor__host .ql-editor .scp-prompt-asset-ref--prop {
+  background: rgba(245, 158, 11, 0.22) !important;
+  background-color: rgba(245, 158, 11, 0.22) !important;
+}
+
+.rich-text-editor__host .ql-editor .scp-prompt-asset-ref--audio {
+  --create-ref-audio-bg: var(--accent-100, rgba(74, 231, 253, 0.1));
+  --create-ref-audio-border: var(--accent-400, rgba(74, 231, 253, 0.42));
+  --create-ref-audio-text: var(--accent-500, #4ae7fd);
+  background: var(--create-ref-audio-bg) !important;
+  background-color: var(--create-ref-audio-bg) !important;
+  border: 1px solid var(--create-ref-audio-border) !important;
+  color: var(--create-ref-audio-text) !important;
+}
+
+.rich-text-editor__host .ql-editor .scp-prompt-asset-ref--other {
+  background: rgba(74, 231, 253, 0.16) !important;
+  background-color: rgba(74, 231, 253, 0.16) !important;
+}
+
+.rich-text-editor__host .ql-editor .scp-prompt-asset-ref__thumb {
+  display: none !important;
+}
+
+.rich-text-editor__host .ql-editor .scp-prompt-asset-ref__label {
+  display: inline;
+  font-size: 12px;
+  background: transparent !important;
+  background-color: transparent !important;
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+.rich-text-editor__host .ql-editor .scp-prompt-asset-ref--audio .scp-prompt-asset-ref__label {
+  color: var(--create-ref-audio-text, #4ae7fd) !important;
+  -webkit-text-fill-color: var(--create-ref-audio-text, #4ae7fd) !important;
+}
+
+/* 分镜提示词 @构图 / @拍摄角度 等参数引用块：按参数类型区分背景色 */
+.rich-text-editor__host .ql-editor .scp-prompt-param-ref {
+  display: inline-block;
+  margin: 0 2px;
+  padding: 2px 8px;
+  border: none;
+  border-radius: 4px;
+  vertical-align: baseline;
+  cursor: pointer;
+  user-select: none;
+  line-height: 1.5;
+  white-space: nowrap;
+  background: rgba(59, 130, 246, 0.24);
+  background-color: rgba(59, 130, 246, 0.24);
+  color: #ffffff;
+}
+
+.rich-text-editor__host .ql-editor .scp-prompt-param-ref--composition {
+  background: rgba(59, 130, 246, 0.24) !important;
+  background-color: rgba(59, 130, 246, 0.24) !important;
+}
+
+.rich-text-editor__host .ql-editor .scp-prompt-param-ref--shot_size {
+  background: rgba(139, 92, 246, 0.24) !important;
+  background-color: rgba(139, 92, 246, 0.24) !important;
+}
+
+.rich-text-editor__host .ql-editor .scp-prompt-param-ref--camera_angle {
+  background: rgba(34, 197, 94, 0.22) !important;
+  background-color: rgba(34, 197, 94, 0.22) !important;
+}
+
+.rich-text-editor__host .ql-editor .scp-prompt-param-ref--focal_length {
+  background: rgba(249, 115, 22, 0.22) !important;
+  background-color: rgba(249, 115, 22, 0.22) !important;
+}
+
+.rich-text-editor__host .ql-editor .scp-prompt-param-ref--color_tone {
+  background: rgba(236, 72, 153, 0.22) !important;
+  background-color: rgba(236, 72, 153, 0.22) !important;
+}
+
+.rich-text-editor__host .ql-editor .scp-prompt-param-ref--lighting {
+  background: rgba(234, 179, 8, 0.22) !important;
+  background-color: rgba(234, 179, 8, 0.22) !important;
+}
+
+.rich-text-editor__host .ql-editor .scp-prompt-param-ref--exposure_blur {
+  background: rgba(20, 184, 166, 0.22) !important;
+  background-color: rgba(20, 184, 166, 0.22) !important;
+}
+
+.rich-text-editor__host .ql-editor .scp-prompt-param-ref--camera_movement {
+  background: rgba(6, 182, 212, 0.22) !important;
+  background-color: rgba(6, 182, 212, 0.22) !important;
+}
+
+.rich-text-editor__host .ql-editor .scp-prompt-param-ref--shooting_technique {
+  background: rgba(167, 139, 250, 0.24) !important;
+  background-color: rgba(167, 139, 250, 0.24) !important;
+}
+
+.rich-text-editor__host .ql-editor .scp-prompt-param-ref__label {
+  display: inline;
+  font-size: 12px;
+  background: transparent !important;
+  background-color: transparent !important;
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}

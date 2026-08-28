@@ -1,0 +1,120 @@
+/* Tailwind/PostCSS component styles for series-episode-list. */
+
+
+.series-ep-list__btn {
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition:
+    opacity 0.15s ease,
+    background 0.15s ease,
+    background-image 0.15s ease,
+    color 0.15s ease;
+}
+
+/* 渐变描边与圆角：用双层 background + clip，避免 border-image 不吃 border-radius */
+.series-ep-list__btn--ghost {
+  border: 1px solid transparent;
+  background-image:
+    linear-gradient(#151a26, #151a26),
+    linear-gradient(270deg, rgba(14, 89, 250, 0.5) 0%, rgba(0, 171, 216, 0.5) 100%);
+  background-origin: border-box;
+  background-clip: padding-box, border-box;
+  color: rgba(230, 237, 243, 0.92);
+}
+
+.series-ep-list__btn--ghost:hover:not(:disabled) {
+  background-image:
+    linear-gradient(#151a26, #151a26),
+    linear-gradient(270deg, rgba(14, 89, 250, 0.72) 0%, rgba(0, 171, 216, 0.72) 100%);
+  color: #fff;
+}
+
+.series-ep-list__btn--primary {
+  background: linear-gradient(270deg, rgba(14, 89, 250, 0.5) 0%, rgba(0, 171, 216, 0.5) 100%);
+  color: #fff;
+  border: none;
+}
+
+.series-ep-list__btn--primary:hover:not(:disabled) {
+  opacity: 0.92;
+}
+
+.series-ep-list__btn:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+.series-ep-list__asset-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+}
+
+.series-ep-list__asset-grid-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* 本页资产卡片：点击预览；竖版封面铺满宽度，减少两侧留白 */
+/* 竖版封面 + 底部信息区按内容高度收紧（不再固定 68px） */
+.series-ep-list__asset-grid-wrap.assets-library-figma {
+  --works-lib-cover-ratio: 3 / 4;
+  --works-lib-body-h: auto;
+}
+
+.series-ep-list__asset-grid-wrap.assets-library-figma .works-lib-card {
+  cursor: zoom-in;
+}
+
+.series-ep-list__asset-grid-wrap.assets-library-figma .works-lib-card__body {
+  height: auto;
+  min-height: 0;
+  padding: 10px 12px 12px;
+}
+
+.series-ep-list__works-grid {
+  /* 卡片略加宽，竖版封面更高更完整 */
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+
+.series-ep-list__asset-grid-wrap.assets-library-figma .works-lib-card__cover {
+  height: auto;
+  aspect-ratio: 3 / 4;
+  max-height: none;
+  background: #0a0f14;
+}
+
+.series-ep-list__asset-grid-wrap.assets-library-figma .works-lib-card__cover-img,
+.series-ep-list__asset-grid-wrap.assets-library-figma
+  .works-lib-card__cover
+  > img:not(.card-cover-placeholder-icon) {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  object-fit: cover;
+  object-position: center top;
+}
+
+.series-ep-list__placeholder {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #8e97a5;
+  font-size: 14px;
+}
+
+@media (max-width: 900px) {
+  .series-ep-list__table {
+    --episode-table-columns: minmax(220px, 1fr) 140px 210px;
+    min-width: 620px;
+  }
+}

@@ -1,0 +1,223 @@
+/* Tailwind/PostCSS component styles for edit-storyboard-image-modal. */
+
+
+.edit-storyboard-image-modal .storyboard-stage-canvas .canvas-toolbar > * {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.edit-storyboard-image-modal .storyboard-stage-canvas .canvas-toolbar .upscale-model-popover-root {
+  flex: 1 1 0;
+  min-width: 0;
+  width: 100%;
+  display: flex;
+}
+
+.edit-storyboard-image-modal .storyboard-stage-canvas .canvas-toolbar .upscale-model-popover-trigger {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.edit-storyboard-image-modal .storyboard-stage-canvas .canvas-toolbar .ant-btn-text {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  height: 36px;
+  padding: 0 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border-radius: 8px;
+  transition: background 0.2s linear, color 0.2s linear;
+}
+
+.edit-storyboard-image-modal .storyboard-stage-canvas .canvas-toolbar .ant-btn-text .ant-btn-icon {
+  margin-inline-end: 0 !important;
+  margin-inline-start: 0 !important;
+  line-height: 0;
+}
+
+.edit-storyboard-image-modal .storyboard-stage-canvas .canvas-toolbar .ant-btn-text.toolbar-tab-hover,
+.edit-storyboard-image-modal .storyboard-stage-canvas .canvas-toolbar .ant-btn-text:hover:not(:disabled) {
+  background: #121212 !important;
+}
+
+.edit-storyboard-image-modal .storyboard-stage-canvas .canvas-toolbar .ant-btn {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  height: 36px;
+  padding: 0 4px;
+  border-radius: 8px;
+  font-size: 0.75rem;
+  color: rgb(142, 151, 165);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  transition: background 0.2s linear, color 0.2s linear;
+}
+
+.edit-storyboard-image-modal .storyboard-stage-canvas .canvas-toolbar .ant-btn .ant-btn-icon {
+  margin-inline-end: 0 !important;
+  margin-inline-start: 0 !important;
+  line-height: 0;
+}
+
+.edit-storyboard-image-modal .storyboard-stage-canvas .canvas-toolbar .ant-btn.toolbar-tab-hover,
+.edit-storyboard-image-modal .storyboard-stage-canvas .canvas-toolbar .ant-btn:hover:not(:disabled) {
+  background: #121212 !important;
+}
+
+.edit-storyboard-image-modal .storyboard-stage-canvas .canvas-toolbar .ant-btn > span:not(.ant-btn-icon) {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.edit-storyboard-image-modal .storyboard-stage-canvas .canvas-toolbar .ant-btn .toolbar-tab-icon {
+  width: 14px;
+  height: 14px;
+  display: block;
+  flex-shrink: 0;
+}
+
+.edit-storyboard-image-modal .storyboard-stage-canvas .canvas-toolbar .ant-btn.toolbar-tab-hover,
+.edit-storyboard-image-modal .storyboard-stage-canvas .canvas-toolbar .ant-btn.toolbar-tab-hover > span,
+.edit-storyboard-image-modal .storyboard-stage-canvas .canvas-toolbar .ant-btn.toolbar-tab-hover .ant-btn-icon {
+  color: #fff !important;
+}
+
+.edit-storyboard-image-modal .figma-stage-layout .storyboard-stage-canvas .canvas-toolbar .ant-btn-text,
+.edit-storyboard-image-modal .figma-stage-layout .storyboard-stage-canvas .canvas-toolbar .ant-btn-text .ant-btn-icon,
+.edit-storyboard-image-modal .figma-stage-layout .storyboard-stage-canvas .canvas-toolbar .ant-btn-text .anticon,
+.edit-storyboard-image-modal .figma-stage-layout .storyboard-stage-canvas .canvas-toolbar .ant-btn-text > span {
+  color: rgb(142, 151, 165) !important;
+}
+
+.edit-storyboard-image-modal .figma-stage-layout .storyboard-stage-canvas .canvas-toolbar .ant-btn-text.toolbar-tab-hover,
+.edit-storyboard-image-modal .figma-stage-layout .storyboard-stage-canvas .canvas-toolbar .ant-btn-text.toolbar-tab-hover > span,
+.edit-storyboard-image-modal .figma-stage-layout .storyboard-stage-canvas .canvas-toolbar .ant-btn-text.toolbar-tab-hover .ant-btn-icon {
+  color: #fff !important;
+}
+
+/* 与 EditSceneImageModal .canvas-preview 同尺寸（492×278） */
+.edit-storyboard-image-modal .storyboard-stage-canvas .canvas-preview {
+  margin: auto;
+  width: 492px;
+  max-width: 100%;
+  height: 278px;
+  flex: 0 0 auto;
+  border-radius: 12px;
+  border: 1px solid rgba(128, 154, 188, 0.34);
+  background: rgba(8, 12, 20, 0.94);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.edit-storyboard-image-modal .storyboard-stage-canvas .canvas-preview.is-selected {
+  border-color: #4ae7fd;
+  box-shadow: 0 0 0 2px rgba(74, 231, 253, 0.2), 0 10px 24px rgba(4, 11, 23, 0.55);
+}
+
+.edit-storyboard-image-modal .storyboard-stage-canvas .canvas-image-frame {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.edit-storyboard-image-modal .storyboard-stage-canvas .canvas-image-frame--enhance-wrap {
+  position: relative;
+}
+
+.edit-storyboard-image-modal .storyboard-stage-canvas .canvas-upscale-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 16px;
+  text-align: center;
+  background: rgba(10, 14, 22, 0.85);
+  backdrop-filter: blur(5px);
+}
+
+.edit-storyboard-image-modal .storyboard-stage-canvas .canvas-upscale-mask--failed {
+  gap: 12px;
+}
+
+.edit-storyboard-image-modal .storyboard-stage-canvas .canvas-upscale-mask__icon {
+  font-size: 32px;
+  color: #4ae7fd;
+}
+
+.edit-storyboard-image-modal .storyboard-stage-canvas .canvas-upscale-mask__text {
+  margin: 0;
+  font-size: 13px;
+  color: rgba(225, 239, 255, 0.88);
+  max-width: 90%;
+}
+
+.edit-storyboard-image-modal .storyboard-stage-canvas .canvas-upscale-mask__err {
+  margin: 0;
+  font-size: 13px;
+  color: #ff9db4;
+  max-width: 92%;
+  line-height: 1.45;
+}
+
+.edit-storyboard-image-modal .storyboard-stage-canvas .canvas-image-frame .four-grid-images--canvas {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding: 6px;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: 6px;
+}
+
+.edit-storyboard-image-modal .storyboard-stage-canvas .canvas-image-frame .four-grid-images--canvas .grid-image-item {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  aspect-ratio: unset;
+  overflow: hidden;
+  border-radius: 6px;
+}
+
+.edit-storyboard-image-modal .canvas-shimmer-image,
+.edit-storyboard-image-modal .grid-shimmer-image {
+  width: 100%;
+  height: 100%;
+  cursor: zoom-in;
+}
+
+.edit-storyboard-image-modal .storyboard-stage-canvas .canvas-image,
+.edit-storyboard-image-modal .storyboard-stage-canvas .grid-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.edit-storyboard-image-modal .storyboard-stage-canvas .four-grid-images--canvas .grid-shimmer-image {
+  cursor: zoom-in;
+}

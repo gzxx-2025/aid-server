@@ -1,0 +1,225 @@
+/* Tailwind/PostCSS component styles for create-flow-compact-viewport. */
+
+@media (max-width: 1600px) and (max-height: 900px) {
+
+  html.app-shell-create .select-asset-image-modal-wrap .saim-sidebar-scroll::-webkit-scrollbar {
+    width: 0 !important;
+    background: transparent !important;
+  }
+
+  html.app-shell-create .select-asset-image-modal-wrap .saim-sidebar-scroll:hover {
+    scrollbar-width: thin !important;
+    scrollbar-color: rgba(120, 140, 170, 0.45) transparent !important;
+  }
+
+  html.app-shell-create .select-asset-image-modal-wrap .saim-sidebar-scroll:hover::-webkit-scrollbar {
+    width: 4px !important;
+  }
+
+  html.app-shell-create .select-asset-image-modal-wrap .saim-sidebar-scroll:hover::-webkit-scrollbar-thumb {
+    background: rgba(120, 140, 170, 0.45) !important;
+    border-radius: 4px !important;
+  }
+
+  html.app-shell-create .select-asset-image-modal-wrap .saim-main {
+    min-height: 0 !important;
+    overflow: hidden !important;
+    display: flex !important;
+    flex-direction: column !important;
+  }
+
+  html.app-shell-create .select-asset-image-modal-wrap .saim-main-scroll {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    overflow-y: auto !important;
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+  }
+
+  html.app-shell-create .select-asset-image-modal-wrap .saim-main-scroll::-webkit-scrollbar {
+    width: 0 !important;
+    background: transparent !important;
+  }
+
+  html.app-shell-create .select-asset-image-modal-wrap .saim-main-scroll:hover {
+    scrollbar-width: thin !important;
+    scrollbar-color: rgba(120, 140, 170, 0.45) transparent !important;
+  }
+
+  html.app-shell-create .select-asset-image-modal-wrap .saim-main-scroll:hover::-webkit-scrollbar {
+    width: 4px !important;
+  }
+
+  html.app-shell-create .select-asset-image-modal-wrap .saim-main-scroll:hover::-webkit-scrollbar-thumb {
+    background: rgba(120, 140, 170, 0.45) !important;
+    border-radius: 4px !important;
+  }
+
+  html.app-shell-create .import-scene-image-modal-wrap .import-content {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  html.app-shell-create .scene-setting-modal-wrap .editor-container,
+  html.app-shell-create .storyboard-script-modal-wrap .editor-container {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  html.app-shell-create .scene-setting-modal-wrap .editor-container .script-editor,
+  html.app-shell-create .storyboard-script-modal-wrap .editor-container .script-editor {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: 100%;
+  }
+
+  html.app-shell-create .scene-setting-modal-wrap .editor-container .ql-editor,
+  html.app-shell-create .storyboard-script-modal-wrap .editor-container .ql-editor {
+    min-height: 0 !important;
+    height: 100% !important;
+    max-height: 100% !important;
+    overflow-y: auto !important;
+  }
+
+  /* ---------- 音乐 / 音色 / 角色 ---------- */
+  html.app-shell-create .music-picker-wrap .music-card-list {
+    max-height: min(32vh, 360px) !important;
+  }
+
+  html.app-shell-create .voice-timbre-picker-wrap {
+    --voice-picker-list-max-h: min(44vh, 480px);
+  }
+
+  html.app-shell-create .music-picker-wrap .music-card,
+  html.app-shell-create .voice-timbre-picker-wrap .voice-card {
+    min-height: 56px !important;
+  }
+
+  html.app-shell-create .speaker-role-picker-wrap .speaker-role-grid {
+    min-height: 160px !important;
+  }
+
+  html.app-shell-create .speaker-role-picker-wrap .speaker-role-card {
+    height: 68px !important;
+    min-height: 68px !important;
+  }
+
+  /* ---------- 确认框 / 首页充值（尺寸与布局见 app-confirm-modal.css）---------- */
+  html.app-shell-create
+    .ant-modal-wrap.app-confirm-wrap:not(.image-preview-modal-wrap):not(.image-gallery-preview-modal-wrap):not(
+      .video-preview-modal-wrap
+    )
+    .ant-modal-body,
+  html.app-shell-create .ant-modal-wrap.home-confirm-wrap .ant-modal-body,
+  html.app-shell-create .ant-modal-wrap.recharge-confirm-wrap .ant-modal-body {
+    padding:0 !important;
+    font-size: var(--cf-c-modal-body-fs) !important;
+  }
+
+  /* 充值弹窗尺寸由 RechargeModal 自身响应式规则控制，此处不再覆盖 */
+
+  /* ---------- Drawer ---------- */
+  html.app-shell-create .ant-drawer-content-wrapper {
+    max-width: calc(100vw - 24px) !important;
+  }
+
+  html.app-shell-create .ant-drawer-content-wrapper[style*='width: 400px'],
+  html.app-shell-create .ant-drawer-content-wrapper[style*='width:400px'] {
+    width: min(360px, calc(100vw - 24px)) !important;
+  }
+
+  /* 编辑弹窗左侧「选择本地文件 / 资产库导入」：限定在左栏，避免影响中间 canvas-toolbar */
+  html.app-shell-create .create-flow-modal .ant-modal-body .stage-history-panel .history-actions .ant-btn:not(.ant-btn-sm):not(.ant-btn-link) {
+    height: 1.75rem !important;
+    min-height: 1.75rem !important;
+    padding-inline: 0.375rem !important;
+    font-size: 0.75rem !important;
+    line-height: 1 !important;
+    overflow: visible !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 0.125rem !important;
+  }
+
+  html.app-shell-create .create-flow-modal .ant-modal-body .stage-history-panel .history-actions .ant-btn > .ant-btn-icon {
+    flex-shrink: 0 !important;
+    width: 14px !important;
+    height: 14px !important;
+    margin-inline-end: 0 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    line-height: 0 !important;
+    overflow: visible !important;
+  }
+
+  html.app-shell-create .create-flow-modal .ant-modal-body .stage-history-panel .history-actions .ant-btn .anticon {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    font-size: 14px !important;
+    line-height: 1 !important;
+  }
+
+  html.app-shell-create .create-flow-modal .ant-modal-body .stage-history-panel .history-actions .ant-btn .anticon svg {
+    display: block !important;
+    width: 14px !important;
+    height: 14px !important;
+  }
+
+  html.app-shell-create .create-flow-modal .ant-modal-body .stage-history-panel .history-actions .ant-btn > span:not(.ant-btn-icon) {
+    max-width: 100% !important;
+    overflow: hidden !important;
+    margin-inline-start: 0 !important;
+  }
+
+  html.app-shell-create .create-flow-modal .ant-modal-body .stage-history-panel .history-actions .ellipsis-tooltip-text {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  html.app-shell-create .create-flow-modal .canvas-toolbar {
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    align-items: center !important;
+  }
+
+  html.app-shell-create .create-flow-modal .canvas-toolbar .ant-btn {
+    flex-shrink: 0 !important;
+    align-items: center !important;
+  }
+
+  html.app-shell-create .create-flow-modal .canvas-toolbar .ant-btn .ant-btn-icon {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    line-height: 0 !important;
+  }
+
+  html.app-shell-create .create-flow-modal .canvas-toolbar .ant-btn .toolbar-tab-icon--antd {
+    color: rgba(142, 151, 165, 1) !important;
+    font-size: 14px !important;
+  }
+
+  html.app-shell-create .create-flow-modal .canvas-toolbar .ant-btn.toolbar-tab-hover .toolbar-tab-icon--antd,
+  html.app-shell-create .create-flow-modal .canvas-toolbar .ant-btn:hover:not(:disabled) .toolbar-tab-icon--antd {
+    color: #fff !important;
+  }
+
+  html.app-shell-create .create-flow-modal .canvas-toolbar .ant-btn > span:not(.ant-btn-icon) {
+    flex: 0 1 auto !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    overflow: visible !important;
+    white-space: nowrap !important;
+  }
+
+  /* ---------- 成品预览：拉高播放器、压缩时间轴轨道 ---------- */
+}

@@ -1,0 +1,230 @@
+/* Tailwind/PostCSS component styles for storyboard-step-shared. */
+
+
+.storyboard-step .storyboard-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0;
+  gap: 0.6rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid rgba(74, 231, 253, 0.30);
+  box-sizing: border-box;
+  min-height: var(--storyboard-list-header-height);
+}
+
+/* 列表拖拽手柄（分镜设计 / 视频生成 / 音画同步列表共用） */
+.storyboard-step .storyboard-drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 22px;
+  color: var(--home-muted, #8e97a5);
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.storyboard-step .storyboard-drag-handle:active {
+  cursor: grabbing;
+}
+
+.storyboard-step .storyboard-list-item--dragging {
+  opacity: 0.72;
+}
+
+.storyboard-step .storyboard-list-title {
+  display: flex;
+  align-items: center;
+  font-weight: 600;
+  font-size: 0.875rem;
+  line-height: 1.375;
+  color: var(--home-text, #e6edf3);
+  cursor: pointer;
+  flex: 1;
+  min-width: 0;
+}
+
+/* 卡片视图标题：与列表行标题同一字号，切换列表/卡片无跳变 */
+.storyboard-step .storyboard-card-title {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+  font-size: 0.875rem;
+  line-height: 1.375;
+  font-weight: 600;
+  color: var(--home-text, #e6edf3);
+}
+
+.storyboard-step .storyboard-title-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: inherit;
+  line-height: inherit;
+  font-weight: inherit;
+}
+
+/* 分镜列表/卡片标题内联编辑：与展示态同字号行高、无边框与 focus 光晕（对齐第三步 SceneCharacterProp + 覆盖 app-shell-create 全局 .ant-input） */
+.storyboard-step .storyboard-title-input {
+  font-size: inherit;
+  line-height: inherit;
+  font-weight: inherit;
+  color: inherit;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+}
+
+.storyboard-step .storyboard-list-title .storyboard-title-input {
+  width: 0;
+  max-width: 100%;
+}
+
+.storyboard-step .storyboard-card-title .storyboard-title-input {
+  width: 0;
+  max-width: 100%;
+}
+
+.storyboard-step .storyboard-title-input input.ant-input {
+  border: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  font-size: inherit !important;
+  font-weight: inherit !important;
+  line-height: inherit !important;
+  color: inherit !important;
+  height: auto !important;
+  min-height: 0 !important;
+  vertical-align: baseline;
+}
+
+.storyboard-step .storyboard-title-input input.ant-input:hover,
+.storyboard-step .storyboard-title-input input.ant-input:focus,
+.storyboard-step .storyboard-title-input input.ant-input:focus-visible {
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+.storyboard-step .storyboard-title-input input.ant-input::placeholder {
+  color: var(--home-muted, #8e97a5);
+}
+
+.storyboard-step .storyboard-list-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.storyboard-step .storyboard-action-link {
+  font-size: 14px;
+  color: #4ae7fd;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+}
+
+.storyboard-step .storyboard-list-actions .ant-btn {
+  height: 22px;
+  padding: 0 0.5rem;
+  border-radius: 6px;
+  border-color: #2f3949 !important;
+  background: transparent !important;
+  color: #dbe7f4;
+  font-size: 14px;
+}
+
+/* 从分镜视频跳转后：引导用户点击「修改分镜脚本」 */
+.storyboard-step .storyboard-edit-script-btn--highlight.ant-btn {
+  border-color: #4ae7fd !important;
+  background: rgba(74, 231, 253, 0.16) !important;
+  color: #4ae7fd !important;
+  font-weight: 600;
+  box-shadow:
+    0 0 0 1px rgba(74, 231, 253, 0.45),
+    0 0 14px rgba(74, 231, 253, 0.28);
+  animation: storyboard-edit-script-btn-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes storyboard-edit-script-btn-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px rgba(74, 231, 253, 0.45),
+      0 0 12px rgba(74, 231, 253, 0.22);
+  }
+  50% {
+    box-shadow:
+      0 0 0 2px rgba(74, 231, 253, 0.7),
+      0 0 20px rgba(74, 231, 253, 0.42);
+  }
+}
+
+.storyboard-step .storyboard-list-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr 3fr;
+  gap: 0.65rem;
+  padding: 0.75rem;
+  background: #080d14;
+  height: calc(var(--storyboard-list-item-height) - var(--storyboard-list-header-height));
+  box-sizing: border-box;
+  overflow: hidden;
+  align-items: stretch;
+}
+
+/* 列表列：标题 + 媒体卡垂直排布，媒体卡吃满剩余高度 */
+.storyboard-step .storyboard-list-body > .storyboard-block {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* 分镜视频：标题/卡片包在 insert-mid 内，需一并纵向撑满 */
+.storyboard-step .storyboard-list-body .storyboard-video-insert-mid {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.storyboard-step .storyboard-list-body .storyboard-block-title {
+  flex-shrink: 0;
+}
+
+.storyboard-step .storyboard-list-body .storyboard-block-card,
+.storyboard-step .storyboard-list-body .storyboard-reference-card,
+.storyboard-step .storyboard-list-body .storyboard-script-tip,
+.storyboard-step .storyboard-list-body .storyboard-script-content,
+.storyboard-step .storyboard-list-body .storyboard-video-set,
+.storyboard-step .storyboard-list-body .storyboard-video-loading,
+.storyboard-step .storyboard-list-body .storyboard-video-failed,
+.storyboard-step .storyboard-list-body .storyboard-video-placeholder,
+.storyboard-step .storyboard-list-body .storyboard-video-generate-failed {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto !important;
+  max-height: 100%;
+  box-sizing: border-box;
+}
+
+/* 列表内有图/视频预览：吃满剩余高度，禁止按列宽 aspect-ratio 撑破行高 */
+.storyboard-step .storyboard-list-body .storyboard-block-card.has-image {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}

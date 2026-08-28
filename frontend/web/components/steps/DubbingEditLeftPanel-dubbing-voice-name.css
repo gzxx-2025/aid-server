@@ -1,0 +1,204 @@
+/* Tailwind/PostCSS component styles for DubbingEditLeftPanel. */
+
+
+.dubbing-edit-left .dubbing-voice-name {
+  flex: 1;
+  font-size: 0.9rem;
+  color: var(--home-text, #e6edf3);
+}
+
+.dubbing-edit-left .dubbing-voice-arrow {
+  color: var(--home-muted, #8e97a5);
+  font-size: 0.75rem;
+}
+
+.dubbing-edit-left .dubbing-emotion-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.dubbing-edit-left .dubbing-emotion-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.dubbing-edit-left .dubbing-emotion-header .dubbing-field-label {
+  margin-bottom: 0;
+}
+
+.dubbing-edit-left .dubbing-emotion-count {
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+  color: var(--home-muted, #8e97a5);
+  white-space: nowrap;
+}
+
+.dubbing-edit-left .dubbing-emotion-shell {
+  position: relative;
+}
+
+.dubbing-edit-left .dubbing-emotion-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+}
+
+.dubbing-edit-left .dubbing-emotion-btn {
+  padding: 0.45rem 0.35rem;
+  border: 1px solid var(--gray-200, rgba(96, 124, 158, 0.22));
+  border-radius: var(--radius-m);
+  background: var(--create-surface-panel);
+  font-size: 0.8rem;
+  cursor: pointer;
+  color: var(--home-text, #e6edf3);
+  line-height: 1.1;
+  min-height: 2rem;
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease,
+    color 0.18s ease;
+}
+
+.dubbing-edit-left .dubbing-emotion-btn:hover {
+  border-color: rgba(94, 234, 212, 0.35);
+  background: rgba(94, 234, 212, 0.06);
+}
+
+.dubbing-edit-left .dubbing-emotion-btn.active {
+  border-color: rgba(94, 234, 212, 0.72);
+  background: rgba(94, 234, 212, 0.1);
+  color: #dffcf5;
+  box-shadow: inset 0 0 0 1px rgba(94, 234, 212, 0.12);
+}
+
+.dubbing-edit-left .dubbing-emotion-fade {
+  pointer-events: none;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1.6rem;
+  background: linear-gradient(
+    to bottom,
+    rgba(16, 22, 32, 0),
+    rgba(16, 22, 32, 0.72) 55%,
+    rgba(16, 22, 32, 0.92)
+  );
+}
+
+.dubbing-edit-left .dubbing-emotion-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  align-self: center;
+  margin-top: 0.1rem;
+  padding: 0.28rem 0.85rem;
+  border: 1px solid rgba(96, 124, 158, 0.28);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--home-muted, #9aa6b8);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition:
+    color 0.18s ease,
+    border-color 0.18s ease,
+    background 0.18s ease;
+}
+
+.dubbing-edit-left .dubbing-emotion-toggle:hover {
+  color: #dffcf5;
+  border-color: rgba(94, 234, 212, 0.4);
+  background: rgba(94, 234, 212, 0.08);
+}
+
+.dubbing-edit-left .dubbing-emotion-toggle-icon {
+  font-size: 0.65rem;
+}
+
+.dubbing-edit-left .dubbing-lip-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0;
+}
+
+.dubbing-edit-left .dubbing-lip-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--home-text, #e6edf3);
+}
+
+.dubbing-edit-left .dubbing-lip-row .ant-switch {
+  background: rgba(106, 123, 148, 0.7) !important;
+  border: 1px solid rgba(180, 198, 224, 0.48) !important;
+}
+
+.dubbing-edit-left .dubbing-lip-row .ant-switch.ant-switch-checked {
+  background: linear-gradient(270deg, #0e59fa 0%, #00abd8 100%) !important;
+  border-color: rgba(0, 171, 216, 0.95) !important;
+}
+
+.dubbing-edit-left .dubbing-lip-row .ant-switch .ant-switch-handle::before {
+  background: #ffffff !important;
+}
+
+.dubbing-edit-left .dubbing-start-btn {
+  height: 44px;
+  font-size: 14px;
+  border-radius: 8px !important;
+  border: none !important;
+  outline: none !important;
+}
+
+.dubbing-edit-left .dubbing-start-btn:hover,
+.dubbing-edit-left .dubbing-start-btn:focus,
+.dubbing-edit-left .dubbing-start-btn:active {
+  border: none !important;
+  outline: none !important;
+}
+
+.dubbing-edit-left .dubbing-start-btn img {
+  width: 18px;
+  height: 18px;
+  margin-right: 16px;
+}
+
+.dubbing-edit-left .dubbing-bottom-actions {
+  flex-shrink: 0;
+  margin-top: auto;
+  padding: 0.75rem 0 0.25rem;
+  background: rgba(25, 26, 29, 1);
+  border-top: 1px solid rgba(96, 124, 158, 0.16);
+}
+
+.dubbing-edit-left .dubbing-upload-name {
+  font-size: 0.85rem;
+  color: var(--home-muted, #8e97a5);
+  margin: 0;
+}
+
+.dubbing-edit-left .ant-upload-wrapper .ant-upload-drag,
+.dubbing-edit-left .ant-upload.ant-upload-drag {
+  background: var(--create-surface-input, rgba(28, 38, 54, 0.92)) !important;
+  border-color: var(--gray-200, rgba(96, 124, 158, 0.22)) !important;
+}
+
+.dubbing-edit-left .ant-upload-wrapper .ant-upload-drag:hover {
+  border-color: var(--accent-400, #38bdf8) !important;
+}
+
+.dubbing-edit-left .ant-upload-text {
+  color: var(--home-text, #e6edf3) !important;
+}
+
+.dubbing-edit-left .ant-upload-hint {
+  color: var(--home-muted, #8e97a5) !important;
+}
+
+.dubbing-edit-left .ant-upload-drag-icon .anticon {
+  color: var(--accent-400, #38bdf8) !important;
+}

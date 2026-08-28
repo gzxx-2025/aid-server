@@ -1,0 +1,210 @@
+.home-hero-carousel {
+  --carousel-card-radius: 12px;
+
+  position: absolute;
+  inset: auto 0 0;
+  width: 100%;
+  z-index: 10;
+  box-sizing: border-box;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.35s ease;
+  padding-bottom: 6px;
+}
+
+.home-hero-carousel.is-ready {
+  opacity: 1;
+}
+
+.home-hero-carousel__viewport {
+  position: relative;
+  width: 100%;
+  height: var(--carousel-viewport-h, 158px);
+  overflow: visible;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.home-hero-carousel__track {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+}
+
+.home-hero-carousel__slide {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--carousel-card-w, 220px);
+  height: var(--carousel-card-h, 158px);
+  transform-style: preserve-3d;
+  transform-origin: center center;
+  will-change: transform, opacity;
+  backface-visibility: hidden;
+
+  &.is-clickable {
+    cursor: pointer;
+    pointer-events: auto;
+  }
+
+  &.is-active .home-hero-carousel__card {
+    box-shadow:
+      0 32px 72px rgba(0, 0, 0, 0.58),
+      0 0 28px rgba(74, 231, 253, 0.12),
+      0 0 0 1px rgba(255, 255, 255, 0.14);
+  }
+}
+
+.home-hero-carousel__card {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: var(--carousel-card-radius);
+  overflow: hidden;
+  background: #121212;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.42);
+  transform-style: preserve-3d;
+  transform-origin: center center;
+  transition: box-shadow 0.35s ease;
+}
+
+.home-hero-carousel__thumb {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.home-hero-carousel__card-shade {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0) 42%,
+    rgba(0, 0, 0, 0.28) 68%,
+    rgba(0, 0, 0, 0.82) 100%
+  );
+  pointer-events: none;
+}
+
+.home-hero-carousel__title {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  margin: 0;
+  padding: 10px 8px 8px;
+  font-family: 'Georgia', 'Times New Roman', 'Songti SC', 'SimSun', serif;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.35;
+  letter-spacing: 0.01em;
+  color: rgba(255, 255, 255, 0.96);
+  text-align: center;
+  pointer-events: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.home-hero-carousel__nav {
+  position: absolute;
+  top: calc((var(--carousel-viewport-h, 158px) - 32px) / 2);
+  z-index: 30;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 50%;
+  background: rgba(8, 10, 16, 0.62);
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  pointer-events: auto;
+  backdrop-filter: blur(10px);
+  transition:
+    background 0.25s ease,
+    border-color 0.25s ease,
+    transform 0.25s ease;
+
+  &:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.32);
+    transform: scale(1.05);
+  }
+
+  &:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+
+  &--prev {
+    left: 14px;
+  }
+
+  &--next {
+    right: 14px;
+  }
+}
+
+.home-hero-carousel__dots {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 0 8px;
+  pointer-events: auto;
+}
+
+.home-hero-carousel__dot {
+  width: 16px;
+  height: 3px;
+  padding: 0;
+  border: none;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.25);
+  flex-shrink: 0;
+  cursor: pointer;
+  transition:
+    width 0.25s ease,
+    background 0.25s ease;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.45);
+  }
+}
+
+.home-hero-carousel__dot.is-active {
+  width: 28px;
+  background: #fff;
+}
+
+@media (max-width: 768px) {
+  .home-hero-carousel {
+    --carousel-card-radius: 10px;
+    padding-bottom: 4px;
+  }
+
+  .home-hero-carousel__nav {
+    width: 28px;
+    height: 28px;
+    font-size: 18px;
+
+    &--prev {
+      left: 4px;
+    }
+
+    &--next {
+      right: 4px;
+    }
+  }
+
+  .home-hero-carousel__title {
+    padding: 8px 6px 6px;
+    font-size: 10px;
+  }
+}

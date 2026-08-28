@@ -1,0 +1,84 @@
+/* Tailwind/PostCSS component styles for BatchRegenerateDubbingModal. */
+
+
+.batch-regenerate-dubbing-wrap .brdm-card-field {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 4px;
+  background: rgba(142, 151, 165, 0.12);
+  text-align: left;
+  font-size: 12px;
+}
+
+.batch-regenerate-dubbing-wrap .brdm-card-field--static {
+  cursor: default;
+  pointer-events: none;
+}
+
+.batch-regenerate-dubbing-wrap .brdm-card-field--no-dubbing {
+  color: #8e97a5;
+}
+
+.batch-regenerate-dubbing-wrap .brdm-field-label {
+  color: #8e97a5;
+  flex-shrink: 0;
+}
+
+.batch-regenerate-dubbing-wrap .brdm-field-value {
+  flex: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #fff;
+}
+
+.batch-regenerate-dubbing-wrap .brdm-voice-placeholder {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: rgba(120, 235, 255, 0.35);
+  flex-shrink: 0;
+}
+
+.batch-regenerate-dubbing-wrap .brdm-no-dialogue-tip {
+  margin: 0;
+  font-size: 12px;
+  color: #8e97a5;
+  line-height: 18px;
+}
+
+.batch-regenerate-dubbing-wrap .brdm-footer {
+  flex-shrink: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+  padding: 16px 0 0;
+}
+
+.batch-regenerate-dubbing-wrap .brdm-submit-btn {
+  width: 126px;
+  height: 40px;
+  border-radius: 6px !important;
+  border: none !important;
+  background: linear-gradient(270deg, #0e59fa 0%, #00abd8 100%) !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.batch-regenerate-dubbing-wrap .brdm-submit-btn img {
+  width: 16px;
+  height: 16px;
+}

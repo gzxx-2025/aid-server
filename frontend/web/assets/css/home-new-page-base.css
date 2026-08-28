@@ -1,0 +1,226 @@
+/* Tailwind/PostCSS component styles for home-new-page. */
+/* =============================================================================
+   新版首页（/）及 home-new 布局内子页（我的作品、资产库）专用
+   与旧版 .home-legacy-page 拆分，不共用 .home-theme-page 主内容区样式
+   ============================================================================= */
+
+/* ---------- 新版首页根节点 ---------- */
+.home-new-index {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 0;
+  color: var(--home-cyan);
+
+}
+
+.home-new-index .page-content {
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+/* home-new 布局内：我的作品 / 资产库 */
+.home-new-sub-page {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  flex: 1 0 auto;
+  width: 100%;
+  min-height: 0;
+  padding: 24px 32px 32px;
+  color: var(--home-cyan);
+  --home-muted: #8e97a5;
+  /* background: #0d0d0f; */
+}
+
+.home-new-sub-page.works-library-figma {
+  min-height: min(100%, auto);
+}
+
+.home-new-sub-page .page-content {
+  max-width: 100%;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* 关于我们 / 常见问题 / 计费说明 / 邀请有礼：子页撑满主内容区宽度 */
+.home-new-sub-page.about-page,
+.home-new-sub-page.help-center-page,
+.home-new-sub-page.billing-page,
+.home-new-sub-page.invite-page {
+  width: 100%;
+  flex: 1 0 auto;
+  min-width: 0;
+}
+
+.home-new-sub-page.about-page {
+  padding: 0;
+  background: #121212;
+}
+
+.home-new-sub-page.invite-page {
+  min-height: 100%;
+  background-color: #0d0d0f;
+  background-image: linear-gradient(to bottom right, #141f47 0%, rgba(20, 31, 71, 0.3) 50%);
+}
+
+.home-new-sub-page.about-page .page-content,
+.home-new-sub-page.help-center-page .page-content,
+.home-new-sub-page.billing-page .page-content,
+.home-new-sub-page.invite-page .page-content {
+  width: 100%;
+  max-width: none;
+}
+
+/* 子页内容区纵向撑满主区域 */
+.home-new-sub-page .works-library-figma__inner,
+.home-new-sub-page .assets-library-figma__inner {
+  display: flex;
+  flex-direction: column;
+  flex: 1 0 auto;
+  min-height: 0;
+}
+
+/* 资产库：锁定视口剩余高度，列表区内部滚动（滚动条始终隐藏） */
+html.layout-home-new .home-new-main:has(.assets-library-figma) {
+  overflow: hidden;
+}
+
+html.layout-home-new .home-route-transition-host:has(.assets-library-figma),
+html.layout-home-new .home-main-route:has(.assets-library-figma) {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+
+html.layout-home-new .home-new-sub-page.assets-library-figma,
+html.app-shell-create .home-new-sub-page.assets-library-figma {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+html.layout-home-new .home-new-sub-page.assets-library-figma .assets-library-figma__inner,
+html.app-shell-create .home-new-sub-page.assets-library-figma .assets-library-figma__inner {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.home-new-sub-page.assets-library-figma .works-lib-grid:has(> .works-lib-empty--full) {
+  display: flex;
+  flex-direction: column;
+}
+
+.home-new-sub-page.assets-library-figma .works-lib-empty--full {
+  flex: 1;
+  min-height: 0;
+  box-sizing: border-box;
+}
+
+.home-new-sub-page.assets-library-figma .works-lib-grid {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  /*
+   * 关键：网格在「定高 + overflow:auto」时，auto 行的自动最小尺寸会被当成 0，
+   * 浏览器会把所有行硬塞进视口高度，封面 aspect-ratio 被压扁，卡片叠成一条条。
+   * 用 max-content 按内容撑开行高，多余内容走内部滚动。
+   */
+  grid-auto-rows: max-content;
+  align-content: start;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* 资产库 / 我的作品：列表卡片与「新增」总高度一致；新增封面铺满整卡 */
+.home-new-sub-page.assets-library-figma .works-lib-card,
+.home-new-sub-page.works-library-figma .works-lib-card {
+  align-self: start;
+  height: auto;
+}
+
+.home-new-sub-page.assets-library-figma .works-lib-add-card,
+.home-new-sub-page.works-library-figma .works-lib-add-card {
+  align-self: start;
+  height: auto;
+  position: relative;
+}
+
+.home-new-sub-page.assets-library-figma .works-lib-card__cover,
+.home-new-sub-page.works-library-figma .works-lib-card__cover {
+  min-height: unset;
+  flex: 0 0 auto;
+  height: auto;
+  aspect-ratio: var(--works-lib-cover-ratio, 16 / 10);
+  max-height: 200px;
+}
+
+.home-new-sub-page.assets-library-figma .works-lib-add-card__cover,
+.home-new-sub-page.works-library-figma .works-lib-add-card__cover {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+  max-height: none;
+  min-height: 0;
+}
+
+.home-new-sub-page.assets-library-figma .works-lib-add-card__sizer,
+.home-new-sub-page.works-library-figma .works-lib-add-card__sizer {
+  aspect-ratio: var(--works-lib-cover-ratio, 16 / 10);
+  max-height: 200px;
+}
+
+.home-new-sub-page.assets-library-figma .works-lib-card__body,
+.home-new-sub-page.assets-library-figma .works-lib-add-card__body,
+.home-new-sub-page.works-library-figma .works-lib-card__body,
+.home-new-sub-page.works-library-figma .works-lib-add-card__body {
+  height: var(--works-lib-body-h, 68px);
+  min-height: var(--works-lib-body-h, 68px);
+}
+
+/* 电视剧集：底部信息区随内容增高，避免集数按钮被裁切；电影/短片仍走上方固定高度 */
+.home-new-sub-page.works-library-figma .works-lib-card--series .works-lib-card__body {
+  height: auto;
+  min-height: var(--works-lib-body-h, 118px);
+}
+
+/* 电视剧集 Tab：网格同行拉伸，新建卡片与剧集卡片总高度一致 */
+.home-new-sub-page.works-library-figma.works-library-figma--series-tab {
+  --works-lib-body-h: 118px;
+}
+
+.home-new-sub-page.works-library-figma.works-library-figma--series-tab .works-lib-grid {
+  align-items: stretch;
+}
+
+.home-new-sub-page.works-library-figma.works-library-figma--series-tab .works-lib-card,
+.home-new-sub-page.works-library-figma.works-library-figma--series-tab .works-lib-add-card {
+  align-self: stretch;
+  height: auto;
+}
+
+.home-new-sub-page.works-library-figma.works-library-figma--series-tab .works-lib-add-card__body {
+  height: auto;
+  min-height: var(--works-lib-body-h, 118px);
+  flex: 1 0 auto;
+}
+
+.home-new-sub-page.assets-library-figma .works-lib-grid::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* 我的作品：网格随内容增高，由外层主滚动区承担滚动；行高规则与资产库一致 */
+.home-new-sub-page.works-library-figma .works-lib-grid {
+  flex: 0 0 auto;
+  width: 100%;
+  grid-auto-rows: max-content;
+  align-content: start;
+}

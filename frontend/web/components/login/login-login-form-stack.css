@@ -1,0 +1,225 @@
+/* Tailwind/PostCSS component styles for login. */
+/* 登录页样式：原 pages/login.vue \3c style scoped> 1:1 平移，统一以 .login-page 作用域（替代 scoped） */
+
+/* Tab + 输入区锚点；验证码浮层相对此区域定位在上方 */
+.login-page .login-form-stack {
+  position: relative;
+  margin-bottom: 36px;
+}
+
+/* 仅控制挂载点位置，不覆盖 #tianai-captcha-* 内部样式 */
+.login-page .login-captcha-box {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 12px);
+  transform: translateX(-50%);
+  z-index: 50;
+  width: 0;
+  height: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.login-page .login-captcha-box:has(#tianai-captcha-parent) {
+  pointer-events: auto;
+}
+
+/*
+ * 登录设计框（治本）：以 1920×1080 内容区为唯一稿
+ *   宽 1872 = 1920 - 48；高 1032 = 1080 - 48
+ * 任意分辨率用 zoom 等比缩放同一构图，不再按断点改结构/内边距。
+ */
+.login-page {
+  /* 大写 Px：跳过 pxtorem，设计框始终按物理 CSS 像素计算 */
+  --login-design-w: 1872Px;
+  --login-design-h: 1032Px;
+  --login-page-pad: 24Px;
+  --login-scale: min(
+    1,
+    calc((100vw - var(--login-page-pad) * 2) / var(--login-design-w)),
+    calc((100dvh - var(--login-page-pad) * 2) / var(--login-design-h))
+  );
+
+  position: relative;
+  overflow: auto;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: var(--login-page-pad);
+  box-sizing: border-box;
+  background-color: #0e1118;
+}
+
+/* 全屏背景视频：循环、静音、无控件条 */
+.login-page .login-bg-video {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+  border: 0;
+}
+
+.login-page .login-bg-video::-webkit-media-controls {
+  display: none !important;
+}
+
+.login-page .login-bg-video::-webkit-media-controls-enclosure {
+  display: none !important;
+}
+
+.login-page .login-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: linear-gradient(180deg, rgba(0, 23, 49, 0.62) 0%, rgba(18, 18, 18, 0.84) 100%);
+}
+
+.login-page .login-panel {
+  position: relative;
+  z-index: 2;
+  width: var(--login-design-w);
+  height: var(--login-design-h);
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1.5fr 2fr;
+  border-radius: 12px;
+  overflow: hidden;
+  zoom: var(--login-scale);
+}
+
+.login-page .login-left {
+  height: 100%;
+  background: rgba(17, 22, 33, 0.8);
+  padding: 20px;
+  display: flex;
+  border-radius: 24px;
+  align-items: center;
+  box-sizing: border-box;
+}
+
+.login-page .login-form-card {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding: 120px 170px 28px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+.login-page .login-autofill-trap {
+  position: absolute;
+  width: 0;
+  height: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.login-page .login-logo {
+  width: 120px;
+  min-width: 120px;
+  height: 52px;
+  display: block;
+  margin: 0 auto 80px;
+}
+
+.login-page .login-logo-image {
+  object-fit: contain;
+}
+
+.login-page .form-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: 24px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 8px;
+  width: min(38%, 220px);
+  min-width: 180px;
+  flex-shrink: 0;
+}
+
+.login-page .form-tabs.is-single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.login-page .form-tab {
+  height: 36px;
+  border: 0;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 13px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.login-page .form-tab.active {
+  color: #fff;
+  background: linear-gradient(270deg, #0e59fa 0%, #00abd8 100%);
+}
+
+.login-page .login-form .ant-form-item {
+  margin-bottom: 16px;
+}
+
+.login-page .login-form .submit-item {
+  margin-top: 56px;
+  margin-bottom: 0;
+}
+.login-page .ant-checkbox .ant-checkbox-inner {
+  background: transparent !important;
+}
+.login-page .ant-input {
+  height: 48px;
+  border-radius: 8px;
+  border: 1px solid rgba(142, 151, 165, 0.1);
+  color: rgba(142, 151, 165, 1);
+  background: rgba(142, 151, 165, 0.1);
+}
+
+.login-page .login-input .ant-input::placeholder {
+  color: rgba(142, 151, 165, 1);
+}
+
+.login-page .login-input .ant-input-affix-wrapper {
+  height: 48px;
+  border-radius: 8px;
+  border: 1px solid rgba(142, 151, 165, 0.1);
+  background: rgba(142, 151, 165, 0.1);
+}
+
+.login-page .login-input .ant-input-password {
+  height: 48px;
+  border-radius: 8px;
+  border: 1px solid rgba(142, 151, 165, 0.1);
+  background: rgba(142, 151, 165, 0.1);
+}
+
+.login-page .login-input .ant-input-password input {
+  color: rgba(142, 151, 165, 1);
+}
+
+.login-page .login-input .ant-input-password input::placeholder {
+  color: rgba(142, 151, 165, 1);
+}
+
+.login-page .input-prefix-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.login-page .input-prefix-icon {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}

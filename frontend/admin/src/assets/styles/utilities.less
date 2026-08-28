@@ -1,0 +1,127 @@
+@import '@/assets/styles/variables.less';
+
+.text-ellipsis {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.page-container {
+  padding: 16px;
+}
+
+.app-card {
+  background: #ffffff;
+  border-radius: 14px;
+  padding: 20px;
+  border: 1px solid rgba(15, 23, 42, 0.04);
+  box-shadow: 0 2px 12px rgba(15, 23, 42, 0.04);
+}
+
+/* 全局表格/表单/按钮圆角微调 */
+.ant-btn {
+  border-radius: 8px;
+}
+.ant-input,
+.ant-input-affix-wrapper,
+.ant-select .ant-select-selector,
+.ant-picker,
+.ant-input-number {
+  border-radius: 8px !important;
+}
+
+.ant-modal-content {
+  border-radius: 16px !important;
+  overflow: hidden;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.2) !important;
+}
+.ant-modal-header {
+  border-bottom: 1px solid rgba(15, 23, 42, 0.05) !important;
+  padding-bottom: 14px !important;
+  margin-bottom: 18px !important;
+}
+.ant-modal-title {
+  font-size: 16px !important;
+  font-weight: 600 !important;
+}
+.ant-modal-footer {
+  border-top: 1px solid rgba(15, 23, 42, 0.05);
+  padding-top: 14px;
+  margin-top: 18px;
+}
+
+/* 标签/tag 微调 */
+.ant-tag {
+  border-radius: 6px;
+  padding: 1px 8px;
+  font-size: 12px;
+}
+
+/* Popover/Tooltip 内容圆润一些 */
+.ant-popover-inner,
+.ant-tooltip-inner {
+  border-radius: 10px !important;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.14) !important;
+}
+
+/* 分页器轻微优化 */
+.ant-pagination .ant-pagination-item,
+.ant-pagination .ant-pagination-prev,
+.ant-pagination .ant-pagination-next {
+  border-radius: 8px;
+}
+.ant-pagination .ant-pagination-item-active {
+  background: linear-gradient(135deg, @primary-color 0%, #6366f1 100%);
+  border-color: transparent;
+  a { color: #fff !important; }
+}
+
+/* Timeline 文字更清晰 */
+.ant-timeline-item-content {
+  font-size: 13.5px;
+}
+
+/* Card 头尾分隔线柔化 */
+.ant-card-bordered {
+  border-color: rgba(15, 23, 42, 0.06);
+}
+
+/* 空状态优化 */
+.ant-empty-description {
+  color: #94a3b8;
+}
+
+/* nprogress 与主题色一致 */
+#nprogress .bar {
+  background: linear-gradient(90deg, #2563eb 0%, #7c3aed 100%) !important;
+  height: 3px !important;
+}
+#nprogress .peg {
+  box-shadow: 0 0 10px #6366f1, 0 0 5px #6366f1 !important;
+}
+#nprogress .spinner-icon {
+  border-top-color: #6366f1 !important;
+  border-left-color: #6366f1 !important;
+}
+
+/* 长文本展示区 - 通用 */
+.long-text-box {
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: linear-gradient(180deg, #fafbff 0%, #f5f7fb 100%);
+  padding: 16px 18px;
+  border-radius: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  font-family: Consolas, Menlo, Monaco, "Courier New", monospace;
+  font-size: 13px;
+  line-height: 1.8;
+  color: #1f2937;
+  max-height: 480px;
+  overflow: auto;
+}

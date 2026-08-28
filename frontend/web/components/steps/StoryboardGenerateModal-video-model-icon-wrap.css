@@ -1,0 +1,115 @@
+/* Tailwind/PostCSS component styles for StoryboardGenerateModal. */
+
+
+.storyboard-generate-modal .video-model-icon-wrap {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.storyboard-generate-modal .video-model-icon-svg {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.875rem;
+  color: #fff;
+}
+
+.storyboard-generate-modal .video-model-icon-vidu {
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
+}
+
+.storyboard-generate-modal .video-model-icon-keling {
+  background: linear-gradient(135deg, #1f2937, #111827);
+}
+
+.storyboard-generate-modal .video-model-name {
+  font-weight: 600;
+  color: var(--home-text, #e6edf3);
+  margin-bottom: 0.25rem;
+}
+
+.storyboard-generate-modal .video-model-desc {
+  font-size: 0.8125rem;
+  color: var(--home-muted, #8e97a5);
+  line-height: 1.4;
+  margin-bottom: 0.35rem;
+}
+
+.storyboard-generate-modal .video-model-cost {
+  font-size: 0.75rem;
+  color: var(--home-muted, #8e97a5);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.5rem;
+}
+
+.storyboard-generate-modal .video-model-card.active .video-model-name {
+  color: var(--home-text, #e6edf3);
+}
+
+.storyboard-generate-modal .video-model-card.active .video-model-desc,
+.storyboard-generate-modal .video-model-card.active .video-model-cost {
+  color: var(--home-muted, #a8b4c4);
+}
+
+.storyboard-generate-modal .form-row {
+  display: flex;
+  gap: 1rem;
+}
+
+.storyboard-generate-modal .form-section-half {
+  flex: 1;
+  min-width: 0;
+}
+
+.storyboard-generate-modal .form-select {
+  width: 100%;
+}
+
+.storyboard-generate-modal .form-select-full {
+  max-width: 100%;
+}
+
+.storyboard-generate-modal .footer-left {
+  margin-right: auto;
+  display: flex;
+  align-items: center;
+}
+
+.storyboard-generate-modal .footer-cost {
+  font-size: 0.875rem;
+  color: var(--home-muted, #8e97a5);
+}
+
+/* 下拉挂载在 body，需非 scoped */
+.story-gen-video-select-dropdown.ant-select-dropdown {
+  background: #111621 !important;
+  border: 1px solid rgba(74, 231, 253, 0.3) !important;
+  border-radius: 8px !important;
+  padding: 4px !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45) !important;
+}
+
+.story-gen-video-select-dropdown .ant-select-item {
+  color: #e6edf3 !important;
+  border-radius: 6px !important;
+}
+
+.story-gen-video-select-dropdown .ant-select-item-option-active:not(.ant-select-item-option-disabled) {
+  background: rgba(74, 231, 253, 0.12) !important;
+}
+
+.story-gen-video-select-dropdown
+  .ant-select-item-option-selected:not(.ant-select-item-option-disabled) {
+  background: rgba(74, 231, 253, 0.2) !important;
+  color: #fff !important;
+  font-weight: 500;
+}

@@ -1,0 +1,228 @@
+/* Tailwind/PostCSS component styles for SelectSceneImageModal. */
+/* 原 scoped 样式：统一挂在 .select-scene-image-modal-wrap 下，避免 modal-header / import-tab 等通用类名全局串扰 */
+/* 与 BatchRegenerateDubbingModal .brdm 同高 */
+.select-scene-image-modal-wrap .select-scene-shell {
+  color: #e6edf3;
+  height: 698px;
+  max-height: calc(100vh - 80px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #191a1d;
+}
+
+.select-scene-image-modal-wrap .select-scene-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0 16px;
+}
+
+/* 头部 */
+.select-scene-image-modal-wrap .modal-header {
+  flex-shrink: 0;
+  padding: 12px 16px 0.75rem;
+  background: #191a1d;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.select-scene-image-modal-wrap .header-top {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 56px;
+  padding-right: 32px;
+}
+
+.select-scene-image-modal-wrap .select-scene-close {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.75);
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.select-scene-image-modal-wrap .select-scene-close:hover {
+  color: #4ae7fd;
+}
+
+/* 场景切换器 */
+.select-scene-image-modal-wrap .header-tabs {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+.select-scene-image-modal-wrap .import-tab-bar__inner {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 6px 16px;
+  background: #202434;
+  border-radius: 8px;
+}
+.select-scene-image-modal-wrap .import-tab-bar__inner .h-scroll-tab-bar__track {
+  background: rgba(74, 231, 253, 0.2);
+  border-radius: 8px;
+}
+
+.select-scene-image-modal-wrap .import-tab-inner {
+  background: #294b5d;
+  border-radius: 8px;
+  gap: 0;
+}
+
+.select-scene-image-modal-wrap .import-tab {
+  position: relative;
+  margin: 0;
+  padding: 0.25rem 1rem;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #d9e6f2;
+  cursor: pointer;
+  background: transparent;
+  flex-shrink: 0;
+  white-space: nowrap;
+  transition:
+    color 0.2s ease,
+    background 0.2s ease;
+}
+
+.select-scene-image-modal-wrap .import-tab:hover {
+  color: #ffffff;
+}
+
+.select-scene-image-modal-wrap .import-tab--active {
+  background: #4ae7fd;
+}
+.select-scene-image-modal-wrap .import-tab--active span {
+  color: #121212 !important;
+}
+
+.select-scene-image-modal-wrap .scene-tab-name {
+  font-size: 14px;
+}
+
+.select-scene-image-modal-wrap .scene-count {
+  font-size: 14px;
+  color: #d9e6f2;
+  white-space: nowrap;
+}
+
+/* 内容区域 */
+.select-scene-image-modal-wrap .import-container {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.select-scene-image-modal-wrap .content-area {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0 0 1rem;
+  overflow-y: auto;
+}
+
+.select-scene-image-modal-wrap .empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1 1 auto;
+  min-height: 160px;
+}
+
+.select-scene-image-modal-wrap .empty-icon-wrapper {
+  width: 120px;
+  height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 1.5rem;
+}
+
+.select-scene-image-modal-wrap .empty-icon {
+  font-size: 4rem;
+  color: var(--gray-300);
+}
+
+.select-scene-image-modal-wrap .empty-text {
+  color: #8e97a5;
+  font-size: 1rem;
+}
+
+/* 图片网格 */
+.select-scene-image-modal-wrap .images-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1.5rem;
+}
+
+.select-scene-image-modal-wrap .image-card {
+  position: relative;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(18, 18, 18, 0.42);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.select-scene-image-modal-wrap .image-card:hover {
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.select-scene-image-modal-wrap .image-card.selected {
+  border-color: rgba(74, 231, 253, 1);
+  box-shadow:
+    0 0 0 1px rgba(74, 231, 253, 0.25),
+    0 0 16px rgba(74, 231, 253, 0.12);
+}
+
+.select-scene-image-modal-wrap .image-wrapper {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: rgba(6, 10, 18, 0.55);
+}
+
+.select-scene-image-modal-wrap .scene-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.select-scene-image-modal-wrap .scene-image-shimmer {
+  width: 100%;
+  height: 100%;
+}
+
+.select-scene-image-modal-wrap .image-wrapper .shimmer-image {
+  width: 100%;
+  height: 100%;
+}

@@ -1,0 +1,231 @@
+/* Tailwind/PostCSS component styles for global-setting. */
+
+
+.global-setting .current-style-badge {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  z-index: 4;
+  padding: 4px 7px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  background: linear-gradient(270deg, #0e59fa 0%, #00abd8 100%);
+  box-shadow: 0 4px 12px rgba(14, 89, 250, 0.35);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.global-setting .style-active-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 6px;
+  pointer-events: none;
+  z-index: 3;
+  opacity: 0;
+  transform: scale(0.96);
+  transition:
+    opacity 0.38s cubic-bezier(0.4, 0, 0.2, 1),
+    transform 0.38s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+
+.global-setting .style-card.active .style-active-ring {
+  opacity: 1;
+  transform: scale(1);
+  animation: style-card-ring-breathe 2.6s ease-in-out infinite;
+}
+
+.global-setting .style-card--located {
+  animation: style-card-located 0.72s ease-in-out 2;
+}
+
+@keyframes style-card-located {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 2px rgba(14, 89, 250, 0.45),
+      0 0 18px rgba(74, 231, 253, 0.38),
+      0 10px 28px rgba(0, 0, 0, 0.45);
+  }
+
+  50% {
+    box-shadow:
+      0 0 0 4px rgba(74, 231, 253, 0.95),
+      0 0 32px rgba(74, 231, 253, 0.82),
+      0 12px 32px rgba(0, 0, 0, 0.5);
+  }
+}
+
+@keyframes style-card-ring-breathe {
+  0%,
+  100% {
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.16),
+      0 0 10px rgba(74, 231, 253, 0.22);
+  }
+
+  50% {
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.28),
+      0 0 16px rgba(74, 231, 253, 0.42);
+  }
+}
+
+.global-setting .style-selected-mark {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 4;
+  pointer-events: none;
+  opacity: 0;
+  transform: scale(0.55);
+  transition:
+    opacity 0.32s cubic-bezier(0.4, 0, 0.2, 1),
+    transform 0.38s cubic-bezier(0.34, 1.35, 0.64, 1);
+}
+
+.global-setting .style-selected-mark__icon {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.global-setting .style-selected-mark--visible {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.global-setting .style-thumb {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.global-setting .style-card .style-thumb-shimmer {
+  width: 100%;
+  height: 100%;
+}
+
+.global-setting .style-card .style-thumb-img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  object-position: center;
+  image-rendering: auto;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  transform: translateZ(0);
+  transition: filter 0.38s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.global-setting .style-card.active .style-thumb-img {
+  filter: brightness(1.06) saturate(1.08);
+}
+
+.global-setting .style-card .style-thumb-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.global-setting .style-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(18, 18, 18, 0.4);
+  width: 100%;
+  height: 28px;
+  line-height: 28px;
+  padding: 0 6px;
+  text-align: center;
+  z-index: 2;
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 12px;
+  transition:
+    background 0.38s cubic-bezier(0.4, 0, 0.2, 1),
+    color 0.38s cubic-bezier(0.4, 0, 0.2, 1),
+    font-weight 0.38s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.global-setting .style-overlay .ellipsis-tooltip-text {
+  width: 100%;
+  text-align: center;
+}
+
+.global-setting .style-card.active .style-overlay {
+  background: linear-gradient(180deg, transparent 0%, rgba(14, 89, 250, 0.82) 100%);
+  color: #fff;
+  font-weight: 600;
+}
+
+.global-setting .style-name {
+  color: white;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.global-setting .featured-badge {
+  position: absolute;
+  top: 2px;
+  left: 4px;
+  background: linear-gradient(270deg, #0e59fa 0%, #00abd8 100%);
+  color: white;
+  font-size: 0.75rem;
+  line-height: 1;
+  padding: 0.3rem 0.45rem;
+  border-radius: 6px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  box-shadow: 0 4px 12px rgba(14, 89, 250, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  z-index: 2;
+  pointer-events: none;
+}
+
+.global-setting .style-card.add-style {
+  border: 2px dashed rgba(74, 231, 253, 0.35);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background: rgba(12, 16, 24, 0.55);
+}
+
+.global-setting .style-card.add-style:hover {
+  border-color: rgba(74, 231, 253, 0.55);
+  background: rgba(14, 89, 250, 0.12);
+}
+
+.global-setting .style-card.add-style.is-style-locked:hover {
+  border-color: rgba(74, 231, 253, 0.2);
+  background: rgba(12, 16, 24, 0.55);
+}
+
+.global-setting .add-icon {
+  font-size: 2rem;
+  color: rgba(74, 231, 253, 0.45);
+}
+
+.global-setting .add-text {
+  color: var(--home-muted, #8e97a5);
+  font-size: 0.875rem;
+  font-weight: 500;
+}

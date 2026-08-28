@@ -1,0 +1,44 @@
+@import '@/assets/styles/variables.less';
+
+.wechat-notify-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+
+  &__check-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  &__scene {
+    margin-bottom: 12px;
+  }
+
+  &__rules {
+    margin: 0;
+    padding-left: 18px;
+    color: @text-color-secondary;
+    line-height: 1.9;
+  }
+
+  &__template-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  &__template-item {
+    border-bottom: 1px solid #f1f5f9;
+    padding-bottom: 8px;
+  }
+
+  &__template-content {
+    margin-top: 4px;
+    white-space: pre-wrap;
+  }
+
+  &__test-result {
+    margin-top: 12px;
+  }
+}

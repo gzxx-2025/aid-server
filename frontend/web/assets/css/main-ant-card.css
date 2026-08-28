@@ -1,0 +1,187 @@
+/* Tailwind/PostCSS component styles for main. */
+
+
+.ant-card {
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--dark-border);
+  box-shadow: var(--shadow-md);
+  transition: all var(--transition-base);
+  overflow: hidden;
+}
+
+.ant-card:hover {
+  box-shadow: var(--shadow-lg);
+  border-color: var(--accent-300);
+  transform: translateY(-2px);
+}
+
+.ant-tabs-nav {
+  margin-bottom: 0 !important;
+}
+
+.ant-tabs-tab {
+  font-weight: 500;
+  transition: all var(--transition-base);
+  padding: var(--spacing-sm) var(--spacing-md) !important;
+}
+
+.ant-tabs-tab:hover {
+  color: var(--accent-600) !important;
+}
+
+.ant-tabs-tab-active {
+  font-weight: 600;
+  color: var(--accent-600) !important;
+}
+
+.ant-tabs-ink-bar {
+  background: var(--gradient-accent);
+  height: 3px;
+  border-radius: 2px;
+}
+
+.ant-menu-item-selected {
+  background: var(--gradient-warm-glow) !important;
+}
+
+.ant-menu-item-selected a {
+  color: var(--accent-600) !important;
+  font-weight: 600;
+}
+
+/* Modal 定制 */
+.ant-modal-content {
+  border-radius: var(--radius-xl) !important;
+  box-shadow: var(--shadow-2xl) !important;
+  border: 1px solid var(--dark-border);
+}
+
+.ant-modal-header {
+  border-bottom: 1px solid var(--dark-border);
+  padding: var(--spacing-lg) var(--spacing-xl) !important;
+}
+
+.ant-modal-title {
+  font-weight: 700;
+  font-size: 1.5rem;
+  color: var(--dark-text);
+}
+
+/*.ant-modal-body {*/
+/*  padding: var(--spacing-xl) !important;*/
+/*}*/
+
+/* ================================
+   动画关键帧 - 有温度
+   ================================ */
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-20px);
+  }
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(255, 152, 0, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 40px rgba(255, 152, 0, 0.6);
+  }
+}
+
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes warm-glow {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(255, 152, 0, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 40px rgba(255, 152, 0, 0.4);
+  }
+}
+
+.animate-float {
+  animation: float 6s ease-in-out infinite;
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 3s ease-in-out infinite;
+}
+
+.animate-slide-up {
+  animation: slide-up 0.6s ease-out forwards;
+}
+
+.animate-fade-in {
+  animation: fade-in 0.4s ease-out forwards;
+}
+
+.animate-warm-glow {
+  animation: warm-glow 3s ease-in-out infinite;
+}
+
+/* ================================
+   手绘插画风格装饰
+   ================================ */
+.hand-drawn-border {
+  border: var(--border-hand-drawn) var(--gray-800);
+  border-radius: var(--radius-lg);
+  position: relative;
+}
+
+.hand-drawn-border::before {
+  content: '';
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  right: -2px;
+  bottom: -2px;
+  border: 2px dashed var(--accent-300);
+  border-radius: var(--radius-lg);
+  opacity: 0.3;
+  pointer-events: none;
+}
+
+/* 手绘风格下划线 */
+.text-hand-drawn-underline {
+  position: relative;
+  display: inline-block;
+}
+
+.text-hand-drawn-underline::after {
+  content: '';
+  position: absolute;
+  bottom: -4px;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--accent-500);
+  border-radius: var(--radius-full);
+  opacity: 0.6;
+  transform: skewX(-10deg);
+}
+
+/* ================================
+   深色模式支持
+   ================================ */

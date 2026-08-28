@@ -1,0 +1,229 @@
+/* Tailwind/PostCSS component styles for create-flow-shell-steps. */
+
+
+.create-page .global-setting-placeholder__desc {
+  margin: 0;
+  max-width: 28rem;
+  color: var(--home-muted, #8e97a5);
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+
+.create-page .global-setting-placeholder__hint {
+  margin: 0;
+  font-size: 0.8rem;
+  color: rgba(142, 151, 165, 0.85);
+}
+
+.create-page .step-content.story-script-wrapper {
+  min-height: 480px;
+}
+
+.create-page .content-header {
+  margin-bottom: 1rem;
+}
+
+.create-page .step-description-text {
+  color: var(--home-muted, #8e97a5);
+  font-size: 1rem;
+  line-height: 1.6;
+  margin: 0;
+  font-weight: 500;
+}
+
+.create-page .form-section {
+  flex: 1;
+}
+
+.create-page .setting-form {
+  max-width: 100%;
+}
+
+.create-page .script-editor {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.create-page .script-textarea {
+  flex: 1;
+  font-size: 1rem;
+  line-height: 1.8;
+}
+
+.create-page .asset-tabs {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 第三步：提取中视图（卡片外观；高度由 step-scene-character 高度链撑满） */
+.create-page .extracting-view {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 1.25rem;
+  border: 1px solid rgba(74, 231, 253, 0.15);
+  border-radius: var(--radius-xl);
+  background: rgba(12, 16, 24, 0.65);
+}
+
+.create-page .extracting-title {
+  flex: none;
+  font-weight: 700;
+  color: var(--home-text, #e6edf3);
+}
+
+.create-page .extracting-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  gap: 0.75rem;
+}
+
+.create-page .extracting-placeholder {
+  flex: none;
+}
+
+.create-page .dots {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(74, 231, 253, 0.45);
+  animation: dotPulse 1.2s infinite ease-in-out;
+}
+
+@keyframes dotPulse {
+  0% {
+    opacity: 0.3;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.25);
+  }
+  100% {
+    opacity: 0.3;
+    transform: scale(1);
+  }
+}
+
+@keyframes connectorChevronMarch {
+  0% {
+    left: -2px;
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.9;
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    left: calc(100% - 4px);
+    opacity: 0;
+  }
+}
+
+.create-page .assets-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 1.5rem;
+  margin-top: 1.5rem;
+}
+
+.create-page .add-asset-card {
+  aspect-ratio: 1;
+  border: 2px dashed rgba(74, 231, 253, 0.28);
+  border-radius: var(--radius-xl);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: var(--home-muted, #8e97a5);
+  background: rgba(12, 16, 24, 0.4);
+}
+
+.create-page .add-asset-card:hover {
+  border-color: rgba(74, 231, 253, 0.55);
+  color: var(--home-cyan, #4ae7fd);
+  background: rgba(14, 89, 250, 0.12);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.create-page .add-icon {
+  font-size: 3rem;
+  font-weight: 300;
+  margin-bottom: 0.5rem;
+}
+
+.create-page .asset-card {
+  aspect-ratio: 1;
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  box-shadow: var(--shadow-md);
+  display: flex;
+  flex-direction: column;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.create-page .asset-card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-lg);
+}
+
+.create-page .asset-card img {
+  width: 100%;
+  height: 80%;
+  object-fit: cover;
+}
+
+.create-page .asset-name {
+  padding: 0.75rem;
+  font-weight: 500;
+  text-align: center;
+  background: rgba(12, 16, 24, 0.85);
+  color: var(--home-text, #e6edf3);
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.create-page .empty-state {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--home-muted, #8e97a5);
+  font-size: 1.125rem;
+  font-weight: 500;
+}
+
+.create-page .preview-video {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.create-page .video-placeholder {
+  width: 100%;
+  max-width: 800px;
+  aspect-ratio: 16 / 9;
+  background: rgba(12, 16, 24, 0.75);
+  border: 1px solid rgba(74, 231, 253, 0.12);
+  border-radius: var(--radius-xl);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--home-muted, #8e97a5);
+}

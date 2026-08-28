@@ -1,0 +1,252 @@
+/* Tailwind/PostCSS component styles for storyboard-generate-panel. */
+
+
+.storyboard-generate-panel .storyboard-prompt-in-left-col {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin-top: 0;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.storyboard-generate-panel .storyboard-prompt-in-left-col .ql-container {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.storyboard-generate-panel .storyboard-prompt-in-left-col .ql-editor {
+  flex: none;
+  min-height: 100%;
+  border: none;
+  resize: none;
+  overflow: visible;
+}
+
+.storyboard-generate-panel .storyboard-top-expanded .storyboard-prompt-in-left-col {
+  flex: 0 0 auto;
+  min-height: 0;
+}
+
+/* 展开后描述区变矮，避免与上方抢高导致素材区出滚动条 */
+.storyboard-generate-panel .storyboard-top-expanded .storyboard-prompt-in-left-col .ql-container {
+  flex: 0 0 auto !important;
+  height: var(--storyboard-prompt-expanded-height, 88px) !important;
+  min-height: var(--storyboard-prompt-expanded-height, 88px) !important;
+  max-height: var(--storyboard-prompt-expanded-height, 88px) !important;
+  overflow-y: auto;
+}
+
+.storyboard-generate-panel .storyboard-top-expanded .storyboard-prompt-in-left-col .ql-editor {
+  flex: none !important;
+  height: auto !important;
+  min-height: 100% !important;
+  max-height: none !important;
+  overflow: visible !important;
+}
+
+.storyboard-generate-panel .storyboard-prompt-full {
+  width: 100%;
+  flex-shrink: 0;
+  margin-top: 0;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.storyboard-generate-panel .storyboard-prompt-full .ql-container {
+  border: none;
+  resize: none;
+  height: var(--storyboard-prompt-collapsed-height, 97px) !important;
+  min-height: var(--storyboard-prompt-collapsed-height, 97px) !important;
+  max-height: var(--storyboard-prompt-collapsed-height, 97px) !important;
+  overflow-y: auto;
+}
+
+/* 未展开：主描述文本域固定高度 102px（滚动在 container，避免 contenteditable 把视口拽回光标） */
+.storyboard-generate-panel .storyboard-prompt-full .ql-editor {
+  height: auto !important;
+  min-height: 100% !important;
+  max-height: none !important;
+  overflow: visible !important;
+  resize: none !important;
+  box-sizing: border-box;
+}
+
+.storyboard-generate-panel .storyboard-prompt {
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--gray-200);
+  background: var(--create-surface-panel);
+  padding: var(--storyboard-panel-padding-y, 6px) var(--storyboard-panel-padding-x, 6px);
+  display: flex;
+  flex-direction: column;
+  gap: var(--storyboard-block-gap, 10px);
+}
+
+.storyboard-generate-panel .storyboard-prompt .ql-editor {
+  background: transparent;
+  color: var(--gray-700);
+  border: none;
+}
+
+.storyboard-generate-panel .storyboard-prompt .ql-editor h1,
+.storyboard-generate-panel .storyboard-prompt .ql-editor h2,
+.storyboard-generate-panel .storyboard-prompt .ql-editor h3,
+.storyboard-generate-panel .storyboard-prompt .ql-editor h4,
+.storyboard-generate-panel .storyboard-prompt .ql-editor h5,
+.storyboard-generate-panel .storyboard-prompt .ql-editor h6 {
+  font-weight: 600;
+  line-height: 1.45;
+  margin: 0.4em 0 0.25em;
+}
+
+.storyboard-generate-panel .storyboard-prompt .ql-editor h1 {
+  font-size: 1.05em;
+}
+
+.storyboard-generate-panel .storyboard-prompt .ql-editor h2 {
+  font-size: 1em;
+}
+
+.storyboard-generate-panel .storyboard-prompt .ql-editor h3,
+.storyboard-generate-panel .storyboard-prompt .ql-editor h4,
+.storyboard-generate-panel .storyboard-prompt .ql-editor h5,
+.storyboard-generate-panel .storyboard-prompt .ql-editor h6 {
+  font-size: 0.95em;
+}
+
+.storyboard-generate-panel .storyboard-prompt .ql-editor ul,
+.storyboard-generate-panel .storyboard-prompt .ql-editor ol {
+  margin: 0.25em 0;
+  padding-left: 1.35em;
+}
+
+.storyboard-generate-panel .storyboard-prompt .ql-editor li {
+  margin: 0.12em 0;
+}
+
+.storyboard-generate-panel .storyboard-prompt .ql-editor blockquote {
+  margin: 0.25em 0;
+  padding-left: 0.75em;
+  border-left: 2px solid rgba(74, 231, 253, 0.45);
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.storyboard-generate-panel .storyboard-prompt .ql-editor p {
+  margin: 0.2em 0;
+}
+
+.storyboard-generate-panel .prompt-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.3rem var(--storyboard-panel-padding-x, 0.75rem);
+  font-size: 0.8rem;
+  color: var(--gray-500);
+}
+
+.storyboard-generate-panel .prompt-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.storyboard-generate-panel .prompt-actions .ant-btn,
+.storyboard-generate-panel .setting-actions .ant-btn {
+  color: #8E97A5 !important;
+}
+
+.storyboard-generate-panel .prompt-actions .ant-btn .anticon,
+.storyboard-generate-panel .setting-actions .ant-btn .anticon {
+  color: #8E97A5 !important;
+}
+
+.storyboard-generate-panel .prompt-actions .ant-btn:hover,
+.storyboard-generate-panel .setting-actions .ant-btn:hover {
+  color: #8E97A5 !important;
+}
+
+.storyboard-generate-panel .prompt-count {
+  flex-shrink: 0;
+}
+
+.storyboard-generate-panel .setting-panel {
+  padding: var(--storyboard-panel-padding-y, 6px) var(--storyboard-panel-padding-x, 8px);
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--storyboard-block-gap, 12px);
+  min-height: 0;
+  min-width: 0;
+  height: 100%;
+  max-height: 100%;
+  box-sizing: border-box;
+}
+
+.storyboard-generate-panel .setting-panel:not(.expanded) .setting-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.storyboard-generate-panel .setting-panel.expanded {
+  min-height: 0;
+  align-self: stretch;
+}
+
+.storyboard-generate-panel .setting-panel.expanded .setting-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.storyboard-generate-panel .setting-header {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 4px 0;
+  color: var(--gray-600);
+  cursor: pointer;
+  flex-shrink: 0;
+  border: 1px solid rgba(74, 231, 253, 0.3);
+  border-radius: 8px;
+}
+
+.storyboard-generate-panel .setting-chevron {
+  transition: transform 0.2s ease;
+}
+
+.storyboard-generate-panel .setting-chevron.expanded {
+  transform: rotate(180deg);
+}
+
+.storyboard-generate-panel .setting-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--storyboard-field-gap, 12px);
+  min-height: 0;
+  /* Firefox：细滚动条 */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(120, 140, 170, 0.45) transparent;
+}
+
+.storyboard-generate-panel .setting-body .setting-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--storyboard-block-gap, 6px);
+}
+
+.storyboard-generate-panel .setting-body .setting-field .setting-title {
+  color: rgba(142, 151, 165, 1) !important;
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+/* WebKit：收窄滚动条占位宽度（默认约 15px 过宽） */

@@ -1,0 +1,194 @@
+/* 原 GlobalGenerateTaskPopover.vue <style scoped>：类名与声明原样保留。
+   面板渲染在 Popover portal（body 下），触发按钮渲染在原位，均无组件根节点可作前缀；
+   类名全部自带 global-task- 前缀自成命名空间，直接全局声明。原 :global(...) 一并展开。 */
+.global-task-btn {
+  position: relative;
+}
+
+.global-task-circle {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  background: #00836d;
+  color: #ffffff;
+  font-size: 14px;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.global-task-circle__count {
+  line-height: 1;
+}
+
+.global-task-circle:hover,
+.global-task-circle.is-open {
+  background: #00b092;
+}
+
+.global-task-circle.global-task-circle--partial-only {
+  background: #b45309;
+}
+
+.global-task-circle.global-task-circle--partial-only:hover,
+.global-task-circle.global-task-circle--partial-only.is-open {
+  background: #d97706;
+}
+
+.global-task-circle.global-task-circle--cancelled-only {
+  background: #475569;
+}
+
+.global-task-circle.global-task-circle--cancelled-only:hover,
+.global-task-circle.global-task-circle--cancelled-only.is-open {
+  background: #64748b;
+}
+
+.global-task-circle.global-task-circle--failed-only {
+  background: #991b1b;
+}
+
+.global-task-circle.global-task-circle--failed-only:hover,
+.global-task-circle.global-task-circle--failed-only.is-open {
+  background: #b91c1c;
+}
+
+.global-task-panel__subtitle {
+  color: #9aa4b2;
+  font-size: 12px;
+  font-weight: 600;
+  margin: 12px 0 8px;
+}
+
+.global-task-panel__subtitle:first-of-type {
+  margin-top: 0;
+}
+
+.global-task-panel__subtitle--partial {
+  color: #fbbf24;
+}
+
+.global-task-panel__subtitle--cancelled {
+  color: #94a3b8;
+}
+
+.global-task-panel__subtitle--failed {
+  color: #fca5a5;
+}
+
+.global-generate-task-popover .ant-popover-inner {
+  background: #131722;
+  border: 1px solid rgba(74, 231, 253, 0.24);
+  border-radius: 10px;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.38);
+}
+
+.global-generate-task-popover .ant-popover-arrow::before {
+  background: #131722;
+}
+
+.global-task-panel {
+  width: 360px;
+  max-height: 420px;
+  overflow: auto;
+}
+
+.global-task-panel__loading {
+  padding: 16px 0;
+  text-align: center;
+  color: #8e97a5;
+  font-size: 12px;
+}
+
+.global-task-panel__item {
+  animation: global-task-item-in 0.28s ease both;
+}
+
+@keyframes global-task-item-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.global-task-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.global-task-panel__title {
+  color: #e6edf3;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.global-task-panel__empty {
+  color: #8e97a5;
+  padding: 18px 8px;
+}
+
+.global-task-panel__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.global-task-panel__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(74, 231, 253, 0.18);
+  background: rgba(10, 17, 30, 0.74);
+}
+
+.global-task-panel__name {
+  color: #eef2ff;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.global-task-panel__model {
+  margin-top: 4px;
+  color: #8e97a5;
+  font-size: 12px;
+}
+
+.global-task-panel__ops {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.global-task-panel__icon-btn {
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(255, 91, 109, 0.4);
+  border-radius: 6px;
+  background: rgba(33, 14, 24, 0.9);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.global-task-panel__icon-btn--restart {
+  border-color: rgba(74, 231, 253, 0.45);
+  background: rgba(5, 35, 44, 0.9);
+}
+
+.global-task-panel__icon-btn img {
+  width: 14px;
+  height: 14px;
+}
