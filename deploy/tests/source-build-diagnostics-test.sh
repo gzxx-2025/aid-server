@@ -253,6 +253,8 @@ grep -Eq 'docker_npm_build "\$WEB_DIR" .* generate$' "${builder_file}" \
   || { echo 'FAIL: Docker Web build must run npm generate' >&2; exit 1; }
 grep -Eq 'host_npm_build "\$WEB_DIR" .* generate$' "${builder_file}" \
   || { echo 'FAIL: host Web build must run npm generate' >&2; exit 1; }
+[[ "$(grep -Ec 'go build -buildvcs=false .*aid-updater/internal/manifest\.trustedPublicKey=' "${builder_file}")" -eq 2 ]] \
+  || { echo 'FAIL: Docker and host updater builds must disable Go VCS probing with -buildvcs=false' >&2; exit 1; }
 grep -Fq '[ -f "$WEB_DIR/dist/public/index.html" ] && [ -f "$WEB_DIR/dist/public/200.html" ]' "${builder_file}" \
   || { echo 'FAIL: source package must require the generated static index and SPA entry' >&2; exit 1; }
 grep -Fq 'cp -R "$web_output"/. "$STAGING_DIR/web-dist/"' "${builder_file}" \

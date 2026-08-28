@@ -2441,7 +2441,7 @@ build_with_docker() {
     -v "$SERVER_DIR:/workspace" -v "$CACHE_DIR/go-build:/cache/build" \
     -v "$CACHE_DIR/go-mod:/cache/mod" -v "$STAGING_DIR/updater:/out" \
     -w /workspace/deploy/updater "$GO_IMAGE" \
-    go build -ldflags "-X main.version=$VERSION -X aid-updater/internal/manifest.trustedPublicKey=$MANIFEST_PUBLIC_KEY" \
+    go build -buildvcs=false -ldflags "-X main.version=$VERSION -X aid-updater/internal/manifest.trustedPublicKey=$MANIFEST_PUBLIC_KEY" \
     -o "/out/aid-updater_linux_$arch" ./cmd/aid-updater
 }
 
@@ -2466,7 +2466,7 @@ build_with_host() {
   run_host_stage go "升级器Go linux/$arch" "$SERVER_DIR/deploy/updater" env GOOS=linux "GOARCH=$arch" CGO_ENABLED=0 \
     "GOPROXY=$GO_PROXY" \
     "GOCACHE=$CACHE_DIR/go-build" "GOMODCACHE=$CACHE_DIR/go-mod" \
-    go build -ldflags "-X main.version=$VERSION -X aid-updater/internal/manifest.trustedPublicKey=$MANIFEST_PUBLIC_KEY" \
+    go build -buildvcs=false -ldflags "-X main.version=$VERSION -X aid-updater/internal/manifest.trustedPublicKey=$MANIFEST_PUBLIC_KEY" \
     -o "$STAGING_DIR/updater/aid-updater_linux_$arch" ./cmd/aid-updater
 }
 
