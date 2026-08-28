@@ -4,6 +4,7 @@
 
 ### 修复内容
 
+- 修复低内存服务器在线源码构建时 Maven/Javac 自动堆最低仅为 256MiB、编译大型模块可能触发 `OutOfMemoryError: Java heap space` 的问题；Maven 自动堆和实时准入下限统一提高到 512MiB，并同步提高物理内存硬限制基线。
 - 修复 Linux 源码构建在非 UTF-8 系统环境中无法读取中文文件名、导致 Maven/Javac 报 `InvalidPathException` 的问题；Docker 与非 Docker 构建阶段统一使用 UTF-8 locale，并固定 Maven 的内容编码和文件系统编码。
 - 调整在线源码构建的磁盘治理：磁盘空间不再复用 CPU 与内存的 15% 保留比例，只按可配置的绝对可用空间安全线执行准入和暂停，同时保留接近写满时的硬危险保护。
 - 修复统一源码仓在网络抖动或标签检出不完整时误报 `frontend/admin/package.json` 缺失的问题；构建前会分别核验远端标签、实际提交、Git 文件树和本地工作区。

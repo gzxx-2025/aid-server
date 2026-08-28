@@ -261,6 +261,14 @@ grep -Fq 'set -- -e LANG=C.UTF-8 -e LC_ALL=C.UTF-8 "$@"' "${builder_file}" \
   || { echo 'FAIL: every host source-build stage must use a UTF-8 locale' >&2; exit 1; }
 [[ "$(grep -Fc -- '-Dfile.encoding=UTF-8 -Dsun.jnu.encoding=UTF-8' "${builder_file}")" -eq 2 ]] \
   || { echo 'FAIL: static and realtime Maven limits must force UTF-8 content and filesystem encoding' >&2; exit 1; }
+grep -Fq 'clamp_profile_memory "$SYSTEM_MEMORY_TOTAL_MB" 35 1024 2048' "${builder_file}" \
+  || { echo 'FAIL: Maven physical-memory hard limit must support the 512MiB minimum Java heap' >&2; exit 1; }
+grep -Fq '[ "$default_maven_heap" -ge 512 ] || default_maven_heap=512' "${builder_file}" \
+  || { echo 'FAIL: automatic Maven Java heap must never fall below 512MiB' >&2; exit 1; }
+grep -Fq 'require_uint_range AID_BUILD_MAVEN_HEAP_MB "$MAVEN_HEAP_MB" 512 4096' "${builder_file}" \
+  || { echo 'FAIL: a custom Maven Java heap below 512MiB must be rejected' >&2; exit 1; }
+grep -Fq '[ "$runtime_heap_cap_mb" -ge 512 ]' "${builder_file}" \
+  || { echo 'FAIL: realtime Maven admission must preserve the 512MiB minimum Java heap' >&2; exit 1; }
 if grep -Fq 'disk_available_tenths" -lt "$((RESOURCE_RESERVE_PERCENT * 10))' "${builder_file}"; then
   echo 'FAIL: disk admission must not reuse the CPU/memory reserve percentage' >&2
   exit 1

@@ -555,7 +555,7 @@ configure_resource_profiles() {
   GO_CPU_MILLI="${AID_BUILD_GO_CPU_MILLI:-$default_light_cpu}"
   PACKAGE_CPU_MILLI="${AID_BUILD_PACKAGE_CPU_MILLI:-$default_light_cpu}"
   MAVEN_MEMORY_HIGH_MB="${AID_BUILD_MAVEN_MEMORY_HIGH_MB:-$(clamp_profile_memory "$SYSTEM_MEMORY_TOTAL_MB" 25 512 1536)}"
-  MAVEN_MEMORY_MAX_MB="${AID_BUILD_MAVEN_MEMORY_MAX_MB:-$(clamp_profile_memory "$SYSTEM_MEMORY_TOTAL_MB" 35 768 2048)}"
+  MAVEN_MEMORY_MAX_MB="${AID_BUILD_MAVEN_MEMORY_MAX_MB:-$(clamp_profile_memory "$SYSTEM_MEMORY_TOTAL_MB" 35 1024 2048)}"
   NODE_MEMORY_HIGH_MB="${AID_BUILD_NODE_MEMORY_HIGH_MB:-$(clamp_profile_memory "$SYSTEM_MEMORY_TOTAL_MB" 30 640 1536)}"
   NODE_MEMORY_MAX_MB="${AID_BUILD_NODE_MEMORY_MAX_MB:-$(clamp_profile_memory "$SYSTEM_MEMORY_TOTAL_MB" 40 768 2304)}"
   GO_MEMORY_HIGH_MB="${AID_BUILD_GO_MEMORY_HIGH_MB:-$(clamp_profile_memory "$SYSTEM_MEMORY_TOTAL_MB" 13 384 768)}"
@@ -582,12 +582,12 @@ configure_resource_profiles() {
     && [ "$PAUSED_CPU_MILLI" -lt "$PACKAGE_CPU_MILLI" ] \
     || die '暂停CPU配额必须小于所有阶段的正常CPU配额'
 
-  default_maven_heap=$((MAVEN_MEMORY_MAX_MB - 512)); [ "$default_maven_heap" -ge 256 ] || default_maven_heap=256; [ "$default_maven_heap" -le 768 ] || default_maven_heap=768
+  default_maven_heap=$((MAVEN_MEMORY_MAX_MB - 512)); [ "$default_maven_heap" -ge 512 ] || default_maven_heap=512; [ "$default_maven_heap" -le 768 ] || default_maven_heap=768
   default_node_heap=$((NODE_MEMORY_MAX_MB - 384)); [ "$default_node_heap" -ge 384 ] || default_node_heap=384; [ "$default_node_heap" -le 1024 ] || default_node_heap=1024
   MAVEN_HEAP_MB="${AID_BUILD_MAVEN_HEAP_MB:-$default_maven_heap}"
   MAVEN_METASPACE_MB="${AID_BUILD_MAVEN_METASPACE_MB:-256}"
   NODE_HEAP_MB="${AID_BUILD_NODE_HEAP_MB:-$default_node_heap}"
-  require_uint_range AID_BUILD_MAVEN_HEAP_MB "$MAVEN_HEAP_MB" 256 4096
+  require_uint_range AID_BUILD_MAVEN_HEAP_MB "$MAVEN_HEAP_MB" 512 4096
   require_uint_range AID_BUILD_MAVEN_METASPACE_MB "$MAVEN_METASPACE_MB" 128 2048
   require_uint_range AID_BUILD_NODE_HEAP_MB "$NODE_HEAP_MB" 384 8192
   [ "$((MAVEN_HEAP_MB + MAVEN_METASPACE_MB + 128))" -le "$MAVEN_MEMORY_MAX_MB" ] \
@@ -695,7 +695,7 @@ apply_realtime_stage_budget() {
     maven)
       runtime_overhead_mb=$((MAVEN_METASPACE_MB + 128))
       runtime_heap_cap_mb=$((combined_budget_mb - runtime_overhead_mb))
-      [ "$runtime_heap_cap_mb" -ge 256 ] \
+      [ "$runtime_heap_cap_mb" -ge 512 ] \
         || die "$stage_label 可用内存与Swap不足以安全启动Maven"
       STAGE_MAVEN_HEAP_MB="$MAVEN_HEAP_MB"
       [ "$STAGE_MAVEN_HEAP_MB" -le "$runtime_heap_cap_mb" ] || STAGE_MAVEN_HEAP_MB="$runtime_heap_cap_mb"
