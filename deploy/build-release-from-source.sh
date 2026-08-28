@@ -164,12 +164,10 @@ evaluate_disk_path() {
   disk_total_mb=$((disk_size_kb / 1024))
   disk_available_mb=$((disk_available_kb / 1024))
   disk_available_tenths=$((disk_available_kb * 1000 / disk_size_kb))
-  reserve_ratio_score=$((disk_available_tenths * 100 / (RESOURCE_RESERVE_PERCENT * 10)))
   reserve_absolute_score=$((disk_available_mb * 100 / MIN_FREE_DISK_MB))
-  reserve_score="$reserve_ratio_score"; [ "$reserve_absolute_score" -ge "$reserve_score" ] || reserve_score="$reserve_absolute_score"
-  resume_ratio_score=$((disk_available_tenths * 100 / (RESOURCE_RESUME_PERCENT * 10)))
+  reserve_score="$reserve_absolute_score"
   resume_absolute_score=$((disk_available_mb * 100 / MIN_FREE_DISK_MB))
-  resume_score="$resume_ratio_score"; [ "$resume_absolute_score" -ge "$resume_score" ] || resume_score="$resume_absolute_score"
+  resume_score="$resume_absolute_score"
   danger_ratio_score=$((disk_available_tenths * 100 / (DANGER_DISK_PERCENT * 10)))
   danger_absolute_score=$((disk_available_mb * 100 / DANGER_FREE_DISK_MB))
   danger_score="$danger_ratio_score"; [ "$danger_absolute_score" -ge "$danger_score" ] || danger_score="$danger_absolute_score"
@@ -186,10 +184,8 @@ evaluate_disk_path() {
     DISK_DANGER_WORST_SCORE="$danger_score"; DISK_DANGER_PATH="$disk_label:$configured_path"; DISK_DANGER_MOUNT="$disk_mount"
     DISK_DANGER_AVAILABLE_MB="$disk_available_mb"; DISK_DANGER_AVAILABLE_TENTHS="$disk_available_tenths"
   fi
-  if [ "$disk_available_tenths" -lt "$((RESOURCE_RESERVE_PERCENT * 10))" ] \
-      || [ "$disk_available_mb" -lt "$MIN_FREE_DISK_MB" ]; then DISK_RESERVE_LOW=yes; fi
-  if [ "$disk_available_tenths" -lt "$((RESOURCE_RESUME_PERCENT * 10))" ] \
-      || [ "$disk_available_mb" -lt "$MIN_FREE_DISK_MB" ]; then DISK_RESUME_LOW=yes; fi
+  if [ "$disk_available_mb" -lt "$MIN_FREE_DISK_MB" ]; then DISK_RESERVE_LOW=yes; fi
+  if [ "$disk_available_mb" -lt "$MIN_FREE_DISK_MB" ]; then DISK_RESUME_LOW=yes; fi
   if [ "$disk_available_tenths" -lt "$((DANGER_DISK_PERCENT * 10))" ] \
       || [ "$disk_available_mb" -lt "$DANGER_FREE_DISK_MB" ]; then DISK_DANGER_LOW=yes; fi
 }
@@ -232,8 +228,6 @@ validate_resource_settings() {
     || die '内存危险比例必须小于资源保留比例'
   [ "$DANGER_AVAILABLE_MEMORY_MB" -lt "$MIN_AVAILABLE_MEMORY_MB" ] \
     || die '内存绝对危险线必须小于内存绝对安全线'
-  [ "$DANGER_DISK_PERCENT" -lt "$RESOURCE_RESERVE_PERCENT" ] \
-    || die '磁盘危险比例必须小于资源保留比例'
   [ "$DANGER_FREE_DISK_MB" -lt "$MIN_FREE_DISK_MB" ] \
     || die '磁盘绝对危险线必须小于磁盘绝对安全线'
   require_uint_range AID_BUILD_MANAGED_SWAP_TARGET_MB "$MANAGED_SWAP_TARGET_MB" 512 32768
@@ -284,7 +278,7 @@ resource_preflight() {
   [ "$memory_low_streak" -lt "$PRESSURE_SUSTAINED_SAMPLES" ] \
     || die "物理内存连续低于 ${RESOURCE_RESERVE_PERCENT}% 或 ${MIN_AVAILABLE_MEMORY_MB}MiB，本次不启动构建"
   [ "$disk_low_streak" -lt "$PRESSURE_SUSTAINED_SAMPLES" ] \
-    || die "磁盘空间连续低于安全线：${DISK_WORST_PATH} 挂载点${DISK_WORST_MOUNT}，需保留 ${RESOURCE_RESERVE_PERCENT}% 且不少于 ${MIN_FREE_DISK_MB}MiB"
+    || die "磁盘空间连续低于绝对安全线：${DISK_WORST_PATH} 挂载点${DISK_WORST_MOUNT}，可用空间需不少于 ${MIN_FREE_DISK_MB}MiB"
   GOVERNOR_CPU_TOTAL="$CPU_COUNTER_TOTAL"; GOVERNOR_CPU_IDLE="$CPU_COUNTER_IDLE"
   log '构建资源准入通过；后续压力波动将自动降速或暂停，不会立即取消升级'
 }
@@ -496,8 +490,7 @@ ensure_managed_swap() {
   swap_needed_mb=$((MANAGED_SWAP_TARGET_MB - SYSTEM_SWAP_TOTAL_MB))
   read_swap_disk_metrics "$managed_swap_real_dir"
   remaining_disk_mb=$((SWAP_DISK_AVAILABLE_MB - swap_needed_mb))
-  disk_reserve_mb=$((SWAP_DISK_TOTAL_MB * RESOURCE_RESERVE_PERCENT / 100))
-  disk_reserve_mb="$(max_value "$disk_reserve_mb" "$MIN_FREE_DISK_MB")"
+  disk_reserve_mb="$MIN_FREE_DISK_MB"
   [ "$remaining_disk_mb" -ge "$disk_reserve_mb" ] \
     || die "创建 ${swap_needed_mb}MiB Swap后磁盘将低于安全线 ${disk_reserve_mb}MiB"
   log "准备AID受管Swap ${swap_needed_mb}MiB（仅位于DATA_ROOT，不写fstab，不修改用户Swap）"
@@ -601,7 +594,7 @@ configure_resource_profiles() {
     || die 'Maven堆、元空间与基础开销超过Maven内存硬限制'
   [ "$((NODE_HEAP_MB + 256))" -le "$NODE_MEMORY_MAX_MB" ] \
     || die 'Node堆与基础开销超过Node内存硬限制'
-  MAVEN_OPTS_VALUE="-Xms128m -Xmx${MAVEN_HEAP_MB}m -XX:MaxMetaspaceSize=${MAVEN_METASPACE_MB}m -XX:+UseSerialGC"
+  MAVEN_OPTS_VALUE="-Xms128m -Xmx${MAVEN_HEAP_MB}m -XX:MaxMetaspaceSize=${MAVEN_METASPACE_MB}m -XX:+UseSerialGC -Dfile.encoding=UTF-8 -Dsun.jnu.encoding=UTF-8"
   NODE_OPTIONS_VALUE="--max-old-space-size=${NODE_HEAP_MB}"
   GO_MEMORY_LIMIT_MB="${AID_BUILD_GO_MEMORY_LIMIT_MB:-$GO_MEMORY_HIGH_MB}"
   GO_MAX_PROCS="${AID_BUILD_GO_MAX_PROCS:-$(( (GO_CPU_MILLI + 999) / 1000 ))}"
@@ -706,7 +699,7 @@ apply_realtime_stage_budget() {
         || die "$stage_label 可用内存与Swap不足以安全启动Maven"
       STAGE_MAVEN_HEAP_MB="$MAVEN_HEAP_MB"
       [ "$STAGE_MAVEN_HEAP_MB" -le "$runtime_heap_cap_mb" ] || STAGE_MAVEN_HEAP_MB="$runtime_heap_cap_mb"
-      STAGE_MAVEN_OPTS_VALUE="-Xms128m -Xmx${STAGE_MAVEN_HEAP_MB}m -XX:MaxMetaspaceSize=${MAVEN_METASPACE_MB}m -XX:+UseSerialGC"
+      STAGE_MAVEN_OPTS_VALUE="-Xms128m -Xmx${STAGE_MAVEN_HEAP_MB}m -XX:MaxMetaspaceSize=${MAVEN_METASPACE_MB}m -XX:+UseSerialGC -Dfile.encoding=UTF-8 -Dsun.jnu.encoding=UTF-8"
       ;;
     node)
       runtime_heap_cap_mb=$((combined_budget_mb - 256))
@@ -860,6 +853,7 @@ start_docker_stage() {
   instant_stage_gate "$stage_label"
   load_stage_profile "$stage_name"
   apply_realtime_stage_budget "$stage_name" "$stage_label"
+  set -- -e LANG=C.UTF-8 -e LC_ALL=C.UTF-8 "$@"
   case "$stage_name" in
     maven) set -- -e "MAVEN_OPTS=$STAGE_MAVEN_OPTS_VALUE" "$@" ;;
     node) set -- -e "NODE_OPTIONS=$STAGE_NODE_OPTIONS_VALUE" "$@" ;;
@@ -1119,9 +1113,10 @@ start_host_stage() {
   load_stage_profile "$stage_name"
   apply_realtime_stage_budget "$stage_name" "$stage_label"
   case "$stage_name" in
-    maven) set -- env "MAVEN_OPTS=$STAGE_MAVEN_OPTS_VALUE" "$@" ;;
-    node) set -- env "NODE_OPTIONS=$STAGE_NODE_OPTIONS_VALUE" "$@" ;;
-    go) set -- env "GOMEMLIMIT=$STAGE_GO_MEMORY_LIMIT" "GOMAXPROCS=$STAGE_GO_MAX_PROCS" "$@" ;;
+    maven) set -- env LANG=C.UTF-8 LC_ALL=C.UTF-8 "MAVEN_OPTS=$STAGE_MAVEN_OPTS_VALUE" "$@" ;;
+    node) set -- env LANG=C.UTF-8 LC_ALL=C.UTF-8 "NODE_OPTIONS=$STAGE_NODE_OPTIONS_VALUE" "$@" ;;
+    go) set -- env LANG=C.UTF-8 LC_ALL=C.UTF-8 "GOMEMLIMIT=$STAGE_GO_MEMORY_LIMIT" "GOMAXPROCS=$STAGE_GO_MAX_PROCS" "$@" ;;
+    *) set -- env LANG=C.UTF-8 LC_ALL=C.UTF-8 "$@" ;;
   esac
   STAGE_SEQUENCE=$((STAGE_SEQUENCE + 1))
   host_group="aid-source-build-$$-$STAGE_SEQUENCE"
@@ -1427,7 +1422,7 @@ usage() {
   AID_JDK_DOWNLOAD_URL        覆盖 Oracle JDK 17.0.8 下载地址
   AID_DOWNLOAD_TIMEOUT_SECONDS 下载总时长上限；默认0不限，正整数（如1500）启用硬超时
   AID_*_IMAGE                 覆盖 Docker 构建镜像
-  AID_BUILD_RESERVE_PERCENT   构建前及构建中系统资源保留比例，默认15
+  AID_BUILD_RESERVE_PERCENT   构建前及构建中CPU与物理内存保留比例，默认15；不用于磁盘
   AID_BUILD_RESUME_PERCENT    暂停后恢复阈值，默认20
   AID_BUILD_MIN_AVAILABLE_MEMORY_MB  构建前物理内存绝对安全线，默认512MiB
   AID_BUILD_DANGER_AVAILABLE_MEMORY_MB  构建中物理内存绝对危险线，默认384MiB
@@ -1436,7 +1431,7 @@ usage() {
   AID_BUILD_GATE_CPU_SAMPLE_SECONDS 每阶段启动前CPU独立短采样时长，默认1秒；范围1-10秒
   AID_BUILD_MONITOR_INTERVAL_SECONDS 构建中资源监测间隔，默认2秒
   AID_BUILD_PRESSURE_SAMPLES  连续低压确认次数，默认2；不能大于准入采样次数
-  AID_BUILD_PRESSURE_MAX_WAIT_SECONDS  持续低于15%的最长等待，默认900秒
+  AID_BUILD_PRESSURE_MAX_WAIT_SECONDS  CPU或物理内存持续低于保留比例的最长等待，默认900秒
   AID_BUILD_MANAGED_SWAP      AID受管Swap策略：auto、yes或no，默认auto；低内存Docker升级也会通过隔离辅助容器准备，目标总量4096MiB
   AID_BUILD_MANAGED_SWAP_FILE 受管Swap文件，默认位于 DATA_ROOT/build-cache/.aid-swap
   AID_BUILD_*_CPU_MILLI       Maven/Node/Go/打包阶段CPU毫核上限

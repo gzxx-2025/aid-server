@@ -255,6 +255,18 @@ grep -Eq 'host_npm_build "\$WEB_DIR" .* generate$' "${builder_file}" \
   || { echo 'FAIL: host Web build must run npm generate' >&2; exit 1; }
 [[ "$(grep -Ec 'go build -buildvcs=false .*aid-updater/internal/manifest\.trustedPublicKey=' "${builder_file}")" -eq 2 ]] \
   || { echo 'FAIL: Docker and host updater builds must disable Go VCS probing with -buildvcs=false' >&2; exit 1; }
+grep -Fq 'set -- -e LANG=C.UTF-8 -e LC_ALL=C.UTF-8 "$@"' "${builder_file}" \
+  || { echo 'FAIL: Docker source-build stages must use a UTF-8 locale' >&2; exit 1; }
+[[ "$(grep -Fc 'set -- env LANG=C.UTF-8 LC_ALL=C.UTF-8' "${builder_file}")" -ge 4 ]] \
+  || { echo 'FAIL: every host source-build stage must use a UTF-8 locale' >&2; exit 1; }
+[[ "$(grep -Fc -- '-Dfile.encoding=UTF-8 -Dsun.jnu.encoding=UTF-8' "${builder_file}")" -eq 2 ]] \
+  || { echo 'FAIL: static and realtime Maven limits must force UTF-8 content and filesystem encoding' >&2; exit 1; }
+if grep -Fq 'disk_available_tenths" -lt "$((RESOURCE_RESERVE_PERCENT * 10))' "${builder_file}"; then
+  echo 'FAIL: disk admission must not reuse the CPU/memory reserve percentage' >&2
+  exit 1
+fi
+grep -Fq 'disk_reserve_mb="$MIN_FREE_DISK_MB"' "${builder_file}" \
+  || { echo 'FAIL: managed Swap must use the absolute disk safety line instead of a percentage' >&2; exit 1; }
 grep -Fq '[ -f "$WEB_DIR/dist/public/index.html" ] && [ -f "$WEB_DIR/dist/public/200.html" ]' "${builder_file}" \
   || { echo 'FAIL: source package must require the generated static index and SPA entry' >&2; exit 1; }
 grep -Fq 'cp -R "$web_output"/. "$STAGING_DIR/web-dist/"' "${builder_file}" \
