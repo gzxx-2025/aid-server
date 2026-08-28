@@ -1765,29 +1765,33 @@ safe_reset_work_dir() {
   mkdir -p "$WORK_DIR/repos" "$WORK_DIR/staging" "$CACHE_DIR"
 }
 
-git_probe() {
+git_tag_records() {
   repo_url="$1"
   if [ "$USE_DOCKER" = yes ]; then
     if command -v timeout >/dev/null 2>&1; then
       timeout 30 docker run --rm "$GIT_IMAGE" -c http.lowSpeedLimit=1 -c http.lowSpeedTime=12 \
-        ls-remote --exit-code "$repo_url" "refs/tags/$TAG" 2>/dev/null
+        ls-remote --exit-code "$repo_url" "refs/tags/$TAG" "refs/tags/$TAG^{}"
     else
       docker run --rm "$GIT_IMAGE" -c http.lowSpeedLimit=1 -c http.lowSpeedTime=12 \
-        ls-remote --exit-code "$repo_url" "refs/tags/$TAG" 2>/dev/null
+        ls-remote --exit-code "$repo_url" "refs/tags/$TAG" "refs/tags/$TAG^{}"
     fi
     return $?
   fi
   if command -v git >/dev/null 2>&1; then
     if command -v timeout >/dev/null 2>&1; then
       GIT_TERMINAL_PROMPT=0 GIT_HTTP_LOW_SPEED_LIMIT=1 GIT_HTTP_LOW_SPEED_TIME=12 \
-        timeout 20 git ls-remote --exit-code "$repo_url" "refs/tags/$TAG" 2>/dev/null
+        timeout 20 git ls-remote --exit-code "$repo_url" "refs/tags/$TAG" "refs/tags/$TAG^{}"
     else
       GIT_TERMINAL_PROMPT=0 GIT_HTTP_LOW_SPEED_LIMIT=1 GIT_HTTP_LOW_SPEED_TIME=12 \
-        git ls-remote --exit-code "$repo_url" "refs/tags/$TAG" 2>/dev/null
+        git ls-remote --exit-code "$repo_url" "refs/tags/$TAG" "refs/tags/$TAG^{}"
     fi
     return $?
   fi
   return 1
+}
+
+git_probe() {
+  git_tag_records "$1" >/dev/null 2>&1
 }
 
 probe_forge() {
@@ -1798,73 +1802,262 @@ probe_forge() {
 select_forge() {
   case "$FORGE" in
     github)
-      probe_forge "$GITHUB_BASE" || die "GitHub 统一源码标签 $TAG 不完整或网络不可达"
-      SOURCE_BASE="$GITHUB_BASE"; SOURCE_FORGE=github ;;
+      SOURCE_BASE="$GITHUB_BASE"; SOURCE_FORGE=github
+      if probe_forge "$GITHUB_BASE"; then
+        SOURCE_PROBE_OK=yes
+      else
+        SOURCE_PROBE_OK=no
+        warn "GitHub 标签探测未通过，将在拉取阶段使用显式 refs/tags/$TAG 复核"
+      fi ;;
     gitee)
-      probe_forge "$GITEE_BASE" || die "Gitee 统一源码标签 $TAG 不完整或网络不可达"
-      SOURCE_BASE="$GITEE_BASE"; SOURCE_FORGE=gitee ;;
+      SOURCE_BASE="$GITEE_BASE"; SOURCE_FORGE=gitee
+      if probe_forge "$GITEE_BASE"; then
+        SOURCE_PROBE_OK=yes
+      else
+        SOURCE_PROBE_OK=no
+        warn "Gitee 标签探测未通过，将在拉取阶段使用显式 refs/tags/$TAG 复核"
+      fi ;;
     auto)
       log "检测 Gitee 统一源码标签 $TAG"
+      SOURCE_BASE="$GITEE_BASE"; SOURCE_FORGE=gitee
       if probe_forge "$GITEE_BASE"; then
-        SOURCE_BASE="$GITEE_BASE"; SOURCE_FORGE=gitee
+        SOURCE_PROBE_OK=yes
         log 'Gitee 可用，使用 Gitee 主源'
       else
-        warn 'Gitee 不可用或标签不完整，整组切换到 GitHub 备用源'
-        probe_forge "$GITHUB_BASE" || die "Gitee 与 GitHub 均无法提供统一源码标签 $TAG"
-        SOURCE_BASE="$GITHUB_BASE"; SOURCE_FORGE=github
-        log 'GitHub 可用，使用 GitHub 备用源'
+        SOURCE_PROBE_OK=no
+        warn "Gitee 标签探测未通过，先在 Gitee 使用显式 refs/tags/$TAG 复核；复核失败后才切换 GitHub"
       fi ;;
   esac
+}
+
+safe_clear_clone_destination() {
+  clone_dest="$1"
+  [ "$(dirname "$clone_dest")" = "$WORK_DIR/repos" ] \
+    || die "源码清理目录不在构建仓库目录下: $clone_dest"
+  case "$(basename "$clone_dest")" in ''|.|..) die "源码清理目录名非法: $clone_dest" ;; esac
+  rm -rf -- "$clone_dest"
+}
+
+repo_git() {
+  repo_dir="$1"
+  shift
+  if [ "$USE_DOCKER" = yes ]; then
+    docker run --rm --user "$(id -u):$(id -g)" -v "$repo_dir:/repo" -w /repo "$GIT_IMAGE" "$@"
+  elif command -v git >/dev/null 2>&1; then
+    # CentOS 7 自带 Git 1.8.3.1 不支持 -C；进入子目录执行可兼容全部受支持版本。
+    (cd "$repo_dir" && GIT_TERMINAL_PROMPT=0 git "$@")
+  else
+    die '宿主机 Git 在源码构建过程中不可用；非 Docker 构建拒绝使用 Docker 回退'
+  fi
+}
+
+clone_tag_shortcut() {
+  clone_url="$1"
+  clone_dest="$2"
+  clone_parent="$(dirname "$clone_dest")"
+  clone_name="$(basename "$clone_dest")"
+  if [ "$USE_DOCKER" = yes ]; then
+    if command -v timeout >/dev/null 2>&1; then
+      timeout 300 docker run --rm --user "$(id -u):$(id -g)" -v "$clone_parent:/work" -w /work "$GIT_IMAGE" \
+        -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 \
+        clone --depth 1 --single-branch --branch "$TAG" "$clone_url" "$clone_name"
+    else
+      docker run --rm --user "$(id -u):$(id -g)" -v "$clone_parent:/work" -w /work "$GIT_IMAGE" \
+        -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 \
+        clone --depth 1 --single-branch --branch "$TAG" "$clone_url" "$clone_name"
+    fi
+  elif command -v git >/dev/null 2>&1; then
+    if command -v timeout >/dev/null 2>&1; then
+      GIT_TERMINAL_PROMPT=0 timeout 300 git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 \
+        clone --depth 1 --single-branch --branch "$TAG" "$clone_url" "$clone_dest"
+    else
+      GIT_TERMINAL_PROMPT=0 git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 \
+        clone --depth 1 --single-branch --branch "$TAG" "$clone_url" "$clone_dest"
+    fi
+  else
+    die '宿主机 Git 在源码构建过程中不可用；非 Docker 构建拒绝使用 Docker 回退'
+  fi
+}
+
+fetch_tag_explicitly() {
+  fetch_url="$1"
+  fetch_dest="$2"
+  mkdir -p "$fetch_dest" || return 1
+  repo_git "$fetch_dest" init || return 1
+  repo_git "$fetch_dest" remote add origin "$fetch_url" || return 1
+  if [ "$USE_DOCKER" = yes ]; then
+    if command -v timeout >/dev/null 2>&1; then
+      timeout 300 docker run --rm --user "$(id -u):$(id -g)" -v "$fetch_dest:/repo" -w /repo "$GIT_IMAGE" \
+        -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 fetch --depth 1 --no-tags origin \
+        "refs/tags/$TAG:refs/tags/$TAG" || return 1
+    else
+      docker run --rm --user "$(id -u):$(id -g)" -v "$fetch_dest:/repo" -w /repo "$GIT_IMAGE" \
+        -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 fetch --depth 1 --no-tags origin \
+        "refs/tags/$TAG:refs/tags/$TAG" || return 1
+    fi
+  elif command -v git >/dev/null 2>&1; then
+    if command -v timeout >/dev/null 2>&1; then
+      (cd "$fetch_dest" && GIT_TERMINAL_PROMPT=0 timeout 300 git \
+        -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 fetch --depth 1 --no-tags origin \
+        "refs/tags/$TAG:refs/tags/$TAG") || return 1
+    else
+      (cd "$fetch_dest" && GIT_TERMINAL_PROMPT=0 git \
+        -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 fetch --depth 1 --no-tags origin \
+        "refs/tags/$TAG:refs/tags/$TAG") || return 1
+    fi
+  else
+    die '宿主机 Git 在源码构建过程中不可用；非 Docker 构建拒绝使用 Docker 回退'
+  fi
+  repo_git "$fetch_dest" checkout --detach "refs/tags/$TAG"
+}
+
+resolve_remote_tag_commit() {
+  remote_url="$1"
+  remote_records="$(git_tag_records "$remote_url")" || return 1
+  remote_tag_ref="refs/tags/$TAG"
+  remote_commit="$(printf '%s\n' "$remote_records" | awk -v ref="$remote_tag_ref^{}" '$2 == ref { print $1; exit }')"
+  if [ -z "$remote_commit" ]; then
+    remote_commit="$(printf '%s\n' "$remote_records" | awk -v ref="$remote_tag_ref" '$2 == ref { print $1; exit }')"
+  fi
+  printf '%s\n' "$remote_commit" | grep -Eq '^[0-9a-fA-F]{40}$|^[0-9a-fA-F]{64}$' || return 1
+  printf '%s\n' "$remote_commit" | tr 'A-F' 'a-f'
+}
+
+validate_repo_checkout() {
+  checkout_repo="$1"
+  checkout_expected_commit="$2"
+  shift 2
+  CHECKOUT_FAILURE_KIND=unknown
+  CHECKOUT_FAILURE_PATH=''
+  if [ ! -d "$checkout_repo/.git" ]; then
+    CHECKOUT_FAILURE_KIND=local-repository-missing
+    warn "$SOURCE_FORGE 本地检出不完整：目标目录中没有 Git 仓库: $checkout_repo"
+    return 1
+  fi
+  checkout_tag_commit="$(repo_git "$checkout_repo" rev-parse --verify "refs/tags/$TAG^{commit}" 2>/dev/null)" || {
+    CHECKOUT_FAILURE_KIND=local-tag-missing
+    warn "$SOURCE_FORGE 本地检出不完整：未建立可验证的本地标签 refs/tags/$TAG"
+    return 1
+  }
+  checkout_head_commit="$(repo_git "$checkout_repo" rev-parse --verify 'HEAD^{commit}' 2>/dev/null)" || {
+    CHECKOUT_FAILURE_KIND=local-head-missing
+    warn "$SOURCE_FORGE 本地检出不完整：无法解析 HEAD 提交"
+    return 1
+  }
+  checkout_tag_commit="$(printf '%s' "$checkout_tag_commit" | tr 'A-F' 'a-f')"
+  checkout_head_commit="$(printf '%s' "$checkout_head_commit" | tr 'A-F' 'a-f')"
+  if [ "$checkout_tag_commit" != "$checkout_expected_commit" ]; then
+    CHECKOUT_FAILURE_KIND=tag-commit-mismatch
+    warn "$SOURCE_FORGE 本地标签提交不匹配：远程 $TAG=$checkout_expected_commit，本地标签=$checkout_tag_commit"
+    return 1
+  fi
+  if [ "$checkout_head_commit" != "$checkout_expected_commit" ]; then
+    CHECKOUT_FAILURE_KIND=head-commit-mismatch
+    warn "$SOURCE_FORGE 本地 HEAD 提交不匹配：远程 $TAG=$checkout_expected_commit，本地 HEAD=$checkout_head_commit"
+    return 1
+  fi
+  if repo_git "$checkout_repo" symbolic-ref -q HEAD >/dev/null 2>&1; then
+    CHECKOUT_FAILURE_KIND=head-not-detached
+    warn "$SOURCE_FORGE 本地 HEAD 未以 detached 方式检出标签 $TAG，拒绝继续构建"
+    return 1
+  fi
+  for checkout_required_path in "$@"; do
+    checkout_tree_entry="$(repo_git "$checkout_repo" ls-tree --full-tree HEAD -- "$checkout_required_path" 2>/dev/null)" || {
+      CHECKOUT_FAILURE_KIND=local-object-incomplete
+      CHECKOUT_FAILURE_PATH="$checkout_required_path"
+      warn "$SOURCE_FORGE 本地 Git 对象不完整：无法读取 $TAG 的 HEAD tree（$checkout_required_path）"
+      return 1
+    }
+    checkout_tree_type="$(printf '%s\n' "$checkout_tree_entry" | awk 'NR == 1 { print $2 }')"
+    if [ "$checkout_tree_type" != blob ]; then
+      CHECKOUT_FAILURE_KIND=remote-tree-missing
+      CHECKOUT_FAILURE_PATH="$checkout_required_path"
+      warn "$SOURCE_FORGE 远程标签 $TAG（提交 $checkout_expected_commit）的 HEAD tree 不包含关键文件 $checkout_required_path；这不是本地工作树丢失"
+      return 1
+    fi
+    if ! repo_git "$checkout_repo" cat-file -e "HEAD:$checkout_required_path" 2>/dev/null; then
+      CHECKOUT_FAILURE_KIND=local-object-incomplete
+      CHECKOUT_FAILURE_PATH="$checkout_required_path"
+      warn "$SOURCE_FORGE 本地 Git 对象不完整：HEAD tree 已记录 $checkout_required_path，但 blob 对象不可读"
+      return 1
+    fi
+    if [ ! -f "$checkout_repo/$checkout_required_path" ]; then
+      CHECKOUT_FAILURE_KIND=local-worktree-incomplete
+      CHECKOUT_FAILURE_PATH="$checkout_required_path"
+      warn "$SOURCE_FORGE 本地工作树检出不完整：远程 $TAG 的 HEAD tree 包含 $checkout_required_path，但本地文件缺失"
+      return 1
+    fi
+  done
+  CHECKOUT_FAILURE_KIND=''
+  log "$SOURCE_FORGE 源码检出校验通过：$TAG -> $checkout_head_commit"
+  return 0
 }
 
 clone_repo() {
   repo="$1"
   dest="$2"
+  shift 2
   url="$SOURCE_BASE/$repo.git"
-  if [ "$USE_DOCKER" = yes ]; then
-    parent="$(dirname "$dest")"; name="$(basename "$dest")"
-    if command -v timeout >/dev/null 2>&1; then
-      timeout 300 docker run --rm --user "$(id -u):$(id -g)" -v "$parent:/work" -w /work "$GIT_IMAGE" \
-        clone --depth 1 --single-branch --branch "$TAG" "$url" "$name"
-    else
-      docker run --rm --user "$(id -u):$(id -g)" -v "$parent:/work" -w /work "$GIT_IMAGE" \
-        clone --depth 1 --single-branch --branch "$TAG" "$url" "$name"
-    fi
-  elif command -v git >/dev/null 2>&1; then
-    if command -v timeout >/dev/null 2>&1; then
-      GIT_TERMINAL_PROMPT=0 timeout 300 git clone --depth 1 --single-branch --branch "$TAG" "$url" "$dest"
-    else
-      GIT_TERMINAL_PROMPT=0 git clone --depth 1 --single-branch --branch "$TAG" "$url" "$dest"
-    fi
-  else
-    die '宿主机 Git 在源码构建过程中不可用；非 Docker 构建拒绝使用 Docker 回退'
+  safe_clear_clone_destination "$dest"
+  clone_use_shortcut=yes
+  if [ "${SOURCE_PROBE_OK:-yes}" != yes ]; then
+    clone_use_shortcut=no
   fi
+  if ! clone_expected_commit="$(resolve_remote_tag_commit "$url")"; then
+    warn "$SOURCE_FORGE 无法通过 ls-remote 解析标签 refs/tags/$TAG，仍先在同一源执行一次显式标签检出"
+    safe_clear_clone_destination "$dest"
+    CHECKOUT_FAILURE_KIND=explicit-fetch-failed
+    if fetch_tag_explicitly "$url" "$dest"; then
+      clone_expected_commit="$(repo_git "$dest" rev-parse --verify "refs/tags/$TAG^{commit}" 2>/dev/null || true)"
+      clone_expected_commit="$(printf '%s' "$clone_expected_commit" | tr 'A-F' 'a-f')"
+      if printf '%s\n' "$clone_expected_commit" | grep -Eq '^[0-9a-f]{40}$|^[0-9a-f]{64}$' \
+          && validate_repo_checkout "$dest" "$clone_expected_commit" "$@"; then
+        warn "$SOURCE_FORGE 远程标签探测不可用，但精确标签检出成功：$TAG -> $clone_expected_commit"
+        return 0
+      fi
+    fi
+    warn "$SOURCE_FORGE 远程标签探测与同源显式标签检出均失败（${CHECKOUT_FAILURE_KIND:-explicit-fetch-failed}）"
+    safe_clear_clone_destination "$dest"
+    return 1
+  fi
+
+  CHECKOUT_FAILURE_KIND=clone-command-failed
+  if [ "$clone_use_shortcut" = yes ]; then
+    if clone_tag_shortcut "$url" "$dest" \
+        && validate_repo_checkout "$dest" "$clone_expected_commit" "$@"; then
+      return 0
+    fi
+    warn "$SOURCE_FORGE 首次标签检出未通过（${CHECKOUT_FAILURE_KIND:-clone-command-failed}），清理未完成目录后在同一源重试"
+  else
+    warn "$SOURCE_FORGE 首次标签探测异常，清理目录后在同一源直接执行可验证的显式检出"
+  fi
+
+  safe_clear_clone_destination "$dest"
+  CHECKOUT_FAILURE_KIND=explicit-fetch-failed
+  warn "$SOURCE_FORGE 显式拉取 refs/tags/$TAG 并 detached checkout，不切换源"
+  if fetch_tag_explicitly "$url" "$dest" \
+      && validate_repo_checkout "$dest" "$clone_expected_commit" "$@"; then
+    log "$SOURCE_FORGE 同源显式标签检出成功"
+    return 0
+  fi
+  warn "$SOURCE_FORGE 显式标签检出仍失败（${CHECKOUT_FAILURE_KIND:-explicit-fetch-failed}）"
+  safe_clear_clone_destination "$dest"
+  return 1
 }
 
 clone_release_set() {
-  rm -rf -- "$WORK_DIR/repos/server" "$WORK_DIR/repos/admin" "$WORK_DIR/repos/web"
-  clone_repo "$SERVER_REPO" "$WORK_DIR/repos/server" || return 1
-  [ -f "$WORK_DIR/repos/server/frontend/admin/package.json" ] || {
-    warn '统一源码仓缺少 frontend/admin/package.json'
-    return 1
-  }
-  [ -f "$WORK_DIR/repos/server/frontend/web/package.json" ] || {
-    warn '统一源码仓缺少 frontend/web/package.json'
-    return 1
-  }
-  return 0
+  safe_clear_clone_destination "$WORK_DIR/repos/server"
+  safe_clear_clone_destination "$WORK_DIR/repos/admin"
+  safe_clear_clone_destination "$WORK_DIR/repos/web"
+  clone_repo "$SERVER_REPO" "$WORK_DIR/repos/server" \
+    pom.xml deploy/build-release-from-source.sh \
+    frontend/admin/package.json frontend/admin/package-lock.json \
+    frontend/web/package.json frontend/web/package-lock.json
 }
 
 repo_commit() {
   repo_dir="$1"
-  if [ "$USE_DOCKER" = yes ]; then
-    docker run --rm --user "$(id -u):$(id -g)" -v "$repo_dir:/repo" -w /repo "$GIT_IMAGE" rev-parse HEAD
-  elif command -v git >/dev/null 2>&1; then
-    # CentOS 7 自带 Git 1.8.3.1 不支持 -C；进入子目录执行可兼容全部受支持版本。
-    (cd "$repo_dir" && git rev-parse HEAD)
-  else
-    die '宿主机 Git 在源码构建过程中不可用；非 Docker 构建拒绝使用 Docker 回退'
-  fi
+  repo_git "$repo_dir" rev-parse HEAD
 }
 
 prepare_dependency_mirrors() {
@@ -2408,21 +2601,19 @@ STAGING_DIR="$WORK_DIR/staging"
 log "按版本标签拉取统一公开源码: $TAG"
 if ! clone_release_set; then
   if [ "$FORGE" = auto ] && [ "$SOURCE_FORGE" = gitee ]; then
-    warn 'Gitee 探测成功但拉取中断，清理未完成源码后重试 GitHub 备用源'
-    probe_forge "$GITHUB_BASE" || die "GitHub 统一源码标签 $TAG 不完整或网络不可达"
+    warn 'Gitee 首次拉取与同源显式标签检出均失败，现在才切换 GitHub 备用源'
     SOURCE_BASE="$GITHUB_BASE"
     SOURCE_FORGE=github
+    if probe_forge "$GITHUB_BASE"; then
+      SOURCE_PROBE_OK=yes
+    else
+      SOURCE_PROBE_OK=no
+      warn "GitHub 标签探测未通过，仍使用显式 refs/tags/$TAG 做最后复核"
+    fi
     prepare_dependency_mirrors
-    clone_release_set || die "从 GitHub 备用源拉取统一源码失败"
-  elif [ "$FORGE" = auto ] && [ "$SOURCE_FORGE" = github ]; then
-    warn 'GitHub 备用源探测成功但拉取中断，重新检查 Gitee 主源'
-    probe_forge "$GITEE_BASE" || die "Gitee 与 GitHub 均无法稳定提供统一源码标签 $TAG"
-    SOURCE_BASE="$GITEE_BASE"
-    SOURCE_FORGE=gitee
-    prepare_dependency_mirrors
-    clone_release_set || die "从 Gitee 主源拉取统一源码失败"
+    clone_release_set || die "Gitee 与 GitHub 均无法完整检出统一源码标签 $TAG；请根据上方诊断区分远程标签缺文件、本地检出不完整或网络故障"
   else
-    die "从 $SOURCE_FORGE 拉取统一源码失败"
+    die "从 $SOURCE_FORGE 拉取并校验统一源码失败"
   fi
 fi
 
