@@ -60,6 +60,10 @@ public final class AiConfigJsonValidator
                     MinimaxH3Constants.PROTOCOL_VIDEO,
                     ConfigurableAsyncMediaConstants.PROTOCOL_VIDEO);
 
+    /** 可配置异步视频协议允许下发的音频开关字段；none 表示上游隐式处理。 */
+    private static final Set<String> CONFIGURABLE_VIDEO_AUDIO_FIELDS =
+            Set.of("audio", "generate_audio", ConfigurableAsyncMediaConstants.UPSTREAM_AUDIO_FIELD_NONE);
+
     /** 文案统一 ≤6 字（编码规范），具体损坏内容由 log.error 打印给开发排查。 */
     private static final String ERR_INVALID_JSON = "JSON格式错";
 
@@ -68,6 +72,9 @@ public final class AiConfigJsonValidator
 
     /** 参考音频能力配置错误文案。 */
     private static final String ERR_INVALID_REFERENCE_AUDIO = "音频配置错误";
+
+    /** 上游音频字段配置错误文案。 */
+    private static final String ERR_INVALID_AUDIO_FIELD = "音频字段错误";
 
     private AiConfigJsonValidator()
     {
@@ -137,7 +144,115 @@ public final class AiConfigJsonValidator
         validateJsonObjectIfPresent("extra_body", model.getExtraBody());
         ModelBillingRuleValidator.validate(model);
         validateViduModelCallback(model);
+        validateConfigurableVideoAudioField(model);
+        validateConfigurableVideoResolutionMapping(model);
         validateReferenceAudioCapability(model, providerCode);
+    }
+
+    /** 校验可配置异步视频协议的上游音频开关字段。 */
+    private static void validateConfigurableVideoAudioField(AidAiModel model)
+    {
+        if (!Objects.equals(ConfigurableAsyncMediaConstants.PROTOCOL_VIDEO, model.getProtocol())
+                || StrUtil.isBlank(model.getCapabilityJson()))
+        {
+            return;
+        }
+        try
+        {
+            JsonNode capability = OBJECT_MAPPER.readTree(model.getCapabilityJson());
+            JsonNode fieldNode = capability == null
+                    ? null : capability.get(ConfigurableAsyncMediaConstants.CAPABILITY_UPSTREAM_AUDIO_FIELD);
+            if (fieldNode == null || fieldNode.isNull())
+            {
+                return;
+            }
+            String field = fieldNode.isTextual() ? StrUtil.trim(fieldNode.asText()) : null;
+            boolean invalid = !CONFIGURABLE_VIDEO_AUDIO_FIELDS.contains(field)
+                    || (Objects.equals(ConfigurableAsyncMediaConstants.UPSTREAM_AUDIO_FIELD_NONE, field)
+                    && capability.path(ConfigurableAsyncMediaConstants.CAPABILITY_FORCE_GENERATE_AUDIO)
+                            .asBoolean(false));
+            if (invalid)
+            {
+                log.error("可配置异步视频音频字段非法: modelCode={}, field={}, forceGenerateAudio={}",
+                        model.getModelCode(), field,
+                        capability.path(ConfigurableAsyncMediaConstants.CAPABILITY_FORCE_GENERATE_AUDIO)
+                                .asBoolean(false));
+                throw new ServiceException(ERR_INVALID_AUDIO_FIELD);
+            }
+        }
+        catch (ServiceException e)
+        {
+            throw e;
+        }
+        catch (Exception e)
+        {
+            log.error("可配置异步视频音频字段解析失败: modelCode={}, reason={}",
+                    model.getModelCode(), e.getMessage());
+            throw new ServiceException(ERR_INVALID_AUDIO_FIELD);
+        }
+    }
+
+    /** 校验可配置异步视频协议的上游分辨率映射。 */
+    private static void validateConfigurableVideoResolutionMapping(AidAiModel model)
+    {
+        if (!Objects.equals(ConfigurableAsyncMediaConstants.PROTOCOL_VIDEO, model.getProtocol())
+                || StrUtil.isBlank(model.getCapabilityJson()))
+        {
+            return;
+        }
+        try
+        {
+            JsonNode capability = OBJECT_MAPPER.readTree(model.getCapabilityJson());
+            JsonNode fixed = capability == null
+                    ? null : capability.get(ConfigurableAsyncMediaConstants.CAPABILITY_UPSTREAM_RESOLUTION);
+            JsonNode mapping = capability == null
+                    ? null : capability.get(ConfigurableAsyncMediaConstants.CAPABILITY_UPSTREAM_RESOLUTION_MAP);
+            if (mapping == null || mapping.isNull())
+            {
+                return;
+            }
+            if (!mapping.isObject()
+                    || (fixed != null && !fixed.isNull() && mapping.size() > 0))
+            {
+                throw new IllegalArgumentException("映射结构错误");
+            }
+            JsonNode sizeOptions = capability.get("sizeOptions");
+            var fields = mapping.fields();
+            while (fields.hasNext())
+            {
+                Map.Entry<String, JsonNode> entry = fields.next();
+                String source = StrUtil.trim(entry.getKey());
+                String target = entry.getValue().isTextual()
+                        ? StrUtil.trim(entry.getValue().asText()) : null;
+                if (StrUtil.isBlank(source) || StrUtil.isBlank(target)
+                        || !containsIgnoreCase(sizeOptions, source))
+                {
+                    throw new IllegalArgumentException("映射内容错误");
+                }
+            }
+        }
+        catch (Exception e)
+        {
+            log.error("可配置异步视频分辨率映射非法: modelCode={}, reason={}",
+                    model.getModelCode(), e.getMessage());
+            throw new ServiceException("分辨率错误");
+        }
+    }
+
+    private static boolean containsIgnoreCase(JsonNode values, String expected)
+    {
+        if (values == null || !values.isArray())
+        {
+            return false;
+        }
+        for (JsonNode value : values)
+        {
+            if (value.isTextual() && expected.equalsIgnoreCase(StrUtil.trim(value.asText())))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** 校验 Vidu 模型级回调地址。 */
@@ -168,7 +283,7 @@ public final class AiConfigJsonValidator
         }
     }
 
-    /** 视频参考音频能力开启时，服务商、数量、时长、格式和音画同出能力必须形成可执行配置。 */
+    /** 视频参考音频能力开启时，服务商、数量、时长、格式及可选的音画同出依赖必须可执行。 */
     private static void validateReferenceAudioCapability(AidAiModel model, String providerCode)
     {
         if (StrUtil.isBlank(model.getCapabilityJson()))
@@ -221,7 +336,9 @@ public final class AiConfigJsonValidator
         {
             return "服务商未实现参考音频下发: providerCode=" + providerCode + ", protocol=" + model.getProtocol();
         }
-        if (!capability.path("supportsAudio").asBoolean(false))
+        boolean generatedAudioRequired = !capability.has(ReferenceAudioLimiter.KEY_REQUIRES_GENERATED_AUDIO)
+                || capability.path(ReferenceAudioLimiter.KEY_REQUIRES_GENERATED_AUDIO).asBoolean(true);
+        if (generatedAudioRequired && !capability.path("supportsAudio").asBoolean(false))
         {
             return "参考音频依赖音画同出,需先开启 supportsAudio";
         }

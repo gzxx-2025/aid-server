@@ -29,6 +29,9 @@ public final class ReferenceAudioLimiter {
     /** capability_json 键：是否支持参考音频 */
     public static final String KEY_SUPPORTS_REFERENCE_AUDIO = "supportsReferenceAudio";
 
+    /** capability_json 键：参考音频下发前是否必须开启音画同出 */
+    public static final String KEY_REQUIRES_GENERATED_AUDIO = "referenceAudioRequiresGeneratedAudio";
+
     /** capability_json 键：参考音频条数上限 */
     public static final String KEY_MAX_REFERENCE_AUDIOS = "maxReferenceAudios";
 
@@ -82,6 +85,8 @@ public final class ReferenceAudioLimiter {
             return capability;
         }
         capability.supported = node.path(KEY_SUPPORTS_REFERENCE_AUDIO).asBoolean(false);
+        capability.generatedAudioRequired = !node.has(KEY_REQUIRES_GENERATED_AUDIO)
+                || node.path(KEY_REQUIRES_GENERATED_AUDIO).asBoolean(true);
         capability.maxCount = node.path(KEY_MAX_REFERENCE_AUDIOS).asInt(0);
         capability.minDurationSeconds = node.path(KEY_MIN_DURATION_SECONDS).asInt(0);
         capability.maxDurationSeconds = node.path(KEY_MAX_DURATION_SECONDS).asInt(0);
@@ -173,6 +178,9 @@ public final class ReferenceAudioLimiter {
 
         /** 是否声明支持参考音频。 */
         private boolean supported;
+
+        /** 参考音频下发前是否必须开启音画同出；默认保持原有依赖。 */
+        private boolean generatedAudioRequired = true;
 
         /** 条数上限；0=不支持，-1=厂商未声明上限，正整数=明确上限。 */
         private int maxCount;

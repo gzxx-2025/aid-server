@@ -333,8 +333,8 @@ public final class ModelCapabilityValidator {
             dropAllReferenceAudios(modelConfig, request, "模型不支持参考音频", "能力未开启");
             return;
         }
-        // 参考音频依赖音画同出：无声视频下发参考音色无意义
-        if (!Boolean.TRUE.equals(request.getAudio())) {
+        // 部分上游把参考音频作为独立输入，且不接受音画同出开关。
+        if (capability.isGeneratedAudioRequired() && !Boolean.TRUE.equals(request.getAudio())) {
             dropAllReferenceAudios(modelConfig, request, "请开启视频声音", "音画同出未开启");
             return;
         }

@@ -65,8 +65,9 @@ public class ConfigurableAsyncVideoProviderClient implements VideoProviderClient
                 request, images.size(), videos.size(), audios.size());
 
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("model", ModelCodeResolver.resolveUpstreamModel(modelConfig,
-                request == null ? null : request.getModelName()));
+        String upstreamModel = ModelCodeResolver.resolveUpstreamModel(modelConfig,
+                request == null ? null : request.getModelName());
+        body.put("model", upstreamModel);
         body.put("prompt", request == null ? "" : StrUtil.nullToEmpty(request.getPrompt()));
         if (request != null && request.getDurationSeconds() != null) {
             body.put("duration", request.getDurationSeconds());
@@ -98,15 +99,16 @@ public class ConfigurableAsyncVideoProviderClient implements VideoProviderClient
         HttpResult response = executePost(buildSubmitUrl(modelConfig), modelConfig,
                 JSONUtil.toJsonStr(body));
         if (!isSuccess(response.statusCode()) || !JSONUtil.isTypeJSON(response.body())) {
-            log.error("可配置异步视频提交失败, modelCode={}, detail={}", modelConfig.getModelCode(),
+            log.error("可配置异步视频提交失败, modelCode={}, upstreamModel={}, detail={}",
+                    modelConfig.getModelCode(), upstreamModel,
                     ProviderErrorSanitizer.fromHttp(response.statusCode(), response.body()));
             throw new ServiceException("上游提交失败");
         }
         JsonNode root = ProviderResponseHelper.readTree(response.body());
         String taskId = ProviderResponseHelper.readText(root, "task_id", "id", "data.task_id", "data.id");
         if (StrUtil.isBlank(taskId)) {
-            log.error("可配置异步视频提交响应缺少任务编号, modelCode={}, responseLength={}",
-                    modelConfig.getModelCode(), StrUtil.length(response.body()));
+            log.error("可配置异步视频提交响应缺少任务编号, modelCode={}, upstreamModel={}, responseLength={}",
+                    modelConfig.getModelCode(), upstreamModel, StrUtil.length(response.body()));
             throw new ServiceException("上游提交失败");
         }
         return ProviderSubmitResult.builder()
@@ -276,19 +278,57 @@ public class ConfigurableAsyncVideoProviderClient implements VideoProviderClient
         if (StrUtil.isBlank(resolved)) {
             return null;
         }
+        String mapped = capabilityMappedText(modelConfig,
+                ConfigurableAsyncMediaConstants.CAPABILITY_UPSTREAM_RESOLUTION_MAP, resolved);
+        if (StrUtil.isNotBlank(mapped)) {
+            return mapped;
+        }
         String normalized = resolved.trim().toLowerCase(Locale.ROOT);
         return "2k".equals(normalized) ? "1440p" : normalized;
     }
 
+    private static String capabilityMappedText(AiModelConfigVo modelConfig, String key, String source) {
+        JsonNode capability = ModelCapabilityResolver.parseCapability(modelConfig.getCapabilityJson());
+        JsonNode mapping = capability == null ? null : capability.get(key);
+        if (mapping == null || mapping.isNull()) {
+            return null;
+        }
+        if (!mapping.isObject()) {
+            log.error("可配置异步视频映射配置非法, modelCode={}, key={}", modelConfig.getModelCode(), key);
+            throw new ServiceException("模型配置错误");
+        }
+        var fields = mapping.fields();
+        while (fields.hasNext()) {
+            Map.Entry<String, JsonNode> entry = fields.next();
+            if (!entry.getKey().equalsIgnoreCase(source.trim())) {
+                continue;
+            }
+            String target = entry.getValue().isTextual() ? StrUtil.trim(entry.getValue().asText()) : null;
+            if (StrUtil.isBlank(target)) {
+                log.error("可配置异步视频映射值非法, modelCode={}, key={}, source={}",
+                        modelConfig.getModelCode(), key, source);
+                throw new ServiceException("模型配置错误");
+            }
+            return target;
+        }
+        return null;
+    }
+
     private static void appendGenerateAudio(Map<String, Object> body, AiModelConfigVo modelConfig,
                                             MediaVideoGenerateRequest request) {
-        if (capabilityBoolean(modelConfig,
-                ConfigurableAsyncMediaConstants.CAPABILITY_FORCE_GENERATE_AUDIO)) {
-            body.put("generate_audio", true);
+        boolean forceGenerateAudio = capabilityBoolean(modelConfig,
+                ConfigurableAsyncMediaConstants.CAPABILITY_FORCE_GENERATE_AUDIO);
+        boolean supportsAudio = capabilityBoolean(modelConfig,
+                ConfigurableAsyncMediaConstants.CAPABILITY_SUPPORTS_AUDIO);
+        if (!forceGenerateAudio && !supportsAudio) {
             return;
         }
-        if (!capabilityBoolean(modelConfig,
-                ConfigurableAsyncMediaConstants.CAPABILITY_SUPPORTS_AUDIO)) {
+        String upstreamAudioField = resolveUpstreamAudioField(modelConfig);
+        if (ConfigurableAsyncMediaConstants.UPSTREAM_AUDIO_FIELD_NONE.equals(upstreamAudioField)) {
+            return;
+        }
+        if (forceGenerateAudio) {
+            body.put(upstreamAudioField, true);
             return;
         }
         Boolean requested = request == null ? null : request.getAudio();
@@ -296,8 +336,20 @@ public class ConfigurableAsyncVideoProviderClient implements VideoProviderClient
             requested = booleanOption(request, "generate_audio");
         }
         if (requested != null) {
-            body.put("generate_audio", requested);
+            body.put(upstreamAudioField, requested);
         }
+    }
+
+    private static String resolveUpstreamAudioField(AiModelConfigVo modelConfig) {
+        String configured = StrUtil.blankToDefault(capabilityText(modelConfig,
+                ConfigurableAsyncMediaConstants.CAPABILITY_UPSTREAM_AUDIO_FIELD), "generate_audio").trim();
+        if ("audio".equals(configured) || "generate_audio".equals(configured)
+                || ConfigurableAsyncMediaConstants.UPSTREAM_AUDIO_FIELD_NONE.equals(configured)) {
+            return configured;
+        }
+        log.error("可配置异步视频音频字段非法, modelCode={}, field={}",
+                modelConfig == null ? null : modelConfig.getModelCode(), configured);
+        throw new ServiceException("模型配置错误");
     }
 
     private static Boolean booleanOption(MediaVideoGenerateRequest request, String key) {

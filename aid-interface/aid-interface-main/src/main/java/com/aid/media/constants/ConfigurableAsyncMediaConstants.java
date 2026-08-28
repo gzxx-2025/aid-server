@@ -15,7 +15,10 @@ public final class ConfigurableAsyncMediaConstants {
     public static final String CAPABILITY_RESULT_DOWNLOAD_REQUIRES_AUTH = "resultDownloadRequiresAuth";
     public static final String CAPABILITY_FORCE_GENERATE_AUDIO = "forceGenerateAudio";
     public static final String CAPABILITY_SUPPORTS_AUDIO = "supportsAudio";
+    public static final String CAPABILITY_UPSTREAM_AUDIO_FIELD = "upstreamAudioField";
+    public static final String UPSTREAM_AUDIO_FIELD_NONE = "none";
     public static final String CAPABILITY_UPSTREAM_RESOLUTION = "upstreamResolution";
+    public static final String CAPABILITY_UPSTREAM_RESOLUTION_MAP = "upstreamResolutionMap";
     public static final String CAPABILITY_MAX_REFERENCE_VIDEOS = "maxReferenceVideos";
     public static final String CAPABILITY_MAX_PROMPT_CHARACTERS = "maxPromptCharacters";
 

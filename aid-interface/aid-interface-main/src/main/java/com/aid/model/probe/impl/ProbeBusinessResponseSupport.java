@@ -14,7 +14,7 @@ import cn.hutool.core.util.StrUtil;
 final class ProbeBusinessResponseSupport {
 
     private static final Set<String> MISSING_CODES = Set.of(
-            "task_not_found", "video_not_found");
+            "task_not_found", "tasknotfound", "createfailedtasknotfound", "video_not_found");
 
     private static final Set<String> MISSING_MESSAGES = Set.of(
             "task not found", "video not found", "任务不存在", "视频不存在");
@@ -37,16 +37,20 @@ final class ProbeBusinessResponseSupport {
             return false;
         }
         JSONObject data = readObject(root, "data");
-        if (Objects.nonNull(data) && isMissingCode(data.getString("status"))) {
+        if (Objects.nonNull(data) && (isMissingCode(data.getString("status"))
+                || isMissingCode(data.getString("code"))
+                || isMissingCode(data.getString("reason")))) {
             return true;
         }
-        if (isMissingCode(root.getString("status")) || isMissingCode(root.getString("code"))) {
+        if (isMissingCode(root.getString("status")) || isMissingCode(root.getString("code"))
+                || isMissingCode(root.getString("reason"))) {
             return true;
         }
         JSONObject error = readObject(root, "error");
         String errorText = root.get("error") instanceof String text ? text : null;
         if (Objects.nonNull(error)
-                && (isMissingCode(error.getString("code")) || isMissingCode(error.getString("type")))) {
+                && (isMissingCode(error.getString("code")) || isMissingCode(error.getString("type"))
+                || isMissingCode(error.getString("status")) || isMissingCode(error.getString("reason")))) {
             return true;
         }
         if (isMissingMessage(root.getString("detail")) || isMissingMessage(root.getString("message"))) {

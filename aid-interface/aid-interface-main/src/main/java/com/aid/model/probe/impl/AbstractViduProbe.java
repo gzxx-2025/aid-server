@@ -20,7 +20,7 @@ public abstract class AbstractViduProbe extends AbstractReadOnlyProbe {
     @Override
     protected String resolvePath(AidAiModel model, AidAiProvider provider) {
         return ProviderEndpointUtils.normalizeTaskQueryTemplate(provider.getTaskQuerySuffix())
-                .replace("%s", ProbeHttpSupport.randomProbeId());
+                .replace("%s", ProbeHttpSupport.randomNumericTaskId());
     }
 
     @Override
