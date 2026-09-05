@@ -1,5 +1,6 @@
 package com.aid.rps.assembler;
 
+import com.aid.common.error.TaskErrorSnapshot;
 import java.text.SimpleDateFormat;
 import java.util.Objects;
 
@@ -23,7 +24,7 @@ public class TaskDetailAssembler {
     {
         SimpleDateFormat sdf = new SimpleDateFormat(DATE_FORMAT);
 
-        // 运行时归一化：从 errorMessage 实时派生结构化错误字段，不从 entity 读取
+        // 优先读取终态快照，历史记录才从原文归类。
         String errorCode = null;
         String errorType = null;
         String errorSource = null;
@@ -32,10 +33,9 @@ public class TaskDetailAssembler {
         Boolean retryable = null;
         String userMessage = task.getErrorMessage();
 
-        if (StrUtil.isNotBlank(task.getErrorMessage()))
+        if (StrUtil.isNotBlank(task.getErrorMessage()) || StrUtil.isNotBlank(task.getErrorDetailJson()))
         {
-            TaskErrorResult normalized = ErrorNormalizer.classify(
-                    null, task.getModelCode(), -1, task.getErrorMessage());
+            TaskErrorResult normalized = TaskErrorSnapshot.fromTask(task);
             errorCode = normalized.getErrorCode();
             errorType = normalized.getErrorType();
             errorSource = normalized.getErrorSource();

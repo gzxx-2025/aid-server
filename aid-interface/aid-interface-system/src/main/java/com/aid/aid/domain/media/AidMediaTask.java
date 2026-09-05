@@ -7,6 +7,7 @@ import com.baomidou.mybatisplus.annotation.FieldStrategy;
 import com.aid.common.aid.oss.annotation.MediaUrl;
 import com.aid.common.core.domain.BaseEntity;
 import lombok.Data;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
 
@@ -116,6 +117,10 @@ public class AidMediaTask extends BaseEntity {
     // 错误信息。
     private String errorMessage;
 
+    /** 任务的安全结构化错误快照。 */
+    @JsonIgnore
+    private String errorDetailJson;
+
     // 轮询次数。
     private Integer retryCount;
 
@@ -178,6 +183,14 @@ public class AidMediaTask extends BaseEntity {
      */
     @TableField("last_progress_time")
     private java.util.Date lastProgressTime;
+
+    /**
+     * 不可变终态时刻：任务首次进入 SUCCEEDED / FAILED 时写入。
+     * ETA 统计只使用 create_time、upstream_accept_time 与本字段，避免后续 OSS 回写更新 update_time
+     * 后污染真实排队耗时和生成耗时。
+     */
+    @TableField("terminal_time")
+    private java.util.Date terminalTime;
 
     /** 合成批次号 */
     @TableField("compose_batch_id")

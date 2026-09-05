@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   extractPromptAudioRefIdentityKeysFromHtml,
   findAudioIndexesLostFromPrompt,
-  findStripIndexesLostFromPrompt
+  findStripIndexesLostFromPrompt,
+  pruneResolvedPromptAssetsForRemovedImage
 } from './storyboardPromptAssetStripSync'
 
 describe('prompt reference to imported strip sync', () => {
@@ -17,7 +18,7 @@ describe('prompt reference to imported strip sync', () => {
     ).toEqual([0])
   })
 
-  it('keeps imported images for the explicit whole-prompt clear behavior', () => {
+  it('removes linked imported images when the whole prompt is cleared', () => {
     expect(
       findStripIndexesLostFromPrompt({
         images: [{ id: 7, name: '角色甲', url: '/role.png' }],
@@ -25,7 +26,30 @@ describe('prompt reference to imported strip sync', () => {
         nextKeys: new Set(),
         promptIsEmpty: true
       })
-    ).toEqual([])
+    ).toEqual([0])
+  })
+
+  it('distinguishes duplicate image names by stable id', () => {
+    expect(
+      findStripIndexesLostFromPrompt({
+        images: [
+          { id: 7, name: '同名参考图', url: '/first.png' },
+          { id: 8, name: '同名参考图', url: '/second.png' }
+        ],
+        prevKeys: new Set(['id:7', 'id:8', 'name:同名参考图']),
+        nextKeys: new Set(['id:8', 'name:同名参考图'])
+      })
+    ).toEqual([0])
+  })
+
+  it('prunes only the removed stable id when resolved assets have duplicate names', () => {
+    const assets = [
+      { assetId: '7', assetType: 'other' as const, name: '同名参考图', imageIndex: 1, label: '@同名参考图' },
+      { assetId: '8', assetType: 'other' as const, name: '同名参考图', imageIndex: 2, label: '@同名参考图' }
+    ]
+    expect(
+      pruneResolvedPromptAssetsForRemovedImage(assets, { id: 7, name: '同名参考图' })
+    ).toEqual([assets[1]])
   })
 
   it('detects a removed audio ref by normalized name', () => {
@@ -52,5 +76,16 @@ describe('prompt reference to imported strip sync', () => {
         promptIsEmpty: false
       })
     ).toEqual([])
+  })
+
+  it('removes linked audio when the whole prompt is cleared', () => {
+    expect(
+      findAudioIndexesLostFromPrompt({
+        audios: [{ referenceAudioId: 12, name: '音频-旁白', url: '/voice.mp3' }],
+        prevKeys: new Set(['audio-id:12', 'audio-name:音频-旁白']),
+        nextKeys: new Set(),
+        promptIsEmpty: true
+      })
+    ).toEqual([0])
   })
 })

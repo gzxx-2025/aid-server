@@ -182,6 +182,29 @@ describe('controlled editor sync', () => {
     ).toBe(false)
   })
 
+  it('never lets the delayed first-reference echo erase later text near a second reference', () => {
+    const coordinator = createControlledEditorValueCoordinator()
+    const afterReferenceOne = '<p>@参考图1 第一处补充</p>'
+    const afterReferenceTwo = '<p>@参考图1 第一处补充 @参考图2 第二处补充</p>'
+    coordinator.recordLocal(afterReferenceOne)
+    coordinator.recordLocal(afterReferenceTwo)
+
+    const delayedFirstEcho = coordinator.receive(afterReferenceOne, false)
+    expect(delayedFirstEcho.decision).toBe('stale-local-echo')
+    expect(
+      shouldApplyControlledEditorValue({
+        decision: delayedFirstEcho.decision,
+        editorValue: afterReferenceTwo,
+        controlledValue: afterReferenceOne
+      })
+    ).toBe(false)
+
+    expect(coordinator.receive(afterReferenceTwo, false)).toMatchObject({
+      decision: 'local-echo',
+      value: afterReferenceTwo
+    })
+  })
+
   it('skips an external controlled value when the editor already contains it', () => {
     expect(
       shouldApplyControlledEditorValue({

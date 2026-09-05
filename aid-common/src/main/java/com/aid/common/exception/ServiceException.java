@@ -26,6 +26,20 @@ public final class ServiceException extends RuntimeException
      */
     private String detailMessage;
 
+    /** 任务的安全结构化错误快照。 */
+    private String taskErrorJson;
+
+    public String getTaskErrorJson()
+    {
+        return taskErrorJson;
+    }
+
+    public ServiceException setTaskErrorJson(String taskErrorJson)
+    {
+        this.taskErrorJson = taskErrorJson;
+        return this;
+    }
+
     /**
      * 空构造方法，避免反序列化问题
      */

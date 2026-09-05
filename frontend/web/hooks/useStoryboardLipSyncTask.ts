@@ -14,6 +14,7 @@ import {
   resolveLipSyncVideoDisplayUrl
 } from '~/utils/storyboardLipSyncSse'
 import { shouldPreferSseBusinessTerminalOverOngoingDetail } from '~/utils/taskSseSilentDisconnect'
+import { formatTaskSseLiveText } from '~/utils/taskSseProgressText'
 import type { StoryboardDubbingGenerateProgress, StoryboardDubbingGenerateResult } from '~/composables/useStoryboardDubbingGenerate'
 
 const TASK_BACKGROUND_RUNNING_MESSAGE = '任务仍在后台执行，请稍候或刷新页面自动恢复进度'
@@ -103,10 +104,14 @@ export async function followStoryboardLipSyncSseJob(payload: {
         if (preview?.audioRecordId) lastAudioRecordId = preview.audioRecordId
         else if (finitePositive(p.audioRecordId)) lastAudioRecordId = finitePositive(p.audioRecordId)!
 
-        const message =
-          preview?.message ||
-          String(p.stepTitle || p.message || '').trim() ||
+        const message = formatTaskSseLiveText(
+          {
+            ...p,
+            message: preview?.message || p.message,
+            stepTitle: preview?.stepTitle || p.stepTitle
+          },
           '对口型处理中…'
+        )
         payload.onProgress?.({
           taskId,
           percent: p.percent,

@@ -90,12 +90,8 @@
   background: linear-gradient(270deg, #0e59fa 0%, #00abd8 100%) !important;
 }
 
-.batch-generate-asset-wrap .bgam-btn-ok:hover,
-.batch-generate-asset-wrap .bgam-btn-ok:focus,
-.batch-generate-asset-wrap .bgam-btn-ok:active {
-  background: linear-gradient(270deg, #0e59fa 0%, #00abd8 100%) !important;
-  border: none !important;
-  box-shadow: none !important;
+.batch-generate-asset-wrap .bgam-btn-ok--danger {
+  background: linear-gradient(270deg, #d9363e 0%, #ff5c5c 100%) !important;
 }
 
 /* 原 BatchGenerateAssetModal.vue 非 scoped \3c style>：下拉弹层全局样式，选择器原样 */

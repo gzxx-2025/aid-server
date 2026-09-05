@@ -2,6 +2,7 @@ package com.aid.media.provider;
 
 import cn.hutool.core.util.StrUtil;
 import com.aid.domain.vo.AiModelConfigVo;
+import com.aid.media.dto.MediaTextGenerateRequest;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -26,15 +27,30 @@ public final class TextReasoningOptionsResolver {
 
     public static Map<String, Object> resolveOpenAiCompatible(AiModelConfigVo model,
                                                                Map<String, Object> source) {
+        return resolveOpenAiCompatible(model, null, source);
+    }
+
+    public static Map<String, Object> resolveOpenAiCompatible(AiModelConfigVo model,
+                                                               MediaTextGenerateRequest request,
+                                                               Map<String, Object> source) {
         Map<String, Object> options = source == null ? new LinkedHashMap<>() : new LinkedHashMap<>(source);
-        Object enabledValue = options.remove(ENABLED_KEY);
-        Object levelValue = options.remove(LEVEL_KEY);
-        Object budgetValue = options.remove(BUDGET_KEY);
+        Object legacyEnabledValue = options.remove(ENABLED_KEY);
+        Object legacyLevelValue = options.remove(LEVEL_KEY);
+        Object legacyBudgetValue = options.remove(BUDGET_KEY);
         Object maxOutputTokens = options.remove(MAX_OUTPUT_TOKENS_KEY);
         Object requestedApiField = options.remove(TextOutputLimitResolver.OUTPUT_TOKEN_API_FIELD_KEY);
         options.remove(TextOutputLimitResolver.PROVIDER_OUTPUT_TOKENS_KEY);
         options.remove(TextOutputLimitResolver.BILLING_OUTPUT_TOKENS_KEY);
-        options.remove(INCLUDE_KEY);
+        Object legacyIncludeValue = options.remove(INCLUDE_KEY);
+        removeRuntimeReasoningOptions(options);
+        Object enabledValue = request != null && request.getReasoningEnabled() != null
+                ? request.getReasoningEnabled() : legacyEnabledValue;
+        Object levelValue = request != null && StrUtil.isNotBlank(request.getReasoningLevel())
+                ? request.getReasoningLevel() : legacyLevelValue;
+        Object budgetValue = request != null && request.getReasoningBudgetTokens() != null
+                ? request.getReasoningBudgetTokens() : legacyBudgetValue;
+        Object includeValue = request != null && request.getIncludeReasoning() != null
+                ? request.getIncludeReasoning() : legacyIncludeValue;
         int outputLimit = boundedOutputTokens(maxOutputTokens);
         if (maxOutputTokens != null) {
             String targetField = outputTokenApiField(model, options, requestedApiField);
@@ -42,10 +58,7 @@ public final class TextReasoningOptionsResolver {
             options.remove("max_completion_tokens");
             options.put(targetField, outputLimit);
         }
-        if (enabledValue == null) {
-            return options.isEmpty() ? null : options;
-        }
-        boolean enabled = Boolean.parseBoolean(String.valueOf(enabledValue));
+        boolean enabled = enabledValue != null && Boolean.parseBoolean(String.valueOf(enabledValue));
         if (!enabled && !hasReasoningCapabilityOrConfig(model, options)) {
             return options.isEmpty() ? null : options;
         }
@@ -56,60 +69,62 @@ public final class TextReasoningOptionsResolver {
         String style = reasoningApiStyle(model);
         switch (style) {
             case "QWEN" -> {
-                int configuredBudget = boundedReasoningBudget(options.get("thinking_budget"));
                 int requestedBudget = boundedReasoningBudget(budgetValue);
-                options.remove("thinking_budget");
                 options.put("enable_thinking", enabled);
-                if (enabled && (requestedBudget > 0 || configuredBudget > 0)) {
-                    options.put("thinking_budget", requestedBudget > 0 ? requestedBudget : configuredBudget);
+                if (enabled && requestedBudget > 0) {
+                    options.put("thinking_budget", requestedBudget);
                 }
             }
             case "DEEPSEEK" -> {
-                Object configuredLevel = options.remove("reasoning_effort");
                 options.put("thinking", Map.of("type", enabled ? "enabled" : "disabled"));
                 if (enabled) {
-                    options.put("reasoning_effort", levelOverridePresent
-                            ? normalizeDeepSeekLevel(level)
-                            : normalizeDeepSeekLevel(String.valueOf(configuredLevel)));
+                    options.put("reasoning_effort", normalizeDeepSeekLevel(level));
                 }
             }
             case "AGNES" -> {
                 Map<String, Object> templateOptions = new LinkedHashMap<>();
-                Object configured = options.get("chat_template_kwargs");
-                if (configured instanceof Map<?, ?> map) {
-                    map.forEach((key, value) -> {
-                        if (key != null && value != null) {
-                            templateOptions.put(String.valueOf(key), value);
-                        }
-                    });
-                }
                 templateOptions.put("enable_thinking", enabled);
                 options.put("chat_template_kwargs", templateOptions);
             }
             default -> {
-                Object configuredLevel = options.get("reasoning_effort");
                 if (!enabled) {
                     options.put("reasoning_effort", "none");
-                } else if (levelOverridePresent || configuredLevel == null
-                        || StrUtil.isBlank(String.valueOf(configuredLevel))
-                        || isDisabledReasoningValue(configuredLevel)) {
+                } else {
                     options.put("reasoning_effort", normalizeOpenAiLevel(level));
                 }
             }
+        }
+        if (includeValue != null && !Boolean.parseBoolean(String.valueOf(includeValue))) {
+            options.remove("reasoning_content");
         }
         return options;
     }
 
     public static Map<String, Object> resolveGemini(AiModelConfigVo model, Map<String, Object> source) {
+        return resolveGemini(model, null, source);
+    }
+
+    public static Map<String, Object> resolveGemini(AiModelConfigVo model,
+                                                     MediaTextGenerateRequest request,
+                                                     Map<String, Object> source) {
         Map<String, Object> options = source == null ? new LinkedHashMap<>() : new LinkedHashMap<>(source);
-        Object enabledValue = options.remove(ENABLED_KEY);
-        Object levelValue = options.remove(LEVEL_KEY);
-        Object budgetValue = options.remove(BUDGET_KEY);
-        Object includeValue = options.remove(INCLUDE_KEY);
+        Object legacyEnabledValue = options.remove(ENABLED_KEY);
+        Object legacyLevelValue = options.remove(LEVEL_KEY);
+        Object legacyBudgetValue = options.remove(BUDGET_KEY);
+        Object legacyIncludeValue = options.remove(INCLUDE_KEY);
         Object maxOutputTokens = options.remove(MAX_OUTPUT_TOKENS_KEY);
         options.remove(TextOutputLimitResolver.OUTPUT_TOKEN_API_FIELD_KEY);
         options.remove(TextOutputLimitResolver.PROVIDER_OUTPUT_TOKENS_KEY);
         options.remove(TextOutputLimitResolver.BILLING_OUTPUT_TOKENS_KEY);
+        removeRuntimeReasoningOptions(options);
+        Object enabledValue = request != null && request.getReasoningEnabled() != null
+                ? request.getReasoningEnabled() : legacyEnabledValue;
+        Object levelValue = request != null && StrUtil.isNotBlank(request.getReasoningLevel())
+                ? request.getReasoningLevel() : legacyLevelValue;
+        Object budgetValue = request != null && request.getReasoningBudgetTokens() != null
+                ? request.getReasoningBudgetTokens() : legacyBudgetValue;
+        Object includeValue = request != null && request.getIncludeReasoning() != null
+                ? request.getIncludeReasoning() : legacyIncludeValue;
         int outputLimit = boundedOutputTokens(maxOutputTokens);
         if (maxOutputTokens != null) {
             options.remove("max_tokens");
@@ -117,25 +132,11 @@ public final class TextReasoningOptionsResolver {
             options.remove("maxOutputTokens");
             options.put("maxOutputTokens", outputLimit);
         }
-        if (enabledValue == null) {
-            if (capabilityBoolean(model, "supportsReasoning")
-                    && !capabilityBoolean(model, "supportsReasoningDisable")) {
-                Object legacyLevel = options.get("thinking_level");
-                Map<String, Object> legacyThinking = copyMap(options.get("thinkingConfig"));
-                if (isDisabledReasoningValue(legacyLevel) || configuredThinkingDisabled(legacyThinking)) {
-                    options.remove("thinking_level");
-                    options.put("thinkingConfig", Map.of(
-                            "thinkingLevel", minimumReasoningLevel(model), "includeThoughts", false));
-                }
-            }
-            return options;
-        }
-        boolean enabled = Boolean.parseBoolean(String.valueOf(enabledValue));
+        boolean enabled = enabledValue != null && Boolean.parseBoolean(String.valueOf(enabledValue));
         if (!enabled && !hasReasoningCapabilityOrConfig(model, options)) {
             return options;
         }
-        Object configuredLevel = options.remove("thinking_level");
-        Map<String, Object> thinking = copyMap(options.remove("thinkingConfig"));
+        Map<String, Object> thinking = new LinkedHashMap<>();
         boolean levelOverridePresent = levelValue != null && StrUtil.isNotBlank(String.valueOf(levelValue));
         int requestedBudget = boundedReasoningBudget(budgetValue);
         if (!enabled) {
@@ -154,17 +155,6 @@ public final class TextReasoningOptionsResolver {
         } else if (levelOverridePresent) {
             thinking.remove("thinkingBudget");
             thinking.put("thinkingLevel", normalizeGeminiLevel(String.valueOf(levelValue)));
-        } else if (configuredThinkingDisabled(thinking)) {
-            Object includeThoughts = thinking.get("includeThoughts");
-            thinking.clear();
-            thinking.put("thinkingLevel", "medium");
-            if (includeThoughts != null) {
-                thinking.put("includeThoughts", includeThoughts);
-            }
-        } else if (thinking.isEmpty() && configuredLevel != null
-                && StrUtil.isNotBlank(String.valueOf(configuredLevel))
-                && !isDisabledReasoningValue(configuredLevel)) {
-            thinking.put("thinkingLevel", normalizeGeminiLevel(String.valueOf(configuredLevel)));
         } else if (thinking.isEmpty()) {
             thinking.put("thinkingLevel", "medium");
         }
@@ -173,6 +163,28 @@ public final class TextReasoningOptionsResolver {
         }
         options.put("thinkingConfig", thinking);
         return options;
+    }
+
+    /** 运行态开关只能来自本次请求，模型和供应商 extra_body 中的同名配置一律忽略。 */
+    private static void removeRuntimeReasoningOptions(Map<String, Object> options) {
+        options.remove("stream");
+        options.remove("stream_options");
+        options.remove("enable_thinking");
+        options.remove("thinking");
+        options.remove("thinking_budget");
+        options.remove("reasoning_effort");
+        options.remove("thinking_level");
+        options.remove("thinkingConfig");
+        Object template = options.get("chat_template_kwargs");
+        if (template instanceof Map<?, ?> map) {
+            Map<String, Object> retained = copyMap(map);
+            retained.remove("enable_thinking");
+            if (retained.isEmpty()) {
+                options.remove("chat_template_kwargs");
+            } else {
+                options.put("chat_template_kwargs", retained);
+            }
+        }
     }
 
     private static Map<String, Object> copyMap(Object value) {

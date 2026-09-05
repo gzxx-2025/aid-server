@@ -1,13 +1,11 @@
 'use client'
 
-import { setAuthPublicConfigData } from '@/hooks/useAuthPublicConfig'
+import { bootstrapAuthPublicConfig } from '@/hooks/useAuthPublicConfig'
 import { useUserStore } from '@/stores/user'
 import { installAidAntdStaticTheme } from './AntdThemeProvider'
 import { message } from 'antd'
 import { useEffect } from 'react'
-import { hydrateApiCryptoFromSessionCache } from '~/utils/apiCrypto'
 import { installAppConfirmModalPatch } from '~/utils/appConfirm'
-import { authPublicConfig } from '~/utils/businessApi'
 
 /**
  * 应用启动引导：与原 Nuxt 项目的 client 插件对齐。
@@ -22,14 +20,7 @@ export function AppBootstrap() {
     message.config({ top: 24, duration: 3, maxCount: 1 })
     installAppConfirmModalPatch()
 
-    hydrateApiCryptoFromSessionCache()
-    void authPublicConfig()
-      .then((data) => {
-        setAuthPublicConfigData(data)
-      })
-      .catch(() => {
-        /* 保留 session 缓存或默认明文 */
-      })
+    void bootstrapAuthPublicConfig()
 
     const userStore = useUserStore.getState()
     userStore.hydrateFromStorage()

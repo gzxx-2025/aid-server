@@ -83,9 +83,7 @@ public class EpisodeFinalVideoDownloadServiceImpl implements EpisodeFinalVideoDo
         }
         Long userId = SecurityUtils.getUserId();
         AidEpisodeEditor editor = locateEditor(request, userId);
-        // 最新成片优先：待审新片（重新导出的产物）优先于公开成片
-        String videoUrl = StrUtil.isNotBlank(editor.getPendingVideoUrl())
-                ? editor.getPendingVideoUrl() : editor.getFinalVideoUrl();
+        String videoUrl = editor.getFinalVideoUrl();
         if (StrUtil.isBlank(videoUrl)) {
             log.info("成片下载无可用成片, episodeEditorId={}, exportStatus={}",
                     editor.getId(), editor.getExportStatus());
@@ -154,7 +152,7 @@ public class EpisodeFinalVideoDownloadServiceImpl implements EpisodeFinalVideoDo
                             .select(AidEpisodeEditor::getId, AidEpisodeEditor::getUserId,
                                     AidEpisodeEditor::getProjectId, AidEpisodeEditor::getEpisodeId,
                                     AidEpisodeEditor::getExportStatus, AidEpisodeEditor::getFinalVideoUrl,
-                                    AidEpisodeEditor::getPendingVideoUrl, AidEpisodeEditor::getDelFlag)
+                                    AidEpisodeEditor::getDelFlag)
                             .eq(AidEpisodeEditor::getId, request.getEpisodeEditorId())
                             .eq(AidEpisodeEditor::getDelFlag, DEL_FLAG_NORMAL)
                             .last("LIMIT 1"));
@@ -180,7 +178,7 @@ public class EpisodeFinalVideoDownloadServiceImpl implements EpisodeFinalVideoDo
                         .select(AidEpisodeEditor::getId, AidEpisodeEditor::getUserId,
                                 AidEpisodeEditor::getProjectId, AidEpisodeEditor::getEpisodeId,
                                 AidEpisodeEditor::getExportStatus, AidEpisodeEditor::getFinalVideoUrl,
-                                AidEpisodeEditor::getPendingVideoUrl, AidEpisodeEditor::getDelFlag)
+                                AidEpisodeEditor::getDelFlag)
                         .eq(AidEpisodeEditor::getUserId, userId)
                         .eq(AidEpisodeEditor::getProjectId, request.getProjectId())
                         .eq(AidEpisodeEditor::getEpisodeId, request.getEpisodeId())

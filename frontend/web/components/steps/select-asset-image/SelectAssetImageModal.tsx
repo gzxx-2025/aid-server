@@ -272,7 +272,7 @@ export function SelectAssetImageModal({
   })()
 
   const [assetLibraryOpen, setAssetLibraryOpen] = useState(false)
-  const assetLibraryTitle = `从资源库选择 - ${modalTitle}`
+  const assetLibraryTitle = modalTitle
 
   useEffect(() => {
     if (open) {

@@ -12,6 +12,8 @@ import com.aid.aid.domain.vo.LoginVO;
 import com.aid.aid.domain.vo.UserInfoVO;
 import com.aid.aid.domain.vo.UserSocialVO;
 import com.aid.aid.service.IAidConfigService;
+import com.aid.aid.service.IAccountCancellationService;
+import com.aid.common.constant.AccountCancellationConstants;
 import com.aid.common.constant.AuthConstants;
 import com.aid.common.constant.Constants;
 import com.aid.common.core.domain.AjaxResult;
@@ -128,6 +130,9 @@ public class WeChatLoginService {
     @Resource
     private IRegisterBonusService registerBonusService;
 
+    @Resource
+    private IAccountCancellationService accountCancellationService;
+
     /**
      * 初始化登录状态
      *
@@ -200,6 +205,9 @@ public class WeChatLoginService {
             loginData.put("token", token);
             // 执行多端在线策略
             onlineSessionPolicy.enforce(loginUser.getUserId(), loginUser.getToken());
+            AsyncManager.me().execute(AsyncFactory.recordLogininfor(
+                    existUser.getUserId(), existUser.getUserName(),
+                    Constants.LOGIN_SUCCESS, "微信扫码登录成功"));
 
             log.info("微信扫码登录成功(已绑定用户): sceneStr={}, openIdHash={}, userId={}",
                     sceneStr, hashSensitive(openId), existUser.getUserId());
@@ -476,6 +484,12 @@ public class WeChatLoginService {
      * @return 新注册的用户
      */
     protected SysUser registerWechatUser(String openId, WxMpUser wxMpUser, String inviteCode) {
+        accountCancellationService.checkRegistrationAllowed(
+                AccountCancellationConstants.IDENTITY_WECHAT_OPENID, openId);
+        accountCancellationService.checkRegistrationAllowed(
+                AccountCancellationConstants.IDENTITY_WECHAT_UNIONID,
+                wxMpUser == null ? null : wxMpUser.getUnionId());
+
         // 昵称做 null/长度/XSS 兜底，保持"微信用户_xxx"兜底语义
         String rawNick = wxMpUser == null ? null : wxMpUser.getNickname();
         String nickName = sanitizeWechatNickName(rawNick);
@@ -530,7 +544,7 @@ public class WeChatLoginService {
 
         // 记录注册日志（不打印 nickName 中可能含 PII，仅打 userId）
         AsyncManager.me().execute(AsyncFactory.recordLogininfor(
-                user.getUserName(), Constants.LOGIN_SUCCESS, "微信扫码登录自动注册"));
+                user.getUserId(), user.getUserName(), Constants.LOGIN_SUCCESS, "微信扫码登录自动注册"));
 
         log.info("微信用户自动注册成功: openIdHash={}, userId={}", hashSensitive(openId), user.getUserId());
 

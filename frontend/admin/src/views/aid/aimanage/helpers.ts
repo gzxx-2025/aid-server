@@ -1,6 +1,11 @@
 import type { CapabilityModel, InputPricing, Model, ParamMapping, Sku, SkuEditData } from './types';
 import { makeEmptyCapabilityModel, inferMeterType } from './constants';
-import { extractUnmanagedCapability, mergeManagedCapability } from './capabilityMerge';
+import {
+  buildInputSupportFields,
+  extractUnmanagedCapability,
+  mergeManagedCapability,
+  parseInputModalities
+} from './capabilityMerge';
 
 /** 模型行表格"能力"列单行紧凑摘要 */
 export function buildCapSummary(row: Model): string {
@@ -38,13 +43,43 @@ export function parseCapabilityJsonToModel(jsonStr?: string | null): CapabilityM
   m.preservedCapability = extractUnmanagedCapability(obj);
   m.supportsReasoning = obj.supportsReasoning === true;
   m.supportsReasoningDisable = obj.supportsReasoningDisable === true;
-  m.returnsReasoningContent = obj.returnsReasoningContent === true;
+  m.returnsReasoningContent = obj.supportsReasoningContent === true || obj.returnsReasoningContent === true;
   m.supportsReasoningBudget = obj.supportsReasoningBudget === true;
   m.defaultReasoningEnabled = obj.defaultReasoningEnabled === true;
   m.reasoningApiStyle = typeof obj.reasoningApiStyle === 'string' ? obj.reasoningApiStyle : undefined;
   m.outputTokenApiField = typeof obj.outputTokenApiField === 'string' ? obj.outputTokenApiField : undefined;
   m.allowedReasoningLevels = Array.isArray(obj.allowedReasoningLevels)
     ? obj.allowedReasoningLevels.map(String).filter(Boolean) : [];
+  m.defaultReasoningLevel = typeof obj.defaultReasoningLevel === 'string'
+    ? obj.defaultReasoningLevel : undefined;
+  {
+    const value = Number(obj.defaultReasoningBudgetTokens);
+    m.defaultReasoningBudgetTokens = Number.isFinite(value) && value > 0 ? Math.trunc(value) : null;
+    const maxValue = Number(obj.maxReasoningBudgetTokens);
+    m.maxReasoningBudgetTokens = Number.isFinite(maxValue) && maxValue > 0 ? Math.trunc(maxValue) : null;
+  }
+  m.inputModalities = parseInputModalities(obj);
+  m.outputModalities = Array.isArray(obj.outputModalities)
+    ? obj.outputModalities.map((v: unknown) => String(v).trim().toUpperCase()).filter(Boolean) : ['TEXT'];
+  const countFields = ['maxInputImages', 'maxInputVideos', 'maxInputAudios', 'maxInputDocuments'] as const;
+  countFields.forEach((field) => {
+    const value = Number(obj[field]);
+    m[field] = Number.isFinite(value) && value >= -1 ? Math.trunc(value) : null;
+  });
+  const positiveFields = [
+    'maxInputImageFileSizeMb', 'maxInputVideoFileSizeMb', 'maxInputAudioFileSizeMb',
+    'maxInputDocumentFileSizeMb', 'maxInputVideoDurationSeconds', 'maxInputAudioDurationSeconds',
+    'maxInputDocumentPages', 'contextWindowTokens', 'maxOutputTokens'
+  ] as const;
+  positiveFields.forEach((field) => {
+    const value = Number(obj[field]);
+    m[field] = Number.isFinite(value) && value > 0 ? Math.trunc(value) : null;
+  });
+  const formatFields = ['inputImageFormats', 'inputVideoFormats', 'inputAudioFormats', 'inputDocumentFormats'] as const;
+  formatFields.forEach((field) => {
+    m[field] = Array.isArray(obj[field])
+      ? obj[field].map((v: unknown) => String(v).trim().toLowerCase()).filter(Boolean) : [];
+  });
   if (Array.isArray(obj.sizeOptions)) m.sizeOptions = obj.sizeOptions.slice();
   if (Array.isArray(obj.aspectRatioOptions)) m.aspectRatioOptions = obj.aspectRatioOptions.slice();
   if (Array.isArray(obj.durationOptions)) m.durationOptions = obj.durationOptions.slice();
@@ -122,11 +157,36 @@ export function buildCapabilityJsonObject(form: Model, cap: CapabilityModel): Re
       supportsReasoning,
       supportsReasoningDisable: supportsReasoning && cap.supportsReasoningDisable === true,
       returnsReasoningContent: supportsReasoning && cap.returnsReasoningContent === true,
+      supportsReasoningContent: supportsReasoning && cap.returnsReasoningContent === true,
       supportsReasoningBudget: supportsReasoning && cap.supportsReasoningBudget === true,
       defaultReasoningEnabled: supportsReasoning && cap.defaultReasoningEnabled === true,
       reasoningApiStyle: supportsReasoning ? cap.reasoningApiStyle || undefined : undefined,
       outputTokenApiField: supportsReasoning ? cap.outputTokenApiField || undefined : undefined,
       allowedReasoningLevels: supportsReasoning ? cap.allowedReasoningLevels || [] : [],
+      defaultReasoningLevel: supportsReasoning ? cap.defaultReasoningLevel || undefined : undefined,
+      defaultReasoningBudgetTokens: supportsReasoning && cap.supportsReasoningBudget
+        ? cap.defaultReasoningBudgetTokens ?? undefined : undefined,
+      maxReasoningBudgetTokens: supportsReasoning && cap.supportsReasoningBudget
+        ? cap.maxReasoningBudgetTokens ?? undefined : undefined,
+      ...buildInputSupportFields(cap.inputModalities),
+      outputModalities: Array.from(new Set((cap.outputModalities || ['TEXT']).map((v) => v.toUpperCase()))),
+      maxInputImages: (cap.inputModalities || []).includes('IMAGE') ? cap.maxInputImages || 10 : 0,
+      maxInputVideos: (cap.inputModalities || []).includes('VIDEO') ? cap.maxInputVideos || 10 : 0,
+      maxInputAudios: (cap.inputModalities || []).includes('AUDIO') ? cap.maxInputAudios || 10 : 0,
+      maxInputDocuments: (cap.inputModalities || []).includes('DOCUMENT') ? cap.maxInputDocuments || 10 : 0,
+      inputImageFormats: (cap.inputModalities || []).includes('IMAGE') ? cap.inputImageFormats || [] : [],
+      inputVideoFormats: (cap.inputModalities || []).includes('VIDEO') ? cap.inputVideoFormats || [] : [],
+      inputAudioFormats: (cap.inputModalities || []).includes('AUDIO') ? cap.inputAudioFormats || [] : [],
+      inputDocumentFormats: (cap.inputModalities || []).includes('DOCUMENT') ? cap.inputDocumentFormats || [] : [],
+      maxInputImageFileSizeMb: (cap.inputModalities || []).includes('IMAGE') ? cap.maxInputImageFileSizeMb ?? undefined : undefined,
+      maxInputVideoFileSizeMb: (cap.inputModalities || []).includes('VIDEO') ? cap.maxInputVideoFileSizeMb ?? undefined : undefined,
+      maxInputAudioFileSizeMb: (cap.inputModalities || []).includes('AUDIO') ? cap.maxInputAudioFileSizeMb ?? undefined : undefined,
+      maxInputDocumentFileSizeMb: (cap.inputModalities || []).includes('DOCUMENT') ? cap.maxInputDocumentFileSizeMb ?? undefined : undefined,
+      maxInputVideoDurationSeconds: (cap.inputModalities || []).includes('VIDEO') ? cap.maxInputVideoDurationSeconds ?? undefined : undefined,
+      maxInputAudioDurationSeconds: (cap.inputModalities || []).includes('AUDIO') ? cap.maxInputAudioDurationSeconds ?? undefined : undefined,
+      maxInputDocumentPages: (cap.inputModalities || []).includes('DOCUMENT') ? cap.maxInputDocumentPages ?? undefined : undefined,
+      contextWindowTokens: cap.contextWindowTokens ?? undefined,
+      maxOutputTokens: cap.maxOutputTokens ?? undefined,
       sceneRules: { textOnly: { ...cap.sceneRules.textOnly } }
     });
   }

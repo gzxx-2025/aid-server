@@ -1,6 +1,5 @@
 import React from 'react';
 import CrudPage, { type CrudConfig, type EmbeddedScope, scopedConfig } from '@/components/CrudPage';
-import HiddenStylePromptJsonField from '@/components/HiddenStylePromptJsonField';
 import {
   listAssetuser, getAssetuser, addAssetuser, updateAssetuser, delAssetuser
 } from '@/api/aid/assetuser';
@@ -60,14 +59,6 @@ const config: CrudConfig = {
     { name: 'assetName', label: '资产名称', required: true, maxLength: 100 },
     { name: 'personalityDesc', label: '特征描述/生成约束', type: 'textarea', span: 24 },
     { name: 'promptText', label: '提示词内容', type: 'textarea', span: 24 },
-    {
-      name: 'hiddenStylePromptJson',
-      label: '隐藏风格提示词',
-      type: 'custom',
-      span: 24,
-      render: () => <HiddenStylePromptJsonField readOnlyKeys={['character']} />,
-      viewRender: (value: string | null) => <HiddenStylePromptJsonField value={value} readOnly />
-    },
     { name: 'imageUrl', label: '主图', type: 'image', span: 24 },
     { name: 'sourceType', label: '来源类型', type: 'select', options: SOURCE_TYPE, initialValue: 'USER' },
     { name: 'sortOrder', label: '排序值', type: 'number', initialValue: 0 },

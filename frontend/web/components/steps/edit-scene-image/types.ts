@@ -144,24 +144,17 @@ export interface EditSceneImageModalBaseCtx {
   // —— 顶层可变状态（原 ref；Mirrored=需触发渲染，RefObject 风格 { current }=纯逻辑量）——
   currentSceneIndex: Mirrored<number>
   currentImageIndex: Mirrored<number>
-  leftActiveTab: Mirrored<'generate' | 'dialogue'>
   viewMode: { current: 'list' | 'card' }
   editingImageTitleIndex: Mirrored<number | null>
   editingImageTitle: Mirrored<string>
-  promptText: Mirrored<string>
-  referenceImages: { current: Array<{ url?: string }> }
   dialogueSourceImages: Mirrored<DialogueSourceImage[]>
   dialogueInstructionHtml: Mirrored<string>
   showDialogueImportModal: Mirrored<boolean>
-  generateSourceImages: Mirrored<DialogueSourceImage[]>
-  showGenerateImportModal: Mirrored<boolean>
   localSceneImages: Mirrored<any[]>
   /** 锁：在“编辑从 rps 接口回填”的弹窗场景下，禁止 watch(props.scenes) 覆盖 left 列表数据。 */
   lockLocalSceneImagesFromRps: { current: boolean }
   showSceneSettingModal: Mirrored<boolean>
   sceneSettingContent: Mirrored<string>
-  showImportReferenceModal: Mirrored<boolean>
-  currentReferenceImageIndex: { current: number }
   showAssetLibraryModal: Mirrored<boolean>
   showMultiAngleModal: Mirrored<boolean>
   multiAngleTargetIndex: { current: number | null }
@@ -221,7 +214,7 @@ export interface EditSceneImageModalBaseCtx {
   currentScene: () => EditSceneImageModalScene
   currentSceneImages: () => any[]
   currentImg: () => any | null
-  /** 选图后以该图片保存的业务提示词和历史参考图同步初始化两种作图模式。 */
+  /** 选图后以该图片保存的业务提示词和历史参考图初始化对话作图。 */
   applyCurrentFormImageEditPrefill: () => void
   switchScene: (index: number) => void
   switchImage: (index: number) => Promise<void>
@@ -263,8 +256,6 @@ export interface SceneModalTaskStateApi {
   showMultiViewToolbarLoading: () => boolean
   showCurrentGeneratingPlaceholder: () => boolean
   resolveActiveSceneModalTaskKind: (sceneIdx: number) => SceneModalSseTaskKind | null
-  showEditGenerateButtonLoading: () => boolean
-  showDialogueGenerateButtonLoading: () => boolean
   showGenerateFooterButtonLoading: () => boolean
   clearUpscaleOverlay: () => void
   resolvePersistedSceneModalSseTask: (editorScopeKey: string) => SceneModalSseTaskSnapshot | null
@@ -373,8 +364,6 @@ export interface SceneModalTaskRestoreApi {
 
 /** 生成 / 任务触发模块 API（实现见 useSceneModalGenerate.ts） */
 export interface SceneModalGenerateApi {
-  /** 开始生图（编辑图片：genMode=edit，必须 ≥1 张参考图） */
-  handleStartGenerate: () => Promise<void>
   /** 「对话作图」Tab：genMode=chat，参考图 0~N 张（0 张为纯文生图） */
   handleStartDialogueGenerate: () => Promise<void>
   /** 仅当前画布条目展示拆分 loading，避免切 Tab/换图后按钮仍转圈挡住其它入口 */
@@ -400,8 +389,6 @@ export interface SceneModalGenerateApi {
 
 /** controller 内实现的杂项 handler（实现见 useEditSceneImageModalController.ts） */
 export interface EditSceneImageControllerExtras {
-  /** 右侧 Tab：编辑图片（genMode=edit） */
-  generateTabLabel: () => string
   /** 中间画布标题：与外层列表 `img.title` 同源 */
   currentImageDisplayTitle: () => string
   handlePreviewCanvasImage: () => void
@@ -409,10 +396,6 @@ export interface EditSceneImageControllerExtras {
   handleSettingModalSyncSceneTitle: (fullDisplayName: string) => void
   handleSaveSceneSetting: (content: string) => void
   handleSaveAndUpdateSceneSetting: (content: string) => void
-  handleGeneratePrompt: () => void
-  handleImportReferenceImage: (index: number) => void
-  handleReferenceImageImport: (file: File | string) => Promise<void>
-  removeReferenceImage: (index: number) => void
   getFirstSceneImage: (sceneIndex: number) => any | null
   handleAddSceneImageAfter: (index: number) => void
   selectSceneImageFromTab: (sceneIndex: number) => void

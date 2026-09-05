@@ -30,7 +30,11 @@ export interface EditorSelectionRange {
   length: number
 }
 
-export type ControlledEditorValueDecision = 'local-echo' | 'defer' | 'apply'
+export type ControlledEditorValueDecision =
+  | 'local-echo'
+  | 'stale-local-echo'
+  | 'defer'
+  | 'apply'
 export type EditorChangeSource = 'api' | 'silent' | 'user'
 
 export interface PromptEmbedInsertionPlan {
@@ -92,6 +96,13 @@ export function createControlledEditorValueCoordinator(): ControlledEditorValueC
       if (echoIndex >= 0) {
         const matched = pendingEchoes[echoIndex]
         pendingEchoes.splice(0, echoIndex + 1)
+        if (pendingEchoes.length > 0) {
+          return {
+            decision: 'stale-local-echo' as const,
+            value,
+            localRevision: matched.revision
+          }
+        }
         // 最新受控值已确认采用本地编辑结果，之前的延迟外部值不再具有权威性。
         deferredValue = null
         return { decision: 'local-echo' as const, value, localRevision: matched.revision }
@@ -131,7 +142,7 @@ export function shouldApplyControlledEditorValue(options: {
   editorValue: string
   controlledValue: string
 }): boolean {
-  if (options.decision === 'defer') return false
+  if (options.decision === 'defer' || options.decision === 'stale-local-echo') return false
   return options.editorValue !== options.controlledValue
 }
 

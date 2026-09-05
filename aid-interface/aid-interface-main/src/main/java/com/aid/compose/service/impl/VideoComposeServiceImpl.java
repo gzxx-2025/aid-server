@@ -1,5 +1,7 @@
 package com.aid.compose.service.impl;
 
+import com.aid.common.error.TaskErrorCode;
+import com.aid.common.error.TaskErrorPresentation;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
@@ -75,9 +77,7 @@ import com.aid.compose.util.SubtitleSpeakerMatcher;
 import com.aid.compose.util.TimelineSubtitleMatcher;
 import com.aid.domain.vo.AiModelConfigVo;
 import com.aid.enums.CreationStepEnum;
-import com.aid.enums.EpisodeStatusEnum;
 import com.aid.enums.GenTypeEnum;
-import com.aid.enums.ProjectStatusEnum;
 import com.aid.media.constants.MinimaxTtsConstants;
 import com.aid.media.dto.MediaAudioGenerateRequest;
 import com.aid.media.enums.MediaTaskStatus;
@@ -172,7 +172,7 @@ public class VideoComposeServiceImpl implements VideoComposeService {
     /** 项目服务（接口2 自动建档时校验项目归属） */
     private final IAidComicProjectService aidComicProjectService;
 
-    /** 剧集服务（接口2 审核中候选版本保护） */
+    /** 剧集服务 */
     private final IAidComicEpisodeService aidComicEpisodeService;
 
     /** 模型配置服务（按 voiceModelId 解析 TTS 模型码） */
@@ -597,7 +597,7 @@ public class VideoComposeServiceImpl implements VideoComposeService {
                         .select(AidEpisodeEditor::getId, AidEpisodeEditor::getUserId,
                                 AidEpisodeEditor::getProjectId, AidEpisodeEditor::getEpisodeId,
                                 AidEpisodeEditor::getExportStatus, AidEpisodeEditor::getExportTaskId,
-                                AidEpisodeEditor::getFinalVideoUrl, AidEpisodeEditor::getPendingVideoUrl,
+                                AidEpisodeEditor::getFinalVideoUrl,
                                 AidEpisodeEditor::getExportFingerprint, AidEpisodeEditor::getUpdateTime,
                                 AidEpisodeEditor::getDelFlag)
                         .eq(AidEpisodeEditor::getId, episodeEditorId)
@@ -682,10 +682,8 @@ public class VideoComposeServiceImpl implements VideoComposeService {
 
         // 素材指纹：分组素材（视频/配音URL与时长、字幕、BGM、分辨率）归一化后哈希。
         // 上次导出成功且指纹一致 → 素材未变（没重新出片/重新配音/改字幕），直接复用成片，不再合成不再扣费。
-        // 最新成片可能在待审槽（已过审内容重新导出的产物），复用优先返回待审新片
         String fingerprint = computeExportFingerprint(request);
-        String latestVideoUrl = StrUtil.isNotBlank(editor.getPendingVideoUrl())
-                ? editor.getPendingVideoUrl() : editor.getFinalVideoUrl();
+        String latestVideoUrl = editor.getFinalVideoUrl();
         if (!Boolean.TRUE.equals(request.getForceRecompose())
                 && Objects.equals(editor.getExportStatus(), ComposeConstants.EXPORT_STATUS_SUCCESS)
                 && StrUtil.isNotBlank(latestVideoUrl)
@@ -700,10 +698,7 @@ public class VideoComposeServiceImpl implements VideoComposeService {
             reusedResult.setFinalVideoUrl(latestVideoUrl);
             return reusedResult;
         }
-        // 审核中的候选视频必须保持不可变；只有素材未变的幂等导出允许在上方直接复用。
-        assertContentNotAuditing(editor);
-        // 说明：已过审/审核中内容重新导出不再回落审核状态、不下架旧片——
-        // 新成片由回写监听器落待审槽（pending_video_url），旧片继续公开展示，重新过审后新片转正
+        // 素材发生变化时继续生成，新成片由回写监听器原子更新正式成片地址。
 
         if (!exportStarted) {
             exportRunToken = markExportComposing(request, editor, userId);
@@ -783,33 +778,6 @@ public class VideoComposeServiceImpl implements VideoComposeService {
             log.error("接口2 复用成片状态恢复失败, episodeEditorId={}, runToken={}",
                     editor.getId(), exportRunToken);
             throw new ServiceException("导出状态失效");
-        }
-    }
-
-    /** 审核期间禁止生成不同内容覆盖候选快照，审核通过或驳回后再允许重新导出。 */
-    private void assertContentNotAuditing(AidEpisodeEditor editor) {
-        if (Objects.equals(editor.getEpisodeId(), 0L)) {
-            AidComicProject project = aidComicProjectService.getOne(Wrappers.<AidComicProject>lambdaQuery()
-                    .select(AidComicProject::getId, AidComicProject::getStatus)
-                    .eq(AidComicProject::getId, editor.getProjectId())
-                    .eq(AidComicProject::getDelFlag, DEL_FLAG_NORMAL)
-                    .last("LIMIT 1"));
-            if (Objects.nonNull(project)
-                    && Objects.equals(project.getStatus(), ProjectStatusEnum.AUDITING.getValue())) {
-                log.info("接口2 审核中拒绝变更电影候选视频, projectId={}", editor.getProjectId());
-                throw new ServiceException("内容审核中");
-            }
-            return;
-        }
-        AidComicEpisode episode = aidComicEpisodeService.getOne(Wrappers.<AidComicEpisode>lambdaQuery()
-                .select(AidComicEpisode::getId, AidComicEpisode::getStatus)
-                .eq(AidComicEpisode::getId, editor.getEpisodeId())
-                .eq(AidComicEpisode::getDelFlag, DEL_FLAG_NORMAL)
-                .last("LIMIT 1"));
-        if (Objects.nonNull(episode)
-                && Objects.equals(episode.getStatus(), EpisodeStatusEnum.AUDITING.getValue())) {
-            log.info("接口2 审核中拒绝变更剧集候选视频, episodeId={}", editor.getEpisodeId());
-            throw new ServiceException("内容审核中");
         }
     }
 
@@ -1059,7 +1027,7 @@ public class VideoComposeServiceImpl implements VideoComposeService {
         LambdaQueryWrapper<AidEpisodeEditor> wrapper = new LambdaQueryWrapper<>();
         wrapper.select(AidEpisodeEditor::getId, AidEpisodeEditor::getProjectId, AidEpisodeEditor::getEpisodeId,
                 AidEpisodeEditor::getExportStatus, AidEpisodeEditor::getExportProgress,
-                AidEpisodeEditor::getFinalVideoUrl, AidEpisodeEditor::getPendingVideoUrl,
+                AidEpisodeEditor::getFinalVideoUrl,
                 AidEpisodeEditor::getCoverUrl,
                 AidEpisodeEditor::getErrorMsg, AidEpisodeEditor::getExportTaskId,
                 AidEpisodeEditor::getUpdateTime);
@@ -1094,9 +1062,6 @@ public class VideoComposeServiceImpl implements VideoComposeService {
         result.setErrorMsg(editor.getErrorMsg());
         // 同步识别阶段库内使用临时受理令牌做并发隔离，不作为正式 MPS 任务ID暴露给前端。
         result.setExportTaskId(NumberUtil.isLong(editor.getExportTaskId()) ? editor.getExportTaskId() : null);
-        // 待审新片：非空=成片已变更需重新提审（旧片继续公开展示，过审后新片自动转正）
-        result.setPendingVideoUrl(editor.getPendingVideoUrl());
-        result.setNeedReaudit(StrUtil.isNotBlank(editor.getPendingVideoUrl()));
         return result;
     }
 
@@ -1146,7 +1111,7 @@ public class VideoComposeServiceImpl implements VideoComposeService {
             // 查询字段精简：自愈判定仅需终态与结果字段（新增使用字段时此处必须同步补充）
             AidMediaTask task = aidMediaTaskMapper.selectOne(new LambdaQueryWrapper<AidMediaTask>()
                     .select(AidMediaTask::getId, AidMediaTask::getStatus, AidMediaTask::getOssUrl,
-                            AidMediaTask::getErrorMessage, AidMediaTask::getUserId)
+                            AidMediaTask::getErrorMessage, AidMediaTask::getErrorDetailJson, AidMediaTask::getUserId)
                     .eq(AidMediaTask::getId, Long.parseLong(editor.getExportTaskId()))
                     .last("LIMIT 1"));
             if (Objects.isNull(task)) {
@@ -1879,7 +1844,7 @@ public class VideoComposeServiceImpl implements VideoComposeService {
     /**
      * 按「用户+项目+剧集」查最新一条剪辑记录。
      * 查询字段精简：防重、更新与成片复用判定所需字段（新增使用字段时此处必须同步补充）；
-     * finalVideoUrl/pendingVideoUrl/exportFingerprint 缺失会导致按项目+剧集导出时指纹比对恒不等、复用永远不命中。
+     * finalVideoUrl/exportFingerprint 缺失会导致按项目+剧集导出时指纹比对恒不等、复用永远不命中。
      *
      * @param projectId 项目ID
      * @param episodeId 剧集ID
@@ -1892,7 +1857,7 @@ public class VideoComposeServiceImpl implements VideoComposeService {
                         .select(AidEpisodeEditor::getId, AidEpisodeEditor::getUserId,
                                 AidEpisodeEditor::getProjectId, AidEpisodeEditor::getEpisodeId,
                                 AidEpisodeEditor::getExportStatus, AidEpisodeEditor::getExportTaskId,
-                                AidEpisodeEditor::getFinalVideoUrl, AidEpisodeEditor::getPendingVideoUrl,
+                                AidEpisodeEditor::getFinalVideoUrl,
                                 AidEpisodeEditor::getExportFingerprint, AidEpisodeEditor::getUpdateTime,
                                 AidEpisodeEditor::getDelFlag)
                         .eq(AidEpisodeEditor::getUserId, userId)
@@ -1994,7 +1959,7 @@ public class VideoComposeServiceImpl implements VideoComposeService {
         if (textLength > MAX_VOICEOVER_TEXT_LENGTH) {
             log.info("接口1 配音文本过长, modelCode={}, textLen={}, max={}",
                     voice.modelConfig.getModelCode(), textLength, MAX_VOICEOVER_TEXT_LENGTH);
-            throw new ServiceException("文本过长");
+            throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_TOO_LONG, "文本过长，请精简");
         }
         if (minimaxProviderDetector.isMinimax(voice.modelConfig.getProviderCode(),
                 MinimaxProviderDetector.parseCapabilityProvider(voice.modelConfig.getCapabilityJson()),
@@ -2002,7 +1967,7 @@ public class VideoComposeServiceImpl implements VideoComposeService {
                 && textLength > MinimaxTtsConstants.SYNC_TEXT_MAX_LENGTH) {
             log.info("接口1 MiniMax配音文本过长, modelCode={}, textLen={}, max={}",
                     voice.modelConfig.getModelCode(), textLength, MinimaxTtsConstants.SYNC_TEXT_MAX_LENGTH);
-            throw new ServiceException("文本过长");
+            throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_TOO_LONG, "文本过长，请精简");
         }
     }
 

@@ -141,7 +141,6 @@ function VideoCanvasCard({
       className={[
         'video-card',
         cardView ? 'video-card-view' : '',
-        ctx.selectedVideoIdx.value === idx ? 'video-card--active' : '',
         generating ? 'video-card--generating' : ''
       ]
         .filter(Boolean)

@@ -21,7 +21,6 @@ import com.aid.aid.domain.AidEpisodeEditor;
 import com.aid.aid.domain.AidRoleVoiceBinding;
 import com.aid.aid.domain.AidScenePlot;
 import com.aid.aid.domain.AidStoryboard;
-import com.aid.aid.service.IAidComicAuditRecordService;
 import com.aid.aid.service.IAidComicEpisodeService;
 import com.aid.aid.service.IAidComicProjectService;
 import com.aid.aid.service.IAidComicScriptService;
@@ -35,8 +34,6 @@ import com.aid.common.page.SafePageUtils;
 import com.aid.common.utils.DateUtils;
 import com.aid.common.utils.StringUtils;
 import com.aid.compose.ComposeConstants;
-import com.aid.enums.AuditActionEnum;
-import com.aid.enums.AuditTargetTypeEnum;
 import com.aid.enums.CreationModeEnum;
 import com.aid.enums.EpisodeStatusEnum;
 import com.aid.enums.GenModeEnum;
@@ -69,9 +66,6 @@ public class UserEpisodeBusinessServiceImpl implements IUserEpisodeBusinessServi
     private IAidEpisodeEditorService aidEpisodeEditorService;
 
     @Autowired
-    private IAidComicAuditRecordService aidComicAuditRecordService;
-
-    @Autowired
     private MediaUrlResolver mediaUrlResolver;
 
     @Autowired
@@ -99,14 +93,6 @@ public class UserEpisodeBusinessServiceImpl implements IUserEpisodeBusinessServi
     /** OSS 文件清理服务：清理剧集封面、成片视频等 OSS 文件 */
     @Autowired
     private com.aid.media.cleanup.IMediaOssCleanupService mediaOssCleanupService;
-
-    /** 项目内容修改守卫：项目公开期间禁止增删改剧集，须先关闭公开 */
-    @Autowired
-    private com.aid.project.service.IProjectContentGuardService projectContentGuardService;
-
-    /** 微信公众号推送：提交审核状态变更通知（内部吞异常，不影响主流程） */
-    @Autowired
-    private com.aid.notify.wechat.service.IWechatNotifyService wechatNotifyService;
 
     /**
      * 校验项目归属并返回项目
@@ -182,9 +168,6 @@ public class UserEpisodeBusinessServiceImpl implements IUserEpisodeBusinessServi
         // 校验项目归属
         AidComicProject project = getAndCheckProject(request.getProjectId(), userId);
 
-        // 公开锁：项目公开期间禁止新增剧集，须先关闭公开
-        projectContentGuardService.assertProjectEditable(project);
-
         // 电影类型不允许添加剧集
         if (ProjectTypeEnum.MOVIE.getValue().equals(project.getProjectType())) {
             throw new RuntimeException("电影类型项目无法添加剧集");
@@ -234,28 +217,15 @@ public class UserEpisodeBusinessServiceImpl implements IUserEpisodeBusinessServi
         if (episode == null) {
             throw new RuntimeException("剧集不存在或无权限操作");
         }
-        // 审核快照提交后保持不可变，避免审核员查看期间候选内容被并发替换。
-        if (Objects.equals(episode.getStatus(), EpisodeStatusEnum.AUDITING.getValue())) {
-            log.info("修改剧集失败，内容审核中: episodeId={}", episode.getId());
-            throw new ServiceException("内容审核中");
-        }
-
         AidComicProject project = getAndCheckProject(episode.getProjectId(), userId);
-        // 公开期间只允许修改公开元数据并进入重审；生成参数仍按原规则锁定。
-        boolean touchingContentFields = request.getGenMode() != null || request.getCreationMode() != null;
-        if (touchingContentFields) {
-            projectContentGuardService.assertProjectEditable(project);
-        }
 
         // 校验枚举字段
         validateEnumFields(request.getGenMode(), request.getCreationMode());
 
         Integer beforeStatus = episode.getStatus();
-        String candidateTitle = effectiveEpisodeTitle(episode);
-        String candidateDesc = effectiveEpisodeDesc(episode);
-        String candidateCoverUrl = effectiveEpisodeCoverUrl(episode);
-        boolean metadataTouched = StringUtils.isNotEmpty(request.getComicTitle())
-                || request.getComicDesc() != null || request.getComicCoverUrl() != null;
+        String candidateTitle = episode.getComicTitle();
+        String candidateDesc = episode.getComicDesc();
+        String candidateCoverUrl = episode.getComicCoverUrl();
         if (StringUtils.isNotEmpty(request.getComicTitle())) {
             candidateTitle = request.getComicTitle().trim();
         }
@@ -267,35 +237,15 @@ public class UserEpisodeBusinessServiceImpl implements IUserEpisodeBusinessServi
             candidateCoverUrl = StrUtil.isBlank(requestCoverUrl)
                     ? requestCoverUrl : mediaUrlResolver.toRelativePath(requestCoverUrl);
         }
-        boolean metadataChanged = (StringUtils.isNotEmpty(request.getComicTitle())
-                && !Objects.equals(candidateTitle, effectiveEpisodeTitle(episode)))
-                || (request.getComicDesc() != null
-                && !Objects.equals(candidateDesc, effectiveEpisodeDesc(episode)))
-                || (request.getComicCoverUrl() != null
-                && !Objects.equals(candidateCoverUrl, effectiveEpisodeCoverUrl(episode)));
-        boolean reviewMetadata = hasApprovedEpisodeRevision(episode, project)
-                && metadataTouched && metadataChanged;
-        boolean submittedForReview = reviewMetadata
-                && !Objects.equals(beforeStatus, EpisodeStatusEnum.AUDITING.getValue());
-        if (reviewMetadata) {
-            assertEpisodeReviewMetadata(candidateDesc, candidateCoverUrl, episode.getId());
-            // 保存完整待审快照，线上标题、描述、封面在审核通过前不变。
-            episode.setPendingComicTitle(candidateTitle);
-            episode.setPendingComicDesc(candidateDesc);
-            episode.setPendingComicCoverUrl(candidateCoverUrl);
-            episode.setStatus(EpisodeStatusEnum.AUDITING.getValue());
-            episode.setStatusReason(null);
-        }
-
         // 更新可修改字段（aspectRatio、scriptType、videoStyleType、videoStyleValue来自项目，不可修改）
         boolean needClearGenConfig = false; // 创作模式跨组切换时置 true，保存成功后清空项目级生成配置
-        if (!reviewMetadata && StringUtils.isNotEmpty(request.getComicTitle())) {
+        if (StringUtils.isNotEmpty(request.getComicTitle())) {
             episode.setComicTitle(candidateTitle);
         }
-        if (!reviewMetadata && request.getComicDesc() != null) {
+        if (request.getComicDesc() != null) {
             episode.setComicDesc(candidateDesc);
         }
-        if (!reviewMetadata && request.getComicCoverUrl() != null) {
+        if (request.getComicCoverUrl() != null) {
             episode.setComicCoverUrl(candidateCoverUrl);
         }
         if (request.getGenMode() != null) {
@@ -322,75 +272,16 @@ public class UserEpisodeBusinessServiceImpl implements IUserEpisodeBusinessServi
         updateWrapper.eq(AidComicEpisode::getId, episode.getId());
         updateWrapper.eq(AidComicEpisode::getUserId, userId);
         updateWrapper.eq(AidComicEpisode::getStatus, beforeStatus);
-        if (reviewMetadata) {
-            // 实体更新默认忽略 null，需显式清空上一次驳回原因。
-            updateWrapper.set(AidComicEpisode::getStatusReason, null);
-        }
         boolean updated = aidComicEpisodeService.update(episode, updateWrapper);
         if (!updated) {
             log.info("修改剧集失败，状态已变化: episodeId={}, beforeStatus={}", episode.getId(), beforeStatus);
             throw new ServiceException("状态已变化");
-        }
-        if (submittedForReview) {
-            aidComicAuditRecordService.saveAuditRecord(AuditTargetTypeEnum.EPISODE.getValue(), episode.getId(),
-                    userId, AuditActionEnum.SUBMIT.getValue(), beforeStatus,
-                    EpisodeStatusEnum.AUDITING.getValue(), null, String.valueOf(userId));
-            wechatNotifyService.notifyContentAudit(AuditTargetTypeEnum.EPISODE.getValue(), episode.getId(),
-                    com.aid.notify.wechat.service.IWechatNotifyService.AUDIT_EVENT_SUBMITTED, null);
         }
         // 创作模式跨组切换且保存成功：清空该项目生成配置（项目级，按当前用户），使各场景回落矩阵默认
         if (needClearGenConfig) {
             projectGenConfigService.clearProjectConfig(episode.getProjectId(), userId);
         }
         return episode;
-    }
-
-    /** 是否已有审核通过基线，公开元数据变更必须进入待审槽。 */
-    private boolean hasApprovedEpisodeRevision(AidComicEpisode episode, AidComicProject project)
-    {
-        return Objects.equals(episode.getStatus(), EpisodeStatusEnum.AUDIT_PASSED.getValue())
-                || (Objects.equals(episode.getStatus(), EpisodeStatusEnum.AUDITING.getValue())
-                && Objects.nonNull(project.getPublishTime()))
-                || hasPendingEpisodeMetadata(episode);
-    }
-
-    /** 是否存在待审核的单集公开元数据快照。 */
-    private boolean hasPendingEpisodeMetadata(AidComicEpisode episode)
-    {
-        return StrUtil.isNotBlank(episode.getPendingComicTitle())
-                || StrUtil.isNotBlank(episode.getPendingComicDesc())
-                || StrUtil.isNotBlank(episode.getPendingComicCoverUrl());
-    }
-
-    private String effectiveEpisodeTitle(AidComicEpisode episode)
-    {
-        return StrUtil.isNotBlank(episode.getPendingComicTitle())
-                ? episode.getPendingComicTitle() : episode.getComicTitle();
-    }
-
-    private String effectiveEpisodeDesc(AidComicEpisode episode)
-    {
-        return StrUtil.isNotBlank(episode.getPendingComicDesc())
-                ? episode.getPendingComicDesc() : episode.getComicDesc();
-    }
-
-    private String effectiveEpisodeCoverUrl(AidComicEpisode episode)
-    {
-        return StrUtil.isNotBlank(episode.getPendingComicCoverUrl())
-                ? episode.getPendingComicCoverUrl() : episode.getComicCoverUrl();
-    }
-
-    /** 单集审核元数据统一校验：描述必填，封面选填但传入时必须是本站图片。 */
-    private void assertEpisodeReviewMetadata(String comicDesc, String coverUrl, Long episodeId)
-    {
-        if (StrUtil.isBlank(comicDesc)) {
-            log.info("提交剧集审核失败，单集描述缺失: episodeId={}", episodeId);
-            throw new ServiceException("请填写剧集描述");
-        }
-        if (StrUtil.isNotBlank(coverUrl) && !mediaUrlResolver.isSiteImageUrl(coverUrl)) {
-            log.info("提交剧集审核失败，单集封面地址无效: episodeId={}, coverUrl={}", episodeId, coverUrl);
-            throw new ServiceException("封面图地址无效");
-        }
     }
 
     /**
@@ -417,8 +308,6 @@ public class UserEpisodeBusinessServiceImpl implements IUserEpisodeBusinessServi
         if (episode == null) {
             throw new RuntimeException("剧集不存在或无权限操作");
         }
-        // 公开锁：项目公开期间禁止删除剧集，须先关闭公开
-        projectContentGuardService.assertProjectEditable(episode.getProjectId());
         Long projectId = episode.getProjectId();
         // 收集本次需清理的 OSS 文件，最后统一登记（先完成所有 DB 删除，再删文件）
         java.util.List<String> filesToClean = new java.util.ArrayList<>();
@@ -458,88 +347,6 @@ public class UserEpisodeBusinessServiceImpl implements IUserEpisodeBusinessServi
         return affected;
     }
 
-    /**
-     * 用户提交剧集审核（带归属校验）
-     * 状态机：除「审核中(3)」「审核通过(4)」外的状态均可提交（成片导出成功后状态自动变为「完成未审核(2)」即可提审）
-     * → 置为「审核中(3)」并清空状态原因，同时写入一条「提交审核」流水。
-     *
-     * @param id 剧集ID
-     * @param userId 用户ID
-     * @return 提交审核后的剧集
-     */
-    @Override
-    @Transactional(rollbackFor = Exception.class)
-    public AidComicEpisode submitAudit(Long id, Long userId)
-    {
-        // 查询并校验归属（含项目归属校验）
-        AidComicEpisode episode = selectUserEpisodeById(id, userId);
-        if (episode == null) {
-            log.info("提交剧集审核失败，剧集不存在或无权限: episodeId={}, userId={}", id, userId);
-            throw new ServiceException("剧集不存在");
-        }
-        Integer beforeStatus = episode.getStatus();
-        // 校验当前状态是否允许提交审核
-        if (Objects.equals(beforeStatus, EpisodeStatusEnum.AUDITING.getValue())) {
-            throw new ServiceException("内容审核中");
-        }
-        // 内容前置校验：该剧集必须已有成品视频（aid_episode_editor.final_video_url 非空）
-        // 剧集成片在 aid_episode_editor 中以剧集自身ID关联（电影不会进入本接口）；
-        // 并发建档可能产生多行，取最新一条（与受理侧 selectLatestEditor 口径一致）
-        AidEpisodeEditor editor = aidEpisodeEditorService.getOne(Wrappers.<AidEpisodeEditor>lambdaQuery()
-                .eq(AidEpisodeEditor::getProjectId, episode.getProjectId())
-                .eq(AidEpisodeEditor::getEpisodeId, id)
-                .eq(AidEpisodeEditor::getDelFlag, "0")
-                .orderByDesc(AidEpisodeEditor::getId)
-                .last("LIMIT 1"));
-        if (Objects.equals(beforeStatus, EpisodeStatusEnum.AUDIT_PASSED.getValue())
-                && !hasPendingExportVideo(editor)
-                && !hasPendingEpisodeMetadata(episode)) {
-            // 已过审且没有待审新片或待审元数据时，无重审必要。
-            throw new ServiceException("已通过审核");
-        }
-        if (Objects.isNull(editor) || StringUtils.isEmpty(editor.getFinalVideoUrl())) {
-            log.info("提交剧集审核失败，剧集缺成品视频: episodeId={}", id);
-            throw new ServiceException("请先合成视频");
-        }
-        if (Objects.equals(editor.getExportStatus(), ComposeConstants.EXPORT_STATUS_COMPOSING)) {
-            log.info("提交剧集审核失败，视频正在合成: episodeId={}", id);
-            throw new ServiceException("视频合成中");
-        }
-        assertEpisodeReviewMetadata(effectiveEpisodeDesc(episode), effectiveEpisodeCoverUrl(episode), id);
-        // 置为审核中并清空上次状态原因
-        Integer afterStatus = EpisodeStatusEnum.AUDITING.getValue();
-        LambdaUpdateWrapper<AidComicEpisode> updateWrapper = Wrappers.lambdaUpdate();
-        updateWrapper.eq(AidComicEpisode::getId, id);
-        updateWrapper.eq(AidComicEpisode::getUserId, userId);
-        updateWrapper.eq(AidComicEpisode::getStatus, beforeStatus);
-        updateWrapper.set(AidComicEpisode::getStatus, afterStatus);
-        updateWrapper.set(AidComicEpisode::getStatusReason, null);
-        updateWrapper.set(AidComicEpisode::getUpdateTime, DateUtils.getNowDate());
-        boolean updated = aidComicEpisodeService.update(updateWrapper);
-        if (!updated) {
-            log.info("提交剧集审核状态已变化: episodeId={}, beforeStatus={}", id, beforeStatus);
-            throw new ServiceException("状态已变化");
-        }
-        // 写入审核流水（提交审核），操作人记为用户ID
-        aidComicAuditRecordService.saveAuditRecord(AuditTargetTypeEnum.EPISODE.getValue(), id, userId,
-                AuditActionEnum.SUBMIT.getValue(), beforeStatus, afterStatus, null, String.valueOf(userId));
-        // 微信公众号推送：提交审核（推送服务内部吞异常，不影响提审主流程）
-        wechatNotifyService.notifyContentAudit(AuditTargetTypeEnum.EPISODE.getValue(), id,
-                com.aid.notify.wechat.service.IWechatNotifyService.AUDIT_EVENT_SUBMITTED, null);
-        // 回填最新状态返回
-        episode.setStatus(afterStatus);
-        episode.setStatusReason(null);
-        return episode;
-    }
-
-    /** 待审地址存在且双槽指纹不相同，才表示确有需要重新审核的新成片。 */
-    private boolean hasPendingExportVideo(AidEpisodeEditor editor)
-    {
-        return Objects.nonNull(editor) && StringUtils.isNotEmpty(editor.getPendingVideoUrl())
-                && !(StrUtil.isNotBlank(editor.getFinalVideoFingerprint())
-                && Objects.equals(editor.getFinalVideoFingerprint(), editor.getPendingVideoFingerprint()));
-    }
-
     @Override
     public List<UserEpisodeVO> convertToVOList(List<AidComicEpisode> episodes)
     {
@@ -569,7 +376,7 @@ public class UserEpisodeBusinessServiceImpl implements IUserEpisodeBusinessServi
         Map<String, AidEpisodeEditor> editorMap = new HashMap<>();
         for (AidEpisodeEditor editor : aidEpisodeEditorService.list(Wrappers.<AidEpisodeEditor>lambdaQuery()
                 .select(AidEpisodeEditor::getId, AidEpisodeEditor::getProjectId, AidEpisodeEditor::getEpisodeId,
-                        AidEpisodeEditor::getFinalVideoUrl, AidEpisodeEditor::getPendingVideoUrl,
+                        AidEpisodeEditor::getFinalVideoUrl,
                         AidEpisodeEditor::getExportStatus)
                 .eq(Objects.nonNull(userId), AidEpisodeEditor::getUserId, userId)
                 .in(AidEpisodeEditor::getProjectId, projectIds)
@@ -610,10 +417,9 @@ public class UserEpisodeBusinessServiceImpl implements IUserEpisodeBusinessServi
                 .id(episode.getId())
                 .projectId(episode.getProjectId())
                 .episodeNo(episode.getEpisodeNo())
-                // 创作者看到待审候选版本；公开服务仍读取最后一次过审字段。
-                .comicTitle(effectiveEpisodeTitle(episode))
-                .comicDesc(effectiveEpisodeDesc(episode))
-                .comicCoverUrl(effectiveEpisodeCoverUrl(episode))
+                .comicTitle(episode.getComicTitle())
+                .comicDesc(episode.getComicDesc())
+                .comicCoverUrl(episode.getComicCoverUrl())
                 .genMode(episode.getGenMode())
                 .creationMode(episode.getCreationMode())
                 .status(episode.getStatus())
@@ -629,7 +435,6 @@ public class UserEpisodeBusinessServiceImpl implements IUserEpisodeBusinessServi
         if (editor != null) {
             builder.episodeEditorId(editor.getId())
                     .finalVideoUrl(editor.getFinalVideoUrl())
-                    .pendingVideoUrl(editor.getPendingVideoUrl())
                     .exportStatus(editor.getExportStatus());
         }
         return builder.build();

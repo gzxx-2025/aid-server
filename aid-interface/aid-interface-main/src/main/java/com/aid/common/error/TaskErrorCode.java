@@ -54,6 +54,9 @@ public enum TaskErrorCode {
 
     /** 上游供应商付费额度不足 */
     PROVIDER_QUOTA_EXHAUSTED("PROVIDER", "QUOTA", "模型额度不足，请联系管理员", true, "MERCHANT", false),
+
+    /** 上游供应商明确返回账户余额/点数不足，可触发供应商余额监控 */
+    PROVIDER_BALANCE_INSUFFICIENT("PROVIDER", "QUOTA", "模型额度不足，请联系管理员", true, "MERCHANT", false),
     /** 上游认证/授权失败（HTTP 401/403） */
     UPSTREAM_AUTH_INVALID("PROVIDER", "UPSTREAM_TECH", "当前生成服务暂不可用", false, null, false),
 

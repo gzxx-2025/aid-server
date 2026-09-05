@@ -84,7 +84,6 @@ export function useEditSceneImageModalController(
 
   // —— 顶层可变状态（原 ref）——
   const currentSceneIndex = useMirrored(props.sceneIndex)
-  const leftActiveTab = useMirrored<'generate' | 'dialogue'>('generate')
   const viewMode = useRef<'list' | 'card'>('list')
   const currentImageIndex = useMirrored(
     props.initialImageIndex !== null && props.initialImageIndex !== undefined ? props.initialImageIndex : 0
@@ -92,21 +91,9 @@ export function useEditSceneImageModalController(
   const editingImageTitleIndex = useMirrored<number | null>(null)
   const editingImageTitle = useMirrored('')
 
-  const promptText = useMirrored('')
-  const referenceImages = useRef<Array<{ url?: string }>>([
-    { url: undefined },
-    { url: undefined },
-    { url: undefined },
-    { url: undefined }
-  ])
-
   const dialogueSourceImages = useMirrored<DialogueSourceImage[]>([])
   const dialogueInstructionHtml = useMirrored('')
   const showDialogueImportModal = useMirrored(false)
-
-  /** "编辑图片" Tab 的参考图列表（genMode=edit，≥1 张） */
-  const generateSourceImages = useMirrored<DialogueSourceImage[]>([])
-  const showGenerateImportModal = useMirrored(false)
 
   // 本地场景图片列表（包含待添加的图片）
   const localSceneImages = useMirrored<any[]>([])
@@ -116,8 +103,6 @@ export function useEditSceneImageModalController(
 
   const showSceneSettingModal = useMirrored(false)
   const sceneSettingContent = useMirrored('')
-  const showImportReferenceModal = useMirrored(false)
-  const currentReferenceImageIndex = useRef(0)
   const showAssetLibraryModal = useMirrored(false)
   const showMultiAngleModal = useMirrored(false)
   const multiAngleTargetIndex = useRef<number | null>(null)
@@ -194,9 +179,6 @@ export function useEditSceneImageModalController(
   /** 仅编辑场景主资产图（非角色/道具/形态） */
   const isSceneEditMode = () => propsRef.current.imageType === 'scene'
 
-  /** 右侧 Tab：编辑图片（genMode=edit） */
-  const generateTabLabel = () => '编辑图片'
-
   // 作用域/props 派生 helpers（实现移至 sceneModalScopeHelpers.ts，仅代码搬移不改逻辑）
   const rpsAssetIdForSceneIndex = (sceneIdx: number): number | null =>
     rpsAssetIdForSceneIndexImpl(ctx, sceneIdx)
@@ -243,12 +225,10 @@ export function useEditSceneImageModalController(
 
   const currentImg = () => currentSceneImages()[currentImageIndex.get()] || null
 
-  /** 选图后以该图片保存的业务提示词和历史参考图同步初始化两种作图模式。 */
+  /** 选图后以该图片保存的业务提示词和历史参考图初始化对话作图。 */
   function applyCurrentFormImageEditPrefill() {
     const prefill = resolveFormImageEditPrefill(currentImg())
-    promptText.set(prefill.promptText)
     dialogueInstructionHtml.set(prefill.promptText)
-    generateSourceImages.set(prefill.sourceImages.map((item) => ({ ...item })))
     dialogueSourceImages.set(prefill.sourceImages.map((item) => ({ ...item })))
   }
 
@@ -328,23 +308,16 @@ export function useEditSceneImageModalController(
     emitOpenChange: (value: boolean) => propsRef.current.onOpenChange(value),
     currentSceneIndex,
     currentImageIndex,
-    leftActiveTab,
     viewMode,
     editingImageTitleIndex,
     editingImageTitle,
-    promptText,
-    referenceImages,
     dialogueSourceImages,
     dialogueInstructionHtml,
     showDialogueImportModal,
-    generateSourceImages,
-    showGenerateImportModal,
     localSceneImages,
     lockLocalSceneImagesFromRps,
     showSceneSettingModal,
     sceneSettingContent,
-    showImportReferenceModal,
-    currentReferenceImageIndex,
     showAssetLibraryModal,
     showMultiAngleModal,
     multiAngleTargetIndex,
@@ -416,7 +389,6 @@ export function useEditSceneImageModalController(
 
   useEditSceneImageModalEffects(ctx, props)
   return Object.assign(ctx, interactionHandlers, {
-    generateTabLabel,
     currentImageDisplayTitle,
     handlePreviewCanvasImage,
     setImageRef,

@@ -301,12 +301,15 @@ function shallowStringRecordEqual(a: Record<string, string>, b: Record<string, s
 }
 
 function countProgressEqual(
-  a: { completed?: number; total?: number },
-  b: { completed?: number; total?: number }
+  a: { completed?: number; total?: number; eta?: { displayProgress?: number; estimatedFinishAtP50?: number; estimatedFinishAtP90?: number } },
+  b: { completed?: number; total?: number; eta?: { displayProgress?: number; estimatedFinishAtP50?: number; estimatedFinishAtP90?: number } }
 ): boolean {
   return (
     Number(a?.completed ?? 0) === Number(b?.completed ?? 0) &&
-    Number(a?.total ?? 0) === Number(b?.total ?? 0)
+    Number(a?.total ?? 0) === Number(b?.total ?? 0) &&
+    Number(a?.eta?.displayProgress ?? 0) === Number(b?.eta?.displayProgress ?? 0) &&
+    Number(a?.eta?.estimatedFinishAtP50 ?? 0) === Number(b?.eta?.estimatedFinishAtP50 ?? 0) &&
+    Number(a?.eta?.estimatedFinishAtP90 ?? 0) === Number(b?.eta?.estimatedFinishAtP90 ?? 0)
   )
 }
 
@@ -426,7 +429,8 @@ export function hydrateStoryboardVideoLiveGenFromScopes(
         stepTitle: String(blob.storyboardVideoBatchProgress?.stepTitle ?? ''),
         successCount: blob.storyboardVideoBatchProgress?.successCount,
         failCount: blob.storyboardVideoBatchProgress?.failCount,
-        progressText: blob.storyboardVideoBatchProgress?.progressText
+        progressText: blob.storyboardVideoBatchProgress?.progressText,
+        eta: blob.storyboardVideoBatchProgress?.eta
       })
     }
   }

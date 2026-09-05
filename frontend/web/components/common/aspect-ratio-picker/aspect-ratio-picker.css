@@ -1,0 +1,5 @@
+.aspect-ratio-picker__shape {
+  display: block;
+  border: 1.5px solid currentColor;
+  border-radius: 3px;
+}

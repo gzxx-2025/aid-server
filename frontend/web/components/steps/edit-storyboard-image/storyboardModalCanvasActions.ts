@@ -294,7 +294,7 @@ const handleMultiAngleGenerate = async (payload: MultiAngleGeneratePayload) => {
       },
       onProgress: (p) => {
         ctx.upscaleProgressText.set(
-          p.stepTitle || p.message || (isNineGrid ? '九宫格生图中...' : '多机位生图中...')
+          p.message || p.stepTitle || (isNineGrid ? '九宫格生图中...' : '多机位生图中...')
         )
         const task = ctx.getModalImageGenTask(storyboardId)
         if (task?.taskId) {

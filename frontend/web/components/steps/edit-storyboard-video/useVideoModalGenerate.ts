@@ -81,7 +81,7 @@ export function useVideoModalGenerate(ctx: VideoModalCtx): void {
     ctx.ensureGeneratingPlaceholderVideo(sceneIdx)
 
     const onProgress = (p: { stepTitle?: string; message?: string; taskId?: number }) => {
-      const live = String(p.stepTitle || p.message || '').trim()
+      const live = String(p.message || p.stepTitle || '').trim()
       if (live) {
         ctx.videoGenerateProgressText.set(live)
       }

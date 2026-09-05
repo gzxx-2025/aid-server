@@ -21,6 +21,7 @@ import {
   type StoryboardParamSettingsModalHandle
 } from './StoryboardParamSettingsModal'
 import type { PromptAssetItem } from '~/utils/storyboardPromptAssetRef'
+import { EDIT_ASSET_PROMPT_MAX_CHARS } from '~/utils/htmlPlain'
 import { useStoryboardGeneratePanelLayout } from './storyboard-generate-panel/useStoryboardGeneratePanelLayout'
 import { useStoryboardPanelPromptSync } from './storyboard-generate-panel/useStoryboardPanelPromptSync'
 import { StoryboardPanelAssetRows } from './storyboard-generate-panel/StoryboardPanelAssetRows'
@@ -474,7 +475,7 @@ export const StoryboardGeneratePanel = forwardRef<
                   placeholder={props.promptPlaceholder}
                   minHeight={promptHeightExpanded}
                   maxHeight={promptHeightExpanded}
-                  maxLength={3000}
+                  maxLength={EDIT_ASSET_PROMPT_MAX_CHARS}
                   enablePromptAssetRefs={enablePromptAssetRefs}
                   promptAssets={storyboardPromptAssets}
                   enablePromptParamRefs={enablePromptParamRefs}
@@ -554,7 +555,7 @@ export const StoryboardGeneratePanel = forwardRef<
             value={props.prompt}
             placeholder={props.promptPlaceholder}
             minHeight="120px"
-            maxLength={3000}
+            maxLength={EDIT_ASSET_PROMPT_MAX_CHARS}
             enablePromptAssetRefs={enablePromptAssetRefs}
             promptAssets={storyboardPromptAssets}
             enablePromptParamRefs={enablePromptParamRefs}
@@ -588,7 +589,7 @@ export const StoryboardGeneratePanel = forwardRef<
             placeholder={props.promptPlaceholder}
             minHeight={promptHeightCollapsed}
             maxHeight={promptHeightCollapsed}
-            maxLength={3000}
+            maxLength={EDIT_ASSET_PROMPT_MAX_CHARS}
             enablePromptAssetRefs={enablePromptAssetRefs}
             promptAssets={storyboardPromptAssets}
             enablePromptParamRefs={enablePromptParamRefs}

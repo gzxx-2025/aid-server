@@ -10,7 +10,6 @@ const eslintConfig = defineConfig([
   globalIgnores([
     // Default ignores of eslint-config-next:
     ".next/**",
-    ".nuxt/**",
     ".tmp/**",
     "dist/**",
     "out/**",

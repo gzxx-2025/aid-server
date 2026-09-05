@@ -1,8 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Col, Form, Input, InputNumber, Modal, Row, Select, Switch, Tabs, Tag } from 'antd';
+import React, { useEffect, useState } from 'react';
+import { Alert, Button, Col, Form, Input, InputNumber, Modal, Row, Select, Switch, Tabs } from 'antd';
 import { LinkOutlined } from '@ant-design/icons';
 import { ENABLE_STATUS_OPTIONS, DISPATCH_MODE_OPTIONS } from '@/utils/enums';
-import { getThinkingDisablePreset, makeDefaultScheduleStrategy } from './constants';
+import { makeDefaultScheduleStrategy } from './constants';
 import type { Provider, ScheduleStrategy } from './types';
 import JsonObjectEditor, { KvPreset } from './JsonObjectEditor';
 import ImageUpload from '@/components/ImageUpload';
@@ -20,20 +20,6 @@ interface Props {
   onCancel: () => void;
   onOk: (values: any) => Promise<void>;
 }
-
-/** 供应商级思考默认值；模型能力、请求开关与真实 usage 仍由模型配置和统一计费层收口。 */
-const THINKING_DISABLED_OPTIONS: { label: string; value: 'auto' | 'manual' | 'none'; desc: string }[] = [
-  {
-    label: '兼容模式：自动关闭',
-    value: 'auto',
-    desc: '按厂商编码自动写入对应关闭参数：volcengine→thinking.type=disabled，dashscope→enable_thinking=false'
-  },
-  {
-    label: '按 extra_body 配置',
-    value: 'manual',
-    desc: '保留高级 JSON 中的开启、关闭、档位或预算设置，由模型 capability 校验协议能力'
-  }
-];
 
 /** extra_headers 常用预设（不同厂商的鉴权辅助 header） */
 const EXTRA_HEADERS_PRESETS: KvPreset[] = [
@@ -90,7 +76,6 @@ export default function ProviderDialog({ open, title, data, onCancel, onOk }: Pr
   const [loading, setLoading] = useState(false);
   const [strategy, setStrategy] = useState<ScheduleStrategy>(makeDefaultScheduleStrategy());
   /** 思考模式控制（默认 auto 关闭） */
-  const [thinkingMode, setThinkingMode] = useState<'auto' | 'manual'>('auto');
   const [activeTab, setActiveTab] = useState('basic');
 
   // 监听 providerCode 让 thinking 自动预览
@@ -102,12 +87,6 @@ export default function ProviderDialog({ open, title, data, onCancel, onOk }: Pr
   const providerName = Form.useWatch('providerName', form);
   const officialDocUrl = Form.useWatch('officialDocUrl', form);
   const apiKeyApplyUrl = Form.useWatch('apiKeyApplyUrl', form);
-
-  // 计算"自动关闭"模式下会写入的 extra_body 预览
-  const thinkingPreview = useMemo(() => {
-    if (thinkingMode !== 'auto') return null;
-    return getThinkingDisablePreset(providerCode);
-  }, [thinkingMode, providerCode]);
 
   useEffect(() => {
     if (!open) return;
@@ -121,22 +100,6 @@ export default function ProviderDialog({ open, title, data, onCancel, onOk }: Pr
       }
       s.supportsCallback = !!data.supportsCallback;
       form.setFieldValue('callbackBaseUrl', s.callbackBaseUrl || undefined);
-      // 编辑场景：判断 extra_body 是否就是当前 providerCode 的"自动关闭"预设
-      const preset = getThinkingDisablePreset(data.providerCode);
-      if (preset && data.extraBody) {
-        try {
-          const parsed = JSON.parse(data.extraBody);
-          const isAutoPreset = JSON.stringify(parsed) === JSON.stringify(preset);
-          setThinkingMode(isAutoPreset ? 'auto' : 'manual');
-        } catch {
-          setThinkingMode('manual');
-        }
-      } else {
-        // 新增 / 没有 extra_body / 未知厂商：默认自动
-        setThinkingMode('auto');
-      }
-    } else {
-      setThinkingMode('auto');
     }
     setStrategy(s);
     setActiveTab('basic');
@@ -187,26 +150,6 @@ export default function ProviderDialog({ open, title, data, onCancel, onOk }: Pr
       delete strategyToSave.providerConcurrency;
       delete strategyToSave.modelConcurrency;
       values.scheduleStrategyJson = JSON.stringify(strategyToSave);
-
-      // 根据思考模式选择写 extra_body
-      if (thinkingMode === 'auto') {
-        const preset = getThinkingDisablePreset(values.providerCode);
-        if (preset) {
-          // 合并到 extra_body：保留高级 JSON 里其它字段，preset 字段覆盖
-          let merged: Record<string, any> = preset;
-          if (values.extraBody && values.extraBody.trim()) {
-            try {
-              const existing = JSON.parse(values.extraBody);
-              if (existing && typeof existing === 'object' && !Array.isArray(existing)) {
-                merged = { ...existing, ...preset };
-              }
-            } catch {
-              // 高级 JSON 不合法直接用 preset
-            }
-          }
-          values.extraBody = JSON.stringify(merged);
-        }
-      }
 
       // 校验 JSON 字段：JsonObjectEditor 输出的已是合法 JSON 字符串或 null
       // 这里只做空值兜底（为防御性兼容外部传入异常值，仍保留 try）
@@ -355,62 +298,6 @@ export default function ProviderDialog({ open, title, data, onCancel, onOk }: Pr
                     </Col>
                     <Col span={24}><Form.Item name="remark" label="备注"><Input.TextArea rows={2} placeholder="备注信息（选填）" /></Form.Item></Col>
                   </Row>
-                </div>
-              )
-            },
-            {
-              key: 'thinking',
-              label: '思考模式',
-              forceRender: true,
-              children: (
-                <div style={tabBodyStyle}>
-                  <Alert
-                    showIcon
-                    type="info"
-                    style={{ marginBottom: 16 }}
-                    message="供应商级思考默认值（仅文本 LLM 生效）"
-                    description={'可选择兼容关闭，或在 extra_body 中显式配置开启、关闭、档位和预算。模型 capability 决定可用开关；计费按供应商真实 usage 归一，缓存与思考 token 不会和父级重复计费。'}
-                  />
-                  <Form.Item label="处理策略">
-                    <Select
-                      value={thinkingMode}
-                      onChange={setThinkingMode}
-                      // 选中态只显示标题，下拉里再展示描述
-                      options={THINKING_DISABLED_OPTIONS.map((o) => ({
-                        value: o.value,
-                        label: o.label,
-                        desc: o.desc
-                      }))}
-                      optionRender={(option) => (
-                        <div>
-                          <div style={{ fontWeight: 500 }}>{(option.data as any).label}</div>
-                          <div style={{ fontSize: 12, color: '#94a3b8' }}>{(option.data as any).desc}</div>
-                        </div>
-                      )}
-                    />
-                  </Form.Item>
-                  {thinkingMode === 'auto' && thinkingPreview && (
-                    <Alert
-                      type="success"
-                      showIcon
-                      style={{ marginBottom: 12 }}
-                      message={<span>已识别厂商 <Tag color="geekblue">{providerCode}</Tag>，保存时将自动写入以下参数：</span>}
-                      description={
-                        <pre className="readonly-preview" style={{ marginTop: 8 }}>
-                          {JSON.stringify(thinkingPreview, null, 2)}
-                        </pre>
-                      }
-                    />
-                  )}
-                  {thinkingMode === 'auto' && !thinkingPreview && providerCode && (
-                    <Alert
-                      type="warning"
-                      showIcon
-                      style={{ marginBottom: 12 }}
-                      message="未识别的厂商编码"
-                      description={`系统内置预设仅覆盖 volcengine / dashscope / ark / bytedance / alibaba / aliyun，请在「高级配置」页签使用"不强制"模式手动写入 extra_body。`}
-                    />
-                  )}
                 </div>
               )
             },

@@ -125,12 +125,6 @@
     box-shadow 0.2s ease;
 }
 
-.edit-storyboard-video-modal .video-card--active,
-.edit-storyboard-dubbing-modal .video-card--active {
-  border-color: rgba(74, 231, 253, 1);
-  box-shadow: 0 0 0 2px rgba(74, 231, 253, 0.18);
-}
-
 .edit-storyboard-video-modal .video-card-view {
   max-width: 320px;
 }

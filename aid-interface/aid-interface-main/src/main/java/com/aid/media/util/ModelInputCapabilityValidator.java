@@ -1,7 +1,8 @@
 package com.aid.media.util;
 
+import com.aid.common.error.TaskErrorCode;
+import com.aid.common.error.TaskErrorPresentation;
 import cn.hutool.core.util.StrUtil;
-import com.aid.common.exception.ServiceException;
 import com.aid.domain.vo.AiModelConfigVo;
 import com.aid.media.dto.MediaImageGenerateRequest;
 import com.aid.media.dto.MediaVideoGenerateRequest;
@@ -128,7 +129,7 @@ public final class ModelInputCapabilityValidator {
             requested = parseInteger(optionCount);
         }
         if (requested != null && requested <= 0) {
-            throw new ServiceException("生成数量无效");
+            throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_INVALID, "生成数量无效");
         }
         int normalized = ImageBillingCapabilityHelper.normalizeExpectedCount(
                 modelConfig.getModelCode(), requested, modelConfig.getMaxOutputCount());
@@ -240,7 +241,7 @@ public final class ModelInputCapabilityValidator {
     private static void validateMinimum(JsonNode capability, String key, int actual, String template) {
         JsonNode node = capability.get(key);
         if (node != null && node.isNumber() && node.intValue() > 0 && actual < node.intValue()) {
-            throw new ServiceException(String.format(template, node.intValue()));
+            throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_INVALID, String.format(template, node.intValue()));
         }
     }
 
@@ -582,14 +583,14 @@ public final class ModelInputCapabilityValidator {
                                String reason, String clientMessage) {
         log.info("模型输入能力校验拒绝: modelCode={}, source={}, reason={}",
                 modelConfig.getModelCode(), source, reason);
-        throw new ServiceException(clientMessage);
+        throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_INVALID, clientMessage);
     }
 
     private static Integer parseInteger(Object value) {
         try {
             return value == null ? null : Integer.valueOf(String.valueOf(value));
         } catch (NumberFormatException ex) {
-            throw new ServiceException("生成数量无效");
+            throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_INVALID, "生成数量无效");
         }
     }
 

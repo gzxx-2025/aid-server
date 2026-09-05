@@ -1,5 +1,6 @@
 package com.aid.rps.queue;
 
+import com.aid.common.error.TaskErrorSnapshot;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -1219,7 +1220,8 @@ public class TaskQueueService
             upd.in(AidExtractTask::getStatus, STATUS_PENDING, STATUS_QUEUED);
             upd.eq(AidExtractTask::getBillingTraceId, ctx.getDispatchToken());
             upd.set(AidExtractTask::getStatus, "FAILED");
-            upd.set(AidExtractTask::getErrorMessage, "入队失败");
+            upd.set(AidExtractTask::getErrorMessage, "入队失败")
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage("入队失败"));
             upd.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
             rows = extractTaskService.getBaseMapper().update(null, upd);
         }
@@ -1620,7 +1622,8 @@ public class TaskQueueService
                     cx.eq(AidExtractTask::getStatus, status);
                     cx.eq(AidExtractTask::getBillingTraceId, ctx.getDispatchToken());
                     cx.set(AidExtractTask::getStatus, "CANCELLED");
-                    cx.set(AidExtractTask::getErrorMessage, "用户取消");
+                    cx.set(AidExtractTask::getErrorMessage, "用户取消")
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage("用户取消"));
                     cx.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
                     int cxRows = extractTaskService.getBaseMapper().update(null, cx);
                     if (cxRows > 0)
@@ -1968,7 +1971,8 @@ public class TaskQueueService
             upd.in(AidExtractTask::getStatus, STATUS_PENDING, STATUS_QUEUED);
             upd.eq(AidExtractTask::getBillingTraceId, ctx.getDispatchToken());
             upd.set(AidExtractTask::getStatus, "FAILED");
-            upd.set(AidExtractTask::getErrorMessage, errorMessage);
+            upd.set(AidExtractTask::getErrorMessage, errorMessage)
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage(errorMessage));
             upd.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
             rows = extractTaskService.getBaseMapper().update(null, upd);
         }
@@ -2062,7 +2066,8 @@ public class TaskQueueService
             // 注意：此处不恢复 inputSnapshot——onQueueTaskTerminated 需按当前快照里的新 token 释放本轮锁，
             // 若先把快照换回续生前版本会导致释放旧 token（no-op）而泄漏新 token。runNo 在队列派发失败时少量浪费可接受（需近千次派发失败才耗尽）。
             if (priorTotalCount != null) { upd.set(AidExtractTask::getTotalCount, priorTotalCount); }
-            upd.set(AidExtractTask::getErrorMessage, "续生提交失败，可重试");
+            upd.set(AidExtractTask::getErrorMessage, "续生提交失败，可重试")
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage("续生提交失败，可重试"));
             upd.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
             int rows = extractTaskService.getBaseMapper().update(null, upd);
             if (rows == 0)
@@ -2358,7 +2363,8 @@ public class TaskQueueService
             upd.in(AidExtractTask::getStatus, STATUS_PENDING, STATUS_QUEUED);
             upd.eq(AidExtractTask::getBillingTraceId, expectedTraceId);
             upd.set(AidExtractTask::getStatus, "CANCELLED");
-            upd.set(AidExtractTask::getErrorMessage, "用户取消");
+            upd.set(AidExtractTask::getErrorMessage, "用户取消")
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage("用户取消"));
             upd.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
             int rows = extractTaskService.getBaseMapper().update(null, upd);
             if (rows == 0)

@@ -1,4 +1,5 @@
 #!/bin/bash
+# AID_NGINX_MANAGEMENT=1
 # ============================================================================
 # AID 统一部署管理脚本（菜单式，Docker 与手动部署通用）
 #
@@ -4752,6 +4753,12 @@ validate_release_package() { # validate_release_package <包> <是否要求安�
       rm -f "${listFile}"
       die "发布包内的一键安装脚本语法无效，已拒绝执行"
     fi
+    if tar -xOzf "${package}" "${scriptEntry}" 2>/dev/null | grep -F '# AID_NGINX_MANAGEMENT=1' >/dev/null; then
+      for entry in render.sh bootstrap.sh docker-start.sh public.conf.template admin.conf.template; do
+        grep -Eq "(^|/)installer/deploy/nginx/${entry}$" "${listFile}" \
+          || { rm -f -- "${listFile}"; die "发布包缺少受管Nginx组件: ${entry}"; }
+      done
+    fi
   fi
   rm -f "${listFile}"
 }
@@ -5025,12 +5032,19 @@ ensure_source_package() {
   ok "三端源码构建、包结构与本地 SHA256 校验通过；完整日志: ${buildLog}"
 }
 
+managed_nginx_assets_ready() {
+  local directory="$1" name
+  for name in render.sh bootstrap.sh docker-start.sh public.conf.template admin.conf.template; do
+    [[ -f "${directory}/nginx/${name}" && ! -L "${directory}/nginx/${name}" ]] || return 1
+  done
+}
+
 deployment_runtime_ready() {
   [[ -f "${SCRIPT_DIR}/aid-deploy.conf.example" \
      && -f "${COMPOSE_DIR}/.env.example" \
      && -f "${COMPOSE_DIR}/docker-compose.yml" \
      && -f "${COMPOSE_DIR}/nginx/web-static.conf" \
-     && -f "${REPO_DIR}/sql/aid-init.sql" ]]
+     && -f "${REPO_DIR}/sql/aid-init.sql" ]] && managed_nginx_assets_ready "${REPO_DIR}/deploy"
 }
 
 handoff_to_managed_installer() { # handoff_to_managed_installer <原始参数...>
@@ -5046,7 +5060,7 @@ handoff_to_managed_installer() { # handoff_to_managed_installer <原始参数...
     if [[ "${SCRIPT_DIR}" != "${managedDir}" \
         && -f "${currentManager}" && ! -L "${currentManager}" \
         && -f "${INSTALLER_ROOT}/deploy/docker/docker-compose.yml" \
-        && -f "${INSTALLER_ROOT}/sql/aid-init.sql" ]]; then
+        && -f "${INSTALLER_ROOT}/sql/aid-init.sql" ]] && managed_nginx_assets_ready "${managedDir}"; then
       if cmp -s "${currentManager}" "${MANAGED_SCRIPT}" 2>/dev/null; then
         ok "已启用远程最新引导脚本，受管 aid.sh 已是最新"
       else
@@ -5125,6 +5139,13 @@ extract_installer_from_package() { # extract_installer_from_package <发布包>
     fi
   done
 
+  if grep -Fq '# AID_NGINX_MANAGEMENT=1' "${sourceRoot}/deploy/aid.sh" \
+      && ! managed_nginx_assets_ready "${sourceRoot}/deploy"; then
+    rm -rf -- "${extractRoot}"
+    rm -f -- "${listFile}"
+    err "提取后的安装器缺少受管Nginx组件，未修改现有安装"
+    return 1
+  fi
   mkdir -p "${INSTALLER_ROOT}" \
     || { rm -rf -- "${extractRoot}"; rm -f -- "${listFile}"; err "无法创建安装器目录"; return 1; }
   # 仅覆盖版本控制的安装器文件。发布包禁止携带 .env，因此用户现有配置不会被覆盖或删除。
@@ -5150,7 +5171,8 @@ bootstrap_installer_if_needed() { # bootstrap_installer_if_needed <发布包> <i
     || die "从发布包提取安装器失败；发布包和现有配置均未被修改"
   # 用户通过官方远程命令明确启用最新引导脚本时，发布包只提供其余受管文件；
   # aid.sh 本身必须保留当前远程版本，不能再次退回缓存源码包内的旧脚本。
-  if [[ "${AID_REMOTE_BOOTSTRAP:-0}" == "1" && "${SCRIPT_DIR}" != "${managedDir}" ]]; then
+  if [[ "${AID_REMOTE_BOOTSTRAP:-0}" == "1" && "${SCRIPT_DIR}" != "${managedDir}" ]] \
+      && managed_nginx_assets_ready "${managedDir}"; then
     local currentManager="${SCRIPT_DIR}/$(basename "${BASH_SOURCE[0]}")"
     [[ -f "${currentManager}" && ! -L "${currentManager}" ]] \
       || die "远程最新引导脚本不可读取: ${currentManager}"
@@ -6929,6 +6951,7 @@ stop_unhealthy_docker_application_containers() {
 
 start_docker_application_stack() {
   validate_https_runtime
+  render_managed_nginx docker || return 1
 
   [[ -f "${DATA_ROOT}/app/web-dist/index.html" && -f "${DATA_ROOT}/app/web-dist/200.html" ]] \
     || { err "Web 静态入口不完整: ${DATA_ROOT}/app/web-dist/index.html 或 200.html 缺失"; return 1; }
@@ -7372,150 +7395,151 @@ EOF
   systemctl daemon-reload
 }
 
+render_managed_nginx() {
+  local mode="$1" target="${CONFIG_ROOT}/nginx-managed" kind temporary origin
+  managed_nginx_assets_ready "${REPO_DIR}/deploy" || { err "请先升级完整部署包以安装Nginx模板"; return 1; }
+  [[ ! -L "${target}" ]] || { err "Nginx配置目录不能是符号链接"; return 1; }
+  mkdir -p "${target}"
+  origin="$(setting_get NGINX_BACKEND_ORIGIN)"
+  [[ -n "${origin}" ]] || {
+    if [[ "${mode}" == docker ]]; then origin="http://aid-server:8080"
+    else origin="http://127.0.0.1:$(conf_get BACKEND_PORT 8080)"; fi
+  }
+  for kind in public admin; do
+    [[ ! -L "${target}/${kind}.conf" ]] || { err "Nginx配置不能是符号链接"; return 1; }
+    if [[ -e "${target}/${kind}.conf" ]]; then
+      grep -Fxq '# AID_MANAGED_NGINX_INCLUDE=1' "${target}/${kind}.conf" || { err "拒绝覆盖非受管Nginx配置"; return 1; }
+    fi
+  done
+  for kind in public admin; do
+    temporary="$(mktemp "${target}/.render-XXXXXX")" || return 1
+    if ! NGINX_DEPLOY_MODE="${mode}" NGINX_BACKEND_ORIGIN="${origin}" \
+      NGINX_MAX_BODY_MB="$(setting_get NGINX_MAX_BODY_MB 1024)" \
+      NGINX_READ_TIMEOUT_SECONDS="$(setting_get NGINX_READ_TIMEOUT_SECONDS 300)" \
+      NGINX_CONNECT_TIMEOUT_SECONDS="$(setting_get NGINX_CONNECT_TIMEOUT_SECONDS 10)" \
+      NGINX_EXTRA_DIRECTIVES="$(setting_get NGINX_EXTRA_DIRECTIVES)" \
+      sh "${REPO_DIR}/deploy/nginx/render.sh" "${kind}" > "${temporary}"; then
+      rm -f -- "${temporary}"; return 1
+    fi
+    chmod 644 "${temporary}"
+    mv -- "${temporary}" "${target}/${kind}.conf" || return 1
+  done
+}
+
 write_nginx_site() {
-  local httpPort adminPort backendPort content httpsPort httpsDomain httpsAdminDomain certPath keyPath backupPath siteFile
+  local httpPort adminPort content httpsPort httpsDomain httpsAdminDomain certPath keyPath siteFile backupPath temporary includeBackup kind
   httpPort="$(conf_get HTTP_PORT 80)"
   adminPort="$(conf_get ADMIN_PORT 8089)"
-  backendPort="$(conf_get BACKEND_PORT 8080)"
-  content="# AID 站点：${httpPort}=C端用户端，${adminPort}=后台管理端（根路径托管）
-# AID_MANAGED_NGINX=1
+  siteFile="${NGINX_SITE_DIR}/aid.conf"
+  [[ ! -L "${siteFile}" ]] || die "拒绝修改符号链接站点"
+  if [[ -f "${siteFile}" ]] && ! aid_nginx_site_belongs_to_current_install "${siteFile}"; then
+    die "拒绝接管其他安装的Nginx站点"
+  fi
+  includeBackup="$(mktemp -d "${CONFIG_ROOT}/.nginx-previous-XXXXXX")" || die "Nginx备份失败"
+  for kind in public admin; do
+    if [[ -f "${CONFIG_ROOT}/nginx-managed/${kind}.conf" ]]; then
+      cp -p -- "${CONFIG_ROOT}/nginx-managed/${kind}.conf" "${includeBackup}/${kind}.conf" || die "备份Nginx配置失败"
+    fi
+  done
+  if ! render_managed_nginx systemd; then
+    restore_managed_nginx_includes "${includeBackup}"
+    die "Nginx配置生成失败"
+  fi
+  content="# AID_MANAGED_NGINX=1
 # AID_DATA_ROOT=${DATA_ROOT}
 server {
     listen ${httpPort};
     server_name _;
-    client_max_body_size 1024m;
     root ${DATA_ROOT}/app/web-dist;
     index index.html;
+    include ${CONFIG_ROOT}/nginx-managed/public.conf;
     location = /healthz { access_log off; return 200 \"ok\"; }
-    location /aid/ {
-        proxy_pass http://127.0.0.1:${backendPort}/;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_read_timeout 300s;
-        proxy_buffering off;
-    }
-    location /profile/ {
-        proxy_pass http://127.0.0.1:${backendPort}/profile/;
-    }
-    location / {
-        try_files \$uri \$uri/ /200.html;
-    }
+    location / { try_files \$uri \$uri/ @aid_public_page; }
 }
-
 server {
     listen ${adminPort};
     server_name _;
-    client_max_body_size 1024m;
     root ${DATA_ROOT}/app/admin-dist;
     index index.html;
-    location / {
-        try_files \$uri \$uri/ /index.html;
-    }
-    location /prod-api/ {
-        proxy_pass http://127.0.0.1:${backendPort}/;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_read_timeout 300s;
-        proxy_buffering off;
-    }
-    location /profile/ {
-        proxy_pass http://127.0.0.1:${backendPort}/profile/;
-    }
+    include ${CONFIG_ROOT}/nginx-managed/admin.conf;
+    location / { try_files \$uri \$uri/ /index.html; }
 }"
-  if [[ "$(conf_get HTTPS_ENABLED false)" == "true" ]]; then
+  if [[ "$(conf_get HTTPS_ENABLED false)" == true ]]; then
     httpsPort="$(conf_get HTTPS_PORT 443)"
     httpsDomain="$(conf_get HTTPS_PUBLIC_DOMAIN)"
     httpsAdminDomain="$(conf_get HTTPS_ADMIN_DOMAIN)"
     certPath="$(conf_get HTTPS_CERT_PATH "${DATA_ROOT}/config/ssl/fullchain.pem")"
     keyPath="$(conf_get HTTPS_KEY_PATH "${DATA_ROOT}/config/ssl/privkey.pem")"
     content="${content}
-
 ssl_protocols TLSv1.2 TLSv1.3;
 ssl_session_cache shared:AIDSSL:10m;
 ssl_session_timeout 1d;
 ssl_session_tickets off;
-
 server {
     listen ${httpsPort} ssl http2;
     server_name ${httpsDomain};
     ssl_certificate ${certPath};
     ssl_certificate_key ${keyPath};
-    client_max_body_size 1024m;
     root ${DATA_ROOT}/app/web-dist;
     index index.html;
+    include ${CONFIG_ROOT}/nginx-managed/public.conf;
     location = /healthz { access_log off; return 200 \"ok\"; }
-    location /aid/ {
-        proxy_pass http://127.0.0.1:${backendPort}/;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto https;
-        proxy_read_timeout 300s;
-        proxy_buffering off;
-    }
-    location /profile/ {
-        proxy_pass http://127.0.0.1:${backendPort}/profile/;
-        proxy_set_header X-Forwarded-Proto https;
-    }
-    location / {
-        try_files \$uri \$uri/ /200.html;
-    }
+    location / { try_files \$uri \$uri/ @aid_public_page; }
 }
-
 server {
     listen ${httpsPort} ssl http2;
     server_name ${httpsAdminDomain};
     ssl_certificate ${certPath};
     ssl_certificate_key ${keyPath};
-    client_max_body_size 1024m;
     root ${DATA_ROOT}/app/admin-dist;
     index index.html;
+    include ${CONFIG_ROOT}/nginx-managed/admin.conf;
     location = /healthz { access_log off; return 200 \"ok\"; }
     location / { try_files \$uri \$uri/ /index.html; }
-    location /prod-api/ {
-        proxy_pass http://127.0.0.1:${backendPort}/;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto https;
-        proxy_read_timeout 300s;
-        proxy_buffering off;
-    }
-    location /profile/ {
-        proxy_pass http://127.0.0.1:${backendPort}/profile/;
-        proxy_set_header X-Forwarded-Proto https;
-    }
 }"
   fi
   if [[ -n "${NGINX_BIN}" && -x "${NGINX_BIN}" && -n "${NGINX_SITE_DIR}" ]]; then
     mkdir -p "${NGINX_SITE_DIR}"
     siteFile="${NGINX_SITE_DIR}/aid.conf"
+    [[ ! -L "${siteFile}" ]] || die "拒绝修改符号链接站点"
     backupPath=""
-    if [[ -f "${siteFile}" ]] && ! aid_nginx_site_belongs_to_current_install "${siteFile}"; then
-      backupPath="${siteFile}.aid-before-install.$(date +%s)"
-      cp -p -- "${siteFile}" "${backupPath}" || die "备份已有 Nginx 站点失败: ${siteFile}"
-      write_aid_nginx_backup_state "${siteFile}" "${backupPath}"
+    if [[ -f "${siteFile}" ]]; then
+      backupPath="$(mktemp "${NGINX_SITE_DIR}/.aid-previous-XXXXXX")"
+      cp -p -- "${siteFile}" "${backupPath}" || die "备份Nginx站点失败"
     fi
-    echo "${content}" > "${siteFile}"
-    if ! "${NGINX_BIN}" -t >/dev/null 2>&1; then
-      if [[ -n "${backupPath}" ]]; then
-        cp -- "${backupPath}" "${siteFile}" || die "恢复原 Nginx 配置失败: ${siteFile}"
-        rm -f -- "${backupPath}" "${AID_NGINX_STATE_FILE}" \
-          || die "清理 Nginx 安装失败状态失败，请检查: ${AID_NGINX_STATE_FILE}"
-      else
-        rm -f -- "${siteFile}" || die "清理无效 Nginx 配置失败: ${siteFile}"
-      fi
-      die "Nginx 配置校验失败，已恢复原站点配置"
+    temporary="$(mktemp "${NGINX_SITE_DIR}/.aid-candidate-XXXXXX")"
+    printf '%s\n' "${content}" > "${temporary}"
+    chmod 644 "${temporary}"
+    mv -- "${temporary}" "${siteFile}"
+    if ! "${NGINX_BIN}" -t || ! reload_nginx_runtime; then
+      if [[ -n "${backupPath}" ]]; then cp -p -- "${backupPath}" "${siteFile}"
+      else rm -f -- "${siteFile}"; fi
+      restore_managed_nginx_includes "${includeBackup}"
+      [[ -z "${backupPath}" ]] || rm -f -- "${backupPath}"
+      reload_nginx_runtime || true
+      die "Nginx配置未生效，已恢复原站点"
     fi
-    reload_nginx_runtime || die "Nginx 重载失败，请检查 ${NGINX_SERVICE:-${NGINX_BIN}}"
-    ok "Nginx 站点已生效"
+    [[ -z "${backupPath}" ]] || rm -f -- "${backupPath}"
+    ok "Nginx站点已生效"
   else
-    [[ "$(conf_get HTTPS_ENABLED false)" != "true" ]] || die "启用 HTTPS 前必须先安装并启动 Nginx"
-    echo "${content}" > "${DATA_ROOT}/aid-nginx.conf"
-    warn "未检测到 nginx，站点配置已生成到 ${DATA_ROOT}/aid-nginx.conf 供手工放置"
+    printf '%s\n' "${content}" > "${DATA_ROOT}/aid-nginx.conf"
+    warn "未检测到Nginx，配置已生成到 ${DATA_ROOT}/aid-nginx.conf"
   fi
+  rm -f -- "${includeBackup}/public.conf" "${includeBackup}/admin.conf"
+  rmdir -- "${includeBackup}"
+}
+
+restore_managed_nginx_includes() {
+  local directory="$1" kind
+  for kind in public admin; do
+    if [[ -f "${directory}/${kind}.conf" ]]; then
+      cp -p -- "${directory}/${kind}.conf" "${CONFIG_ROOT}/nginx-managed/${kind}.conf"
+    else
+      rm -f -- "${CONFIG_ROOT}/nginx-managed/${kind}.conf"
+    fi
+  done
+  rm -f -- "${directory}/public.conf" "${directory}/admin.conf"
+  rmdir -- "${directory}"
 }
 
 manual_service_diagnostics() { # manual_service_diagnostics <systemd服务> <组件名>
@@ -9249,6 +9273,22 @@ show_menu() {
 }
 
 main() {
+  if [[ "${1:-}" == __nginx-test || "${1:-}" == __nginx-reload ]]; then
+    select_existing_nginx_runtime || die "未找到受管Nginx运行环境"
+    [[ -f "${NGINX_SITE_DIR}/aid.conf" ]] && aid_nginx_site_belongs_to_current_install "${NGINX_SITE_DIR}/aid.conf" || die "当前站点未由本安装管理"
+    grep -Fq "include ${CONFIG_ROOT}/nginx-managed/public.conf;" "${NGINX_SITE_DIR}/aid.conf" || die "当前站点尚未接入受管配置"
+    if [[ -n "${2:-}" ]]; then
+      local candidate
+      candidate="$(realpath -e -- "$2")" || return 1
+      [[ "${1}" == __nginx-test && "${candidate}" == "${CONFIG_ROOT}/nginx-managed/".check-*/nginx.conf ]] || die "候选配置路径无效"
+      "${NGINX_BIN}" -t -c "${candidate}"
+    elif [[ "$1" == __nginx-test ]]; then
+      "${NGINX_BIN}" -t
+    else
+      reload_nginx_runtime
+    fi
+    return $?
+  fi
   # 内部升级前置入口必须执行当前目标包中的脚本，不能交接回旧版受管脚本。
   # 该入口不展示在用户菜单，仅由签名升级包解压后的升级器调用。
   if [[ "${1:-}" == "__upgrade-runtime-preflight" ]]; then
@@ -9256,6 +9296,9 @@ main() {
     return $?
   fi
   # 用户以后仍执行最初下载的单文件时，自动切换到源码构建包持久化安装的最新版管理脚本。
+  if [[ "${1:-}" == restart ]] && ! managed_nginx_assets_ready "${REPO_DIR}/deploy"; then
+    die "请先升级完整部署包，再使用新版脚本重启；现有服务未修改"
+  fi
   handoff_to_managed_installer "$@"
   case "${1:-}" in
     install|auto)

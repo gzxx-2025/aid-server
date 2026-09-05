@@ -130,16 +130,11 @@ export function createStoryboardVideoBatchVideoFollow(
         onProgress: (p) => {
           if (!core.matchesScope(routeCtx)) return
           core.applySseProgress({
-            progress: p.percent,
-            stepIndex: (p as { stepIndex?: number }).stepIndex,
-            stepTotal: videoTotal,
-            message: p.message,
-            stepTitle: p.stepTitle
+            ...p,
+            progress: typeof p.progress === 'number' ? p.progress : p.percent,
+            stepTotal: typeof p.stepTotal === 'number' ? p.stepTotal : videoTotal
           })
-          const stepIndex =
-            typeof (p as { stepIndex?: number }).stepIndex === 'number'
-              ? Number((p as { stepIndex?: number }).stepIndex)
-              : null
+          const stepIndex = typeof p.stepIndex === 'number' ? Number(p.stepIndex) : null
           if (stepIndex != null && stepIndex > lastRefreshStepIndex) {
             lastRefreshStepIndex = stepIndex
             const refreshSequence = ++latestProgressRefreshSequence

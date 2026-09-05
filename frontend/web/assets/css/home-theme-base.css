@@ -3,7 +3,7 @@
    首页 / 侧栏布局统一主题（与 pages/index.vue、layouts/home.vue 视觉一致）
    修改主色、边框、圆角等请优先改此处 CSS 变量，便于全局替换。
    页面根节点使用 class="home-theme-page"（关于/用户等 home 布局内页）。
-   旧版首页见 home-legacy-page.css（.home-legacy-page）；新版首页见 home-new-page.css（.home-new-index）。
+   首页主体见 home-new-page.css（.home-new-index）。
    ============================================================================= */
 
 :root {

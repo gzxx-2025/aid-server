@@ -1,5 +1,6 @@
 package com.aid.rps.dto;
 
+import com.aid.media.dto.TaskEtaVO;
 import lombok.Builder;
 import lombok.Data;
 
@@ -73,4 +74,7 @@ public class TaskDetailVO {
 
     // 排队位次（1-based，仅 QUEUED 状态有值）。
     private Integer queuePosition;
+
+    // 图片/视频类任务的预计进度与剩余时间。
+    private TaskEtaVO eta;
 }

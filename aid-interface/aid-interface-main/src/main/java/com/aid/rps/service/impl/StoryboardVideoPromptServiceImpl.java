@@ -1,5 +1,7 @@
 package com.aid.rps.service.impl;
 
+import com.aid.common.error.TaskErrorSnapshot;
+import com.aid.common.error.TaskErrorCode;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -410,7 +412,7 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
         if (StrUtil.isBlank(videoPrompt))
         {
             log.info("手动视频提示词为空: storyboardId={}, userId={}", storyboardId, userId);
-            throw new ServiceException("提示词不能为空");
+            throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_EMPTY, "请填写提示词");
         }
 
         // 精简查询字段：格式校验只需要分镜归属及其创作模式定位信息。
@@ -879,7 +881,8 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
                         upd.eq(AidExtractTask::getBillingTraceId, expectedTraceId);
                     }
                     upd.set(AidExtractTask::getStatus, "FAILED");
-                    upd.set(AidExtractTask::getErrorMessage, "提交失败");
+                    upd.set(AidExtractTask::getErrorMessage, "提交失败")
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage("提交失败"));
                     upd.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
                     failedRows = extractTaskService.getBaseMapper().update(null, upd);
                 }
@@ -2083,7 +2086,8 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
         update.eq(AidExtractTask::getBillingTraceId, expectedTraceId);
         update.set(AidExtractTask::getStatus, status);
         update.set(AidExtractTask::getResultData, resultJson);
-        update.set(AidExtractTask::getErrorMessage, errorMessage);
+        update.set(AidExtractTask::getErrorMessage, errorMessage)
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage(errorMessage));
         update.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
         if (!extractTaskService.update(update))
         {

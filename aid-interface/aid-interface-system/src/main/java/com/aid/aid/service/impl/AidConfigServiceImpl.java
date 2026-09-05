@@ -10,6 +10,7 @@ import java.util.stream.Collectors;
 import cn.hutool.core.collection.CollectionUtil;
 import com.aid.vo.ChatConfigVO;
 import com.aid.common.aid.core.service.ConfigService;
+import com.aid.common.constant.AccountCancellationConstants;
 import com.aid.common.exception.ServiceException;
 import com.aid.common.utils.DateUtils;
 import com.aid.common.utils.SecurityUtils;
@@ -91,7 +92,7 @@ public class AidConfigServiceImpl extends ServiceImpl<AidConfigMapper, AidConfig
      */
     @Override
     public int insertAidConfig(AidConfig aidConfig) {
-        validateModelPriceMultiplier(aidConfig.getCategory(), aidConfig.getConfigName(), aidConfig.getConfigValue());
+        validateConfigValue(aidConfig.getCategory(), aidConfig.getConfigName(), aidConfig.getConfigValue());
         aidConfig.setCreateBy(currentOperator());
         aidConfig.setCreateTime(DateUtils.getNowDate());
         return this.save(aidConfig) ? 1 : 0;
@@ -110,7 +111,7 @@ public class AidConfigServiceImpl extends ServiceImpl<AidConfigMapper, AidConfig
                 ? existing.getCategory() : aidConfig.getCategory();
         String configName = StringUtils.isBlank(aidConfig.getConfigName()) && existing != null
                 ? existing.getConfigName() : aidConfig.getConfigName();
-        validateModelPriceMultiplier(category, configName, aidConfig.getConfigValue());
+        validateConfigValue(category, configName, aidConfig.getConfigValue());
         aidConfig.setUpdateBy(currentOperator());
         aidConfig.setUpdateTime(DateUtils.getNowDate());
         return this.updateById(aidConfig) ? 1 : 0;
@@ -201,7 +202,7 @@ public class AidConfigServiceImpl extends ServiceImpl<AidConfigMapper, AidConfig
      */
     @Override
     public void upsertConfigValue(String category, String configName, String configValue) {
-        validateModelPriceMultiplier(category, configName, configValue);
+        validateConfigValue(category, configName, configValue);
         // 精确匹配分类 + 配置名（区别于列表查询的 like）
         LambdaQueryWrapper<AidConfig> lqw = Wrappers.lambdaQuery();
         lqw.eq(AidConfig::getCategory, category);
@@ -246,6 +247,11 @@ public class AidConfigServiceImpl extends ServiceImpl<AidConfigMapper, AidConfig
         }
     }
 
+    private void validateConfigValue(String category, String configName, String configValue) {
+        validateModelPriceMultiplier(category, configName, configValue);
+        validateAccountCancellationConfig(category, configName, configValue);
+    }
+
     /**
      * 模型基础倍率必须为正数，防止计费为零或异常放大。
      */
@@ -262,6 +268,32 @@ public class AidConfigServiceImpl extends ServiceImpl<AidConfigMapper, AidConfig
         } catch (Exception e) {
             log.error("模型基础倍率配置错误, value={}", configValue, e);
             throw new ServiceException("倍率配置错误");
+        }
+    }
+
+    private void validateAccountCancellationConfig(String category, String configName, String configValue) {
+        if (!Objects.equals(AccountCancellationConstants.CONFIG_CATEGORY, category)) {
+            return;
+        }
+        if (Objects.equals(AccountCancellationConstants.CONFIG_ENABLED, configName)) {
+            if (!"true".equalsIgnoreCase(configValue) && !"false".equalsIgnoreCase(configValue)) {
+                log.error("注销再注册开关配置错误: value={}", configValue);
+                throw new ServiceException("开关配置错误");
+            }
+            return;
+        }
+        if (!Objects.equals(AccountCancellationConstants.CONFIG_DAYS, configName)) {
+            return;
+        }
+        try {
+            int days = Integer.parseInt(configValue);
+            if (days < AccountCancellationConstants.MIN_DAYS
+                    || days > AccountCancellationConstants.MAX_DAYS) {
+                throw new NumberFormatException("out of range");
+            }
+        } catch (Exception e) {
+            log.error("注销再注册天数配置错误: value={}", configValue, e);
+            throw new ServiceException("限制天数错误");
         }
     }
 

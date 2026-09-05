@@ -50,6 +50,7 @@ export type EditImageTaskResult =
 
 /** 格式化 form_edit_chat 任务进度文案（按已处理张数 processedCount / totalCount） */
 export function formatCreationImageProgressText(p: EditImageTaskProgress): string {
+  const live = String(p.message || p.stepTitle || '').trim()
   const total = p.totalCount
   const processed =
     typeof p.processedCount === 'number'
@@ -58,9 +59,10 @@ export function formatCreationImageProgressText(p: EditImageTaskProgress): strin
         ? p.successCount
         : undefined
   if (total != null && processed != null && total > 0) {
-    return `已处理 ${processed}/${total} 张…`
+    const countText = `已处理 ${processed}/${total} 张…`
+    return live && /预计|耗时/u.test(live) ? `${countText} ${live}` : countText
   }
-  return p.stepTitle || p.message || '生图中…'
+  return live || '生图中…'
 }
 
 function mapStreamProgress(raw: Record<string, unknown>): EditImageTaskProgress {

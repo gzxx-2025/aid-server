@@ -198,23 +198,6 @@ html.app-shell-create .ant-modal-confirm .ant-modal-confirm-btns .ant-btn-primar
 html.app-shell-create .create-flow-modal .ant-modal-content > * {
   color: #e6edf3 !important;
 }
-html.app-shell-create .publish-case-plaza-modal-wrap .ant-modal-footer {
-  display: flex !important;
-  flex-direction: row !important;
-  flex-wrap: nowrap !important;
-  justify-content: flex-end !important;
-  align-items: center !important;
-  gap: 8px !important;
-}
-
-html.app-shell-create .publish-case-plaza-modal-wrap .ant-modal-footer .ant-btn {
-  display: inline-flex !important;
-  width: auto !important;
-  min-width: 88px !important;
-  flex: 0 0 auto !important;
-  margin-inline-start: 0 !important;
-}
-
 /* 蒙层 + 弹窗根（部分版本类名在 .ant-modal-root 下） */
 html.app-shell-create .ant-modal-mask {
   background: rgba(14, 20, 34, 0.58) !important;

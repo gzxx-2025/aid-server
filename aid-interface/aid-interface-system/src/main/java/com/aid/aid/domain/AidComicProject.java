@@ -1,12 +1,9 @@
 package com.aid.aid.domain;
 
 import java.io.Serializable;
-import java.util.Date;
 import com.baomidou.mybatisplus.annotation.IdType;
-import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
-import com.fasterxml.jackson.annotation.JsonFormat;
 import com.aid.common.aid.oss.annotation.MediaUrl;
 import com.aid.common.annotation.Excel;
 import lombok.Data;
@@ -43,12 +40,6 @@ public class AidComicProject extends BaseEntity implements Serializable
     @Excel(name = "项目描述")
     private String projectDesc;
 
-    /** 待审核项目名称；审核通过后原子替换 project_name */
-    private String pendingProjectName;
-
-    /** 待审核项目描述；审核通过后原子替换 project_desc */
-    private String pendingProjectDesc;
-
     /** 类型: series剧集, movie电影 */
     @Excel(name = "类型: series剧集, movie电影")
     private String projectType;
@@ -57,10 +48,6 @@ public class AidComicProject extends BaseEntity implements Serializable
     @Excel(name = "封面图")
     @MediaUrl
     private String coverUrl;
-
-    /** 待审核封面图；审核通过后原子替换 cover_url */
-    @MediaUrl
-    private String pendingCoverUrl;
 
     /** 画面比例(16:9, 9:16等) */
     @Excel(name = "画面比例(16:9, 9:16等)")
@@ -102,22 +89,13 @@ public class AidComicProject extends BaseEntity implements Serializable
     @Excel(name = "当前步骤")
     private Integer currentStep;
 
-    /** 状态(0草稿 1制作中  2完成未提交 3审核中 4审核通过 5审核失败) */
-    @Excel(name = "状态(0草稿 1制作中  2完成未提交 3审核中 4审核通过 5审核失败)")
+    /** 状态(0草稿 1制作中 2已完成) */
+    @Excel(name = "状态(0草稿 1制作中 2已完成)")
     private Integer status;
 
     /** 状态原因 */
     @Excel(name = "状态原因")
     private String statusReason;
-
-    /** 项目是否公开 */
-    @Excel(name = "项目是否公开")
-    private String isPublic;
-
-    /** 最近一次公开发布时间（关闭公开不清空，重新发布覆盖） */
-    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
-    @TableField(value = "publish_time")
-    private Date publishTime;
 
     /** 删除标志（0代表存在 1代表删除） */
     private String delFlag;

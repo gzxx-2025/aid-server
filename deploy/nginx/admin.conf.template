@@ -1,0 +1,19 @@
+# AID_MANAGED_NGINX_INCLUDE=1
+client_max_body_size ${NGINX_MAX_BODY_MB}m;
+proxy_connect_timeout ${NGINX_CONNECT_TIMEOUT_SECONDS}s;
+proxy_read_timeout ${NGINX_READ_TIMEOUT_SECONDS}s;
+${NGINX_TLS_DIRECTIVES}
+${NGINX_EXTRA_DIRECTIVES}
+location /prod-api/ {
+    proxy_pass ${NGINX_BACKEND_ORIGIN}/;
+    proxy_set_header Host $proxy_host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_buffering off;
+}
+location /profile/ {
+    proxy_pass ${NGINX_BACKEND_ORIGIN}/profile/;
+    proxy_set_header Host $proxy_host;
+}

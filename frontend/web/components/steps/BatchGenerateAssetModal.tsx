@@ -559,8 +559,9 @@ export function BatchGenerateAssetModal({
               <div className="text-gradient">取消</div>
             </Button>
             <Button
-              className="bgam-btn-ok"
+              className={`bgam-btn-ok${mode === 'delete' ? ' bgam-btn-ok--danger' : ''}`}
               type="primary"
+              danger={mode === 'delete'}
               loading={confirmLoading}
               disabled={selectedIds.length === 0 || listLoading || confirmLoading}
               onClick={handleConfirm}

@@ -28,6 +28,17 @@ public interface TaskCompletionService {
     boolean closeUnsubmittedTask(Long taskId, String errorMessage);
 
     /**
+     * 用户停止父任务时关闭仍处于 QUEUED、尚未提交供应商的媒体子任务并退回冻结积分。
+     * 已进入 PENDING/PROCESSING 的任务不由本方法处理，避免把已经发生的供应商调用误报为退款。
+     *
+     * @param taskId       本地媒体任务ID
+     * @param userId       任务所属用户ID
+     * @param errorMessage 取消原因
+     * @return true = 本线程完成关闭和计费收口，false = 任务已推进或不属于该用户
+     */
+    boolean cancelQueuedTask(Long taskId, Long userId, String errorMessage);
+
+    /**
      * 合成提交结果无法确认或应用重启时，把已占槽但未产生上游任务号的任务延迟放回队列，
      * 不退款、不判失败；云端依靠幂等键恢复同一任务，本地重新执行。
      */

@@ -39,7 +39,7 @@ interface HomeNewSidebarProps {
   assetsActive?: boolean
   inviteActive?: boolean
   skeleton?: boolean
-  /** 首页壳：品牌与案例广场使用 Link；流程页使用 button */
+  /** 首页壳：品牌与创作首页使用 Link；流程页使用 button */
   useRouterLinks?: boolean
   onBrand?: () => void
   onGallery?: () => void
@@ -83,7 +83,6 @@ const HomeNewSidebar = forwardRef<HomeNewSidebarHandle, HomeNewSidebarProps>(
       openSourceGiteeUrl,
       openSourceGitUrl,
       exchangeImageUrl,
-      tutorialUrl,
       invitePromotionEnabled,
       loadPublicConfig
     } = useAuthPublicConfig()
@@ -96,7 +95,6 @@ const HomeNewSidebar = forwardRef<HomeNewSidebarHandle, HomeNewSidebarProps>(
 
     const showOpenSourceNav = !skeleton && (!!openSourceGiteeUrl || !!openSourceGitUrl)
     const showDiscussionGroupNav = !skeleton && !!exchangeImageUrl
-    const showTutorialNav = !skeleton && !!tutorialUrl
 
     const userMenuTriggerRef = useRef<HTMLButtonElement | null>(null)
     const setUserMenuTriggerRef = useCallback(
@@ -290,7 +288,7 @@ const HomeNewSidebar = forwardRef<HomeNewSidebarHandle, HomeNewSidebarProps>(
                 onClick={() => onGallery?.()}
               >
                 <SidebarNavHoverIcon type="gallery" className="home-new-nav-ico" />
-                <span>案例广场</span>
+                <span>创作首页</span>
               </button>
               <button
                 type="button"
@@ -313,22 +311,20 @@ const HomeNewSidebar = forwardRef<HomeNewSidebarHandle, HomeNewSidebarProps>(
             <div className="home-new-nav-divider" aria-hidden="true" />
 
             <nav className="home-new-nav home-new-nav--secondary" aria-label="帮助与资源">
-              {showTutorialNav ? (
-                <button
-                  type="button"
-                  className="home-new-nav-item"
-                  onClick={() => onTutorial?.()}
-                >
-                  <img
-                    src={assetUrl(tutorialIconUrl)}
-                    alt=""
-                    className="home-new-nav-ico home-new-nav-ico-img"
-                    width={24}
-                    height={24}
-                  />
-                  <span>新手教程</span>
-                </button>
-              ) : null}
+              <button
+                type="button"
+                className="home-new-nav-item"
+                onClick={() => onTutorial?.()}
+              >
+                <img
+                  src={assetUrl(tutorialIconUrl)}
+                  alt=""
+                  className="home-new-nav-ico home-new-nav-ico-img"
+                  width={24}
+                  height={24}
+                />
+                <span>新手教程</span>
+              </button>
               {showOpenSourceNav ? (
                 <button
                   ref={openSourceTriggerRef}

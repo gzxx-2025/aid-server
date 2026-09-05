@@ -4,6 +4,26 @@
  * 批量任务以 `processedCount`（已处理 = 成功 + 失败）为进度分子；`successCount` / `failCount` 独立展示。
  * `currentCount` 为旧字段，语义同 `processedCount`。
  */
+export type TaskEtaProgress = {
+  phase?: string
+  displayProgress?: number
+  progressSource?: string
+  remainingSecondsP50?: number
+  remainingSecondsP90?: number
+  estimatedStartAt?: number
+  estimatedFinishAtP50?: number
+  estimatedFinishAtP90?: number
+  confidence?: string
+  sampleCount?: number
+  calculatedAt?: number
+  totalCount?: number
+  completedCount?: number
+  runningCount?: number
+  queuedCount?: number
+  delayed?: boolean
+  predictionVersion?: string
+}
+
 export type TaskSseProgressInput = {
   taskId?: number
   status?: string
@@ -41,6 +61,8 @@ export type TaskSseProgressInput = {
   audioUrl?: string
   /** 对口型配音阶段：音频时长（毫秒） */
   durationMs?: number
+  /** 后端统一预计进度；前端基于时间戳本地倒计时，不额外轮询。 */
+  eta?: TaskEtaProgress
 }
 
 /** 带计数的批量任务进度（completed/total + SSE 文案，可持久化到 Pinia） */
@@ -53,6 +75,7 @@ export type CountProgressSnapshot = {
   message: string
   stepTitle: string
   progressText: string
+  eta?: TaskEtaProgress
 }
 
 export const EMPTY_COUNT_PROGRESS: CountProgressSnapshot = {
@@ -77,6 +100,36 @@ function normalizePercent(p: unknown): number | undefined {
   return Math.min(100, Math.max(0, n))
 }
 
+function normalizeEta(raw: unknown): TaskEtaProgress | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const o = raw as Record<string, unknown>
+  const percent = normalizePercent(o.displayProgress)
+  const number = (key: string, min = 0): number | undefined => {
+    const value = finiteInt(o[key])
+    return value != null && value >= min ? value : undefined
+  }
+  return {
+    phase: typeof o.phase === 'string' ? o.phase : undefined,
+    displayProgress: percent,
+    progressSource: typeof o.progressSource === 'string' ? o.progressSource : undefined,
+    remainingSecondsP50: number('remainingSecondsP50'),
+    remainingSecondsP90: number('remainingSecondsP90'),
+    estimatedStartAt: number('estimatedStartAt'),
+    estimatedFinishAtP50: number('estimatedFinishAtP50'),
+    estimatedFinishAtP90: number('estimatedFinishAtP90'),
+    confidence: typeof o.confidence === 'string' ? o.confidence : undefined,
+    sampleCount: number('sampleCount'),
+    calculatedAt: number('calculatedAt'),
+    totalCount: number('totalCount'),
+    completedCount: number('completedCount'),
+    runningCount: number('runningCount'),
+    queuedCount: number('queuedCount'),
+    delayed: typeof o.delayed === 'boolean' ? o.delayed : undefined,
+    predictionVersion:
+      typeof o.predictionVersion === 'string' ? o.predictionVersion : undefined
+  }
+}
+
 /** 从 Pinia 持久化或旧版快照恢复进度（兼容无 message / successCount 等字段的历史数据） */
 export function normalizeCountProgress(raw: unknown): CountProgressSnapshot {
   if (!raw || typeof raw !== 'object') {
@@ -90,7 +143,8 @@ export function normalizeCountProgress(raw: unknown): CountProgressSnapshot {
     failCount: Number.isFinite(Number(o.failCount)) ? Number(o.failCount) : 0,
     message: String(o.message ?? '').trim(),
     stepTitle: String(o.stepTitle ?? '').trim(),
-    progressText: String(o.progressText ?? '').trim()
+    progressText: String(o.progressText ?? '').trim(),
+    eta: normalizeEta(o.eta)
   }
 }
 
@@ -188,7 +242,8 @@ export function parseTaskSseProgressPayload(
     storyboardId: storyboardId != null && storyboardId > 0 ? storyboardId : undefined,
     audioRecordId: audioRecordId != null && audioRecordId > 0 ? audioRecordId : undefined,
     audioUrl: audioUrl || undefined,
-    durationMs: durationMs != null && durationMs >= 0 ? durationMs : undefined
+    durationMs: durationMs != null && durationMs >= 0 ? durationMs : undefined,
+    eta: normalizeEta(obj.eta)
   }
 }
 
@@ -271,8 +326,157 @@ export function mergeCountProgressFromSse(
     failCount: successFail.failCount,
     message: textFields.message ?? cur.message,
     stepTitle: textFields.stepTitle ?? cur.stepTitle,
-    progressText: textFields.progressText ?? cur.progressText
+    progressText: textFields.progressText ?? cur.progressText,
+    eta: p.eta ?? cur.eta
   }
+}
+
+function resolveRemainingSeconds(
+  eta: TaskEtaProgress,
+  percentile: 'P50' | 'P90',
+  now: number
+): number | undefined {
+  const finish = percentile === 'P50' ? eta.estimatedFinishAtP50 : eta.estimatedFinishAtP90
+  if (typeof finish === 'number' && Number.isFinite(finish)) {
+    return Math.max(0, Math.ceil((finish - now) / 1000))
+  }
+  const original =
+    percentile === 'P50' ? eta.remainingSecondsP50 : eta.remainingSecondsP90
+  if (typeof original !== 'number' || !Number.isFinite(original)) return undefined
+  const elapsed =
+    typeof eta.calculatedAt === 'number' ? Math.max(0, (now - eta.calculatedAt) / 1000) : 0
+  return Math.max(0, Math.ceil(original - elapsed))
+}
+
+function formatEtaMinutes(seconds: number): string {
+  if (seconds < 60) return '少于 1 分钟'
+  if (seconds < 3600) return `${Math.max(1, Math.ceil(seconds / 60))} 分钟`
+  const hours = seconds / 3600
+  return `${hours < 10 ? hours.toFixed(1) : Math.ceil(hours)} 小时`
+}
+
+/**
+ * 兼容部分任务把可读预计时长直接放在 `updateTime` 的返回形式。
+ *
+ * 通用任务文档中的 `updateTime` 仍可能是 `yyyy-MM-dd HH:mm:ss` 更新时间；日期时间不能
+ * 当成预计耗时展示。只有明确包含时长单位或 `HH:mm:ss` 的值才参与预计文案。
+ */
+function formatDurationUpdateTime(updateTime: string | undefined): string {
+  const value = String(updateTime || '').trim()
+  if (!value) return ''
+  if (/^\d{4}[-/]\d{1,2}[-/]\d{1,2}(?:[ T]|$)/u.test(value)) return ''
+  if (/^\d{10,13}$/u.test(value)) return ''
+  if (!/(?:毫秒|秒钟?|分钟?|小时|天)|^\d{1,3}:\d{2}(?::\d{2})?$/u.test(value)) return ''
+  return /^预计/u.test(value) ? value : `预计${value}`
+}
+
+/** 格式化预计百分比与 P50–P90 剩余时间区间。 */
+export function formatTaskEtaText(eta: TaskEtaProgress | undefined, now = Date.now()): string {
+  if (!eta) return ''
+  if (eta.phase === 'COMPLETED' || eta.displayProgress === 100) return '已完成 · 100%'
+  const p50 = resolveRemainingSeconds(eta, 'P50', now)
+  const p90 = resolveRemainingSeconds(eta, 'P90', now)
+  const delayed =
+    eta.delayed === true ||
+    (typeof eta.estimatedFinishAtP90 === 'number' && eta.estimatedFinishAtP90 <= now)
+  const percent =
+    typeof eta.displayProgress === 'number'
+      ? `${Math.min(95, Math.max(0, Math.round(eta.displayProgress)))}%`
+      : ''
+  let remaining = ''
+  if (p50 === 0 && p90 === 0) {
+    remaining = delayed ? '耗时超出常规区间' : '预计少于 1 分钟'
+  } else if (p50 != null && p90 != null) {
+    const p50Text = formatEtaMinutes(p50)
+    const p90Text = formatEtaMinutes(Math.max(p50, p90))
+    remaining = p50Text === p90Text ? `预计约 ${p50Text}` : `预计 ${p50Text}–${p90Text}`
+  } else if (p50 != null) {
+    remaining = `预计约 ${formatEtaMinutes(p50)}`
+  }
+  if (delayed && remaining !== '耗时超出常规区间') {
+    remaining = remaining ? `${remaining}（已超出常规区间）` : '耗时超出常规区间'
+  }
+  return [remaining, percent].filter(Boolean).join(' · ')
+}
+
+/** 生成态使用的预计时间文案：文档 eta 优先，并兼容可读时长型 updateTime。 */
+export function formatTaskSseTimingText(
+  p: Pick<TaskSseProgressInput, 'eta' | 'updateTime' | 'progress' | 'status'>,
+  now = Date.now()
+): string {
+  const terminalStatus = String(p.status || '').toUpperCase()
+  if (
+    ['SUCCEEDED', 'FAILED', 'CANCELLED', 'PARTIAL_FAILED'].includes(terminalStatus) ||
+    p.eta?.phase === 'COMPLETED' ||
+    p.eta?.displayProgress === 100 ||
+    p.progress === 100
+  ) {
+    return ''
+  }
+
+  const etaText = formatTaskEtaText(p.eta, now)
+  const updateTimeText = formatDurationUpdateTime(p.updateTime)
+  if (!updateTimeText) return etaText
+  if (!etaText) return updateTimeText
+  if (/预计|耗时/u.test(etaText)) return etaText
+  return `${updateTimeText} · ${etaText}`
+}
+
+function appendTimingText(text: string, timingText: string): string {
+  if (!timingText || text.includes(timingText) || /(?:预计|耗时超出常规区间)/u.test(text)) {
+    return text
+  }
+  return text ? `${text}，${timingText}` : timingText
+}
+
+/**
+ * 为所有 SSE 订阅者统一补齐展示文案。保留原始 `stepTitle` 供阶段判断，预计时间只写入
+ * `message`，避免各业务弹窗分别拼接并产生不一致。
+ */
+export function withTaskSseDisplayTiming(
+  p: TaskSseProgressInput,
+  now = Date.now()
+): TaskSseProgressInput {
+  const timingText = formatTaskSseTimingText(p, now)
+  if (!timingText) return p
+  const message = appendTimingText(String(p.message || p.stepTitle || '').trim(), timingText)
+  return message === p.message ? p : { ...p, message }
+}
+
+/**
+ * 只推进浏览器内的预计百分比。服务端真实 progress 保持不变，且预计值在非终态最高 95%。
+ */
+export function advanceTaskEtaProgress(
+  eta: TaskEtaProgress | undefined,
+  now = Date.now()
+): TaskEtaProgress | undefined {
+  if (!eta || eta.phase === 'COMPLETED' || eta.displayProgress === 100) return eta
+  const startAt = eta.calculatedAt
+  const finishAt = eta.estimatedFinishAtP90
+  if (
+    typeof startAt !== 'number' ||
+    typeof finishAt !== 'number' ||
+    !Number.isFinite(startAt) ||
+    !Number.isFinite(finishAt) ||
+    finishAt <= startAt
+  ) {
+    return { ...eta }
+  }
+  const ratio = Math.min(1, Math.max(0, (now - startAt) / (finishAt - startAt)))
+  const base = Math.min(95, Math.max(0, eta.displayProgress ?? 0))
+  const displayProgress = Math.min(95, Math.max(base, Math.round(base + (95 - base) * ratio)))
+  return {
+    ...eta,
+    displayProgress,
+    delayed: eta.delayed || now >= finishAt
+  }
+}
+
+function appendSseTimingText(
+  text: string,
+  p: Pick<TaskSseProgressInput, 'eta' | 'updateTime' | 'progress' | 'status'>
+): string {
+  return appendTimingText(text, formatTaskSseTimingText(p))
 }
 
 /** 将 SSE 进度映射为 step3 / 提取 UI 用的 stepIndex / stepTotal（优先 processedCount） */
@@ -292,44 +496,50 @@ export function resolveStepIndexTotalFromSse(p: TaskSseProgressInput): {
 
 /** 优先 SSE message / stepTitle，否则返回 fallback */
 export function formatTaskSseLiveText(
-  p: Partial<CountProgressSnapshot>,
+  p: Partial<CountProgressSnapshot & TaskSseProgressInput>,
   fallback: string
 ): string {
   const msg = String(p.message || '').trim()
   const step = String(p.stepTitle || '').trim()
   const live = msg || step
-  return live || fallback
+  return appendSseTimingText(live || fallback, p)
 }
 
 /**
  * 拼接 SSE stepTitle / message；两者相同（解析层常把 message 回填到 stepTitle）时不去重成「A · A」。
  */
 export function formatTaskSseJoinedLiveText(
-  p: Partial<Pick<CountProgressSnapshot, 'message' | 'stepTitle'>> & {
-    message?: string
-    stepTitle?: string
-  },
+  p: Partial<CountProgressSnapshot & TaskSseProgressInput>,
   fallback: string
 ): string {
   const msg = String(p.message || '').trim()
   const step = String(p.stepTitle || '').trim()
-  if (step && msg && step !== msg) return `${step} · ${msg}`
-  return step || msg || fallback
+  if (step && msg && step !== msg) {
+    if (msg.includes(step)) return appendSseTimingText(msg, p)
+    if (step.includes(msg)) return appendSseTimingText(step, p)
+    return appendSseTimingText(`${step} · ${msg}`, p)
+  }
+  return appendSseTimingText(step || msg || fallback, p)
 }
 
 /** 优先 SSE 文案；无文案时用 progressText 或 completed/total 兜底句式 */
 export function formatTaskSseLiveTextWithCounts(
-  p: Partial<CountProgressSnapshot>,
+  p: Partial<CountProgressSnapshot & TaskSseProgressInput>,
   fallbackPrefix: string
 ): string {
-  const live = formatTaskSseLiveText(p, '')
-  if (live) return live
+  const message = String(p.message || '').trim()
+  const step = String(p.stepTitle || '').trim()
+  const live = message || step
+  if (live) return appendSseTimingText(live, p)
   const progressText = String(p.progressText || '').trim()
-  if (progressText) return `${fallbackPrefix} ${progressText}…`
+  if (progressText) return appendSseTimingText(`${fallbackPrefix} ${progressText}…`, p)
   if (p.total != null && p.total > 0) {
     const failHint =
       typeof p.failCount === 'number' && p.failCount > 0 ? `，失败 ${p.failCount}` : ''
-    return `${fallbackPrefix} ${p.completed ?? 0}/${p.total}${failHint}…`
+    return appendSseTimingText(
+      `${fallbackPrefix} ${p.completed ?? 0}/${p.total}${failHint}…`,
+      p
+    )
   }
-  return `${fallbackPrefix}…`
+  return appendSseTimingText(`${fallbackPrefix}…`, p)
 }

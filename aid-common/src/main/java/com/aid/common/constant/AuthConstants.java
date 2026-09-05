@@ -43,6 +43,21 @@ public class AuthConstants {
     public static final String SCENE_CANCEL = "cancel";
 
     /**
+     * 业务场景 - 首次设置密码
+     */
+    public static final String SCENE_SET_PASSWORD = "set_password";
+
+    /**
+     * 业务场景 - 换绑前验证原手机号或邮箱
+     */
+    public static final String SCENE_REBIND_OLD = "rebind_old";
+
+    /**
+     * 业务场景 - 换绑时验证新手机号或邮箱
+     */
+    public static final String SCENE_REBIND_NEW = "rebind_new";
+
+    /**
      * 绑定/登录类型 - 短信
      */
     public static final String BIND_TYPE_SMS = "sms";
@@ -80,7 +95,7 @@ public class AuthConstants {
     /**
      * 构建带场景隔离的验证码缓存 key。
      *
-     * @param scene    业务场景：login / bind / unbind / reset / cancel
+     * @param scene    业务场景：login / bind / unbind / reset / cancel / set_password / rebind_old / rebind_new
      * @param codeType 渠道类型：sms / email（兼容 phone / mail）
      * @param target   手机号或邮箱
      * @return Redis 缓存 key

@@ -26,9 +26,6 @@ public class SmsBaoSmsTemplate implements SmsTemplate {
     /** 短信宝安全发送接口 */
     private static final String SEND_ENDPOINT = "https://api.smsbao.com/sms";
 
-    /** 短信验证码占位符 */
-    private static final String CODE_PLACEHOLDER = "{code}";
-
     /** 连接超时（毫秒） */
     private static final int CONNECT_TIMEOUT_MS = 5000;
 
@@ -44,7 +41,10 @@ public class SmsBaoSmsTemplate implements SmsTemplate {
     @Override
     public SmsResult send(String phones, String templateId, Map<String, String> param) {
         validateConfig(phones);
-        String content = renderContent(properties.getSmsBaoContentTemplate(), param);
+        // 短信宝没有远端模板 ID：非空 templateId 作为当前业务的本地内容模板；
+        // 验证码等既有调用传空时继续使用系统短信宝默认模板。
+        String contentTemplate = StrUtil.blankToDefault(templateId, properties.getSmsBaoContentTemplate());
+        String content = renderContent(contentTemplate, param);
 
         Map<String, Object> query = new LinkedHashMap<>();
         query.put("u", properties.getSmsBaoUsername().trim());
@@ -93,24 +93,15 @@ public class SmsBaoSmsTemplate implements SmsTemplate {
             log.info("短信宝发送失败: 账号或密钥未配置");
             throw new SmsException("短信宝配置不全");
         }
-        if (StrUtil.isBlank(properties.getSmsBaoContentTemplate())) {
-            log.info("短信宝发送失败: 内容模板为空");
-            throw new SmsException("短信模板不能为空");
-        }
     }
 
     /**
      * 将参数写入本地短信内容模板，参数名使用 {name} 形式。
      */
     static String renderContent(String template, Map<String, String> param) {
-        if (StrUtil.isBlank(template) || !template.contains(CODE_PLACEHOLDER)) {
-            log.info("短信宝发送失败: 内容模板缺少验证码占位符");
-            throw new SmsException("短信模板缺验证码");
-        }
-        String code = param == null ? null : param.get("code");
-        if (StrUtil.isBlank(code)) {
-            log.info("短信宝发送失败: 验证码参数为空");
-            throw new SmsException("验证码参数缺失");
+        if (StrUtil.isBlank(template)) {
+            log.info("短信宝发送失败: 内容模板为空");
+            throw new SmsException("短信模板不能为空");
         }
         String content = template;
         if (param != null) {
@@ -119,9 +110,9 @@ public class SmsBaoSmsTemplate implements SmsTemplate {
                 content = content.replace(placeholder, StrUtil.nullToEmpty(entry.getValue()));
             }
         }
-        if (content.contains(CODE_PLACEHOLDER)) {
-            log.info("短信宝发送失败: 内容模板中的验证码占位符未替换");
-            throw new SmsException("验证码参数缺失");
+        if (content.matches("(?s).*\\{[A-Za-z_][A-Za-z0-9_]*}.*")) {
+            log.info("短信宝发送失败: 内容模板存在未替换占位符");
+            throw new SmsException("短信模板参数缺失");
         }
         return content;
     }

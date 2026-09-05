@@ -62,6 +62,7 @@ import {
 } from '~/utils/storyboardListBootstrap'
 import { createDefaultVideoPanel } from '~/composables/useCreateFlowStoryboardSync'
 import { resolveStoryboardListDisplayTitle } from '~/utils/storyboardPanelTitle'
+import { formatTaskEtaText } from '~/utils/taskSseProgressText'
 import {
   resolveStoryboardDesignProgressCounts,
   skipsStoryboardImageGeneration
@@ -358,7 +359,9 @@ export function StoryboardVideo({
   )
   const progressText = (() => {
     if (isGeneratingVideo && videoBatchProgress.total > 0) {
-      return `${videoBatchProgress.completed}/${videoBatchProgress.total}`
+      const etaText = formatTaskEtaText(videoBatchProgress.eta)
+      const countText = `${videoBatchProgress.completed}/${videoBatchProgress.total}`
+      return etaText ? `${countText} · ${etaText}` : countText
     }
     return `${videoProgress.completed}/${videoProgress.total}`
   })()

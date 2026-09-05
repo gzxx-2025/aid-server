@@ -205,7 +205,7 @@ export function VideoPreview(props: VideoPreviewProps) {
       exporting: S.exporting.value,
       segmentsDownloading: S.segmentsDownloading.value
     })
-  }, [registerPreviewExportBridge, S.exporting.value, S.segmentsDownloading.value])
+  }, [ctx, registerPreviewExportBridge, S.exporting.value, S.segmentsDownloading.value])
 
   // --- onMounted / onUnmounted ---
   useEffect(() => {

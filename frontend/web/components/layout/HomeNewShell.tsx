@@ -12,6 +12,7 @@ import { useAuthPublicConfig } from '~/composables/useAuthPublicConfig'
 import { useHomeShellCreateModal } from '~/composables/useHomeShellCreateModal'
 import { useHomeSidebarExtraNav } from '~/composables/useHomeSidebarExtraNav'
 import { useUserStore } from '~/stores/user'
+import { logoutToPublicHome, requireLogin } from '~/utils/authLoginNavigation'
 import './HomeNewShell.css'
 
 /**
@@ -47,7 +48,7 @@ export function HomeNewShell({ children }: { children: ReactNode }) {
   }
 
   function goLogin() {
-    router.push('/login')
+    requireLogin()
   }
 
   function goGallery() {
@@ -62,7 +63,7 @@ export function HomeNewShell({ children }: { children: ReactNode }) {
 
   function goWorks() {
     if (!isLoggedIn) {
-      goLogin()
+      requireLogin({ redirect: '/works' })
       return
     }
     router.push('/works')
@@ -70,7 +71,7 @@ export function HomeNewShell({ children }: { children: ReactNode }) {
 
   function goAssets() {
     if (!isLoggedIn) {
-      goLogin()
+      requireLogin({ redirect: '/assets' })
       return
     }
     router.push('/assets')
@@ -103,7 +104,7 @@ export function HomeNewShell({ children }: { children: ReactNode }) {
   function openRechargeFromMenu() {
     closeUserMenu()
     if (!isLoggedIn) {
-      goLogin()
+      requireLogin()
       return
     }
     if (!anyPaymentEnabled) {
@@ -116,7 +117,7 @@ export function HomeNewShell({ children }: { children: ReactNode }) {
   function openInvite() {
     closeUserMenu()
     if (!isLoggedIn) {
-      goLogin()
+      requireLogin({ redirect: '/invite' })
       return
     }
     router.push('/invite')
@@ -132,9 +133,8 @@ export function HomeNewShell({ children }: { children: ReactNode }) {
       cancelText: '取消',
       centered: true,
       onOk: () => {
-        useUserStore.getState().logout()
+        logoutToPublicHome((href) => router.replace(href))
         closeUserMenu()
-        router.push('/login')
       }
     })
   }
@@ -225,7 +225,7 @@ export function HomeNewShell({ children }: { children: ReactNode }) {
             <div className="home-route-transition-host">
               {/*
                 原 Vue 版此处用 Suspense 规避 layout Transition + NuxtPage 叠层导致页面 onMounted
-                执行两次（案例广场 / 我的作品列表接口打成双份，Nuxt #32371 同类问题）。
+                执行两次（首页 / 我的作品列表接口打成双份，Nuxt #32371 同类问题）。
                 React 无该问题；过渡改为按 pathname 重挂载 + CSS 进场动画（参数照抄）。
               */}
               <div key={pathname} className="home-main-route">

@@ -1,5 +1,8 @@
 package com.aid.storyboard.service.impl;
 
+import com.aid.media.util.MediaTaskPayloadSanitizer;
+import com.aid.common.error.ErrorNormalizer;
+import com.aid.common.error.TaskErrorSnapshot;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -1218,7 +1221,8 @@ public class StoryboardEditImageServiceImpl implements IStoryboardEditImageServi
         update.set(AidExtractTask::getStatus, newStatus);
         if (StrUtil.isNotBlank(errorMessage))
         {
-            update.set(AidExtractTask::getErrorMessage, errorMessage);
+            update.set(AidExtractTask::getErrorMessage, errorMessage)
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage(errorMessage));
         }
         update.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
         int rows = extractTaskService.getBaseMapper().update(null, update);
@@ -1248,12 +1252,18 @@ public class StoryboardEditImageServiceImpl implements IStoryboardEditImageServi
 
     private boolean updateTaskFailed(Long taskId, String errorMessage)
     {
-        String safeMsg = StrUtil.isNotBlank(errorMessage) ? errorMessage : "生成失败";
+        return updateTaskFailed(taskId, ErrorNormalizer.normalizeByMessage(errorMessage));
+    }
+
+    private boolean updateTaskFailed(Long taskId, com.aid.common.error.TaskErrorResult errorResult)
+    {
+        String safeMsg = StrUtil.blankToDefault(errorResult.getRawMessage(), errorResult.getUserMessage());
         LambdaUpdateWrapper<AidExtractTask> update = Wrappers.lambdaUpdate();
         update.eq(AidExtractTask::getId, taskId);
         update.in(AidExtractTask::getStatus, TASK_STATUS_PENDING, TASK_STATUS_PROCESSING);
         update.set(AidExtractTask::getStatus, TASK_STATUS_FAILED);
-        update.set(AidExtractTask::getErrorMessage, StrUtil.sub(safeMsg, 0, 255));
+        update.set(AidExtractTask::getErrorMessage, StrUtil.sub(MediaTaskPayloadSanitizer.sanitizeForStorage(safeMsg), 0, 255))
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.write(errorResult));
         update.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
         int rows = extractTaskService.getBaseMapper().update(null, update);
         if (rows == 0)
@@ -1264,19 +1274,14 @@ public class StoryboardEditImageServiceImpl implements IStoryboardEditImageServi
         return true;
     }
 
-    private boolean updateTaskFailed(Long taskId, com.aid.common.error.TaskErrorResult errorResult)
-    {
-        String dbMessage = errorResult.getRawMessage() != null ? errorResult.getRawMessage() : errorResult.getUserMessage();
-        return updateTaskFailed(taskId, dbMessage);
-    }
-
     private boolean updateTaskCancelled(Long taskId)
     {
         LambdaUpdateWrapper<AidExtractTask> update = Wrappers.lambdaUpdate();
         update.eq(AidExtractTask::getId, taskId);
         update.in(AidExtractTask::getStatus, TASK_STATUS_PENDING, TASK_STATUS_PROCESSING);
         update.set(AidExtractTask::getStatus, TASK_STATUS_CANCELLED);
-        update.set(AidExtractTask::getErrorMessage, "用户取消");
+        update.set(AidExtractTask::getErrorMessage, "用户取消")
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage("用户取消"));
         update.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
         int rows = extractTaskService.getBaseMapper().update(null, update);
         if (rows == 0)
@@ -1293,7 +1298,8 @@ public class StoryboardEditImageServiceImpl implements IStoryboardEditImageServi
         update.eq(AidExtractTask::getId, taskId);
         update.in(AidExtractTask::getStatus, TASK_STATUS_PENDING, TASK_STATUS_PROCESSING);
         update.set(AidExtractTask::getStatus, TASK_STATUS_CANCELLED);
-        update.set(AidExtractTask::getErrorMessage, "用户取消");
+        update.set(AidExtractTask::getErrorMessage, "用户取消")
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage("用户取消"));
         if (StrUtil.isNotBlank(resultJson))
         {
             update.set(AidExtractTask::getResultData, resultJson);

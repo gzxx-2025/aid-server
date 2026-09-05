@@ -43,6 +43,15 @@ public interface IMediaGenerationService {
     // 业务含义：文本流式生成，立即返回由 Controller 持有 SSE，业务线程推送增量与 taskId。
     void generateTextStream(MediaTextGenerateRequest request, MediaTextStreamSink sink);
 
+    /**
+     * 取消当前用户的文本生成任务，并保存停止前已经生成的正文。
+     *
+     * @param taskId 媒体任务 ID
+     * @param userId 当前用户 ID
+     * @return 取消后的任务快照
+     */
+    MediaTaskResponse cancelTextTask(Long taskId, Long userId);
+
     // 业务含义：查询任务状态，可选是否联动上游轮询。
     MediaTaskResponse queryTask(Long taskId, boolean pollRemote);
 
@@ -85,6 +94,16 @@ public interface IMediaGenerationService {
      * @return 本轮实际拉起的任务条数
      */
     int drainQueuedCompensate(int batchSize);
+
+    /**
+     * 关闭指定分镜视频父任务下仍在媒体队列、尚未提交供应商的子任务。
+     * 已开始调用供应商的任务保持原状态并按真实结果结算。
+     *
+     * @param parentTaskId 分镜视频父任务ID
+     * @param userId       任务所属用户ID
+     * @return 已取消并完成计费收口的排队子任务数
+     */
+    int cancelQueuedVideoTasksForParent(Long parentTaskId, Long userId);
 
     /**
      * OSS 持久化补偿：扫描 status=SUCCEEDED 且 oss_url 为空的任务，

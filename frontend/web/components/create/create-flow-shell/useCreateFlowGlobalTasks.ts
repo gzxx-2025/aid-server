@@ -169,8 +169,10 @@ export function useCreateFlowGlobalTasks(options: {
       message.warning('任务ID无效，无法停止')
       return
     }
+    let remoteCancelRequested = false
     try {
       await requestCancelUserTask(task)
+      remoteCancelRequested = true
       message.success('已请求停止生成')
     } catch (e: unknown) {
       const ax = e as { response?: { status?: number }; msg?: string; message?: string }
@@ -184,7 +186,7 @@ export function useCreateFlowGlobalTasks(options: {
     useCreationStore.getState().addPausedTaskFollow(taskId)
     window.dispatchEvent(
       new CustomEvent('create-flow-stop-task', {
-        detail: { taskId, taskType: task.taskType ?? null }
+        detail: { taskId, taskType: task.taskType ?? null, remoteCancelRequested }
       })
     )
     window.dispatchEvent(new CustomEvent('create-flow-global-tasks-updated'))

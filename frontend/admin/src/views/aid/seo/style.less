@@ -1,0 +1,42 @@
+.seo-management-page {
+  --seo-border: #e8edf5;
+  --seo-muted: #65758b;
+
+  .seo-alert { margin-bottom: 14px; border-radius: 10px; }
+  .seo-stats { margin-bottom: 14px; }
+  .seo-stats .ant-card { height: 100%; border: 1px solid var(--seo-border); border-radius: 12px; box-shadow: 0 6px 22px rgba(35, 63, 107, 0.05); }
+  .seo-run-status { margin-bottom: 14px; padding: 11px 16px; border: 1px solid #d9e7ff; border-radius: 10px; background: #f6f9ff; }
+  .seo-main-card { border: 1px solid var(--seo-border); border-radius: 14px; box-shadow: 0 10px 30px rgba(35, 63, 107, 0.06); }
+  .seo-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+  .seo-page-cell { min-width: 0; }
+  .seo-full-url { display: flex; align-items: center; gap: 2px; margin-top: 7px; min-width: 0; }
+  .seo-full-url .ant-typography { max-width: 350px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+  .keyword-wrap { display: flex; flex-wrap: wrap; gap: 3px; }
+  .keyword-wrap .ant-tag { margin-inline-end: 0; }
+  .manual-panel > .ant-alert { margin-bottom: 18px; }
+  .manual-actions { display: flex; justify-content: space-between; align-items: center; gap: 14px; margin-bottom: 14px; }
+  .manual-url-item { padding-block: 13px !important; }
+  .manual-url-item .ant-checkbox-wrapper { min-width: 0; flex: 1; align-items: flex-start; }
+  .manual-url-item .ant-checkbox + span { min-width: 0; flex: 1; }
+  .manual-url-text { margin: 4px 0 0 !important; color: #1677ff; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+  .crawler-card, .settings-card { height: 100%; border-color: var(--seo-border); border-radius: 12px; }
+  .crawler-card .ant-card-head-title svg, .settings-card .ant-card-head-title svg { margin-right: 8px; color: #1677ff; }
+  .crawler-card > .ant-card-body { display: flex; flex-direction: column; gap: 16px; }
+  .code-preview, .code-input { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .code-preview { color: #d6e4ff; background: #10243e; border-color: #10243e; }
+  .sitemap-address { padding: 22px; border: 1px dashed #adc6ff; border-radius: 12px; background: linear-gradient(135deg, #f2f7ff, #f8fbff); }
+  .sitemap-address .ant-typography { margin: 8px 0 0; word-break: break-all; }
+  .settings-tip { margin-bottom: 18px; }
+  .schedule-description { margin-top: 22px; padding: 14px; border-radius: 10px; background: #f7f9fc; }
+  .settings-save-bar { position: sticky; bottom: 12px; display: flex; justify-content: flex-end; margin-top: 18px; padding: 12px 16px; border: 1px solid var(--seo-border); border-radius: 12px; background: rgba(255, 255, 255, 0.94); box-shadow: 0 8px 26px rgba(35, 63, 107, 0.12); backdrop-filter: blur(10px); z-index: 2; }
+}
+
+.log-alert { margin-bottom: 16px; }
+
+@media (max-width: 768px) {
+  .seo-management-page {
+    .seo-toolbar, .manual-actions { align-items: stretch; flex-direction: column; }
+    .seo-toolbar > .ant-space, .manual-actions > .ant-space { width: 100%; }
+    .seo-full-url .ant-typography { max-width: 250px; }
+  }
+}

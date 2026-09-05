@@ -479,7 +479,7 @@ public class ViduVideoProviderClient implements VideoProviderClient {
                 ensureImagesForReferenceToVideo(body, request);
             }
             case START_END_TO_VIDEO -> {
-                // 首尾帧接口要求 images 至少两张，优先使用 options.images；其次使用 imageUrl + endImageUrl 兜底。
+                // 首尾帧接口要求 images 至少两张，优先使用 options.images；其次使用 imageUrl + 归一化后的尾帧键兜底。
                 ensureImagesForStartEnd(body, request);
             }
             case MULTI_FRAME -> {
@@ -544,7 +544,10 @@ public class ViduVideoProviderClient implements VideoProviderClient {
         if (body.get(ViduConstants.JSON_IMAGES) instanceof List<?> list && !list.isEmpty()) {
             return;
         }
-        String endImageUrl = readOptionAsString(request, ViduConstants.OPTIONS_END_IMAGE_URL_CAMEL, ViduConstants.OPTIONS_END_IMAGE_URL_SNAKE);
+        String endImageUrl = readOptionAsString(request,
+                VolcengineConstants.OPTIONS_LAST_FRAME_IMAGE_URL,
+                ViduConstants.OPTIONS_END_IMAGE_URL_CAMEL,
+                ViduConstants.OPTIONS_END_IMAGE_URL_SNAKE);
         List<String> images = new ArrayList<>();
         if (StrUtil.isNotBlank(request.getImageUrl())) {
             images.add(request.getImageUrl());

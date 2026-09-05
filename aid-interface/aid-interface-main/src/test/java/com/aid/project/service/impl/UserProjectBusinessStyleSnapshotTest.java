@@ -26,7 +26,6 @@ import com.aid.aid.service.IAidStoryboardService;
 import com.aid.common.exception.ServiceException;
 import com.aid.project.dto.UserProjectCreateRequest;
 import com.aid.project.dto.UserProjectUpdateRequest;
-import com.aid.project.service.IProjectContentGuardService;
 import com.aid.project.service.ProjectStyleSnapshotService;
 import com.aid.project.vo.UserProjectVO;
 import com.aid.projectgenconfig.service.IProjectGenConfigService;
@@ -67,7 +66,6 @@ class UserProjectBusinessStyleSnapshotTest
         ReflectionTestUtils.setField(service, "aidComicEpisodeService", mock(IAidComicEpisodeService.class));
         ReflectionTestUtils.setField(service, "aidStoryboardService", mock(IAidStoryboardService.class));
         ReflectionTestUtils.setField(service, "projectGenConfigService", mock(IProjectGenConfigService.class));
-        ReflectionTestUtils.setField(service, "projectContentGuardService", mock(IProjectContentGuardService.class));
     }
 
     @Test
@@ -105,7 +103,6 @@ class UserProjectBusinessStyleSnapshotTest
         current.setVideoStyleValue("旧公开提示词");
         current.setHiddenStylePromptJson("{\"character\":\"old\",\"scene\":\"\",\"prop\":\"\"}");
         current.setStatus(0);
-        current.setIsPublic("0");
         when(projectService.getOne(any(Wrapper.class))).thenReturn(current);
         when(styleSnapshotService.resolve("official", 31L, 9L))
                 .thenReturn(new ProjectStyleSnapshotService.ResolvedProjectStyle(
@@ -143,7 +140,6 @@ class UserProjectBusinessStyleSnapshotTest
         current.setDefaultGenMode("economy");
         current.setDefaultCreationMode("i2v");
         current.setStatus(0);
-        current.setIsPublic("0");
         when(projectService.getOne(any(Wrapper.class))).thenReturn(current);
         when(projectService.update(any(AidComicProject.class), any(Wrapper.class))).thenReturn(true);
         when(styleSnapshotService.resolve("official", 31L, 9L))
@@ -207,7 +203,6 @@ class UserProjectBusinessStyleSnapshotTest
         current.setStyleAssetId(86L);
         current.setHiddenStylePromptJson("{\"character\":\"hidden\",\"scene\":\"\",\"prop\":\"\"}");
         current.setStatus(0);
-        current.setIsPublic("0");
         when(projectService.getOne(any(Wrapper.class))).thenReturn(current);
         when(projectService.update(any(AidComicProject.class), any(Wrapper.class))).thenReturn(true);
 

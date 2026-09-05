@@ -81,7 +81,7 @@ public class AidRolePropSceneFormImage extends BaseEntity implements Serializabl
     /** 同形态下排序（小→大），同时段插入按 0 起算 */
     private Integer sortOrder;
 
-    /** 是否使用中（0/1）；同一 form 下允许多张同时为 1 */
+    /** 是否使用中（0/1）；角色、道具同一 form 仅一张为 1，场景允许多张为 1 */
     @Excel(name = "是否使用中")
     private Integer isUse;
 

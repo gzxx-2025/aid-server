@@ -7,12 +7,16 @@ InternalAxiosRequestConfig
 import axios from 'axios'
 import {
 applyEncryptedPayloadToAxiosConfig,
+ensureApiCryptoConfigReady,
+isApiCryptoExemptPath,
+isApiCryptoIncludedPath,
 maybeDecryptApiPayload,
 prepareEncryptedRequest,
 refreshApiCryptoConfig,
 shouldEncryptApiPath,
 takeAxiosRequestAesKey
 } from '~/utils/apiCrypto'
+import { redirectToLogin } from '~/utils/authLoginNavigation'
 import {
 clearPendingCaptchaToken,
 isCaptchaProtectedAuthPath,
@@ -23,6 +27,8 @@ isInsufficientBalanceMessage,
 shouldOpenUserRechargeFromSseError,
 type SseRechargeErrorData
 } from '~/utils/insufficientBalanceRecharge'
+
+export { redirectToLogin } from '~/utils/authLoginNavigation'
 
 type ApiCryptoRetryConfig = InternalAxiosRequestConfig & {
   __apiCryptoPlainData?: unknown
@@ -71,21 +77,6 @@ function isLoginRequiredApi(url?: string): boolean {
   if (!u) return false
   // 仅 /api/user/** 视为必须登录接口（兼容带 /url 前缀的请求地址）
   return /(^|\/)(api\/user\/)/.test(u)
-}
-
-export function redirectToLogin(): void {
-  if (!(typeof window !== 'undefined')) return
-  try {
-    localStorage.removeItem('token')
-    localStorage.removeItem('user-info')
-  } catch {
-    /* ignore */
-  }
-  const current = `${window.location.pathname}${window.location.search}${window.location.hash}`
-  const isInLoginPage = window.location.pathname.startsWith('/login')
-  if (isInLoginPage) return
-  const next = `/login?redirect=${encodeURIComponent(current)}`
-  window.location.assign(new URL(next, window.location.origin).toString())
 }
 
 function extractApiMessage(data: unknown): string {
@@ -265,12 +256,20 @@ api.interceptors.request.use(
     // 添加其他通用请求头
     config.headers['X-Requested-With'] = 'XMLHttpRequest'
 
-    // 信封加密（由 /auth/public-config 的 crypto.enabled 控制）
-    if (
+    const isFormData = typeof FormData !== 'undefined' && config.data instanceof FormData
+    const isApiCryptoCandidate =
       (typeof window !== 'undefined') &&
-      shouldEncryptApiPath(config.url) &&
-      !(typeof FormData !== 'undefined' && config.data instanceof FormData)
-    ) {
+      isApiCryptoIncludedPath(config.url) &&
+      !isApiCryptoExemptPath(config.url) &&
+      !isFormData
+
+    // 首批业务请求先等待公开配置，避免加密开关未知时按明文抢跑。
+    if (isApiCryptoCandidate) {
+      await ensureApiCryptoConfigReady()
+    }
+
+    // 信封加密（由 /auth/public-config 的 crypto.enabled 控制）
+    if (isApiCryptoCandidate && shouldEncryptApiPath(config.url)) {
       const method = (config.method || 'get').toLowerCase()
       const isGet = method === 'get' || method === 'head'
       const retryConfig = config as ApiCryptoRetryConfig

@@ -21,7 +21,6 @@ import com.aid.aid.service.IAidComicScriptService;
 import com.aid.common.exception.ServiceException;
 import com.aid.enums.ProjectTypeEnum;
 import com.aid.enums.ScriptStatusEnum;
-import com.aid.project.service.IProjectContentGuardService;
 import com.aid.script.dto.ScriptSplitPreviewRequest;
 import com.aid.script.helper.ScriptEpisodeSplitter;
 import com.aid.script.helper.ScriptEpisodeSplitter.EpisodeSegment;
@@ -96,9 +95,6 @@ public class ScriptSplitServiceImpl implements IScriptSplitService {
     /** 编程式事务模板：批量建集在锁内以事务提交，保证「事务提交后再释放锁」 */
     private final TransactionTemplate transactionTemplate;
 
-    /** 项目内容守卫：公开期间禁止剧集增删（与直接建集接口同口径） */
-    private final IProjectContentGuardService projectContentGuardService;
-
     @Override
     public ScriptSplitPreviewVO previewSplit(ScriptSplitPreviewRequest request, Long userId) {
         validateProject(request.getProjectId(), userId);
@@ -127,8 +123,6 @@ public class ScriptSplitServiceImpl implements IScriptSplitService {
     @Override
     public ScriptSplitConfirmVO confirmSplit(ScriptSplitPreviewRequest request, Long userId) {
         AidComicProject project = validateProject(request.getProjectId(), userId);
-        // 公开锁：批量建集与直接建集同口径，项目公开期间禁止剧集增删
-        projectContentGuardService.assertProjectEditable(request.getProjectId());
         // 项目级防连点锁：确认入库是批量建集写操作，连点会成倍创建剧集。
         // 锁在事务外获取、事务提交后才释放，保证并发请求读 max(episode_no) 时上一批已可见
         String lockKey = CONFIRM_LOCK_PREFIX + request.getProjectId();

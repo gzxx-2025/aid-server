@@ -3,6 +3,7 @@
 import { message } from 'antd'
 import { buildModalTaskOverlayKey } from '~/composables/useModalTaskScope'
 import { isStoryboardVideoTaskOngoing } from '~/composables/useStoryboardVideoGenerateTask'
+import type { AsyncPromptApplyTicket } from '~/utils/asyncPromptApplyGuard'
 import {
 userStoryboardGenerateVideoPrompt,
 userStoryboardGenerateVideoPromptGrid,
@@ -113,6 +114,8 @@ export function useVideoModalPromptFlows(ctx: VideoModalCtx): void {
     if (!taskId) return
 
     const taskKind: VideoPromptGenTaskKind = persisted?.taskKind ?? 'video-prompt-gen'
+    const promptChannel = taskKind === 'multi-video-prompt-gen' ? 'multiParam' : 'imageToVideo'
+    const promptApplyTicket = ctx.beginVideoPromptApply(promptChannel, storyboardId)
     const ui = resolveVideoPromptGenUiRefs(taskKind)
 
     const gen = ++ctx.resumeStoryboardVideoPromptFollowGen.current
@@ -164,12 +167,15 @@ export function useVideoModalPromptFlows(ctx: VideoModalCtx): void {
             ? await fetchStoryboardMultiVideoPromptAfterGenerate(storyboardId)
             : await fetchStoryboardImageToVideoPromptAfterGenerate(storyboardId)
         if (prompt) {
+          let applied = false
           if (taskKind === 'multi-video-prompt-gen') {
-            await ctx.applyMultiParamPromptFromApi(prompt)
+            applied = await ctx.applyMultiParamPromptFromApi(prompt, promptApplyTicket)
           } else {
-            await ctx.applyVideoPromptFromApi(prompt)
+            applied = await ctx.applyVideoPromptFromApi(prompt, promptApplyTicket)
           }
-          await ctx.refreshRecommendedDurationAfterPromptGenerate(storyboardId)
+          if (applied) {
+            await ctx.refreshRecommendedDurationAfterPromptGenerate(storyboardId)
+          }
         }
       }
     } catch {
@@ -207,7 +213,7 @@ export function useVideoModalPromptFlows(ctx: VideoModalCtx): void {
       taskId?: number
     }>
     fetchPromptAfterGenerate: (storyboardId: number) => Promise<string>
-    applyPrompt: (plain: string) => Promise<void>
+    applyPrompt: (plain: string, ticket: AsyncPromptApplyTicket) => Promise<boolean>
   }) {
     if (ctx.isStoryboardVideoPromptGeneratingForScene(opts.sceneIdx)) return
 
@@ -216,6 +222,9 @@ export function useVideoModalPromptFlows(ctx: VideoModalCtx): void {
       message.warning('分镜ID缺失，无法生成提示词')
       return
     }
+    const promptChannel =
+      opts.taskKind === 'multi-video-prompt-gen' ? 'multiParam' : 'imageToVideo'
+    const promptApplyTicket = ctx.beginVideoPromptApply(promptChannel, storyboardId)
 
     opts.targetKey.set(buildModalTaskOverlayKey(ctx.overlayKeyParts(opts.sceneIdx, opts.taskKind)))
     opts.isGenerating.set(true)
@@ -295,7 +304,11 @@ export function useVideoModalPromptFlows(ctx: VideoModalCtx): void {
         return
       }
 
-      await opts.applyPrompt(prompt)
+      const applied = await opts.applyPrompt(prompt, promptApplyTicket)
+      if (!applied) {
+        message.warning('检测到分镜切换或手动修改，已保留当前提示词')
+        return
+      }
       if (opts.sceneIdx === ctx.currentSceneIndex.get()) {
         await ctx.refreshRecommendedDurationAfterPromptGenerate(storyboardId)
       }

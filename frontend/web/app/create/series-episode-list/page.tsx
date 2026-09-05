@@ -34,7 +34,6 @@ htmlPlainTextLength,
 resolveStoryScriptEditorHtmlAfterApiLoad,
 storyScriptOriginalTextForApi
 } from '~/utils/htmlPlain'
-import { isProjectPublicLockError,projectPublicLockUserHint } from '~/utils/projectAudit'
 import './series-episode-list.css'
 
 const tvIconUrl = assetUrl(tvIconRaw)
@@ -303,10 +302,6 @@ function SeriesEpisodeListClient() {
       message.success('已新增一集')
       await loadEpisodes({ force: true })
     } catch (e: unknown) {
-      if (isProjectPublicLockError(e)) {
-        message.error(projectPublicLockUserHint())
-        return
-      }
       const err = e as { msg?: string; message?: string }
       message.error(err?.msg || err?.message || '新增失败')
     } finally {
@@ -334,10 +329,6 @@ function SeriesEpisodeListClient() {
           }
           await loadEpisodes({ force: true })
         } catch (e: unknown) {
-          if (isProjectPublicLockError(e)) {
-            message.error(projectPublicLockUserHint())
-            return
-          }
           const err = e as { msg?: string; message?: string }
           message.error(err?.msg || err?.message || '删除失败')
           throw e

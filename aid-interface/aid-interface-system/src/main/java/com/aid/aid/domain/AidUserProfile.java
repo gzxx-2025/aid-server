@@ -78,7 +78,6 @@ public class AidUserProfile extends BaseEntity implements Serializable
     private Integer balanceReminderAvailable;
 
     /** 用户级作品发布权限：1允许 0禁止（发布总开关优先级更高，白名单用户不受总开关限制） */
-    private Integer publishEnabled;
 
     /** 删除标志（0代表存在 1代表删除） */
     private String delFlag;

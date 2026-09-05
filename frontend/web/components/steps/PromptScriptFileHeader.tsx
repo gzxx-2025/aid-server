@@ -119,7 +119,7 @@ export function PromptScriptFileHeader({
             </Button>
           ) : showGeneratePromptButton && theme === 'modal-dark' ? (
             <Button
-              className="generate-prompt-btn generate-prompt-btn--outline generate-prompt-btn--gradient"
+              className="generate-prompt-btn generate-prompt-btn--gradient"
               loading={generatePromptLoading}
               disabled={generatePromptLoading}
               onClick={() => onGeneratePrompt?.()}

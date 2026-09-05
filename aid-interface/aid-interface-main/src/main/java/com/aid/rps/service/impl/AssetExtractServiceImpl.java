@@ -1,5 +1,9 @@
 package com.aid.rps.service.impl;
 
+import com.aid.common.error.ErrorNormalizer;
+import com.aid.common.error.TaskErrorResult;
+import com.aid.common.error.TaskErrorSnapshot;
+import com.aid.common.error.TaskErrorCode;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -90,6 +94,7 @@ import com.aid.agent.IAidAgentService;
 import com.aid.aid.domain.AidAgent;
 import com.aid.rps.service.IAssetExtractService;
 import com.aid.rps.service.IExtractBillingService;
+import com.aid.rps.service.IFormImageSelectionService;
 import com.aid.rps.service.IExtractBillingService.ResumeBillingContext;
 import com.aid.rps.service.IExtractBillingService.ResumeTaskMutation;
 import com.aid.rps.service.IExtractBillingService.TextCallBillingContext;
@@ -259,7 +264,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
      */
     private static final String BIZ_CATEGORY_MAIN_CHARACTER_FORM = "main_character_form";
 
-    /** form/generate-image 角色形态图（白底主图） */
+    /** form/generate-image 角色形态图 */
     private static final String BIZ_CATEGORY_MAIN_CHARACTER_IMAGE = "main_character_image";
     /** form/generate-image 场景形态图 */
     private static final String BIZ_CATEGORY_MAIN_SCENE_IMAGE = "main_scene_image";
@@ -272,17 +277,15 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
     /** 形态图模板 remark：角色 / 场景 / 道具 */
     // 人物蓝图模板：当前 character 分支未使用，保留常量以对应词库中仍存在的模板
     private static final String PROMPT_NAME_CHARACTER_IMAGE = "aid_persona_blueprint";
-    // 人物形态图"参考图 + 提示词"模板：character 主流程使用下方 *_BACKGROUND_WHITE 模板生成白底主图，
-    // 本常量供"传图接口"作为入参使用（基于已生成主图的二次加工 / 换装 / 表情场景），不可删除
+    // 人物形态图"参考图 + 提示词"模板：供传图接口基于已有角色图生成设定卡，不可删除。
     private static final String PROMPT_NAME_CHARACTER_FORM_IMAGE_BUILDER = "aid_character_form_image_builder";
     /**
-     * 人物形态图 txt2img 模板：白底角色主图（remark = aid_character_form_image_background_white，
-     * aid_prompt_lib 由运营侧维护）。模板正文只承担"生成规则"语义（白底、构图、姿态、画质等通用约束），
-     * 不依赖任何占位符；角色画风提示词 / 人物提示词由 {@link #buildCharacterFormImagePrompt} 在外层追加。
+     * 人物形态图 txt2img 默认智能体。编码为历史稳定标识，模板内容由智能体配置维护。
      */
-    private static final String PROMPT_NAME_CHARACTER_FORM_IMAGE_WHITE_BG = "aid_character_form_image_background_white";
+    private static final String PROMPT_NAME_CHARACTER_FORM_IMAGE = "aid_character_form_image_background_white";
     private static final String PROMPT_NAME_SCENE_IMAGE = "aid_scene_image_builder";
     private static final String PROMPT_NAME_PROP_IMAGE = "aid_prop_image_builder";
+    private static final String CHARACTER_FORM_IMAGE_NAME_SUFFIX = "_角色设定";
 
     /*
      * 资产生图的尺寸（resolution）/ 比例（aspectRatio）由项目级配置决定
@@ -300,6 +303,11 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
     private static final String CHARACTER_PROMPT_SUFFIX = "，角色设定图，白色纯色背景，全身正面站姿，清晰可辨的服装与配饰细节，无文字水印";
     private static final String LOCATION_SPATIAL_SUFFIX = "，场景设定图，保留可落位位置的空间布局，透视关系准确，空间比例合理，镜头稍微俯视，无人物，无文字水印";
     private static final String PROP_PROMPT_SUFFIX = "，道具设定图，白色纯色背景，单品居中展示，主体完整不裁切，细节清晰，无文字水印";
+    private static final String CHARACTER_FORM_IMAGE_LAYOUT_CONSTRAINT =
+            "\n角色形态图布局要求：\n"
+            + "必须在同一白色背景画布中展示同一角色的正面、侧面和背面等完整视图。\n"
+            + "各视图的人物身份、服装、配饰、颜色和材质必须一致，主体完整且互不遮挡。\n"
+            + "智能体模板或人物描述中的单视图、禁止多视角等历史要求不适用于本次生成。";
 
     private static final String VISUAL_DESC_STATUS_PENDING = "pending";
     private static final String VISUAL_DESC_STATUS_COMPLETED = "completed";
@@ -453,6 +461,10 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
     @Autowired
     private com.aid.aid.service.IAidRolePropSceneFormImageService rpsFormImageService;
 
+    /** 生成图片默认使用状态统一规则。 */
+    @Autowired
+    private IFormImageSelectionService formImageSelectionService;
+
     @Autowired
     private RocketMqConfigManager rocketMqConfigManager;
 
@@ -553,7 +565,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
     @Autowired
     private TransactionTemplate transactionTemplate;
 
-    /** 角色隐藏风格快照解析，仅用于角色白底图与角色设定卡。 */
+    /** 角色隐藏风格快照解析，仅用于角色形态图与角色设定卡。 */
     @Autowired
     private ProjectStyleSnapshotService projectStyleSnapshotService;
 
@@ -3804,7 +3816,8 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
             update.eq(AidExtractTask::getBillingTraceId, task.getBillingTraceId());
         }
         update.set(AidExtractTask::getStatus, targetStatus);
-        update.set(AidExtractTask::getErrorMessage, errorMessage);
+        update.set(AidExtractTask::getErrorMessage, errorMessage)
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage(errorMessage));
         update.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
         return extractTaskService.getBaseMapper().update(null, update) > 0;
     }
@@ -4818,7 +4831,8 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         update.in(AidExtractTask::getStatus, TASK_STATUS_PENDING, TASK_STATUS_QUEUED);
         update.eq(AidExtractTask::getBillingTraceId, expectedTraceId);
         update.set(AidExtractTask::getStatus, TASK_STATUS_FAILED);
-        update.set(AidExtractTask::getErrorMessage, errorMessage);
+        update.set(AidExtractTask::getErrorMessage, errorMessage)
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage(errorMessage));
         update.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
         return extractTaskService.getBaseMapper().update(null, update) > 0;
     }
@@ -5014,7 +5028,8 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         update.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
         if (errorMessage != null)
         {
-            update.set(AidExtractTask::getErrorMessage, errorMessage);
+            update.set(AidExtractTask::getErrorMessage, errorMessage)
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage(errorMessage));
         }
         int rows = extractTaskService.getBaseMapper().update(null, update);
         if (rows == 0)
@@ -5081,7 +5096,8 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         update.set(AidExtractTask::getStatus, TASK_STATUS_PARTIAL_FAILED);
         update.set(AidExtractTask::getTotalCount, totalCount);
         update.set(AidExtractTask::getResultData, resultData);
-        update.set(AidExtractTask::getErrorMessage, errorMessage);
+        update.set(AidExtractTask::getErrorMessage, errorMessage)
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage(errorMessage));
         update.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
         int rows = extractTaskService.getBaseMapper().update(null, update);
         if (rows == 0)
@@ -5100,6 +5116,16 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
      */
     private boolean updateTaskFailed(Long taskId, String expectedTraceId, String errorMessage)
     {
+        return updateTaskFailed(taskId, expectedTraceId, ErrorNormalizer.normalizeByMessage(errorMessage));
+    }
+
+    /**
+     * CAS 标记任务失败（结构化版本兼容入口）：保留此重载避免调用点大改,。
+     *
+     * @return true 表示 CAS 实际成功
+     */
+    private boolean updateTaskFailed(Long taskId, String expectedTraceId, TaskErrorResult errorResult)
+    {
         LambdaUpdateWrapper<AidExtractTask> update = Wrappers.lambdaUpdate();
         update.eq(AidExtractTask::getId, taskId);
         update.in(AidExtractTask::getStatus, TASK_STATUS_PENDING, TASK_STATUS_QUEUED, TASK_STATUS_PROCESSING);
@@ -5113,23 +5139,11 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
             update.isNull(AidExtractTask::getBillingTraceId);
         }
         update.set(AidExtractTask::getStatus, TASK_STATUS_FAILED);
-        update.set(AidExtractTask::getErrorMessage, errorMessage);
+        update.set(AidExtractTask::getErrorMessage, StrUtil.sub(StrUtil.blankToDefault(errorResult.getRawMessage(), errorResult.getUserMessage()), 0, 500))
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.write(errorResult));
         update.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
         Integer rows = extractTaskService.getBaseMapper().update(null, update);
         return rows != null && rows > 0;
-    }
-
-    /**
-     * CAS 标记任务失败（结构化版本兼容入口）：保留此重载避免调用点大改,。
-     *
-     * @return true 表示 CAS 实际成功
-     */
-    private boolean updateTaskFailed(Long taskId, String dispatchToken,
-                                     com.aid.common.error.TaskErrorResult errorResult)
-    {
-        String dbMessage = errorResult.getRawMessage() != null
-                ? errorResult.getRawMessage() : errorResult.getUserMessage();
-        return updateTaskFailed(taskId, dispatchToken, dbMessage);
     }
 
     /**
@@ -5376,6 +5390,14 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
                 throw new ServiceException("任务已停止");
             }
             String statusBeforeCancel = current.getStatus();
+            boolean startedVideo = TASK_TYPE_STORYBOARD_VIDEO_GENERATE.equals(current.getTaskType())
+                    && isStartedVideoStatus(statusBeforeCancel);
+            if (startedVideo)
+            {
+                int queuedClosed = mediaGenerationService.cancelQueuedVideoTasksForParent(taskId, userId);
+                log.info("分镜视频停止前已关闭未提交子任务，已提交任务继续结算: taskId={}, queuedClosed={}",
+                        taskId, queuedClosed);
+            }
             expectedTraceId = current.getBillingTraceId();
             boolean updated = extractTaskService.update(Wrappers.<AidExtractTask>lambdaUpdate()
                     .eq(AidExtractTask::getId, taskId)
@@ -5385,6 +5407,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
                             TASK_STATUS_PROCESSING, TASK_STATUS_FINALIZING, TASK_STATUS_RECOVERING)
                     .set(AidExtractTask::getStatus, TASK_STATUS_CANCELLED)
                     .set(AidExtractTask::getErrorMessage, "用户取消")
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage("用户取消"))
                     .set(AidExtractTask::getUpdateTime, DateUtils.getNowDate()));
             if (!updated)
             {
@@ -5400,7 +5423,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
             {
                 refundCancelledPendingTask(taskId, userId, expectedTraceId);
             }
-            else
+            else if (!startedVideo)
             {
                 try
                 {
@@ -5417,6 +5440,12 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
                     log.error("取消任务计费收口异常: taskId={}, taskType={}",
                             taskId, current.getTaskType(), billingEx);
                 }
+            }
+            else
+            {
+                // 分镜视频费用由 aid_media_task 子任务持有：已提交供应商的子任务继续真实结算，
+                // 父任务取消只阻止后续业务回写，不得伪造退款或打印退款成功语义。
+                log.info("分镜视频父任务停止不执行账户动作: taskId={}", taskId);
             }
             AidExtractTask cancelled = extractTaskService.selectAidExtractTaskById(taskId);
             releasePendingTaskSpecificLock(cancelled, expectedTraceId);
@@ -5439,6 +5468,13 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
     {
         return TASK_STATUS_PENDING.equals(status) || TASK_STATUS_QUEUED.equals(status)
                 || TASK_STATUS_PROCESSING.equals(status) || TASK_STATUS_FINALIZING.equals(status)
+                || TASK_STATUS_RECOVERING.equals(status);
+    }
+
+    private boolean isStartedVideoStatus(String status)
+    {
+        return TASK_STATUS_PROCESSING.equals(status)
+                || TASK_STATUS_FINALIZING.equals(status)
                 || TASK_STATUS_RECOVERING.equals(status);
     }
 
@@ -6509,7 +6545,8 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         update.eq(AidExtractTask::getStatus, TASK_STATUS_PROCESSING);
         update.eq(AidExtractTask::getBillingTraceId, dispatchToken);
         update.set(AidExtractTask::getStatus, TASK_STATUS_CANCELLED);
-        update.set(AidExtractTask::getErrorMessage, "用户取消");
+        update.set(AidExtractTask::getErrorMessage, "用户取消")
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage("用户取消"));
         update.set(AidExtractTask::getTotalCount, completedCount);
         update.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
         return extractTaskService.getBaseMapper().update(null, update) > 0;
@@ -7651,6 +7688,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         //    变体形态依赖同角色「初始形象」先出图并落库完成（image_status=completed）才能反查到基准图，
         //    一旦并行化，变体可能在初始形象 completed 之前执行，初始形象优先的顺序保证会静默失效。
         String modelCode = String.valueOf(input.getOrDefault("modelCode", ""));
+        String agentCode = Objects.toString(input.get("agentCode"), null);
         // resolution / aspectRatio 从 input_snapshot 取，缺失走 null 兜底
         String resolution = StrUtil.trim(String.valueOf(input.getOrDefault("resolution", "")));
         String aspectRatio = StrUtil.trim(String.valueOf(input.getOrDefault("aspectRatio", "")));
@@ -7691,7 +7729,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
             {
                 // 执行单项形态图生成（复用已有逻辑）
                 Map<String, Object> resultItem = executeSingleFormImageInternal(
-                        taskId, formId, modelCode, resolution, aspectRatio, userId,
+                        taskId, formId, agentCode, modelCode, resolution, aspectRatio, userId,
                         failedInitialAssetIds, billingTraceId);
 
                 successItems.add(resultItem);
@@ -7732,6 +7770,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
      * @param failedInitialAssetIds 本批内「初始形象基准形态」已生成失败的角色 assetId 集合（消费循环维护，可空）：
      */
     private Map<String, Object> executeSingleFormImageInternal(Long parentTaskId, Long formId,
+                                                               String agentCode,
                                                                String resolvedModelCode,
                                                                String resolvedResolution,
                                                                String resolvedAspectRatio,
@@ -7764,7 +7803,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         try
         {
             return doExecuteSingleFormImage(parentTaskId, formId, form, asset,
-                    resolvedModelCode, resolvedResolution, resolvedAspectRatio, userId,
+                    agentCode, resolvedModelCode, resolvedResolution, resolvedAspectRatio, userId,
                     expectedTraceId);
         }
         catch (Exception e)
@@ -7784,6 +7823,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
      */
     private Map<String, Object> doExecuteSingleFormImage(Long parentTaskId, Long formId,
                                                          AidRolePropSceneForm form, AidRolePropScene asset,
+                                                         String agentCode,
                                                          String resolvedModelCode,
                                                          String resolvedResolution,
                                                          String resolvedAspectRatio,
@@ -7796,7 +7836,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
             throw new ServiceException("项目不存在");
         }
         FormImageMediaBillingPlan mediaPlan = buildFormImageMediaBillingPlan(
-                parentTaskId, form, asset, project, resolvedModelCode,
+                parentTaskId, form, asset, project, agentCode, resolvedModelCode,
                 resolvedResolution, resolvedAspectRatio, userId, false);
         MediaImageGenerateRequest imageRequest = mediaPlan.request();
         String finalPrompt = mediaPlan.finalPrompt();
@@ -7828,7 +7868,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
 
     private FormImageMediaBillingPlan buildFormImageMediaBillingPlan(Long bizTaskId,
             AidRolePropSceneForm form, AidRolePropScene asset, AidComicProject project,
-            String modelCode, String resolution, String aspectRatio, Long userId,
+            String agentCode, String modelCode, String resolution, String aspectRatio, Long userId,
             boolean allowDeferredReference)
     {
         String inheritedRefImageUrl;
@@ -7847,7 +7887,11 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
             estimated = true;
         }
 
-        String finalPrompt = buildFormImagePrompt(project, asset, form);
+        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(modelCode);
+        ModelCapabilityResolver.ImageSizeSpec sizeSpec = ModelCapabilityResolver.resolveImageSpec(
+                modelConfig, resolution, aspectRatio);
+        String finalPrompt = buildFormImagePrompt(
+                project, asset, form, agentCode, sizeSpec.aspectRatio());
         if (StrUtil.isBlank(finalPrompt))
         {
             throw new ServiceException("模板异常");
@@ -7868,9 +7912,6 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         }
         Map<String, Object> options = new HashMap<>();
         options.put("force_single", true);
-        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(modelCode);
-        ModelCapabilityResolver.ImageSizeSpec sizeSpec = ModelCapabilityResolver.resolveImageSpec(
-                modelConfig, resolution, aspectRatio);
         if (StrUtil.isNotBlank(sizeSpec.aspectRatio()))
         {
             options.put("aspect_ratio", sizeSpec.aspectRatio());
@@ -8518,7 +8559,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
                 FormImageValidated validated = byId.get(formId);
                 boolean deferred = billingPlan.initialAssetIds().contains(validated.asset.getId());
                 FormImageMediaBillingPlan mediaPlan = buildFormImageMediaBillingPlan(null,
-                        validated.form, validated.asset, validated.project, billingPlan.modelCode(),
+                        validated.form, validated.asset, validated.project, agentCode, billingPlan.modelCode(),
                         billingPlan.resolution(), billingPlan.aspectRatio(), userId, deferred);
                 items.add(mediaPlan.estimated()
                         ? mediaBillingQuoteService.quotePlannedImage(
@@ -8533,7 +8574,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
             {
                 CardImageValidated validated = validateSingleCardImage(imageId, userId);
                 CardImageMediaBillingPlan mediaPlan = buildCardImageMediaBillingPlan(null,
-                        validated, modelCode, resolution, aspectRatio, userId);
+                        validated, agentCode, modelCode, resolution, aspectRatio, userId);
                 items.add(mediaBillingQuoteService.quoteImage(
                         "TASK_RESUME", mediaPlan.request(), 1));
             }
@@ -8602,7 +8643,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
             {
                 FormImageValidated validated = byId.get(formId);
                 buildFormImageMediaBillingPlan(null, validated.form, validated.asset,
-                        validated.project, plan.modelCode(), plan.resolution(), plan.aspectRatio(),
+                        validated.project, agentCode, plan.modelCode(), plan.resolution(), plan.aspectRatio(),
                         userId, plan.initialAssetIds().contains(validated.asset.getId()));
             }
         }
@@ -8612,7 +8653,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
             {
                 CardImageValidated validated = validateSingleCardImage(imageId, userId);
                 buildCardImageMediaBillingPlan(
-                        null, validated, modelCode, resolution, aspectRatio, userId);
+                        null, validated, agentCode, modelCode, resolution, aspectRatio, userId);
             }
         }
         return new FormBatchResumePlan(task,
@@ -10504,7 +10545,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
             FormImageValidated validated = byId.get(formId);
             boolean deferredReference = plan.initialAssetIds().contains(validated.asset.getId());
             FormImageMediaBillingPlan mediaPlan = buildFormImageMediaBillingPlan(null,
-                    validated.form, validated.asset, validated.project, plan.modelCode(),
+                    validated.form, validated.asset, validated.project, request.getAgentCode(), plan.modelCode(),
                     plan.resolution(), plan.aspectRatio(), userId, deferredReference);
             BillingQuoteVO item = mediaPlan.estimated()
                     ? mediaBillingQuoteService.quotePlannedImage(
@@ -10551,8 +10592,17 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         AgentModelDefault agentModel = new AgentModelDefault(modelCode);
         for (FormImageValidated item : validatedList)
         {
+            String finalPrompt = buildFormImagePrompt(
+                    item.project, item.asset, item.form, agentCode, aspectRatio);
+            if (StrUtil.isBlank(finalPrompt))
+            {
+                log.error("形态图生成失败，最终提示词为空: formId={}, agentCode={}",
+                        item.formId, agentCode);
+                throw new ServiceException("模板异常");
+            }
             item.modelCode = modelCode;
             item.agentModel = agentModel;
+            item.finalPrompt = finalPrompt;
             item.aspectRatio = aspectRatio;
             item.resolution = resolution;
         }
@@ -10680,7 +10730,13 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
             log.error("批量形态图生成失败：未知资产类型 {}", batchAssetType);
             throw new ServiceException("类型不支持");
         }
-        return aidAgentService.getByAgentCodeAndAssertBizCategory(agentCode, expectedCategory);
+        AidAgent agent = aidAgentService.getByAgentCodeAndAssertBizCategory(agentCode, expectedCategory);
+        if (StrUtil.isBlank(agent.getPromptContent()))
+        {
+            log.error("批量形态图生成失败：智能体提示词为空, agentCode={}", agentCode);
+            throw new ServiceException("模板异常");
+        }
+        return agent;
     }
 
     /**
@@ -10733,14 +10789,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         if (StrUtil.isBlank(promptText))
         {
             log.info("形态图生成失败，提示词为空: formId={}", formId);
-            throw new ServiceException("提示词不能为空");
-        }
-
-        String finalPrompt = buildFormImagePrompt(project, asset, form);
-        if (StrUtil.isBlank(finalPrompt))
-        {
-            log.error("形态图生成失败，最终提示词为空: formId={}, assetType={}", formId, asset.getAssetType());
-            throw new ServiceException("模板异常");
+            throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_EMPTY, "请填写提示词");
         }
 
         // 角色变体形态必须具备初始形象基准图。
@@ -10764,7 +10813,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         v.project = project;
         v.agentModel = null;
         v.modelCode = null;
-        v.finalPrompt = finalPrompt;
+        v.finalPrompt = null;
         // 默认值仅作占位，实际 aspectRatio / resolution 由项目级配置解析器在 batchGenerateFormImage 阶段回填
         v.aspectRatio = null;
         v.resolution = null;
@@ -11021,7 +11070,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         for (CardImageValidated validated : plan.validatedList())
         {
             CardImageMediaBillingPlan mediaPlan = buildCardImageMediaBillingPlan(null,
-                    validated, plan.modelCode(), plan.resolution(), plan.aspectRatio(), userId);
+                    validated, request.getAgentCode(), plan.modelCode(), plan.resolution(), plan.aspectRatio(), userId);
             items.add(mediaBillingQuoteService.quoteImage(
                     "FORM_CARD_IMAGE", mediaPlan.request(), 1));
         }
@@ -11052,7 +11101,8 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
                 failed.eq(AidExtractTask::getBillingTraceId, current.getBillingTraceId());
             }
             failed.set(AidExtractTask::getStatus, TASK_STATUS_FAILED);
-            failed.set(AidExtractTask::getErrorMessage, "任务提交失败");
+            failed.set(AidExtractTask::getErrorMessage, "任务提交失败")
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage("任务提交失败"));
             failed.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
             extractTaskService.getBaseMapper().update(null, failed);
             current = extractTaskService.selectAidExtractTaskById(task.getId());
@@ -11099,8 +11149,13 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         {
             throw new ServiceException("批量过多");
         }
-        aidAgentService.getByAgentCodeAndAssertBizCategory(
+        AidAgent agent = aidAgentService.getByAgentCodeAndAssertBizCategory(
                 agentCode, BIZ_CATEGORY_MAIN_CHARACTER_CARD_IMAGE);
+        if (StrUtil.isBlank(agent.getPromptContent()))
+        {
+            log.error("批量设定卡生成失败：智能体提示词为空, agentCode={}", agentCode);
+            throw new ServiceException("模板异常");
+        }
         List<Long> uniqueImageIds = imageIds.stream().distinct().collect(Collectors.toList());
         List<CardImageValidated> validatedList = new ArrayList<>();
         for (Long imageId : uniqueImageIds)
@@ -11227,6 +11282,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         String itemLockToken = resolveItemLockToken(input);
         // 父任务已存好解析后的 modelCode / resolution / aspectRatio，consumer 直接用
         String modelCode = String.valueOf(input.getOrDefault("modelCode", ""));
+        String agentCode = Objects.toString(input.get("agentCode"), null);
         String resolution = StrUtil.trim(String.valueOf(input.getOrDefault("resolution", "")));
         String aspectRatio = StrUtil.trim(String.valueOf(input.getOrDefault("aspectRatio", "")));
         int runTotal = imageIds.size();
@@ -11261,7 +11317,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
             {
                 // 执行单项设定卡生成（角色源图 → 设定卡）
                 Map<String, Object> resultItem = executeSingleCardImageInternal(
-                        taskId, imageId, modelCode, resolution, aspectRatio, userId,
+                        taskId, imageId, agentCode, modelCode, resolution, aspectRatio, userId,
                         billingTraceId);
                 successItems.add(resultItem);
                 successCount++;
@@ -11302,6 +11358,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
      * 图片计费由媒体主链路按 userId 内部预冻结 / 结算。
      */
     private Map<String, Object> executeSingleCardImageInternal(Long parentTaskId, Long imageId,
+                                                               String agentCode,
                                                                String resolvedModelCode,
                                                                String resolvedResolution,
                                                                String resolvedAspectRatio,
@@ -11314,7 +11371,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         AidRolePropScene asset = v.asset;
         String modelCode = resolvedModelCode;
         CardImageMediaBillingPlan mediaPlan = buildCardImageMediaBillingPlan(parentTaskId,
-                v, modelCode, resolvedResolution, resolvedAspectRatio, userId);
+                v, agentCode, modelCode, resolvedResolution, resolvedAspectRatio, userId);
         MediaImageGenerateRequest imageRequest = mediaPlan.request();
         String finalPrompt = mediaPlan.finalPrompt();
         List<String> refImageList = mediaPlan.referenceImages();
@@ -11345,13 +11402,14 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
     }
 
     private CardImageMediaBillingPlan buildCardImageMediaBillingPlan(Long bizTaskId,
-            CardImageValidated validated, String modelCode, String resolution,
+            CardImageValidated validated, String agentCode, String modelCode, String resolution,
             String aspectRatio, Long userId)
     {
         AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(modelCode);
         ModelCapabilityResolver.ImageSizeSpec sizeSpec = ModelCapabilityResolver.resolveImageSpec(
                 modelConfig, resolution, aspectRatio);
-        String finalPrompt = buildCardImagePrompt(validated.project, sizeSpec.aspectRatio());
+        String finalPrompt = buildCardImagePrompt(
+                validated.project, sizeSpec.aspectRatio(), agentCode);
         if (StrUtil.isBlank(finalPrompt))
         {
             throw new ServiceException("模板异常");
@@ -11409,15 +11467,22 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
     }
 
     /**
-     * 角色设定卡 prompt 组装（第二阶段：基于角色源图生成设定卡）。
+     * 基于角色源图和所选智能体组装设定卡 prompt。
      * 【参考图驱动】人物身份完全依赖角色源图参考图锚定，不拼接 form.promptText。
-     * 仅保留：模板正文（aid_character_form_image_builder）+ 完整角色画风提示词。
+     * 仅保留：所选智能体模板正文 + 完整角色画风提示词。
      */
     private String buildCardImagePrompt(AidComicProject project, String aspectRatio)
     {
+        return buildCardImagePrompt(project, aspectRatio, null);
+    }
+
+    private String buildCardImagePrompt(AidComicProject project, String aspectRatio, String agentCode)
+    {
         String effectiveAspectRatio = StrUtil.blankToDefault(aspectRatio, "16:9");
+        String promptName = StrUtil.blankToDefault(
+                agentCode, PROMPT_NAME_CHARACTER_FORM_IMAGE_BUILDER);
         String template = StrUtil.blankToDefault(
-                helper.loadPromptByNameReadOnly(PROMPT_NAME_CHARACTER_FORM_IMAGE_BUILDER), "")
+                helper.loadPromptByNameReadOnly(promptName), "")
                 .replace("{aspect_ratio}", effectiveAspectRatio)
                 .replace("21:9", effectiveAspectRatio)
                 .replace("21：9", effectiveAspectRatio);
@@ -11526,7 +11591,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         // 命名约定：以 "_角色设定" 结尾的 form_image 在分镜编剧字典里会被特殊标注为
         // "多方位设定卡，可作为角色多角度参考图"，并在引用优先级上排在普通形态图前。
         String assetName = Objects.nonNull(asset) && StrUtil.isNotBlank(asset.getName()) ? asset.getName() : "资产";
-        img.setName(assetName + "_角色设定");
+        img.setName(assetName + CHARACTER_FORM_IMAGE_NAME_SUFFIX);
         img.setImageUrl(cardImageUrl);
         // sourceType = ai_builder：区分角色源图（ai_auto/upload/ai_edit_chat）与角色设定卡
         img.setSourceType("ai_builder");
@@ -11535,19 +11600,20 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         img.setReferenceImages(referenceImagesJson);
         img.setBatchNo(Objects.nonNull(taskId) ? String.valueOf(taskId) : null);
         img.setSortOrder((int) existingCount);
-        // 上传角色图生成的设定卡等待用户确认；平台白底主图和编辑生成图保持自动启用行为。
+        // 保留来源初始值用于兼容既有校验；统一规则会让新设定卡接管角色主图。
         img.setIsUse(resolveCardImageInitialIsUse(sourceImageType));
         img.setImageStatus("completed");
         img.setDelFlag(DEL_FLAG_NORMAL);
         img.setCreateTime(DateUtils.getNowDate());
         img.setCreateBy(String.valueOf(userId));
-        rpsFormImageService.save(img);
+        formImageSelectionService.saveGeneratedImage(img, userId, true);
 
         return img.getId();
     }
 
     static int resolveCardImageInitialIsUse(String sourceImageType)
     {
+        // 兼容来源初始值校验；最终状态由 IFormImageSelectionService 统一设为角色主图。
         return Objects.equals("upload", sourceImageType) ? 0 : 1;
     }
 
@@ -11564,8 +11630,6 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
                                                Long taskId,
                                                Long userId)
     {
-        // 全局规则：所有"生成的形态图"默认 is_use=0，引用与否由用户主动 /form/use 触发，
-        //          避免新生图被默默接管为引用图，导致下游分镜引用到非用户预期的素材。
         com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<com.aid.aid.domain.AidRolePropSceneFormImage> existsQuery = Wrappers.lambdaQuery();
         existsQuery.eq(com.aid.aid.domain.AidRolePropSceneFormImage::getFormId, form.getId());
         existsQuery.eq(com.aid.aid.domain.AidRolePropSceneFormImage::getDelFlag, DEL_FLAG_NORMAL);
@@ -11597,8 +11661,14 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         // name 命名：直接复用 form.name（已经包含"资产名_变更原因"完整语义），
         // 不再拼接 change_reason，避免出现"林深_初始形象（X）_初始形象（X）"这种复读名字。
         // 同一 form 下多张图不在 name 上区分，由 sort_order / batch_no 区分；
-        // 设定卡走 _角色设定 后缀、拆分子图走 _主视/_反打/_左立面/_右立面 后缀（独立分支处理）。
+        // 角色自动形态图使用 _角色设定 后缀，供下游识别为多方位参考图；
+        // 场景/道具保持原名，拆分子图仍由独立分支追加方位后缀。
         String formName = StrUtil.isNotBlank(form.getName()) ? form.getName() : "形态";
+        if (Objects.equals(ASSET_TYPE_CHARACTER, asset.getAssetType())
+                && !StrUtil.endWith(formName, CHARACTER_FORM_IMAGE_NAME_SUFFIX))
+        {
+            formName += CHARACTER_FORM_IMAGE_NAME_SUFFIX;
+        }
         img.setName(formName);
         img.setImageUrl(imageUrl);
         img.setSourceType("ai_auto");
@@ -11607,14 +11677,12 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         img.setReferenceImages(referenceImagesJson);
         img.setBatchNo(Objects.nonNull(taskId) ? String.valueOf(taskId) : null);
         img.setSortOrder((int) existingCount);
-        // 批量生成后的图片默认启用，方便后续分镜脚本直接引用。
-        img.setIsUse(1);
         img.setImageStatus("completed");
         img.setDelFlag(DEL_FLAG_NORMAL);
         // 审计字段：创建者 / 时间统一以当前 userId 为操作人
         img.setCreateTime(DateUtils.getNowDate());
         img.setCreateBy(String.valueOf(userId));
-        rpsFormImageService.save(img);
+        formImageSelectionService.saveGeneratedImage(img, userId, true);
 
         return img.getId();
     }
@@ -11754,10 +11822,17 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
      */
     private String buildFormImagePrompt(AidComicProject project, AidRolePropScene asset, AidRolePropSceneForm form)
     {
+        return buildFormImagePrompt(project, asset, form, null, null);
+    }
+
+    private String buildFormImagePrompt(AidComicProject project, AidRolePropScene asset,
+                                        AidRolePropSceneForm form, String agentCode,
+                                        String aspectRatio)
+    {
         String assetType = asset.getAssetType();
         if (Objects.equals(ASSET_TYPE_CHARACTER, assetType))
         {
-            return buildCharacterFormImagePrompt(project, asset, form);
+            return buildCharacterFormImagePrompt(project, asset, form, agentCode, aspectRatio);
         }
         if (Objects.equals(ASSET_TYPE_SCENE, assetType))
         {
@@ -11808,11 +11883,26 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
     }
 
     /**
-     * 人物形态图 txt2img prompt 组装（白底主图版）。
+     * 人物形态图 txt2img prompt 组装。
      */
     private String buildCharacterFormImagePrompt(AidComicProject project, AidRolePropScene asset, AidRolePropSceneForm form)
     {
-        String template = helper.loadPromptByNameReadOnly(PROMPT_NAME_CHARACTER_FORM_IMAGE_WHITE_BG);
+        return buildCharacterFormImagePrompt(project, asset, form, null, null);
+    }
+
+    private String buildCharacterFormImagePrompt(AidComicProject project, AidRolePropScene asset,
+                                                 AidRolePropSceneForm form, String agentCode,
+                                                 String aspectRatio)
+    {
+        String promptName = StrUtil.blankToDefault(agentCode, PROMPT_NAME_CHARACTER_FORM_IMAGE);
+        String effectiveAspectRatio = StrUtil.trimToEmpty(aspectRatio);
+        String template = StrUtil.blankToDefault(helper.loadPromptByNameReadOnly(promptName), "")
+                .replace("{aspect_ratio}", effectiveAspectRatio);
+        if (StrUtil.isNotBlank(effectiveAspectRatio))
+        {
+            template = template.replace("21:9", effectiveAspectRatio)
+                    .replace("21：9", effectiveAspectRatio);
+        }
 
         // 角色图片只使用项目角色隐藏画风，不注入 video_style_type 风格名称。
         String artStylePrompt = projectStyleSnapshotService.resolveCharacterPrompt(project);
@@ -11826,7 +11916,13 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
             sb.append("\n");
         }
         sb.append("人物提示词：").append("\n")
-                .append(formPromptText);
+                .append(formPromptText)
+                .append(CHARACTER_FORM_IMAGE_LAYOUT_CONSTRAINT);
+        if (StrUtil.isNotBlank(effectiveAspectRatio))
+        {
+            sb.append("\n画布比例：").append(effectiveAspectRatio)
+                    .append("（以本次生成配置为准）");
+        }
         // 人物描述可能携带旧图片风格，项目隐藏风格必须最后追加并拥有最终约束权。
         if (sb.length() > 0 && !sb.toString().endsWith("\n"))
         {
@@ -12154,8 +12250,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
     {
         if (Objects.equals(ASSET_TYPE_CHARACTER, assetType))
         {
-            // 人物形态图使用白底主图模板
-            return PROMPT_NAME_CHARACTER_FORM_IMAGE_WHITE_BG;
+            return PROMPT_NAME_CHARACTER_FORM_IMAGE;
         }
         if (Objects.equals(ASSET_TYPE_SCENE, assetType))
         {

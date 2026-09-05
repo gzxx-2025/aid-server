@@ -13,10 +13,7 @@ import com.github.pagehelper.PageInfo;
 import com.aid.project.dto.UserProjectCreateRequest;
 import com.aid.project.dto.UserProjectDeleteRequest;
 import com.aid.project.dto.UserProjectDetailRequest;
-import com.aid.project.dto.UserProjectPublishRequest;
 import com.aid.project.dto.UserProjectQueryRequest;
-import com.aid.project.dto.UserProjectSubmitAuditRequest;
-import com.aid.project.dto.UserProjectUnpublishRequest;
 import com.aid.project.dto.UserProjectUpdateRequest;
 import com.aid.project.service.IUserProjectBusinessService;
 import jakarta.annotation.Resource;
@@ -94,9 +91,6 @@ public class UserProjectController extends BaseController
 
     /**
      * 修改项目
-     * 展示信息（项目名称 projectName / 项目介绍 projectDesc / 封面 coverUrl）随时可改，公开期间同样生效；
-     * 内容参数字段（画面比例、剧本类型、视频风格、生成模式、创作模式）在公开期间锁定
-     * （提示：请先关闭项目公开），须先调用 /unpublish 关闭公开后才能修改。
      *
      * @param request 修改请求
      * @return 修改结果
@@ -132,68 +126,4 @@ public class UserProjectController extends BaseController
         }
     }
 
-    /**
-     * 提交项目审核
-     * 除「审核中」外的状态均可提交（「审核通过」的项目仅在重新导出产生待审新片时可再次提审），
-     * 提交后项目状态变为「审核中」。
-     *
-     * @param request 提交审核请求（项目ID）
-     * @return 提交审核成功提示
-     */
-    @PostMapping("/submit-audit")
-    public AjaxResult submitAudit(@Valid @RequestBody UserProjectSubmitAuditRequest request)
-    {
-        Long userId = SecurityUtils.getUserId();
-        try {
-            userProjectBusinessService.submitAudit(request.getId(), userId);
-            return success("提交审核成功");
-        } catch (RuntimeException e) {
-            return error(e.getMessage());
-        }
-    }
-
-    /**
-     * 重新公开项目或更新公开展示信息
-     * 项目审核通过时已自动公开，本接口用于重新公开用户主动关闭的项目。
-     * 公开期间项目内容锁定：修改项目信息、剧集增删改、时间轴保存均被拒绝，须先关闭公开。
-     * 导出成片不受锁限制：公开期间可直接重新导出，新成片进入待审槽（pendingVideoUrl），
-     * 旧成片继续对外展示，重新过审后新片自动转正。
-     *
-     * 请求必须携带项目ID、项目描述及已上传的项目封面图地址；缺少描述或封面图时拒绝公开。
-     *
-     * @param request 公开请求（项目ID、项目描述、封面图）
-     * @return 公开后的项目详情
-     */
-    @PostMapping("/publish")
-    public AjaxResult publish(@Valid @RequestBody UserProjectPublishRequest request)
-    {
-        Long userId = SecurityUtils.getUserId();
-        try {
-            AidComicProject project = userProjectBusinessService.publishProject(request, userId);
-            return success(userProjectBusinessService.convertToVO(project));
-        } catch (RuntimeException e) {
-            return error(e.getMessage());
-        }
-    }
-
-    /**
-     * 关闭项目公开（下架）
-     * is_public 置回 0，项目从公开列表下架，内容恢复可修改；审核状态（status）保持不变，
-     * 可直接再次公开；重新导出的新成片进入待审槽，重新过审后自动转正。
-     * 未公开时幂等返回当前项目。
-     *
-     * @param request 关闭公开请求（项目ID）
-     * @return 关闭公开后的项目详情
-     */
-    @PostMapping("/unpublish")
-    public AjaxResult unpublish(@Valid @RequestBody UserProjectUnpublishRequest request)
-    {
-        Long userId = SecurityUtils.getUserId();
-        try {
-            AidComicProject project = userProjectBusinessService.unpublishProject(request.getId(), userId);
-            return success(userProjectBusinessService.convertToVO(project));
-        } catch (RuntimeException e) {
-            return error(e.getMessage());
-        }
-    }
 }

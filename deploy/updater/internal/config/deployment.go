@@ -31,6 +31,7 @@ type deploymentDescriptor struct {
 }
 
 var commonDeploymentKeys = map[string]bool{
+	"NGINX_BACKEND_ORIGIN": true, "NGINX_MAX_BODY_MB": true, "NGINX_READ_TIMEOUT_SECONDS": true, "NGINX_CONNECT_TIMEOUT_SECONDS": true, "NGINX_EXTRA_DIRECTIVES": true,
 	"HTTP_PORT": true, "ADMIN_PORT": true, "BACKEND_PORT": true,
 	"DB_HOST": true, "DB_PORT": true, "DB_NAME": true, "DB_USERNAME": true, "DB_PASSWORD": true,
 	"REDIS_HOST": true, "REDIS_PORT": true, "REDIS_USERNAME": true,
@@ -110,6 +111,7 @@ func (c *Config) ReadDeploymentState() (*DeploymentState, error) {
 		safe[key] = value
 	}
 	sort.Strings(configuredSecrets)
+	c.nginxSnapshot(mode, values, safe)
 	return &DeploymentState{
 		Mode:              mode,
 		ConfigPath:        resolved,
@@ -265,6 +267,9 @@ func (c *Config) BuildDeploymentConfig(targetPath string, changes map[string]str
 			return nil, nil, fmt.Errorf("配置项 %s 包含不支持的密钥字符", key)
 		}
 		state.Values[key] = value
+	}
+	if err := ValidateNginxValues(state.Mode, state.Values); err != nil {
+		return nil, nil, err
 	}
 	if err := validateDeploymentValues(state.Mode, state.Values); err != nil {
 		return nil, nil, err

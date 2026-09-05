@@ -184,8 +184,6 @@ export function extractImageIdsFromTaskCompleteData(data: unknown): number[] {
   return ids
 }
 
-const FORM_USE_BATCH_MAX = 50
-
 export function resolveFormUseProjectId(explicit?: number): number | null {
   if (explicit != null && Number.isFinite(explicit) && explicit > 0) return explicit
   try {
@@ -232,7 +230,7 @@ export async function setFormImageInUse(
   const id = Number(imageId)
   if (!projectId || !Number.isFinite(id) || id <= 0) return false
   try {
-    const data = await userAssetRpsFormUse({ projectId, imageId: id, id })
+    const data = await userAssetRpsFormUse({ projectId, imageId: id })
     return isFormImageBatchIdSucceeded(data, id).ok
   } catch {
     return false
@@ -263,36 +261,49 @@ export async function unsetFormImageInUse(
   }
 }
 
+export interface ClaimFormImagesOptions {
+  projectId?: number
+  /** 角色/道具主图模式只接管最后一张，避免一次生成多张时产生多个主图。 */
+  singleSelection?: boolean
+}
+
+/** 规范化任务产物；单选模式固定取最后一张（即最新生成结果）。 */
+export function resolveFormImageClaimIds(
+  imageIds: number[],
+  singleSelection = false
+): number[] {
+  const validIds = imageIds
+    .map((imageId) => Number(imageId))
+    .filter((imageId) => Number.isFinite(imageId) && imageId > 0)
+  if (singleSelection) return validIds.length > 0 ? [validIds[validIds.length - 1]!] : []
+  return [...new Set(validIds)]
+}
+
 /**
- * 批量设为使用中（v2.63 单接口 imageIds；单批最多 50 条自动分片）。
+ * 接管任务生成的形态图。接口已收敛为单个 imageId；多张场景按顺序逐张调用，
+ * 角色/道具主图则由 singleSelection 只接管最新一张。
  */
 export async function claimFormImagesByIds(
   imageIds: number[],
-  options?: { projectId?: number }
+  options?: ClaimFormImagesOptions
 ): Promise<{ successIds: number[]; failCount: number }> {
-  const unique = [...new Set(imageIds.map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0))]
-  if (!unique.length) return { successIds: [], failCount: 0 }
+  const targetIds = resolveFormImageClaimIds(imageIds, options?.singleSelection)
+  if (!targetIds.length) return { successIds: [], failCount: 0 }
 
   const projectId = resolveFormUseProjectId(options?.projectId)
-  if (!projectId) return { successIds: [], failCount: unique.length }
+  if (!projectId) return { successIds: [], failCount: targetIds.length }
 
   const successIds: number[] = []
   let failCount = 0
 
-  for (let i = 0; i < unique.length; i += FORM_USE_BATCH_MAX) {
-    const chunk = unique.slice(i, i + FORM_USE_BATCH_MAX)
+  for (const imageId of targetIds) {
     try {
-      const data =
-        chunk.length === 1
-          ? await userAssetRpsFormUse({ projectId, imageId: chunk[0], id: chunk[0] })
-          : await userAssetRpsFormUse({ projectId, imageIds: chunk })
-      const ok = (data?.successIds ?? []).map(Number).filter((n) => n > 0)
-      successIds.push(...ok)
-      const chunkFail = Number(data?.failCount)
-      failCount +=
-        Number.isFinite(chunkFail) ? chunkFail : Math.max(0, chunk.length - ok.length)
+      const data = await userAssetRpsFormUse({ projectId, imageId })
+      const result = isFormImageBatchIdSucceeded(data, imageId)
+      if (result.ok) successIds.push(imageId)
+      else failCount += 1
     } catch {
-      failCount += chunk.length
+      failCount += 1
     }
   }
 
@@ -306,7 +317,7 @@ export async function claimFormImagesByIds(
 export async function claimFormImagesFromTaskComplete(
   taskType: unknown,
   completeData: unknown,
-  options?: { projectId?: number }
+  options?: ClaimFormImagesOptions
 ): Promise<number[]> {
   if (!isFormImageAutoUseTaskType(taskType)) return []
   const imageIds = extractFormImageAutoUseIds(taskType, completeData)
@@ -349,7 +360,7 @@ export function createFormImageTaskClaimOwner() {
       taskId: unknown,
       taskType: unknown,
       completeData: unknown,
-      options?: { projectId?: number }
+      options?: ClaimFormImagesOptions
     ) => {
       const id = Number(taskId)
       const imageIds = extractFormImageAutoUseIds(taskType, completeData)

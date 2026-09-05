@@ -5,8 +5,7 @@ import {
   CheckCircleFilled,
   GlobalOutlined,
   LinkOutlined,
-  SafetyCertificateOutlined,
-  SearchOutlined
+  SafetyCertificateOutlined
 } from '@ant-design/icons';
 
 import ValueField from './ValueField';
@@ -34,17 +33,7 @@ interface FieldMeta {
 const FIELD_META: Record<string, FieldMeta> = {
   site_name: {
     label: '网站名称',
-    description: '用于浏览器标题、分享卡片和搜索结果中的品牌名称。'
-  },
-  site_description: {
-    label: '网站描述',
-    description: '简洁说明平台定位与核心能力，用于搜索摘要。',
-    wide: true
-  },
-  site_keywords: {
-    label: '网站关键词',
-    description: '逐个添加关键词，系统保存时自动使用英文逗号分隔。',
-    wide: true
+    description: '用于平台基础信息中的品牌名称。'
   },
   membership_agreement: {
     label: '会员协议',
@@ -107,20 +96,16 @@ const FIELD_META: Record<string, FieldMeta> = {
   open_source_gitee_url: {
     label: 'Gitee 地址',
     description: '平台开源项目的 Gitee 仓库地址。'
-  },
-  work_publish_enabled: {
-    label: '作品发布',
-    description: '控制 C 端是否允许用户公开发布作品。'
   }
 };
 
 const GROUPS = [
   {
-    key: 'seo',
-    title: '站点与搜索展示',
-    description: '统一维护搜索引擎、浏览器和分享场景中的站点信息。',
-    icon: <SearchOutlined />,
-    fields: ['site_name', 'site_description', 'site_keywords']
+    key: 'brand',
+    title: '站点品牌',
+    description: '维护平台对外展示的基础品牌信息。',
+    icon: <GlobalOutlined />,
+    fields: ['site_name']
   },
   {
     key: 'legal',
@@ -153,9 +138,9 @@ const GROUPS = [
   {
     key: 'links',
     title: '产品入口与开放生态',
-    description: '维护教程、开源仓库及内容发布能力。',
+    description: '维护教程与开源仓库入口。',
     icon: <LinkOutlined />,
-    fields: ['tutorial_url', 'open_source_git_url', 'open_source_gitee_url', 'work_publish_enabled']
+    fields: ['tutorial_url', 'open_source_git_url', 'open_source_gitee_url']
   }
 ];
 
@@ -164,16 +149,6 @@ export default function BasicConfigSection({ items, onChange }: Props) {
   const itemMap = new Map(items.map((item) => [item.configName, item]));
   const groupedNames = new Set(GROUPS.flatMap((group) => group.fields));
   const configuredCount = items.filter((item) => String(item.configValue || '').trim()).length;
-  const siteName = itemMap.get('site_name')?.configValue || '您的网站名称';
-  const siteDescription = itemMap.get('site_description')?.configValue || '填写网站描述后，这里将展示搜索摘要预览。';
-  const keywords = Array.from(
-    new Set(
-      (itemMap.get('site_keywords')?.configValue || '')
-        .split(/[,，]/)
-        .map((item) => item.trim())
-        .filter(Boolean)
-    )
-  );
 
   const renderField = (item: BasicConfigItem) => {
     const meta = FIELD_META[item.configName] || {
@@ -215,27 +190,11 @@ export default function BasicConfigSection({ items, onChange }: Props) {
         <div className="basic-config__hero-copy">
           <span className="basic-config__eyebrow">PLATFORM FOUNDATION</span>
           <h3>平台基础信息</h3>
-          <p>以用户触点为中心维护品牌、搜索展示、协议合规与服务信息，保存后自动进入公开配置。</p>
+          <p>集中维护品牌、协议合规与服务信息，保存后自动进入公开配置。</p>
         </div>
         <div className="basic-config__completion">
           <strong>{configuredCount}</strong>
           <span>已配置项</span>
-        </div>
-      </div>
-
-      <div className="basic-config__search-preview">
-        <div className="basic-config__search-preview-head">
-          <SearchOutlined /> 搜索结果预览
-        </div>
-        <div className="basic-config__search-title">{siteName}</div>
-        <div className="basic-config__search-url">https://your-domain.com</div>
-        <div className="basic-config__search-description">{siteDescription}</div>
-        <div className="basic-config__keyword-list">
-          {keywords.length > 0 ? (
-            keywords.map((keyword) => <Tag key={keyword}>{keyword}</Tag>)
-          ) : (
-            <span>添加关键词后将在这里预览</span>
-          )}
         </div>
       </div>
 
@@ -267,7 +226,7 @@ export default function BasicConfigSection({ items, onChange }: Props) {
             </div>
             <div>
               <h4>其他基础配置</h4>
-              <p>未归类的扩展配置会自动收纳在这里，不会丢失。</p>
+              <p>未归类的公共扩展配置会自动收纳在这里，不会丢失。</p>
             </div>
           </div>
           <div className="basic-config__grid">{otherItems.map(renderField)}</div>

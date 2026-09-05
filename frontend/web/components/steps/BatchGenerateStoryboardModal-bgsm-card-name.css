@@ -223,12 +223,8 @@ html.app-shell-create .batch-generate-storyboard-wrap .bgsm-field--video-model .
   gap: 6px;
 }
 
-.bgsm-btn-ok:hover,
-.bgsm-btn-ok:focus,
-.bgsm-btn-ok:active {
-  background: linear-gradient(270deg, #0e59fa 0%, #00abd8 100%) !important;
-  border: none !important;
-  box-shadow: none !important;
+.bgsm-btn-ok--danger {
+  background: linear-gradient(270deg, #d9363e 0%, #ff5c5c 100%) !important;
 }
 
 .bgsm-btn-ok img {

@@ -2517,6 +2517,13 @@ assemble_package() {
   fi
   [ -d "$SERVER_DIR/deploy/docker" ] || die '源码缺少 deploy/docker'
   cp -R "$SERVER_DIR/deploy/docker" "$STAGING_DIR/installer/deploy/docker"
+  [ -d "$SERVER_DIR/deploy/nginx" ] || die '源码缺少 deploy/nginx'
+  cp -R "$SERVER_DIR/deploy/nginx" "$STAGING_DIR/installer/deploy/nginx"
+  for nginx_script in render.sh bootstrap.sh docker-start.sh; do
+    [ -f "$STAGING_DIR/installer/deploy/nginx/$nginx_script" ] || die "Nginx部署脚本缺失: $nginx_script"
+    sh -n "$STAGING_DIR/installer/deploy/nginx/$nginx_script" || die "Nginx部署脚本语法错误: $nginx_script"
+    chmod 755 "$STAGING_DIR/installer/deploy/nginx/$nginx_script"
+  done
 
   has_sql=false
   for sql_file in "$SERVER_DIR"/sql/v*.sql; do

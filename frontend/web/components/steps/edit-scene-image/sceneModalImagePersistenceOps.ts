@@ -8,6 +8,7 @@ userAssetRpsFormImageList,
 userAssetRpsFormImageUpdate
 } from '~/utils/businessApi'
 import { setFormImageInUse,unsetFormImageInUse } from '~/utils/formImageAutoUse'
+import { isSinglePrimaryImageType } from './sceneModalTaskParsers'
 import type { EditSceneImageModalCtx } from './types'
 
 export function createSceneModalImagePersistenceOps(ctx: EditSceneImageModalCtx) {
@@ -119,9 +120,13 @@ export function createSceneModalImagePersistenceOps(ctx: EditSceneImageModalCtx)
 
   /** 只把“已设置”的图片同步给父组件（决定外部列表和顶部 tab 展示） */
   function buildVisibleImagesForParent() {
-    return ctx.localSceneImages
+    const visibleImages = ctx.localSceneImages
       .get()
       .filter((img) => !img._pending && img?._isSet === true)
+    const normalizedImages = isSinglePrimaryImageType(ctx.props().imageType)
+      ? visibleImages.slice(-1)
+      : visibleImages
+    return normalizedImages
       .map((img) => {
         const { _pending, _rpsSourceType, _isSet, ...rest } = img
         return rest
@@ -203,8 +208,14 @@ export function createSceneModalImagePersistenceOps(ctx: EditSceneImageModalCtx)
     const pendingOnly = opts?.preservePending
       ? ctx.localSceneImages.get().filter((img: any) => img?._pending && img?.id && !sceneIds.has(img.id))
       : []
+    const mainImageIndex = isSinglePrimaryImageType(ctx.props().imageType)
+      ? sceneImages.length - 1
+      : -1
     ctx.localSceneImages.set([
-      ...sceneImages.map((img: any) => ({ ...img, _isSet: true })),
+      ...sceneImages.map((img: any, index: number) => ({
+        ...img,
+        _isSet: mainImageIndex < 0 || index === mainImageIndex
+      })),
       ...pendingOnly
     ])
     const n = ctx.localSceneImages.get().length

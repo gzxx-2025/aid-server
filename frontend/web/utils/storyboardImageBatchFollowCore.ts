@@ -442,6 +442,9 @@ export function createStoryboardImageBatchCore(state: StoryboardImageBatchState)
   async function seedProgressFromTaskDetail(taskId: number, fallbackTotal: number) {
     try {
       const detail = await fetchUserTaskDetailOnce(taskId)
+      if (detail?.eta) {
+        getStore().applyStoryboardImageBatchSseProgress({ eta: detail.eta })
+      }
       const totalShots = Number((detail as { totalShots?: number }).totalShots)
       const total = Number.isFinite(totalShots) && totalShots > 0 ? totalShots : fallbackTotal
       if (total > 0) {

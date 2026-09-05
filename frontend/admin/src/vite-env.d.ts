@@ -36,3 +36,8 @@ declare module '*.gif' {
   const content: string;
   export default content;
 }
+
+declare module 'virtual:svg-icons-names' {
+  const iconIds: string[];
+  export default iconIds;
+}

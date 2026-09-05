@@ -107,8 +107,6 @@ const BASIC_CATEGORY = 'basic';
 /** 数据库缺失时注入的必备基础配置项，保存后自动创建真实记录。 */
 const REQUIRED_BASIC_FIELDS = [
   { id: -401, configName: 'site_name', configDict: '网站名称', orderNum: 1 },
-  { id: -402, configName: 'site_description', configDict: '网站描述', orderNum: 2 },
-  { id: -403, configName: 'site_keywords', configDict: '网站关键词', orderNum: 3 },
   { id: -404, configName: 'membership_agreement', configDict: '会员协议', orderNum: 4 }
 ];
 
@@ -136,11 +134,32 @@ const REQUIRED_STORAGE_FIELDS = [
   { id: -426, configName: 'modelSignedUrlExpireHours', configDict: '模型临时链接有效期(小时)', configValue: '72', orderNum: 4 }
 ];
 
-/** 后台配置页隐藏的分类（不在左侧分区显示，也不走未收纳兜底）。 */
-const HIDDEN_CATEGORIES = new Set<string>(['realAuth', 'system_upgrade', 'official_gateway']);
+/** 数据库缺失时注入的账号注销后再次注册限制配置。 */
+const REQUIRED_ACCOUNT_SECURITY_FIELDS = [
+  {
+    id: -431,
+    configName: 'cancel_re_registration_enabled',
+    configDict: '注销后再次注册限制开关',
+    configValue: 'true',
+    orderNum: 1
+  },
+  {
+    id: -432,
+    configName: 'cancel_re_registration_days',
+    configDict: '注销后再次注册限制天数',
+    configValue: '15',
+    orderNum: 2
+  }
+];
 
-/** 已废弃的基础配置字段：兼容尚未执行清理脚本的已有数据库。 */
-const HIDDEN_BASIC_FIELDS = new Set<string>(['version_number']);
+/** 专属页面维护或程序内部使用的配置不进入通用编辑入口，数据库值仍保留。 */
+const HIDDEN_CATEGORIES = new Set<string>([
+  'realAuth', 'system_upgrade', 'official_gateway', 'seo',
+  'provider_balance', 'media_eta'
+]);
+
+/** SEO 统一由专用页面维护；历史默认值保留在数据库供兼容读取，不在这里编辑。 */
+const HIDDEN_BASIC_FIELDS = new Set<string>(['version_number', 'site_description', 'site_keywords']);
 
 interface ConfigItem {
   id: number;
@@ -270,6 +289,7 @@ export default function AidconfigPage() {
       ensureFields(BASIC_CATEGORY, REQUIRED_BASIC_FIELDS);
       ensureFields('sms', REQUIRED_SMS_BAO_FIELDS);
       ensureFields('oss', REQUIRED_STORAGE_FIELDS);
+      ensureFields('account_security', REQUIRED_ACCOUNT_SECURITY_FIELDS);
       const storageGroup = list.find((g) => g.category === 'oss');
       const resourceDomain = storageGroup?.items.find((it) => it.configName === 'resourceAccessDomain');
       const uploadMode = storageGroup?.items.find((it) => it.configName === 'uploadMode')?.configValue || 'local';

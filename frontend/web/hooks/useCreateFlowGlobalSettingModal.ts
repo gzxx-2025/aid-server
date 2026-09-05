@@ -11,7 +11,6 @@ import { buildProjectVideoStyleFields } from '~/utils/buildProjectVideoStyleFiel
 import { userProjectUpdate } from '~/utils/businessApi'
 import { creationStepToRoutePath } from '~/utils/createFlowRoutes'
 import { resetProjectDetailHydrateCache } from '~/utils/hydrateCreationStoreFromProjectDetail'
-import { isProjectPublicLockError,projectPublicLockUserHint } from '~/utils/projectAudit'
 
 /**
  * 壳层「项目配置」弹窗状态与确认（原 composables/useCreateFlowGlobalSettingModal.ts）
@@ -206,10 +205,6 @@ export function useCreateFlowGlobalSettingModal() {
           router.push(qs.toString() ? `${path}?${qs.toString()}` : path)
         }
       } catch (e: unknown) {
-        if (isProjectPublicLockError(e)) {
-          message.error(projectPublicLockUserHint())
-          return
-        }
         const err = e as { msg?: string; message?: string }
         message.error(err?.msg || err?.message || '保存失败，请稍后重试')
       } finally {

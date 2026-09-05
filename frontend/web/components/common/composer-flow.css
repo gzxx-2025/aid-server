@@ -1,0 +1,69 @@
+@property --composer-flow-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@keyframes composer-flow {
+  to { --composer-flow-angle: 360deg; }
+}
+
+.composer-flow { position: relative; isolation: isolate; }
+
+.composer-flow::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: linear-gradient(90deg, #6eedf6 0%, #4689f5 50%, #74f8c5 100%);
+  pointer-events: none;
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+}
+
+.composer-flow.is-flowing::before,
+.composer-flow:hover::before,
+.composer-flow:focus-within::before {
+  background: conic-gradient(
+    from var(--composer-flow-angle),
+    rgba(110, 237, 246, 0) 0deg,
+    rgba(110, 237, 246, .25) 40deg,
+    #6eedf6 80deg,
+    #4689f5 140deg,
+    #74f8c5 200deg,
+    rgba(110, 237, 246, .2) 250deg,
+    rgba(110, 237, 246, 0) 310deg
+  );
+  box-shadow: 0 0 18px rgba(110, 237, 246, .28);
+  animation: composer-flow 2.4s linear infinite;
+}
+
+.composer-flow--dialog::before {
+  background: conic-gradient(from 135deg, rgba(38, 41, 49, .5), rgba(142, 151, 165, .5), rgba(38, 41, 49, .5));
+}
+
+.composer-flow--dialog.is-flowing::before,
+.composer-flow--dialog:hover::before,
+.composer-flow--dialog:focus-within::before {
+  background: conic-gradient(
+    from var(--composer-flow-angle),
+    rgba(38, 41, 49, .5) 0deg,
+    rgba(142, 151, 165, .5) 120deg,
+    rgba(38, 41, 49, .5) 240deg,
+    rgba(142, 151, 165, .5) 300deg,
+    rgba(38, 41, 49, .5) 360deg
+  );
+  box-shadow: 0 0 18px rgba(142, 151, 165, .28);
+}
+
+.composer-flow > * { position: relative; z-index: 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  .composer-flow.is-flowing::before,
+  .composer-flow:hover::before,
+  .composer-flow:focus-within::before { animation: none; }
+}

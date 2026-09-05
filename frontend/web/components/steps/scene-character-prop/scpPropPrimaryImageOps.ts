@@ -122,7 +122,6 @@ export function createScpPropPrimaryImageOps(ctx: ScpCtx) {
 
     const propName = ctx.localValue.get().props[targetIndex]
     message.success(`已为「${propName}」导入道具图片`)
-    ctx.showImportPropImageModal.set(false)
   }
 
   const handleEditPropImage = (index: number) => {

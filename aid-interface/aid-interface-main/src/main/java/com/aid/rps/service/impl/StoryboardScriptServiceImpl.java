@@ -1,5 +1,6 @@
 package com.aid.rps.service.impl;
 
+import com.aid.common.error.TaskErrorSnapshot;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -255,7 +256,7 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
     /** 角色设定卡 name 后缀（与 {@code AssetExtractServiceImpl.persistCardFormImage} 落库口径一致） */
     private static final String CHARACTER_CARD_NAME_SUFFIX = "_角色设定";
 
-    /** 角色设定卡的来源类型（区别于 ai_auto 白底主图 / upload 上传图） */
+    /** 角色设定卡的来源类型（区别于 ai_auto 自动形态图 / upload 上传图） */
     private static final String FORM_IMAGE_SOURCE_TYPE_BUILDER = "ai_builder";
 
     /** 拆分产物 / 拆分源图标记字段值 */
@@ -862,7 +863,8 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
                     update.eq(AidExtractTask::getStatus, TASK_STATUS_PENDING);
                     appendExpectedTrace(update, expectedTraceId);
                     update.set(AidExtractTask::getStatus, TASK_STATUS_FAILED);
-                    update.set(AidExtractTask::getErrorMessage, "提交失败: " + StrUtil.sub(origMsg, 0, 80));
+                    update.set(AidExtractTask::getErrorMessage, "提交失败: " + StrUtil.sub(origMsg, 0, 80))
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage("提交失败: " + StrUtil.sub(origMsg, 0, 80)));
                     update.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
                     int failedRows = extractTaskService.getBaseMapper().update(null, update);
                     if (failedRows > 0)
@@ -2837,7 +2839,8 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
                 LambdaUpdateWrapper<AidExtractTask> alertUpd = Wrappers.lambdaUpdate();
                 alertUpd.eq(AidExtractTask::getId, taskId);
                 alertUpd.eq(AidExtractTask::getBillingTraceId, executionTraceId);
-                alertUpd.set(AidExtractTask::getErrorMessage, "退款处理中，请稍后查看余额");
+                alertUpd.set(AidExtractTask::getErrorMessage, "退款处理中，请稍后查看余额")
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage("退款处理中，请稍后查看余额"));
                 alertUpd.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
                 extractTaskService.update(alertUpd);
             }
@@ -3174,7 +3177,8 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
                     taskUpd.in(AidExtractTask::getStatus,
                             TASK_STATUS_PARTIAL_FAILED, TASK_STATUS_FAILED, TASK_STATUS_CANCELLED);
                     taskUpd.set(AidExtractTask::getStatus, TASK_STATUS_PENDING);
-                    taskUpd.set(AidExtractTask::getErrorMessage, null);
+                    taskUpd.set(AidExtractTask::getErrorMessage, null)
+                .set(AidExtractTask::getErrorDetailJson, null);
                     taskUpd.set(AidExtractTask::getRemark, null);
                     taskUpd.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
                     taskUpd.set(AidExtractTask::getUpdateBy, String.valueOf(userId));
@@ -3316,7 +3320,8 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
                 appendExpectedTrace(taskUpd, task.getBillingTraceId());
                 taskUpd.in(AidExtractTask::getStatus, TASK_STATUS_PARTIAL_FAILED, TASK_STATUS_FAILED, TASK_STATUS_CANCELLED);
                 taskUpd.set(AidExtractTask::getStatus, TASK_STATUS_PENDING);
-                taskUpd.set(AidExtractTask::getErrorMessage, null);
+                taskUpd.set(AidExtractTask::getErrorMessage, null)
+                .set(AidExtractTask::getErrorDetailJson, null);
                 taskUpd.set(AidExtractTask::getRemark, resumeMarker);
                 taskUpd.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
                 boolean parentUpdated = extractTaskService.update(taskUpd);
@@ -3567,7 +3572,8 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
         appendExpectedTrace(rollback, expectedTraceId);
         rollback.set(AidExtractTask::getStatus, status);
         rollback.set(AidExtractTask::getRemark, remark);
-        rollback.set(AidExtractTask::getErrorMessage, errorMessage);
+        rollback.set(AidExtractTask::getErrorMessage, errorMessage)
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage(errorMessage));
         rollback.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
         rollback.set(AidExtractTask::getUpdateBy, String.valueOf(userId));
         extractTaskService.update(rollback);
@@ -4064,7 +4070,8 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
             upd.eq(AidExtractTask::getId, taskId);
             upd.eq(AidExtractTask::getBillingTraceId, expectedTraceId);
             upd.set(AidExtractTask::getStatus, TASK_STATUS_PARTIAL_FAILED);
-            upd.set(AidExtractTask::getErrorMessage, StrUtil.sub(reason, 0, 500));
+            upd.set(AidExtractTask::getErrorMessage, StrUtil.sub(reason, 0, 500))
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage(StrUtil.sub(reason, 0, 500)));
             upd.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
             extractTaskService.update(upd);
         }
@@ -4196,7 +4203,8 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
         LambdaUpdateWrapper<AidExtractTask> pending = Wrappers.lambdaUpdate();
         pending.eq(AidExtractTask::getId, taskId);
         pending.eq(AidExtractTask::getBillingTraceId, expectedTraceId);
-        pending.set(AidExtractTask::getErrorMessage, "续生计费处理中");
+        pending.set(AidExtractTask::getErrorMessage, "续生计费处理中")
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage("续生计费处理中"));
         pending.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
         extractTaskService.update(pending);
     }
@@ -6481,7 +6489,8 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
                 LambdaUpdateWrapper<AidExtractTask> pendingRefund = Wrappers.lambdaUpdate();
                 pendingRefund.eq(AidExtractTask::getId, taskId);
                 pendingRefund.eq(AidExtractTask::getBillingTraceId, expectedTraceId);
-                pendingRefund.set(AidExtractTask::getErrorMessage, "退款处理中，请稍后查看余额");
+                pendingRefund.set(AidExtractTask::getErrorMessage, "退款处理中，请稍后查看余额")
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage("退款处理中，请稍后查看余额"));
                 pendingRefund.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
                 extractTaskService.update(pendingRefund);
             });
@@ -6556,7 +6565,8 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
         LambdaUpdateWrapper<AidExtractTask> pendingRefund = Wrappers.lambdaUpdate();
         pendingRefund.eq(AidExtractTask::getId, taskId);
         pendingRefund.eq(AidExtractTask::getBillingTraceId, expectedTraceId);
-        pendingRefund.set(AidExtractTask::getErrorMessage, "退款处理中，请稍后查看余额");
+        pendingRefund.set(AidExtractTask::getErrorMessage, "退款处理中，请稍后查看余额")
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage("退款处理中，请稍后查看余额"));
         pendingRefund.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
         extractTaskService.update(pendingRefund);
     }
@@ -6702,6 +6712,7 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
         update.eq(AidExtractTask::getId, taskId)
                 .eq(AidExtractTask::getBillingTraceId, expectedTraceId)
                 .set(AidExtractTask::getErrorMessage, "计费处理中，请稍后查看余额")
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage("计费处理中，请稍后查看余额"))
                 .set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
         extractTaskService.update(update);
     }

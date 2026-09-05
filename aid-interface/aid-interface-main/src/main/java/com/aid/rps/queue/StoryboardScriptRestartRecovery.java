@@ -1,5 +1,6 @@
 package com.aid.rps.queue;
 
+import com.aid.common.error.TaskErrorSnapshot;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Objects;
@@ -213,14 +214,20 @@ public class StoryboardScriptRestartRecovery implements BatchTaskRestartRecovery
             taskUpd.set(AidExtractTask::getStatus, TASK_STATUS_PARTIAL_FAILED);
             taskUpd.set(AidExtractTask::getErrorMessage, billingSucceeded
                     ? "服务重启中断，部分已完成，可继续生成"
-                    : "服务重启中断，计费处理中");
+                    : "服务重启中断，计费处理中")
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage(billingSucceeded
+                    ? "服务重启中断，部分已完成，可继续生成"
+                    : "服务重启中断，计费处理中"));
         }
         else
         {
             taskUpd.set(AidExtractTask::getStatus, TASK_STATUS_FAILED);
             taskUpd.set(AidExtractTask::getErrorMessage, billingSucceeded
                     ? "服务重启中断，已退回"
-                    : "服务重启中断，计费处理中");
+                    : "服务重启中断，计费处理中")
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage(billingSucceeded
+                    ? "服务重启中断，已退回"
+                    : "服务重启中断，计费处理中"));
         }
         if (billingSucceeded && isResume)
         {

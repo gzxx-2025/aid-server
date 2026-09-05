@@ -149,7 +149,6 @@ export interface AuthBasicPublicConfig {
   tutorial_url?: string
   open_source_git_url?: string
   open_source_gitee_url?: string
-  work_publish_enabled?: string
 }
 
 /** /auth/public-config → brand */
@@ -384,53 +383,6 @@ export interface UserProjectListRequest {
   pageSize?: number
 }
 
-/** /api/public/project/video */
-export interface PublicProjectVideoListRequest {
-  projectName?: string
-  /** movie 电影 / series 剧集；不传返回全部 */
-  projectType?: UserProjectType
-  pageNum?: number
-  pageSize?: number
-}
-
-export interface PublicProjectVideoRow {
-  id: number
-  projectName: string
-  authorNickname?: string | null
-  projectType?: UserProjectType | string | null
-  projectDesc?: string | null
-  publishTime?: string | null
-  episodeCount?: number | null
-  coverUrl?: string | null
-  finalVideoUrl?: string | null
-}
-
-/** 公开作品详情中的可播分集 */
-export interface PublicProjectEpisodeItem {
-  episodeId: number
-  episodeNo?: number | null
-  title?: string | null
-  coverUrl?: string | null
-  videoUrl?: string | null
-}
-
-/** /api/public/project/detail */
-export interface PublicProjectDetailRow {
-  id: number
-  projectName: string
-  authorNickname?: string | null
-  projectType?: UserProjectType | string | null
-  coverUrl?: string | null
-  finalVideoUrl?: string | null
-  publishTime?: string | null
-  updateTime?: string | null
-  projectDesc?: string | null
-  videoStyleType?: string | null
-  episodeCount?: number | null
-  /** 仅剧集类型返回，供切集播放 */
-  episodes?: PublicProjectEpisodeItem[] | null
-}
-
 export interface UserProjectRow {
   id: number
   projectName: string
@@ -450,9 +402,9 @@ export interface UserProjectRow {
   defaultGenMode?: string | null
   defaultStoryboardMode?: string | null
   defaultCreationMode?: string | null
+  currentStep?: number | null
   status: 0 | 1 | 2 | 3 | 4 | 5
   statusReason?: string | null
-  isPublic?: string | null
   createTime?: string | null
   updateTime?: string | null
   /** 剧集项目：分集数量（列表接口可能返回，用于作品卡片展示） */
@@ -891,12 +843,8 @@ export interface UserAssetRpsFormListRequest {
 /** POST /api/user/asset/rps/form/use */
 export interface UserAssetRpsFormUseRequest {
   projectId?: number
-  /** v2.18.6+ 推荐：图片实例ID（单个） */
-  imageId?: number
-  /** v2.63+ 批量图片实例ID列表 */
-  imageIds?: number[]
-  /** 兼容旧前端：等同 imageId */
-  id?: number
+  /** 图片实例 ID；主图为单选，接口每次只接受一个图片。 */
+  imageId: number
 }
 
 /** POST /api/user/asset/rps/form/use 批量出参 data */
@@ -1285,16 +1233,9 @@ export interface ScriptUploadRequest {
   episodeId?: number
 }
 
-/** POST /api/user/project/submit-audit、/api/user/episode/submit-audit、/api/user/project/unpublish */
+/** 通用项目或剧集 ID 请求。 */
 export interface ProjectOrEpisodeIdRequest {
   id: number
-}
-
-/** POST /api/user/project/publish（公开时须同时提交描述与封面） */
-export interface UserProjectPublishRequest {
-  id: number
-  projectDesc: string
-  coverUrl: string
 }
 
 /** /api/user/storyboard/list 分镜最终图引用的参考图快照 */
@@ -1970,6 +1911,7 @@ export interface MediaTaskDetail {
   errorMessage?: string | null
   mediaType?: string | null
   bizTaskType?: string | null
+  eta?: TaskEtaData
 }
 
 /** 项目内生成内容列表 type：image 含 image/grid；video 含 i2v/multi/edge */
@@ -2375,7 +2317,6 @@ export interface EpisodeExportStatusResult {
   errorMsg?: string | null
   exportTaskId?: string | null
   pendingVideoUrl?: string | null
-  needReaudit?: boolean
 }
 
 /** POST /api/user/episode/timeline/get | save */
@@ -3004,6 +2945,27 @@ export interface UserTaskCancelBatchData {
   cancelCount: number
 }
 
+/** 图片、视频、音频任务的统一预计进度与剩余时间。 */
+export interface TaskEtaData {
+  phase?: string
+  displayProgress?: number
+  progressSource?: string
+  remainingSecondsP50?: number
+  remainingSecondsP90?: number
+  estimatedStartAt?: number
+  estimatedFinishAtP50?: number
+  estimatedFinishAtP90?: number
+  confidence?: string
+  sampleCount?: number
+  calculatedAt?: number
+  totalCount?: number
+  completedCount?: number
+  runningCount?: number
+  queuedCount?: number
+  delayed?: boolean
+  predictionVersion?: string
+}
+
 export interface UserTaskDetailData {
   taskId: number
   projectId?: number
@@ -3015,8 +2977,10 @@ export interface UserTaskDetailData {
   errorMessage?: string | null
   totalCount?: number
   modelCode?: string | null
+  queuePosition?: number | null
   createTime?: string | null
   updateTime?: string | null
+  eta?: TaskEtaData
 }
 
 /** 官方只读参数词库：分类列表 /api/user/prompt/official/category/list */
@@ -3251,28 +3215,6 @@ export interface VoiceTagBundleData {
   toneTags?: VoiceTagItem[]
   emotionTags?: VoiceTagItem[]
   enums?: Record<string, VoiceEnumItem[]>
-}
-
-/** POST /api/user/home/banner/list */
-export type HomeBannerType = 'image' | 'video' | 'gif'
-export type HomeBannerLinkType = 'none' | 'external' | 'internal'
-
-export interface HomeBannerListRequest {
-  pageNum?: number
-  pageSize?: number
-}
-
-export interface HomeBannerVO {
-  id: number
-  title: string
-  summary?: string | null
-  bannerType: HomeBannerType | string
-  /** 封面图（视频类型 Banner 的静态封面） */
-  coverUrl?: string | null
-  resourceUrl: string
-  linkType: HomeBannerLinkType | string
-  linkUrl?: string | null
-  sortOrder?: number
 }
 
 /** POST /api/public/billing/detail */

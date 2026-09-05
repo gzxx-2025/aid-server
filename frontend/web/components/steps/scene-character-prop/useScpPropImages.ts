@@ -165,7 +165,6 @@ export function useScpPropImages(ctx: ScpCtx): ScpPropImagesApi {
 
     const formName = ctx.propForms.get()[propIndex][formIndex].name
     message.success(`已为「${formName}」导入形态图片`)
-    ctx.showImportPropFormImageModal.set(false)
   }
 
   const handleEditPropFormImage = (propIndex: number, formIndex: number) => {

@@ -7,6 +7,7 @@ readPromptParamRefFromNode,
 type PromptParamRefValue,
 type PromptParamType
 } from '~/utils/storyboardPromptParamRef'
+import type { PromptAssetType } from '~/utils/storyboardPromptAssetRef'
 
 /** RichTextEditor 文档扫描辅助：在 Quill 内容里定位 @资产 / @参数 Embed（与组件状态无关） */
 
@@ -123,43 +124,63 @@ export function findAssetEmbedIndexByMatch(
   quill: QuillInstance,
   hint: {
     assetId?: string
+    assetType?: PromptAssetType
     imageIndex?: number
     name?: string
   }
 ): number | null {
-  if (hint.assetId) {
-    const byId = findAssetEmbedIndex(quill, hint.assetId)
-    if (byId != null) return byId
-  }
-  // 名称优先于 imageIndex：删除参考图后本地序号会重排，按序号匹配会误删其它 @ 标签
-  const hintName = normalizePromptAssetPlaceholderName(hint.name)
-  if (hintName) {
-    let index = 0
-    for (const op of quill.getContents().ops) {
-      const ins = op.insert
-      if (ins != null && typeof ins === 'object' && 'promptAssetRef' in ins) {
-        const v = ins.promptAssetRef as { name?: string }
-        const embedName = normalizePromptAssetPlaceholderName(v.name)
-        if (embedName === hintName) return index
-        index += 1
-        continue
-      }
-      if (typeof ins === 'string') index += ins.length
-      else index += 1
+  type AssetEmbed = {
+    index: number
+    value: {
+      assetId?: string
+      assetType?: PromptAssetType
+      imageIndex?: number
+      name?: string
     }
   }
-  if (hint.imageIndex == null) return null
+  const embeds: AssetEmbed[] = []
   let index = 0
   for (const op of quill.getContents().ops) {
     const ins = op.insert
     if (ins != null && typeof ins === 'object' && 'promptAssetRef' in ins) {
-      const v = ins.promptAssetRef as { imageIndex?: number }
-      if (v.imageIndex === hint.imageIndex) return index
+      const value = ins.promptAssetRef as AssetEmbed['value']
+      if (!hint.assetType || !value.assetType || value.assetType === hint.assetType) {
+        embeds.push({ index, value })
+      }
       index += 1
       continue
     }
     if (typeof ins === 'string') index += ins.length
     else index += 1
   }
-  return null
+
+  const assetId = String(hint.assetId || '').trim()
+  if (assetId) {
+    const exact = embeds.find((entry) => String(entry.value.assetId || '').trim() === assetId)
+    if (exact) return exact.index
+  }
+
+  // 真实 ID 不允许仅凭同名替换另一个真实资产；名称/序号只用于把解析阶段的临时 embed 水合为真实资产。
+  const isProvisionalId = (value: unknown) => {
+    const id = String(value || '').trim()
+    return !id || /^(?:resolved|placeholder|audio-placeholder)-/.test(id)
+  }
+  const fallbackEmbeds = assetId && !isProvisionalId(assetId)
+    ? embeds.filter((entry) => isProvisionalId(entry.value.assetId))
+    : embeds
+  const uniqueMatch = (matches: AssetEmbed[]) =>
+    matches.length === 1 ? matches[0]!.index : null
+
+  // 名称优先于 imageIndex：本地序号可能重排；同名不唯一时宁可不匹配，也不能误删/误替换。
+  const hintName = normalizePromptAssetPlaceholderName(hint.name)
+  if (hintName) {
+    const byName = fallbackEmbeds.filter(
+      (entry) => normalizePromptAssetPlaceholderName(entry.value.name) === hintName
+    )
+    if (byName.length) return uniqueMatch(byName)
+  }
+  if (hint.imageIndex == null) return null
+  return uniqueMatch(
+    fallbackEmbeds.filter((entry) => entry.value.imageIndex === hint.imageIndex)
+  )
 }

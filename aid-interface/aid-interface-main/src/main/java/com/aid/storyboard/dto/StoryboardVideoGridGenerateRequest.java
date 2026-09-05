@@ -25,7 +25,7 @@ public class StoryboardVideoGridGenerateRequest
     private String modelName;
 
     /**
-     * 宫格视频提示词（可选，仅单镜头时生效）。
+     * 宫格视频提示词（可选，仅单镜头时生效，最大 20000 字符）。
      * 为空时回落 {@code aid_storyboard.video_prompt_image}；两者皆空抛「请先生成提示词」。
      */
     private String videoPrompt;

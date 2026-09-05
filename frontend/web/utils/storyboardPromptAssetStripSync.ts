@@ -148,11 +148,14 @@ export function diffIdentityKeySets(
   return { added, removed }
 }
 
-export function promptAssetItemKey(asset: Pick<PromptAssetItem, 'assetId' | 'name'>): string {
+export function promptAssetItemKey(
+  asset: Pick<PromptAssetItem, 'assetId' | 'name'> & Partial<Pick<PromptAssetItem, 'assetType'>>
+): string {
+  const mediaKind = asset.assetType === 'audio' ? 'audio' : 'image'
   const id = String(asset.assetId || '').trim()
-  if (id) return `id:${id}`
+  if (id) return `${mediaKind}:id:${id}`
   const name = normalizePromptAssetPlaceholderName(asset.name)
-  return name ? `name:${name}` : ''
+  return name ? `${mediaKind}:name:${name}` : ''
 }
 
 /** 按资产身份对比本地参考图列表变化（用于只插入「新导入」的 @ 标签） */
@@ -203,10 +206,14 @@ export function findStripIndexesMatchingIdentityKeys(
 ): number[] {
   const keySet = identityKeys instanceof Set ? identityKeys : new Set(identityKeys)
   if (!keySet.size || !images.length) return []
+  const hasStableIds = [...keySet].some((key) => key.startsWith('id:'))
   const indexes: number[] = []
   for (let i = 0; i < images.length; i++) {
     const imgKeys = referenceImageIdentityKeys(images[i]!)
-    if (imgKeys.some((k) => keySet.has(k))) indexes.push(i)
+    const comparableKeys = hasStableIds
+      ? imgKeys.filter((key) => key.startsWith('id:'))
+      : imgKeys
+    if (comparableKeys.some((k) => keySet.has(k))) indexes.push(i)
   }
   return indexes.sort((a, b) => b - a)
 }
@@ -216,30 +223,35 @@ export function stripImageIsReferencedInPrompt(
   img: StripReferenceImage,
   promptRefKeys: Set<string>
 ): boolean {
-  return referenceImageIdentityKeys(img).some((k) => promptRefKeys.has(k))
+  const keys = referenceImageIdentityKeys(img)
+  const idKeys = keys.filter((key) => key.startsWith('id:'))
+  const promptHasStableIds = [...promptRefKeys].some((key) => key.startsWith('id:'))
+  if (idKeys.length && promptHasStableIds) {
+    return idKeys.some((key) => promptRefKeys.has(key))
+  }
+  return keys.some((key) => promptRefKeys.has(key))
 }
 
 /**
  * 描述框 → 参考图条：找出应删除的下标（降序）。
- * - 文案确实整段清空（promptIsEmpty=true 且 nextKeys 空）：不删条，避免重写文案时误清参考图
  * - id/name 不对称（embed→纯文本仅剩 name）：只要仍有任一键命中即保留
  * - 仅删除「曾经被引用、且当前已不被引用」的图
+ * - 整段清空时也删除已联动引用，保证文本和上方素材条一致
  */
 export function findStripIndexesLostFromPrompt(opts: {
   images: StripReferenceImage[]
   prevKeys: Iterable<string>
   nextKeys: Iterable<string>
-  /** 保留“清空整段文案不清素材条”的既有交互；有正文但删完引用时必须同步删除。 */
+  /** 兼容旧调用参数；清空状态与逐个删除使用相同的引用收口规则。 */
   promptIsEmpty?: boolean
 }): number[] {
   const prevKeys = opts.prevKeys instanceof Set ? opts.prevKeys : new Set(opts.prevKeys)
   const nextKeys = opts.nextKeys instanceof Set ? opts.nextKeys : new Set(opts.nextKeys)
-  if (!opts.images.length || (nextKeys.size === 0 && opts.promptIsEmpty)) return []
+  if (!opts.images.length) return []
   const indexes: number[] = []
   for (let i = 0; i < opts.images.length; i++) {
     const img = opts.images[i]!
-    const keys = referenceImageIdentityKeys(img)
-    const wasReferenced = keys.some((k) => prevKeys.has(k))
+    const wasReferenced = stripImageIsReferencedInPrompt(img, prevKeys)
     if (!wasReferenced) continue
     if (stripImageIsReferencedInPrompt(img, nextKeys)) continue
     indexes.push(i)
@@ -256,13 +268,22 @@ export function findAudioIndexesLostFromPrompt(opts: {
 }): number[] {
   const prevKeys = opts.prevKeys instanceof Set ? opts.prevKeys : new Set(opts.prevKeys)
   const nextKeys = opts.nextKeys instanceof Set ? opts.nextKeys : new Set(opts.nextKeys)
-  if (!opts.audios.length || (nextKeys.size === 0 && opts.promptIsEmpty)) return []
+  if (!opts.audios.length) return []
+
+  const audioIsReferenced = (keys: string[], refKeys: Set<string>) => {
+    const idKeys = keys.filter((key) => key.startsWith('audio-id:'))
+    const promptHasStableIds = [...refKeys].some((key) => key.startsWith('audio-id:'))
+    if (idKeys.length && promptHasStableIds) {
+      return idKeys.some((key) => refKeys.has(key))
+    }
+    return keys.some((key) => refKeys.has(key))
+  }
 
   const indexes: number[] = []
   for (let index = 0; index < opts.audios.length; index += 1) {
     const keys = referenceAudioIdentityKeys(opts.audios[index]!)
-    if (!keys.some((key) => prevKeys.has(key))) continue
-    if (keys.some((key) => nextKeys.has(key))) continue
+    if (!audioIsReferenced(keys, prevKeys)) continue
+    if (audioIsReferenced(keys, nextKeys)) continue
     indexes.push(index)
   }
   return indexes.sort((a, b) => b - a)
@@ -276,8 +297,19 @@ export function pruneResolvedPromptAssetsForRemovedImage(
   if (!assets.length) return assets
   const id = String(removed?.id ?? '').trim()
   const name = stripAt(String(removed?.title || removed?.name || ''))
+  const hasExactId = id && assets.some((asset) => String(asset.assetId) === id)
+  const provisionalNameMatches = name
+    ? assets.filter(
+        (asset) =>
+          /^(?:resolved|placeholder)-/.test(String(asset.assetId || '')) &&
+          promptAssetNamesMatch(asset, { name })
+      )
+    : []
   return assets.filter((a) => {
-    if (id && String(a.assetId) === id) return false
+    if (hasExactId) return String(a.assetId) !== id
+    if (id) {
+      return provisionalNameMatches.length !== 1 || a !== provisionalNameMatches[0]
+    }
     if (name && promptAssetNamesMatch(a, { name })) return false
     return true
   })

@@ -2,8 +2,13 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Modal, message } from 'antd';
 import {
   listProvider, getProvider, addProvider, updateProvider, updateProviderStatus, delProvider,
-  listModel, getModel, addModel, updateModel, delModel
+  listModel, getModel, addModel, updateModel
 } from '@/api/aid/aimanage';
+import {
+  getModelRetirementImpact,
+  retireModel,
+  type OrchestrationImpact
+} from '@/api/aid/orchestration';
 import { cleanExpiredVoices } from '@/api/aid/voicelibrary';
 import ProviderPanel from './ProviderPanel';
 import ModelTable from './ModelTable';
@@ -12,6 +17,7 @@ import ProviderDialog from './ProviderDialog';
 import ModelDialog from './ModelDialog';
 import SyncVoiceModal from './SyncVoiceModal';
 import RealModelOverviewDrawer from './RealModelOverviewDrawer';
+import RetirementModal from '@/views/aid/orchestration/RetirementModal';
 import type { Model, Provider } from './types';
 import './style.less';
 
@@ -33,6 +39,13 @@ export default function AimanagePage() {
   const [modelQuery, setModelQuery] = useState<any>({ modelType: null, generateMode: null, inputRequirement: null, keyword: '' });
   const [providerDlg, setProviderDlg] = useState<{ open: boolean; title: string; data?: any }>({ open: false, title: '' });
   const [modelDlg, setModelDlg] = useState<{ open: boolean; title: string; data?: any }>({ open: false, title: '' });
+  const [retireState, setRetireState] = useState<{
+    open: boolean;
+    loading: boolean;
+    submitting: boolean;
+    row?: Model;
+    impact?: OrchestrationImpact;
+  }>({ open: false, loading: false, submitting: false });
 
   const modelCounts = useMemo(() => {
     const map: Record<number, number> = {};
@@ -127,17 +140,45 @@ export default function AimanagePage() {
     setModelList((prev) => prev.map((item) => (item.id === row.id ? { ...item, status } : item)));
     setAllModels((prev) => prev.map((item) => (item.id === row.id ? { ...item, status } : item)));
   };
-  const handleDeleteModel = (row: Model) => {
-    Modal.confirm({
-      title: '确认删除',
-      content: `是否确认删除模型【${row.modelName}】？`,
-      okType: 'danger',
-      onOk: async () => {
-        await delModel(row.id);
-        message.success('删除成功');
-        loadModels();
-      }
-    });
+  const handleDeleteModel = async (row: Model) => {
+    if (row.id == null) return;
+    setRetireState({ open: true, loading: true, submitting: false, row });
+    try {
+      const res: any = await getModelRetirementImpact(row.id);
+      setRetireState({ open: true, loading: false, submitting: false, row, impact: res.data });
+    } catch {
+      setRetireState({ open: false, loading: false, submitting: false });
+    }
+  };
+
+  const replacementModelOptions = useMemo(() => {
+    const target = retireState.row;
+    if (!target) return [];
+    const enabledProviderIds = new Set(
+      providerList.filter((provider) => provider.status === '0').map((provider) => provider.id)
+    );
+    return allModels
+      .filter((model) => model.id !== target.id
+        && model.status === '0'
+        && model.modelType === target.modelType
+        && enabledProviderIds.has(model.providerId!))
+      .map((model) => ({
+        value: model.modelCode,
+        label: `${model.modelName}（${model.modelCode}）`
+      }));
+  }, [allModels, providerList, retireState.row]);
+
+  const confirmRetireModel = async (replacementCode?: string) => {
+    if (retireState.row?.id == null) return;
+    setRetireState((state) => ({ ...state, submitting: true }));
+    try {
+      await retireModel(retireState.row.id, replacementCode);
+      message.success(replacementCode ? '模型引用已替换并完成下线' : '模型引用已清理并完成下线');
+      setRetireState({ open: false, loading: false, submitting: false });
+      await Promise.all([loadModels(), loadProviders()]);
+    } finally {
+      setRetireState((state) => state.open ? { ...state, submitting: false } : state);
+    }
   };
 
   // ==================== 真实模型总览 ====================
@@ -222,6 +263,15 @@ export default function AimanagePage() {
           setModelDlg({ open: false, title: '' });
           loadModels();
         }}
+      />
+      <RetirementModal
+        open={retireState.open}
+        loading={retireState.loading}
+        submitting={retireState.submitting}
+        impact={retireState.impact}
+        replacementOptions={replacementModelOptions}
+        onCancel={() => setRetireState({ open: false, loading: false, submitting: false })}
+        onConfirm={confirmRetireModel}
       />
       <SyncVoiceModal
         open={syncModalOpen}

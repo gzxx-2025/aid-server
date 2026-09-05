@@ -65,7 +65,7 @@ public class ProjectStyleSnapshotService
     }
 
     /**
-     * 一期角色白底图/角色设定卡使用 character 隐藏模板，异常时回退公开风格描述。
+     * 角色形态图和角色设定卡使用 character 隐藏模板，异常时回退公开风格描述。
      */
     public String resolveCharacterPrompt(AidComicProject project)
     {

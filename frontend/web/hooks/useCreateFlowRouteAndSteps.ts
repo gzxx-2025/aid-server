@@ -42,7 +42,6 @@ import {
   ensureRouteWithinUnlockedSteps,
   fetchCreationStepStatus as runFetchCreationStepStatus,
 } from './createFlowRouteSteps/stepStatus'
-import { runFlowSubmit } from './createFlowRouteSteps/stepSubmit'
 import { useCreateFlowRouteStepEffects } from './createFlowRouteSteps/useCreateFlowRouteStepEffects'
 import { runCreateFlowGoBack, runCreateFlowNextStep } from './createFlowRouteSteps/navigationActions'
 import { getCreateFlowStepPillDisabled, runCreateFlowStepClick } from './createFlowRouteSteps/stepClick'
@@ -359,22 +358,15 @@ export function useCreateFlowRouteAndSteps(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const handleSubmit = useCallback(
-    async (opts?: {
-      alsoPublish?: boolean
-      coverUrl?: string
-      projectDesc?: string
-    }): Promise<boolean> => {
-      return runFlowSubmit(
-        {
-          getCanSubmit,
-          navigateToWorks: () => router.push('/works')
-        },
-        opts
-      )
-    },
-    [getCanSubmit, router]
-  )
+  const handleSubmit = useCallback(async (): Promise<boolean> => {
+    if (!getCanSubmit()) {
+      message.warning('请完成所有步骤后再结束创作')
+      return false
+    }
+    message.success('创作流程已完成')
+    router.push('/works')
+    return true
+  }, [getCanSubmit, router])
 
   const handleNextStep = useCallback(async () => {
     const store = useCreationStore.getState()

@@ -126,7 +126,6 @@ export interface VideoPreviewState {
   exportProgressPercent: Mirrored<number>
   timelineLoading: Mirrored<boolean>
   segmentsDownloading: Mirrored<boolean>
-  exportNeedReaudit: Mirrored<boolean>
   exportPendingVideoUrl: Mirrored<string>
   exportFinalVideoUrl: Mirrored<string>
   /** 最近一次从服务端加载的 timeline，保存时用于保留音色元数据 */

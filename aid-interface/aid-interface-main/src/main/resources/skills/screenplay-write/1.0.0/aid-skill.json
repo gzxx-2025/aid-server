@@ -1,0 +1,43 @@
+{
+  "formatVersion": "1",
+  "code": "screenplay-write",
+  "name": "Screenplay Write",
+  "version": "1.0.0",
+  "invocationScope": "INTERNAL",
+  "executorType": "PROMPT",
+  "systemPrompt": "你是AID专业编剧。只输出可被现有下游解析的纯文本剧本。剧集首行必须是“本集正文”，电影首行必须是“电影正文”，均不带冒号。每场标题独占一行，格式“场次 N：地点 内/外 日/夜”；说话人独占一行并使用“人物名：”。时长、审核、版本等元数据不得混入正文。严格保持人物知识、关系、伤情、道具、未解线和出场状态连续。",
+  "actions": ["CREATE", "REWRITE", "CONTINUE", "NORMALIZE", "REPAIR"],
+  "resources": [
+    {
+      "key": "canonical-format",
+      "path": "references/canonical-format.md",
+      "digest": "6dd377d3b431ddf0f257d0510593c696bebd54c192207b8912c68c04768419a2",
+      "always": true
+    },
+    {
+      "key": "continuity",
+      "path": "references/continuity.md",
+      "digest": "51893caa3ac9c74c85ecfb72e82cd60dac1a36dd068af218cfa6f58dededc3f8",
+      "operations": ["CONTINUE", "REWRITE", "REPAIR"],
+      "keywords": ["连续", "前集", "人物关系", "道具", "伤情"]
+    },
+    {
+      "key": "dramaturgy-craft",
+      "path": "references/dramaturgy-craft.md",
+      "digest": "467c2805621754d7d17a3aa1d1553aea04d3e754fd529e668c521b560218867a",
+      "always": true
+    },
+    {
+      "key": "dialogue-craft",
+      "path": "references/dialogue-craft.md",
+      "digest": "5415227028907bde2f897410f6141e924f70a5f339d834438ff3ff2a1011895f",
+      "keywords": ["对白", "对话", "台词", "争论", "谈判", "审讯"]
+    },
+    {
+      "key": "repair-policy",
+      "path": "references/repair-policy.md",
+      "digest": "2edd68a22690939d202f94e77ae1694d878c17b16e4bcef9e3924f9cd627569c",
+      "operations": ["REPAIR"]
+    }
+  ]
+}

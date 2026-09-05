@@ -4,7 +4,7 @@ import {
 userAssetRpsFormImageList
 } from '~/utils/businessApi'
 import { createSceneModalImagePersistenceOps } from './sceneModalImagePersistenceOps'
-import { normalizeImageId } from './sceneModalTaskParsers'
+import { isSinglePrimaryImageType, normalizeImageId } from './sceneModalTaskParsers'
 import type { EditSceneImageModalCtx,EditSceneImageModalScene,ModalScopeSnapshot } from './types'
 
 export interface SceneModalImageListApi {
@@ -60,7 +60,7 @@ export interface SceneModalImageListApi {
    * - imageType !== 'form'：按 activeRpsFormIds 拉取形态图全量（isUse=0/1）
    */
   initFormImageListOnOpen: (options?: { focusImageId?: number | null }) => Promise<void>
-  /** 编辑作图 / 对话作图成功后，从 form-image/list 回填可展示 URL（SSE resultData 的 imageUrl 可能未走 @MediaUrl） */
+  /** 对话作图成功后，从 form-image/list 回填可展示 URL（SSE resultData 的 imageUrl 可能未走 @MediaUrl） */
   refreshAfterEditChatGenerate: (
     items: Array<{ imageId: number; imageUrl: string }>,
     modalScope?: ModalScopeSnapshot
@@ -83,6 +83,23 @@ export interface SceneModalImageListApi {
 
 export function useSceneModalImageList(ctx: EditSceneImageModalCtx): SceneModalImageListApi {
   const { buildVisibleImagesForParent, emitSceneTabUpdate, reserveSetRpsForm, reserveUnsetRpsForm, resolveImageIdFromFormImageList, syncImageToRpsApi, syncLocalSceneImagesFromSceneIndex } = createSceneModalImagePersistenceOps(ctx)
+  function normalizeMainImageFlags(images: any[], focusImageId?: number | null) {
+    if (!isSinglePrimaryImageType(ctx.props().imageType)) return images
+    let mainIndex = -1
+    for (let index = 0; index < images.length; index += 1) {
+      if (images[index]?._isSet === true) mainIndex = index
+    }
+    if (focusImageId != null) {
+      const focusIndex = images.findIndex(
+        (image) => image?._isSet === true && Number(image?.rpsImageId) === Number(focusImageId)
+      )
+      if (focusIndex >= 0) mainIndex = focusIndex
+    }
+    return images.map((image, index) =>
+      image?._isSet === true && index !== mainIndex ? { ...image, _isSet: false } : image
+    )
+  }
+
   function scenesForImportModal() {
     return ctx.props().scenes.map((scene, index) => {
       if (index !== ctx.currentSceneIndex.get()) return scene
@@ -106,7 +123,10 @@ export function useSceneModalImageList(ctx: EditSceneImageModalCtx): SceneModalI
     const si = ctx.currentSceneIndex.get()
     const sceneImages = ctx.props().scenes[si]?.images || []
     const next = new Set<string>()
-    for (const im of sceneImages) {
+    const visibleImages = isSinglePrimaryImageType(ctx.props().imageType)
+      ? sceneImages.slice(-1)
+      : sceneImages
+    for (const im of visibleImages) {
       const key = normalizeImageId(im?.id)
       if (key && !(im as { _pending?: boolean })?._pending) next.add(key)
     }
@@ -231,7 +251,10 @@ export function useSceneModalImageList(ctx: EditSceneImageModalCtx): SceneModalI
       try {
         const list = await userAssetRpsFormImageList({ formId: fid, isUse: null })
         if (seq !== ctx.initFormImageListSeq.current || !canApply()) return
-        const images = (Array.isArray(list) ? list : []).map((r: any, i: number) => mapFormImageRowToLocalImage(r, fid, i))
+        const images = normalizeMainImageFlags(
+          (Array.isArray(list) ? list : []).map((r: any, i: number) => mapFormImageRowToLocalImage(r, fid, i)),
+          focusImageId
+        )
         ctx.localSceneImages.set(ctx.finalizeLocalImagesWhileGenerating([...images, ...pendingOnly]))
         if (focusImageId != null) {
           applyFocusIndex()
@@ -291,7 +314,12 @@ export function useSceneModalImageList(ctx: EditSceneImageModalCtx): SceneModalI
       }
 
       if (!canApply()) return
-      ctx.localSceneImages.set(ctx.finalizeLocalImagesWhileGenerating([...images, ...pendingOnly]))
+      ctx.localSceneImages.set(
+        ctx.finalizeLocalImagesWhileGenerating([
+          ...normalizeMainImageFlags(images, focusImageId),
+          ...pendingOnly
+        ])
+      )
       if (focusImageId != null) {
         applyFocusIndex()
       } else {
@@ -302,7 +330,7 @@ export function useSceneModalImageList(ctx: EditSceneImageModalCtx): SceneModalI
     }
   }
 
-  /** 编辑作图 / 对话作图成功后，从 form-image/list 回填可展示 URL（SSE resultData 的 imageUrl 可能未走 @MediaUrl） */
+  /** 对话作图成功后，从 form-image/list 回填可展示 URL（SSE resultData 的 imageUrl 可能未走 @MediaUrl） */
   async function refreshAfterEditChatGenerate(
     items: Array<{ imageId: number; imageUrl: string }>,
     modalScope?: ModalScopeSnapshot
@@ -388,7 +416,12 @@ export function useSceneModalImageList(ctx: EditSceneImageModalCtx): SceneModalI
       _isSet: true,
       canSplit: false
     }
-    ctx.localSceneImages.set([...ctx.localSceneImages.get(), newRow])
+    const currentImages = isSinglePrimaryImageType(ctx.props().imageType)
+      ? ctx.localSceneImages
+          .get()
+          .map((image) => (image._isSet ? { ...image, _isSet: false } : image))
+      : ctx.localSceneImages.get()
+    ctx.localSceneImages.set([...currentImages, newRow])
     return ctx.localSceneImages.get().length - 1
   }
 

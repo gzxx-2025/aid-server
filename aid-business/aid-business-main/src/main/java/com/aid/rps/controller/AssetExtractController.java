@@ -164,9 +164,9 @@ public class AssetExtractController extends BaseController
     }
 
     /**
-     * 提交批量角色设定卡生成任务（异步，第二阶段；agentCode 必填）
-     * 一次请求传多个 imageIds（平台白底主图、上传角色图或编辑生成图实例ID），后端只创建 1 条父任务（form_card_image_batch），
-     * Consumer 内部逐张处理：以角色源图作为参考图，调用智能体模板生成角色设定卡，
+     * 提交批量角色设定卡生成任务（异步；agentCode 必填）
+     * 一次请求传多个 imageIds（自动形态图、历史白底图、上传图或编辑生成图实例ID），后端只创建 1 条父任务（form_card_image_batch），
+     * Consumer 内部逐张处理：以角色源图作为参考图，调用所选智能体模板生成角色设定卡，
      * 结果写入 aid_role_prop_scene_form_image（sourceType=ai_builder）。
      * 仅支持 character 类型资产；agentCode 的 biz_category_code 必须为 main_character_card_image。
      * 返回单个 taskId + PENDING 状态。取消可用 /cancel 接口。

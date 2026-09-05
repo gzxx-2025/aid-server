@@ -2,7 +2,6 @@ import { request } from '@/utils/request'
 
 export interface AidComicAssetDetail {
   id: number
-  hiddenStylePromptJson?: string | null
   categoryCodes?: string[]
   categories?: Array<{ code: string; label: string }>
   isRecommended?: boolean

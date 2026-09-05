@@ -56,25 +56,10 @@ public class GenericOpenAiCompatibleTextProviderClient implements TextProviderCl
         List<Map<String, Object>> messages = TextChatOpenAiPayloadBuilder.buildMessageMaps(modelConfig, request);
         Map<String, Object> mergedOptions = OpenAiCompatiblePayloadResolver.mergeExtraBody(
                 modelConfig.getExtraBodyJson(), modelConfig.getModelExtraBodyJson(), request.getOptions());
-        mergedOptions = TextReasoningOptionsResolver.resolveOpenAiCompatible(modelConfig, mergedOptions);
-        if (request.getOptions() != null && Boolean.parseBoolean(String.valueOf(
-                request.getOptions().get(TextReasoningOptionsResolver.ENABLED_KEY)))) {
-            if (mergedOptions == null) {
-                mergedOptions = new java.util.LinkedHashMap<>();
-            }
-            // 流式入口的显式思考必须覆盖旧模型 stream=false；chatSync 不经过此分支。
-            mergedOptions.put("stream", true);
-        }
+        mergedOptions = TextReasoningOptionsResolver.resolveOpenAiCompatible(modelConfig, request, mergedOptions);
         // 结构化输出：模型声明支持且消息含 JSON 关键词时注入 response_format=json_object，避免格式错误
         mergedOptions = com.aid.media.provider.StructuredOutputSupport
                 .applyJsonModeIfSupported(modelConfig, messages, mergedOptions);
-        // 模型级 stream=false 时强制使用非流式上游请求；对外流式接口会在请求完成后一次性回传全文。
-        if (isNonStreamConfigured(mergedOptions)) {
-            log.info("OpenAI 兼容模型配置为非流式, providerCode={}, model={}",
-                    modelConfig.getProviderCode(), model);
-            emitSyncResult(chatSync(modelConfig, request), callbacks, modelConfig, model);
-            return;
-        }
         String body = TextChatOpenAiPayloadBuilder.buildChatCompletionsJsonBody(model, messages, true, mergedOptions);
         Map<String, String> extraHeaders = OpenAiCompatiblePayloadResolver.parseExtraHeaders(
                 modelConfig.getExtraHeadersJson());
@@ -111,7 +96,7 @@ public class GenericOpenAiCompatibleTextProviderClient implements TextProviderCl
         List<Map<String, Object>> messages = TextChatOpenAiPayloadBuilder.buildMessageMaps(modelConfig, request);
         Map<String, Object> mergedOptions = OpenAiCompatiblePayloadResolver.mergeExtraBody(
                 modelConfig.getExtraBodyJson(), modelConfig.getModelExtraBodyJson(), request.getOptions());
-        mergedOptions = TextReasoningOptionsResolver.resolveOpenAiCompatible(modelConfig, mergedOptions);
+        mergedOptions = TextReasoningOptionsResolver.resolveOpenAiCompatible(modelConfig, request, mergedOptions);
         // 结构化输出：模型声明支持且消息含 JSON 关键词时注入 response_format=json_object，避免格式错误
         mergedOptions = com.aid.media.provider.StructuredOutputSupport
                 .applyJsonModeIfSupported(modelConfig, messages, mergedOptions);
@@ -146,44 +131,6 @@ public class GenericOpenAiCompatibleTextProviderClient implements TextProviderCl
             return resolved;
         }
         return OpenAiCompatibleConstants.DEFAULT_TEXT_MODEL;
-    }
-
-    /**
-     * 模型或服务商 extra_body 显式配置 stream=false 时，强制走非流式调用。
-     */
-    private boolean isNonStreamConfigured(Map<String, Object> mergedOptions) {
-        if (mergedOptions == null || !mergedOptions.containsKey("stream")) {
-            return false;
-        }
-        return "false".equalsIgnoreCase(String.valueOf(mergedOptions.get("stream")));
-    }
-
-    /**
-     * 将非流式完整响应适配为正文与 usage 回调；完整 reasoning 不伪装成实时 SSE。
-     */
-    private void emitSyncResult(ProviderSubmitResult result, TextStreamCallbacks callbacks,
-                                AiModelConfigVo modelConfig, String model) {
-        if (result == null) {
-            log.error("OpenAI 兼容非流式返回为空, providerCode={}, model={}",
-                    modelConfig.getProviderCode(), model);
-            callbacks.onError("生成失败", null);
-            return;
-        }
-        if (StringUtils.isNotBlank(result.getRawResponse())) {
-            callbacks.onSseDataLine(result.getRawResponse());
-        }
-        if (result.getUsage() != null && !result.getUsage().isEmpty()) {
-            callbacks.onUsage(result.getUsage());
-        }
-        if (StringUtils.isBlank(result.getDirectText())) {
-            log.error("OpenAI 兼容非流式未返回正文, providerCode={}, model={}, responseLen={}",
-                    modelConfig.getProviderCode(), model, StringUtils.length(result.getRawResponse()));
-            // 透传上游原始错误文本，保证限流/鉴权等错误能命中现有错误规则归一化，与流式路径口径一致
-            callbacks.onError(StringUtils.defaultIfBlank(result.getRawResponse(), "生成失败"), null);
-            return;
-        }
-        callbacks.onDelta(result.getDirectText());
-        callbacks.onComplete();
     }
 
     /**

@@ -140,7 +140,7 @@ public class AuthController {
      *
      * @return 结果
      */
-    @Operation(summary = "注销账号", description = "注销当前登录账号（需要二次验证码）")
+    @Operation(summary = "注销账号", description = "二次验证码确认后注销当前账号，记录再次注册限制并清理全部会话")
     @PostMapping("/cancel")
     public AjaxResult cancelAccount(@Valid @RequestBody CancelAccountRequest request) {
         authService.cancelAccount(request);

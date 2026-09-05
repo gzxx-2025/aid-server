@@ -89,6 +89,7 @@ public final class AiConfigJsonValidator
         {
             return;
         }
+        provider.setExtraBody(sanitizeRuntimeTextOptions(provider.getExtraBody()));
         validateJsonObjectIfPresent("schedule_strategy_json", provider.getScheduleStrategyJson());
         validateJsonObjectIfPresent("extra_headers", provider.getExtraHeaders());
         validateJsonObjectIfPresent("extra_body", provider.getExtraBody());
@@ -137,12 +138,14 @@ public final class AiConfigJsonValidator
         {
             return;
         }
+        model.setExtraBody(sanitizeRuntimeTextOptions(model.getExtraBody()));
         validateJsonObjectIfPresent("billing_rule_json", model.getBillingRuleJson());
         validateJsonObjectIfPresent("schedule_strategy_json", model.getScheduleStrategyJson());
         validateJsonObjectIfPresent("capability_json", model.getCapabilityJson());
         validateJsonObjectIfPresent("param_mapping_json", model.getParamMappingJson());
         validateJsonObjectIfPresent("extra_body", model.getExtraBody());
         ModelBillingRuleValidator.validate(model);
+        validateTextCapability(model);
         validateViduModelCallback(model);
         validateConfigurableVideoAudioField(model);
         validateConfigurableVideoResolutionMapping(model);
@@ -449,6 +452,167 @@ public final class AiConfigJsonValidator
         {
             String preview = trimmed.length() > 80 ? trimmed.substring(0, 80) + "..." : trimmed;
             throw structuredError(fieldName, e.getMessage(), preview);
+        }
+    }
+
+    /** 校验文本多模态和统一思考能力字段。 */
+    private static void validateTextCapability(AidAiModel model)
+    {
+        if (!Objects.equals("text", StrUtil.trim(model.getModelType()))
+                || StrUtil.isBlank(model.getCapabilityJson()))
+        {
+            return;
+        }
+        try
+        {
+            JsonNode capability = OBJECT_MAPPER.readTree(model.getCapabilityJson());
+            Set<String> supportedModalities = Set.of("TEXT", "IMAGE", "VIDEO", "AUDIO", "DOCUMENT");
+            JsonNode modalities = capability.path("inputModalities");
+            if (modalities.isArray())
+            {
+                for (JsonNode modality : modalities)
+                {
+                    if (!modality.isTextual()
+                            || !supportedModalities.contains(modality.asText().trim().toUpperCase(Locale.ROOT)))
+                    {
+                        throw new IllegalArgumentException("输入模态非法");
+                    }
+                }
+            }
+            JsonNode outputModalities = capability.path("outputModalities");
+            if (outputModalities.isArray())
+            {
+                for (JsonNode modality : outputModalities)
+                {
+                    if (!modality.isTextual()
+                            || !supportedModalities.contains(modality.asText().trim().toUpperCase(Locale.ROOT)))
+                    {
+                        throw new IllegalArgumentException("输出模态非法");
+                    }
+                }
+            }
+            for (String field : List.of("maxInputImages", "maxInputVideos",
+                    "maxInputAudios", "maxInputDocuments"))
+            {
+                JsonNode value = capability.get(field);
+                if (value != null && (!value.isIntegralNumber() || value.asInt() < -1))
+                {
+                    throw new IllegalArgumentException(field + "非法");
+                }
+            }
+            validateTextModalityCount(capability, "IMAGE", "maxInputImages");
+            validateTextModalityCount(capability, "VIDEO", "maxInputVideos");
+            validateTextModalityCount(capability, "AUDIO", "maxInputAudios");
+            validateTextModalityCount(capability, "DOCUMENT", "maxInputDocuments");
+            for (String field : List.of("maxInputImageFileSizeMb", "maxInputVideoFileSizeMb",
+                    "maxInputAudioFileSizeMb", "maxInputDocumentFileSizeMb",
+                    "maxInputVideoDurationSeconds", "maxInputAudioDurationSeconds",
+                    "maxInputDocumentPages", "contextWindowTokens", "maxOutputTokens",
+                    "defaultReasoningBudgetTokens", "maxReasoningBudgetTokens"))
+            {
+                JsonNode value = capability.get(field);
+                if (value != null && (!value.isIntegralNumber() || value.asLong() < 0L))
+                {
+                    throw new IllegalArgumentException(field + "非法");
+                }
+            }
+            Set<String> levels = new java.util.LinkedHashSet<>();
+            Set<String> supportedLevels = Set.of("minimal", "low", "medium", "high", "xhigh", "max");
+            JsonNode allowed = capability.path("allowedReasoningLevels");
+            if (allowed.isArray())
+            {
+                allowed.forEach(value -> {
+                    if (value.isTextual() && StrUtil.isNotBlank(value.asText()))
+                    {
+                        String level = value.asText().trim().toLowerCase(Locale.ROOT);
+                        if (!supportedLevels.contains(level))
+                        {
+                            throw new IllegalArgumentException("思考档位非法");
+                        }
+                        levels.add(level);
+                    }
+                });
+            }
+            String defaultLevel = capability.path("defaultReasoningLevel").asText(null);
+            if (StrUtil.isNotBlank(defaultLevel)
+                    && !levels.isEmpty() && !levels.contains(defaultLevel.trim().toLowerCase(Locale.ROOT)))
+            {
+                throw new IllegalArgumentException("默认档位非法");
+            }
+            boolean supportsReasoning = capability.path("supportsReasoning").asBoolean(false);
+            if (!supportsReasoning && (capability.path("supportsReasoningBudget").asBoolean(false)
+                    || capability.path("supportsReasoningContent").asBoolean(false)
+                    || capability.path("returnsReasoningContent").asBoolean(false)
+                    || StrUtil.isNotBlank(defaultLevel) || !levels.isEmpty()))
+            {
+                throw new IllegalArgumentException("思考能力冲突");
+            }
+            int defaultBudget = capability.path("defaultReasoningBudgetTokens").asInt(0);
+            int maxBudget = capability.path("maxReasoningBudgetTokens").asInt(0);
+            if ((!capability.path("supportsReasoningBudget").asBoolean(false) && defaultBudget > 0)
+                    || (maxBudget > 0 && defaultBudget > maxBudget))
+            {
+                throw new IllegalArgumentException("思考预算冲突");
+            }
+        }
+        catch (Exception e)
+        {
+            log.error("文本模型能力配置非法: modelCode={}, reason={}", model.getModelCode(), e.getMessage());
+            throw new ServiceException("能力配置错误");
+        }
+    }
+
+    private static void validateTextModalityCount(JsonNode capability, String modality, String countField)
+    {
+        boolean declared = containsIgnoreCase(capability.path("inputModalities"), modality)
+                || capability.path("supports" + modality.substring(0, 1)
+                        + modality.substring(1).toLowerCase(Locale.ROOT) + "Input").asBoolean(false);
+        JsonNode value = capability.get(countField);
+        int count = value != null && value.isIntegralNumber() ? value.asInt() : 0;
+        if (declared && count == 0)
+        {
+            throw new IllegalArgumentException(countField + "未配置");
+        }
+        if (!declared && count != 0)
+        {
+            throw new IllegalArgumentException(countField + "能力冲突");
+        }
+    }
+
+    /** 删除只能由单次调用方决定的文本运行参数，避免后台再次把策略写死到模型配置。 */
+    private static String sanitizeRuntimeTextOptions(String raw)
+    {
+        if (StrUtil.isBlank(raw))
+        {
+            return raw;
+        }
+        try
+        {
+            JsonNode root = OBJECT_MAPPER.readTree(raw);
+            if (root == null || !root.isObject())
+            {
+                return raw;
+            }
+            var object = (com.fasterxml.jackson.databind.node.ObjectNode) root;
+            for (String key : List.of("stream", "stream_options", "enable_thinking", "thinking",
+                    "thinking_budget", "reasoning_effort", "thinking_level", "thinkingConfig"))
+            {
+                object.remove(key);
+            }
+            JsonNode template = object.get("chat_template_kwargs");
+            if (template != null && template.isObject())
+            {
+                ((com.fasterxml.jackson.databind.node.ObjectNode) template).remove("enable_thinking");
+                if (template.isEmpty())
+                {
+                    object.remove("chat_template_kwargs");
+                }
+            }
+            return object.isEmpty() ? null : OBJECT_MAPPER.writeValueAsString(object);
+        }
+        catch (Exception ignored)
+        {
+            return raw;
         }
     }
 

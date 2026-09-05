@@ -27,6 +27,7 @@ public final class TextTokenEstimator {
                 tokens = safeAdd(tokens, MESSAGE_FRAMING_TOKENS);
                 tokens = safeAdd(tokens, utf8Length(message.getRole()));
                 tokens = safeAdd(tokens, utf8Length(message.getContent()));
+                tokens = safeAdd(tokens, estimateMediaTokens(message.getParts()));
             }
         }
         if (request.getPrompt() != null && !request.getPrompt().isBlank()) {
@@ -51,6 +52,7 @@ public final class TextTokenEstimator {
                 quarterTokens = safeAdd(quarterTokens, MESSAGE_FRAMING_TOKENS * 4L);
                 quarterTokens = safeAdd(quarterTokens, balancedQuarterTokens(message.getRole()));
                 quarterTokens = safeAdd(quarterTokens, balancedQuarterTokens(message.getContent()));
+                quarterTokens = safeAdd(quarterTokens, estimateMediaTokens(message.getParts()) * 4L);
             }
         }
         if (request.getPrompt() != null && !request.getPrompt().isBlank()) {
@@ -81,6 +83,13 @@ public final class TextTokenEstimator {
                 for (MediaTextGenerateRequest.TextMessageItem message : request.getMessages()) {
                     if (message != null && message.getContent() != null) {
                         chars = safeAdd(chars, message.getContent().length());
+                    }
+                    if (message != null && message.getParts() != null) {
+                        for (MediaTextGenerateRequest.TextContentPart part : message.getParts()) {
+                            if (part != null && "text".equalsIgnoreCase(part.getType()) && part.getText() != null) {
+                                chars = safeAdd(chars, part.getText().length());
+                            }
+                        }
                     }
                 }
             }
@@ -135,6 +144,37 @@ public final class TextTokenEstimator {
                     : Character.isSupplementaryCodePoint(cp) ? 4L : 3L);
         }
         return bytes;
+    }
+
+    /** 多模态预授权使用保守内部估算；最终结算以供应商 usage 为准。 */
+    private static long estimateMediaTokens(List<MediaTextGenerateRequest.TextContentPart> parts) {
+        if (parts == null || parts.isEmpty()) {
+            return 0L;
+        }
+        long total = 0L;
+        for (MediaTextGenerateRequest.TextContentPart part : parts) {
+            if (part == null || part.getType() == null) {
+                continue;
+            }
+            String type = part.getType().trim().toLowerCase();
+            switch (type) {
+                case "text" -> total = safeAdd(total, utf8Length(part.getText()));
+                case "image" -> {
+                    long pixels = part.getWidth() == null || part.getHeight() == null ? 0L
+                            : (long) part.getWidth() * part.getHeight();
+                    total = safeAdd(total, pixels > 0L ? 2L + ceilDiv(pixels, 1024L) : 2048L);
+                }
+                case "video" -> total = safeAdd(total, part.getDurationSeconds() == null
+                        ? 18000L : Math.max(1L, (long) Math.ceil(part.getDurationSeconds() * 300D)));
+                case "audio" -> total = safeAdd(total, part.getDurationSeconds() == null
+                        ? 1920L : Math.max(1L, (long) Math.ceil(part.getDurationSeconds() * 32D)));
+                case "document" -> total = safeAdd(total, part.getPageCount() == null
+                        ? 2580L : Math.max(1L, (long) part.getPageCount() * 258L));
+                default -> {
+                }
+            }
+        }
+        return total;
     }
 
     private static long ceilDiv(long value, long divisor) {

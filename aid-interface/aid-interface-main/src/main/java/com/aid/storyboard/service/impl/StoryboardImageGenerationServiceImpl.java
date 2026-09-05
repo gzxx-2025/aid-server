@@ -1,5 +1,8 @@
 package com.aid.storyboard.service.impl;
 
+import com.aid.media.util.MediaTaskPayloadSanitizer;
+import com.aid.common.error.TaskErrorSnapshot;
+import com.aid.common.error.TaskErrorCode;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -395,13 +398,13 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
                 && request.getImagePrompt().length() > MAX_PROMPT_LENGTH)
         {
             log.error("分镜图生成提示词过长: len={}", request.getImagePrompt().length());
-            throw new ServiceException("提示词过长");
+            throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_TOO_LONG, "提示词过长，请精简");
         }
         if (StrUtil.isNotBlank(request.getNegativePrompt())
                 && request.getNegativePrompt().length() > MAX_NEGATIVE_PROMPT_LENGTH)
         {
             log.error("分镜图生成负向提示词过长: len={}", request.getNegativePrompt().length());
-            throw new ServiceException("提示词过长");
+            throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_TOO_LONG, "提示词过长，请精简");
         }
         if (StrUtil.isNotBlank(request.getUserInputText())
                 && request.getUserInputText().length() > MAX_USER_INPUT_LENGTH)
@@ -689,7 +692,7 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
         {
             log.error("分镜图生成提示词为空: storyboardId={}, userId={}",
                     storyboard.getId(), storyboard.getUserId());
-            throw new ServiceException("提示词不能为空");
+            throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_EMPTY, "请填写提示词");
         }
         return dbPrompt;
     }
@@ -1505,8 +1508,9 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
                     {
                         log.error("分镜批量出图单张提交失败: taskId={}, storyboardId={}, take={}, err={}",
                                 taskId, shot.storyboard.getId(), slot + 1, perItemEx.getMessage());
+                        int takeNumber = slot + 1;
                         batchParentSubmissionGuard.executeManagedBusinessCommit(taskId, dispatchToken, () -> {
-                            fanInSupport.incrFail(taskId, perItemEx.getMessage());
+                            fanInSupport.incrFail(taskId, shot.storyboard.getId(), takeNumber, dispatchToken, perItemEx);
                             return null;
                         });
                     }
@@ -2062,7 +2066,8 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
             toPending.set(AidExtractTask::getStatus, TASK_STATUS_PENDING);
             toPending.set(AidExtractTask::getTotalCount, seedSuccessCount + newSubtasks);
             toPending.set(AidExtractTask::getInputSnapshot, newSnapJson);
-            toPending.set(AidExtractTask::getErrorMessage, null);
+            toPending.set(AidExtractTask::getErrorMessage, null)
+                .set(AidExtractTask::getErrorDetailJson, null);
             toPending.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
             int casRows;
             try
@@ -2719,7 +2724,7 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
             {
                 TaskErrorResult errorResult =
                         fanInSupport.resolveRepresentativeFailure(taskId, BIZ_TASK_TYPE, task.getModelCode());
-                if (updateTaskFailed(taskId, errorResult))
+                if (updateTaskFailed(taskId, errorResult, resultJson))
                 {
                     sseManager.sendError(taskId, errorResult);
                 }
@@ -2784,6 +2789,7 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
         map.put("totalSubtasks", total);
         map.put("successCount", successCount);
         map.put("failCount", failCount);
+        map.put("failedItems", fanInSupport.resolveFailureItems(task, BIZ_TASK_TYPE));
         map.put("recordIds", recordIds);
         map.put("items", items);
         map.put("shots", shots);
@@ -2909,7 +2915,8 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
         update.set(AidExtractTask::getStatus, newStatus);
         if (StrUtil.isNotBlank(errorMessage))
         {
-            update.set(AidExtractTask::getErrorMessage, errorMessage);
+            update.set(AidExtractTask::getErrorMessage, errorMessage)
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage(errorMessage));
         }
         update.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
         int rows = extractTaskService.getBaseMapper().update(null, update);
@@ -2923,6 +2930,7 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
         update.eq(AidExtractTask::getStatus, TASK_STATUS_PROCESSING);
         update.set(AidExtractTask::getStatus, TASK_STATUS_SUCCEEDED);
         update.set(AidExtractTask::getTotalCount, totalCount);
+        update.set(AidExtractTask::getErrorMessage, null).set(AidExtractTask::getErrorDetailJson, null);
         if (StrUtil.isNotBlank(resultJson))
         {
             update.set(AidExtractTask::getResultData, resultJson);
@@ -2946,6 +2954,7 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
         update.eq(AidExtractTask::getStatus, TASK_STATUS_PROCESSING);
         update.set(AidExtractTask::getStatus, TASK_STATUS_PARTIAL_FAILED);
         update.set(AidExtractTask::getTotalCount, totalCount);
+        update.set(AidExtractTask::getErrorMessage, null).set(AidExtractTask::getErrorDetailJson, null);
         if (StrUtil.isNotBlank(resultJson))
         {
             update.set(AidExtractTask::getResultData, resultJson);
@@ -2964,12 +2973,24 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
 
     private boolean updateTaskFailed(Long taskId, String errorMessage)
     {
-        String safeMsg = StrUtil.isNotBlank(errorMessage) ? errorMessage : "生成失败";
+        return updateTaskFailed(taskId, ErrorNormalizer.normalizeByMessage(errorMessage));
+    }
+
+    private boolean updateTaskFailed(Long taskId, TaskErrorResult errorResult)
+    {
+        return updateTaskFailed(taskId, errorResult, null);
+    }
+
+    private boolean updateTaskFailed(Long taskId, TaskErrorResult errorResult, String resultJson)
+    {
+        String safeMsg = StrUtil.blankToDefault(errorResult.getRawMessage(), errorResult.getUserMessage());
         LambdaUpdateWrapper<AidExtractTask> update = Wrappers.lambdaUpdate();
         update.eq(AidExtractTask::getId, taskId);
         update.in(AidExtractTask::getStatus, TASK_STATUS_PENDING, TASK_STATUS_PROCESSING);
         update.set(AidExtractTask::getStatus, TASK_STATUS_FAILED);
-        update.set(AidExtractTask::getErrorMessage, StrUtil.sub(safeMsg, 0, 255));
+        update.set(AidExtractTask::getErrorMessage, StrUtil.sub(MediaTaskPayloadSanitizer.sanitizeForStorage(safeMsg), 0, 255))
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.write(errorResult));
+        if (StrUtil.isNotBlank(resultJson)) { update.set(AidExtractTask::getResultData, resultJson); }
         update.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
         int rows = extractTaskService.getBaseMapper().update(null, update);
         if (rows == 0)
@@ -2982,20 +3003,14 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
         return true;
     }
 
-    private boolean updateTaskFailed(Long taskId, TaskErrorResult errorResult)
-    {
-        String dbMessage = Objects.nonNull(errorResult.getRawMessage())
-                ? errorResult.getRawMessage() : errorResult.getUserMessage();
-        return updateTaskFailed(taskId, dbMessage);
-    }
-
     private boolean updateTaskCancelled(Long taskId)
     {
         LambdaUpdateWrapper<AidExtractTask> update = Wrappers.lambdaUpdate();
         update.eq(AidExtractTask::getId, taskId);
         update.in(AidExtractTask::getStatus, TASK_STATUS_PENDING, TASK_STATUS_PROCESSING);
         update.set(AidExtractTask::getStatus, TASK_STATUS_CANCELLED);
-        update.set(AidExtractTask::getErrorMessage, "用户取消");
+        update.set(AidExtractTask::getErrorMessage, "用户取消")
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage("用户取消"));
         update.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
         int rows = extractTaskService.getBaseMapper().update(null, update);
         if (rows == 0)
@@ -3013,7 +3028,8 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
         update.eq(AidExtractTask::getId, taskId);
         update.in(AidExtractTask::getStatus, TASK_STATUS_PENDING, TASK_STATUS_PROCESSING);
         update.set(AidExtractTask::getStatus, TASK_STATUS_CANCELLED);
-        update.set(AidExtractTask::getErrorMessage, "用户取消");
+        update.set(AidExtractTask::getErrorMessage, "用户取消")
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage("用户取消"));
         if (StrUtil.isNotBlank(resultJson))
         {
             update.set(AidExtractTask::getResultData, resultJson);

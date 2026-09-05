@@ -31,7 +31,7 @@ public final class TextReasoningBillingResolver {
         merge(options, model.getModelExtraBodyJson());
         boolean explicit = Boolean.parseBoolean(String.valueOf(params.get("reasoningEnabled")));
         boolean overridePresent = Boolean.parseBoolean(String.valueOf(params.get("reasoningOverridePresent")));
-        boolean configured = configuredReasoningEnabled(model.getCapabilityJson(), options);
+        boolean configured = configuredReasoningEnabled(model.getCapabilityJson());
         boolean requested = overridePresent ? explicit : configured;
         boolean inherentlyReasoning = capabilityBoolean(model.getCapabilityJson(), "supportsReasoning")
                 && !capabilityBoolean(model.getCapabilityJson(), "supportsReasoningDisable");
@@ -69,11 +69,8 @@ public final class TextReasoningBillingResolver {
     }
 
     private static int configuredReasoningBudget(String capabilityJson, Map<String, Object> options) {
-        int budget = positiveInt(options.get("thinking_budget"));
-        if (budget <= 0 && options.get("thinkingConfig") instanceof Map<?, ?> map) {
-            budget = positiveInt(map.get("thinkingBudget"));
-        }
-        if (budget <= 0 && StrUtil.isNotBlank(capabilityJson)) {
+        int budget = 0;
+        if (StrUtil.isNotBlank(capabilityJson)) {
             try {
                 JsonNode capability = MAPPER.readTree(capabilityJson);
                 budget = positiveInt(capability.path("defaultReasoningBudgetTokens").asText());
@@ -89,39 +86,7 @@ public final class TextReasoningBillingResolver {
         return result > TEXT_OUTPUT_TOKENS_HARD_CAP ? TEXT_OUTPUT_TOKENS_HARD_CAP : (int) result;
     }
 
-    private static boolean configuredReasoningEnabled(String capabilityJson, Map<String, Object> options) {
-        Object qwen = options.get("enable_thinking");
-        if (qwen != null) {
-            return Boolean.parseBoolean(String.valueOf(qwen));
-        }
-        Object effort = options.get("reasoning_effort");
-        if (effort != null) {
-            String value = String.valueOf(effort).trim();
-            return !(value.isEmpty() || "none".equalsIgnoreCase(value)
-                    || "off".equalsIgnoreCase(value) || "disabled".equalsIgnoreCase(value)
-                    || "0".equals(value));
-        }
-        Object thinking = options.get("thinking");
-        if (thinking instanceof Map<?, ?> map) {
-            Object type = map.get("type");
-            return type != null && !"disabled".equalsIgnoreCase(String.valueOf(type));
-        }
-        Object gemini = options.get("thinkingConfig");
-        if (gemini instanceof Map<?, ?> map) {
-            Object budget = map.get("thinkingBudget");
-            return budget == null || positiveInt(budget) != 0;
-        }
-        Object thinkingLevel = options.get("thinking_level");
-        if (thinkingLevel != null) {
-            String level = String.valueOf(thinkingLevel).trim();
-            return !(level.isEmpty() || "disabled".equalsIgnoreCase(level)
-                    || "off".equalsIgnoreCase(level) || "none".equalsIgnoreCase(level)
-                    || "0".equals(level));
-        }
-        Object template = options.get("chat_template_kwargs");
-        if (template instanceof Map<?, ?> map && map.containsKey("enable_thinking")) {
-            return Boolean.parseBoolean(String.valueOf(map.get("enable_thinking")));
-        }
+    private static boolean configuredReasoningEnabled(String capabilityJson) {
         if (StrUtil.isNotBlank(capabilityJson)) {
             try {
                 return MAPPER.readTree(capabilityJson).path("defaultReasoningEnabled").asBoolean(false);

@@ -47,7 +47,7 @@ export function PromptAssetRefPicker({
       >
         {assets.map((item) => (
           <button
-            key={item.assetId}
+            key={`${item.assetType}:${item.assetId}:${item.imageIndex}`}
             type="button"
             className={`prompt-asset-ref-picker__item${
               item.assetId === selectedAssetId ? ' is-selected' : ''

@@ -7,8 +7,7 @@ activeStoryboardVideoModalOwnedFollowIds
 } from '~/composables/useStoryboardVideoBatchGenerate'
 import { useVideoPlaybackSpaceShortcut } from '~/composables/useVideoPlaybackSpaceShortcut'
 import type { StoryboardPanel } from '~/types'
-import { looksLikeMarkdown } from '~/utils/htmlPlain'
-import { storyboardPromptHtmlToPlain,storyboardPromptMarkdownPlainToHtml } from '~/utils/storyboardPromptAssetRef'
+import { storyboardPromptHtmlToPlain } from '~/utils/storyboardPromptAssetRef'
 import { plainHasVideoLabeledParamFields } from '~/utils/storyboardPromptParamRef'
 import type { VideoModalCtx } from './types'
 import {
@@ -206,7 +205,8 @@ export function useVideoModalEffects(ctx: VideoModalCtx, deps: EffectDeps): void
   useEffect(() => {
     if (skipFirst('scenesLength')) return
     if (!ctx.props().open) return
-    setTimeout(() => ctx.sceneTabBarRef.current?.refresh(), 0)
+    const timer = setTimeout(() => ctx.sceneTabBarRef.current?.refresh(), 0)
+    return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deps.scenesLength])
 
@@ -244,39 +244,17 @@ export function useVideoModalEffects(ctx: VideoModalCtx, deps: EffectDeps): void
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deps.currentStoryboardIdValue, ctx.currentSceneIndex.value])
 
-  // watch([resolvedMultiParamPromptAssets, multiParamPromptParamGroups], deep)：资产/词库变化后重渲多参描述
-  useEffect(() => {
-    if (skipFirst('multiParamAssetsGroups')) return
-    setTimeout(() => {
-      if (ctx.videoPromptProgrammaticSyncDepth.get() > 0) return
-      if (!ctx.multiParamPrompt.get()) return
-      const plain = storyboardPromptHtmlToPlain(ctx.multiParamPrompt.get())
-      if (!plain.includes('@') && !looksLikeMarkdown(plain) && !plainHasVideoLabeledParamFields(plain)) {
-        return
-      }
-      const next = storyboardPromptMarkdownPlainToHtml(
-        plain,
-        ctx.resolvedMultiParamPromptAssets.get(),
-        ctx.multiParamPromptParamGroups(),
-        { enableVideoLabeledParams: true, enableAssetRefs: true }
-      )
-      if (next && next !== ctx.multiParamPrompt.get()) {
-        ctx.multiParamPrompt.set(next)
-      }
-    }, 0)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ctx.resolvedMultiParamPromptAssets.value, deps.multiParamGroupsValue])
-
   // watch(videoPromptParamGroups, deep)：词库就绪后同步文本域结构化字段到右侧下拉
   useEffect(() => {
     if (skipFirst('videoPromptParamGroups')) return
-    setTimeout(() => {
+    const timer = setTimeout(() => {
       if (ctx.videoPromptProgrammaticSyncDepth.get() > 0) return
       if (!ctx.imageToVideoPrompt.get()) return
       const plain = storyboardPromptHtmlToPlain(ctx.imageToVideoPrompt.get())
       if (!plainHasVideoLabeledParamFields(plain)) return
       ctx.applyVideoParamSelectionsFromPlain(plain)
     }, 0)
+    return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deps.videoGroupsValue])
 

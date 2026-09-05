@@ -5,7 +5,7 @@ import {
   userEpisodeExport,
   userEpisodeExportStatus
 } from '~/utils/businessApi'
-import { resolveExportPlaybackUrl } from '~/utils/projectAudit'
+import { resolveExportPlaybackUrl } from '~/utils/projectMediaState'
 import { resolveStoryScriptSaveContext } from '~/utils/storyScriptSaveContext'
 import {
   mapTimelineToExportGroups,
@@ -45,7 +45,6 @@ export type EpisodeVideoExportOutcome = {
   videoUrl: string
   coverUrl?: string | null
   episodeEditorId: number
-  needReaudit?: boolean
   pendingVideoUrl?: string | null
   finalVideoUrl?: string | null
 }
@@ -154,7 +153,6 @@ function mapExportStatusToOutcome(status: {
   finalVideoUrl?: string | null
   coverUrl?: string | null
   pendingVideoUrl?: string | null
-  needReaudit?: boolean
   errorMsg?: string | null
 }): EpisodeVideoExportOutcome {
   const episodeEditorId = Number(status.episodeEditorId)
@@ -171,7 +169,6 @@ function mapExportStatusToOutcome(status: {
     videoUrl,
     coverUrl: status.coverUrl ?? null,
     episodeEditorId,
-    needReaudit: Boolean(status.needReaudit),
     pendingVideoUrl: normalizeMediaUrl(status.pendingVideoUrl) || null,
     finalVideoUrl: normalizeMediaUrl(status.finalVideoUrl) || null
   }
@@ -262,7 +259,7 @@ export async function followEpisodeExportViaStatus(payload: {
 
     if (exportStatus === 2) {
       payload.onProgress?.({
-        message: status.needReaudit ? '新片合成完成，需重新提交审核' : '合成完成',
+        message: '合成完成',
         exportProgress: 100,
         exportStatus: 2
       })

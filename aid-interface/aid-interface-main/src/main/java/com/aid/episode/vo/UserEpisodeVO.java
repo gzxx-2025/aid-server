@@ -65,10 +65,6 @@ public class UserEpisodeVO {
     @MediaUrl
     private String finalVideoUrl;
 
-    /** 待审核新成片地址（出参自动拼域名）；非空=成片已变更需重新提审（公开侧仍展示 finalVideoUrl 旧片） */
-    @MediaUrl
-    private String pendingVideoUrl;
-
     /** 成片导出状态：0=未导出/待重新导出，1=合成中，2=导出成功，3=导出失败；无剪辑记录为 null */
     private Integer exportStatus;
 

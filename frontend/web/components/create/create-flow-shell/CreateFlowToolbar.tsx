@@ -50,10 +50,6 @@ export interface CreateFlowToolbarProps {
   previewExportBusy: boolean
   onExportFullVideo: () => void
   onExportSegments: () => void
-  publishToCasePlazaDisabled: boolean
-  publishToCasePlazaTooltip: string
-  getPublishTooltipPopupContainer: () => HTMLElement
-  onPublishToCasePlaza: () => void
   toolbarPrimaryDisabled: boolean
   toolbarPrimaryTooltip: string
   nextStepDelayLoading: boolean
@@ -165,7 +161,11 @@ export function CreateFlowToolbar(props: CreateFlowToolbarProps) {
           />
         </Suspense>
         {props.activeProjectId ? (
-          <Button size="large" className="toolbar-btn-draft" onClick={props.openProjectGenConfig}>
+          <Button
+            size="large"
+            className="toolbar-btn-draft"
+            onClick={props.openProjectGenConfig}
+          >
             <div className="text-gradient">生成配置</div>
           </Button>
         ) : null}
@@ -218,30 +218,6 @@ export function CreateFlowToolbar(props: CreateFlowToolbarProps) {
                 >
                   <span className="preview-export-menu__btn-text">导出分段素材</span>
                 </button>
-                {props.publishToCasePlazaDisabled ? (
-                  <Tooltip
-                    title={props.publishToCasePlazaTooltip}
-                    placement="left"
-                    styles={{ root: { zIndex: 11000, maxWidth: '280px' } }}
-                    getPopupContainer={props.getPublishTooltipPopupContainer}
-                  >
-                    <span className="preview-export-menu__btn-wrap">
-                      <button type="button" className="preview-export-menu__btn" role="menuitem" disabled>
-                        <span className="preview-export-menu__btn-text">发布至案例广场</span>
-                      </button>
-                    </span>
-                  </Tooltip>
-                ) : (
-                  <button
-                    type="button"
-                    className="preview-export-menu__btn"
-                    role="menuitem"
-                    disabled={props.previewExportBusy}
-                    onClick={props.onPublishToCasePlaza}
-                  >
-                    <span className="preview-export-menu__btn-text">发布至案例广场</span>
-                  </button>
-                )}
               </div>
             )}
           >
@@ -252,7 +228,7 @@ export function CreateFlowToolbar(props: CreateFlowToolbarProps) {
               disabled={props.previewExportBusy}
               loading={props.previewExportBusy}
             >
-              导出/发布
+              导出
             </Button>
           </Dropdown>
         ) : (

@@ -6,6 +6,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 
 	<resultMap type="SysLogininfor" id="SysLogininforResult">
 		<id     property="infoId"        column="info_id"           />
+		<result property="userId"        column="user_id"           />
 		<result property="userName"      column="user_name"         />
 		<result property="status"        column="status"            />
 		<result property="ipaddr"        column="ipaddr"            />
@@ -17,12 +18,12 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 	</resultMap>
 
 	<insert id="insertLogininfor" parameterType="SysLogininfor">
-		insert into sys_logininfor (user_name, status, ipaddr, login_location, browser, os, msg, login_time)
-		values (#{userName}, #{status}, #{ipaddr}, #{loginLocation}, #{browser}, #{os}, #{msg}, sysdate())
+		insert into sys_logininfor (user_id, user_name, status, ipaddr, login_location, browser, os, msg, login_time)
+		values (#{userId}, #{userName}, #{status}, #{ipaddr}, #{loginLocation}, #{browser}, #{os}, #{msg}, sysdate())
 	</insert>
 	
 	<select id="selectLogininforList" parameterType="SysLogininfor" resultMap="SysLogininforResult">
-		select info_id, user_name, ipaddr, login_location, browser, os, status, msg, login_time from sys_logininfor
+		select info_id, user_id, user_name, ipaddr, login_location, browser, os, status, msg, login_time from sys_logininfor
 		<where>
 			<if test="ipaddr != null and ipaddr != ''">
 				AND ipaddr like concat('%', #{ipaddr}, '%')
@@ -42,6 +43,13 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		</where>
 		order by info_id desc
 	</select>
+
+	<select id="selectLogininforByUserId" parameterType="Long" resultMap="SysLogininforResult">
+		select info_id, user_id, user_name, ipaddr, login_location, browser, os, status, msg, login_time
+		from sys_logininfor
+		where user_id = #{userId}
+		order by login_time desc, info_id desc
+	</select>
 	
 	<delete id="deleteLogininforByIds" parameterType="Long">
  		delete from sys_logininfor where info_id in
@@ -51,7 +59,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
  	</delete>
 
 	<select id="selectLogininforBeforeTime" resultMap="SysLogininforResult">
-		select info_id, user_name, ipaddr, login_location, browser, os, status, msg, login_time
+		select info_id, user_id, user_name, ipaddr, login_location, browser, os, status, msg, login_time
 		from sys_logininfor
 		where login_time &lt; #{cutoff}
 		order by info_id asc
@@ -62,4 +70,4 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         truncate table sys_logininfor
     </update>
     
-</mapper> 
+</mapper>

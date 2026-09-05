@@ -1,0 +1,46 @@
+# AID_MANAGED_NGINX_INCLUDE=1
+client_max_body_size ${NGINX_MAX_BODY_MB}m;
+proxy_connect_timeout ${NGINX_CONNECT_TIMEOUT_SECONDS}s;
+proxy_read_timeout ${NGINX_READ_TIMEOUT_SECONDS}s;
+${NGINX_TLS_DIRECTIVES}
+${NGINX_EXTRA_DIRECTIVES}
+
+location = /robots.txt {
+    proxy_pass ${NGINX_BACKEND_ORIGIN}/seo/public/robots.txt;
+    proxy_set_header Host $proxy_host;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+location = /sitemap.xml {
+    proxy_pass ${NGINX_BACKEND_ORIGIN}/seo/public/sitemap.xml;
+    proxy_set_header Host $proxy_host;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+location /aid/ {
+    proxy_pass ${NGINX_BACKEND_ORIGIN}/;
+    proxy_set_header Host $proxy_host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_buffering off;
+}
+location /profile/ {
+    proxy_pass ${NGINX_BACKEND_ORIGIN}/profile/;
+    proxy_set_header Host $proxy_host;
+}
+location ~ /__static__(/|$) { return 404; }
+location = /200.html { return 404; }
+# Legacy profile bookmarks use the static query shell and are not indexable content.
+location ~ ^/user/([1-9][0-9]*)/?$ { return 302 /user/?id=$1; }
+# Only registered, currently public content may resolve an otherwise missing page.
+location @aid_public_page {
+    # Keep the original escaped path in a header; never concatenate it into query arguments.
+    rewrite ^ /seo/public/page? break;
+    proxy_pass ${NGINX_BACKEND_ORIGIN};
+    proxy_set_header X-AID-Public-Path $request_uri;
+    proxy_set_header Host $proxy_host;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}

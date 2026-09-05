@@ -47,6 +47,8 @@ export interface CreateFlowStepStripProps {
   stepRealIndex: (stepKey: CreationStep) => number
   isConnectorTrailDone: (index: number) => boolean
   isPillDisabled: (index: number) => boolean
+  /** 从案例复制/预览进入时，高亮全部流程入口。 */
+  highlightAll?: boolean
   /** 素材准备（scene-character）步 loading（提取中 / 第三步可视生成中） */
   sceneCharacterGenerating: boolean
   storyboardScriptGenerating: boolean
@@ -64,6 +66,7 @@ export function CreateFlowStepStrip({
   stepRealIndex,
   isConnectorTrailDone,
   isPillDisabled,
+  highlightAll = false,
   sceneCharacterGenerating,
   storyboardScriptGenerating,
   storyboardVideoGenerating,
@@ -93,7 +96,8 @@ export function CreateFlowStepStrip({
             stepStatus[realIndex] === 'completed' ? 'flow-step-pill--completed' : '',
             stepStatus[realIndex] === 'pending' ? 'flow-step-pill--pending' : '',
             stepStatus[realIndex] === 'disabled' ? 'flow-step-pill--disabled' : '',
-            realIndex > unlockedStepIndex ? 'flow-step-pill--locked-ahead' : ''
+            realIndex > unlockedStepIndex ? 'flow-step-pill--locked-ahead' : '',
+            highlightAll ? 'flow-step-pill--entry-breathing' : ''
           ]
             .filter(Boolean)
             .join(' ')

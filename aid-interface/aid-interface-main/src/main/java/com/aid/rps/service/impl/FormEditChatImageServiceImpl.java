@@ -1,5 +1,8 @@
 package com.aid.rps.service.impl;
 
+import com.aid.media.util.MediaTaskPayloadSanitizer;
+import com.aid.common.error.ErrorNormalizer;
+import com.aid.common.error.TaskErrorSnapshot;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -55,6 +58,7 @@ import com.aid.rps.dto.AssetExtractTaskVO;
 import com.aid.rps.dto.FormEditChatImageGenerateRequest;
 import com.aid.rps.service.IAssetExtractService;
 import com.aid.rps.service.IFormEditChatImageService;
+import com.aid.rps.service.IFormImageSelectionService;
 import com.aid.rps.sse.AssetExtractSseManager;
 import com.aid.service.IAiModelConfigService;
 
@@ -165,6 +169,10 @@ public class FormEditChatImageServiceImpl implements IFormEditChatImageService
 
     @Autowired
     private IAidRolePropSceneFormImageService rpsFormImageService;
+
+    /** 生成图片默认使用状态统一规则。 */
+    @Autowired
+    private IFormImageSelectionService formImageSelectionService;
 
     @Autowired
     private IAidAiModelService aidAiModelService;
@@ -464,14 +472,13 @@ public class FormEditChatImageServiceImpl implements IFormEditChatImageService
 
     /**
      * 同一批次的排序 / 名称基线：
-     * 在进入"逐张生成 + 逐张落库"循环之前一次性统计当前 form 已有图片数和是否已有使用中的图；
+     * 在进入"逐张生成 + 逐张落库"循环之前一次性统计当前 form 已有图片数；
      * 循环内只按"基线 + 循环 index"递增，避免每轮重新查库时把已写入的新图也计入 existingCount，
      * 造成名称序号 / sortOrder 跳号（1,3,5,7 …）。
      */
     private static class FormImageSortBaseline
     {
         int baseCount;
-        boolean anyInUse;
         /** 该 form 下已有图片名字以 _编辑_N 结尾的最大 N（无则 0），本批次按 maxEditSeq + 1 起递增 */
         int maxEditSeq;
     }
@@ -479,28 +486,15 @@ public class FormEditChatImageServiceImpl implements IFormEditChatImageService
     /** 批次开始前读取一次 form 的图片基线，后续逐张落库复用，不再每轮 getCount */
     private FormImageSortBaseline resolveFormImageBaseline(Long formId)
     {
-        // baseCount / anyInUse 只看未删除的图（用于 sort_order / is_use 计算）
+        // baseCount 只看未删除的图（用于 sort_order 计算）
         LambdaQueryWrapper<AidRolePropSceneFormImage> existsQuery = Wrappers.lambdaQuery();
         existsQuery.eq(AidRolePropSceneFormImage::getFormId, formId);
         existsQuery.eq(AidRolePropSceneFormImage::getDelFlag, DEL_FLAG_NORMAL);
-        existsQuery.select(AidRolePropSceneFormImage::getId, AidRolePropSceneFormImage::getIsUse,
-                AidRolePropSceneFormImage::getName);
+        existsQuery.select(AidRolePropSceneFormImage::getId);
         List<AidRolePropSceneFormImage> existing = rpsFormImageService.list(existsQuery);
         FormImageSortBaseline baseline = new FormImageSortBaseline();
         baseline.baseCount = CollectionUtil.isNotEmpty(existing) ? existing.size() : 0;
-        baseline.anyInUse = false;
         baseline.maxEditSeq = 0;
-        if (CollectionUtil.isNotEmpty(existing))
-        {
-            for (AidRolePropSceneFormImage row : existing)
-            {
-                if (Objects.nonNull(row.getIsUse()) && row.getIsUse() == 1)
-                {
-                    baseline.anyInUse = true;
-                    break;
-                }
-            }
-        }
 
         // maxEditSeq 必须扫描所有记录（含 del_flag='2' 软删），保证序号单调递增不被复用，
         // 避免被删除图片的旧名与新生成图片重复。
@@ -1523,7 +1517,7 @@ public class FormEditChatImageServiceImpl implements IFormEditChatImageService
     /**
      * 落地一条 {@code aid_role_prop_scene_form_image}（source_type = ai_edit_chat）。
      *
-     * @param baseline 批次开始前一次性采集到的基线（已有张数 + 是否已有使用中），循环内按 baseCount + index 计算，
+     * @param baseline 批次开始前一次性采集到的排序基线，循环内按 baseCount + index 计算，
      * @param index    第几张图（0 基）：仅影响图片名称序号和 sortOrder
      */
     private Long persistEditChatFormImage(AidRolePropSceneForm form, AidRolePropScene asset,
@@ -1533,8 +1527,6 @@ public class FormEditChatImageServiceImpl implements IFormEditChatImageService
                                            FormImageSortBaseline baseline, int index)
     {
         int baseCount = Objects.nonNull(baseline) ? baseline.baseCount : 0;
-        boolean anyInUse = Objects.nonNull(baseline) && baseline.anyInUse;
-
         // reference_images 列：仍用 List<String> 兼容格式，只落参考图 URL，追溯信息走 input_snapshot
         String referenceImagesJson = null;
         if (CollectionUtil.isNotEmpty(referenceImages))
@@ -1572,14 +1564,12 @@ public class FormEditChatImageServiceImpl implements IFormEditChatImageService
         img.setReferenceImages(referenceImagesJson);
         img.setBatchNo(Objects.nonNull(taskId) ? String.valueOf(taskId) : null);
         img.setSortOrder(baseCount + index);
-        // 全局"默认未引用"规则：编辑/对话作图新生图不再自动接管 is_use=1，
-        // 保持与 AI 生图 / 多机位 / 设定卡 / 上传 / 拆分等所有"生成路径"一致。
-        img.setIsUse(0);
         img.setImageStatus("completed");
         img.setDelFlag(DEL_FLAG_NORMAL);
         img.setCreateTime(DateUtils.getNowDate());
         img.setCreateBy(String.valueOf(userId));
-        rpsFormImageService.save(img);
+        // 场景保持编辑图默认未使用；角色、道具由统一规则让新图接管主图。
+        formImageSelectionService.saveGeneratedImage(img, userId, false);
         return img.getId();
     }
     /** CAS 更新任务状态：仅在 {@code expectedStatus} 命中时更新为 {@code newStatus} */
@@ -1591,7 +1581,8 @@ public class FormEditChatImageServiceImpl implements IFormEditChatImageService
         update.set(AidExtractTask::getStatus, newStatus);
         if (StrUtil.isNotBlank(errorMessage))
         {
-            update.set(AidExtractTask::getErrorMessage, errorMessage);
+            update.set(AidExtractTask::getErrorMessage, errorMessage)
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage(errorMessage));
         }
         update.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
         int rows = extractTaskService.getBaseMapper().update(null, update);
@@ -1621,12 +1612,19 @@ public class FormEditChatImageServiceImpl implements IFormEditChatImageService
 
     private boolean updateTaskFailed(Long taskId, String errorMessage)
     {
-        String safeMsg = StrUtil.isNotBlank(errorMessage) ? errorMessage : "生成失败";
+        return updateTaskFailed(taskId, ErrorNormalizer.normalizeByMessage(errorMessage));
+    }
+
+    /** 同一次 CAS 保存失败状态、诊断摘要和安全错误快照。 */
+    private boolean updateTaskFailed(Long taskId, com.aid.common.error.TaskErrorResult errorResult)
+    {
+        String safeMsg = StrUtil.blankToDefault(errorResult.getRawMessage(), errorResult.getUserMessage());
         LambdaUpdateWrapper<AidExtractTask> update = Wrappers.lambdaUpdate();
         update.eq(AidExtractTask::getId, taskId);
         update.in(AidExtractTask::getStatus, TASK_STATUS_PENDING, TASK_STATUS_PROCESSING);
         update.set(AidExtractTask::getStatus, TASK_STATUS_FAILED);
-        update.set(AidExtractTask::getErrorMessage, StrUtil.sub(safeMsg, 0, 255));
+        update.set(AidExtractTask::getErrorMessage, StrUtil.sub(MediaTaskPayloadSanitizer.sanitizeForStorage(safeMsg), 0, 255))
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.write(errorResult));
         update.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
         int rows = extractTaskService.getBaseMapper().update(null, update);
         if (rows == 0)
@@ -1637,26 +1635,14 @@ public class FormEditChatImageServiceImpl implements IFormEditChatImageService
         return true;
     }
 
-    /**
-     * CAS 标记任务失败（结构化版本兼容入口）：保留此重载避免调用点大改,
-     * 但内部只写 errorMessage 到 DB。
-     * 注意：DB 存的是原始上游错误文案（rawMessage），而非友好文案。
-     * 这样运行时 ErrorNormalizer.classifyByMessage(task.getErrorMessage()) 才能正确归一化。
-     */
-    private boolean updateTaskFailed(Long taskId, com.aid.common.error.TaskErrorResult errorResult)
-    {
-        // 优先存 rawMessage（上游原文），fallback 到 userMessage（友好文案）
-        String dbMessage = errorResult.getRawMessage() != null ? errorResult.getRawMessage() : errorResult.getUserMessage();
-        return updateTaskFailed(taskId, dbMessage);
-    }
-
     private boolean updateTaskCancelled(Long taskId)
     {
         LambdaUpdateWrapper<AidExtractTask> update = Wrappers.lambdaUpdate();
         update.eq(AidExtractTask::getId, taskId);
         update.in(AidExtractTask::getStatus, TASK_STATUS_PENDING, TASK_STATUS_PROCESSING);
         update.set(AidExtractTask::getStatus, TASK_STATUS_CANCELLED);
-        update.set(AidExtractTask::getErrorMessage, "用户取消");
+        update.set(AidExtractTask::getErrorMessage, "用户取消")
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage("用户取消"));
         update.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
         int rows = extractTaskService.getBaseMapper().update(null, update);
         if (rows == 0)
@@ -1673,7 +1659,8 @@ public class FormEditChatImageServiceImpl implements IFormEditChatImageService
         update.eq(AidExtractTask::getId, taskId);
         update.in(AidExtractTask::getStatus, TASK_STATUS_PENDING, TASK_STATUS_PROCESSING);
         update.set(AidExtractTask::getStatus, TASK_STATUS_CANCELLED);
-        update.set(AidExtractTask::getErrorMessage, "用户取消");
+        update.set(AidExtractTask::getErrorMessage, "用户取消")
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage("用户取消"));
         if (StrUtil.isNotBlank(resultJson))
         {
             update.set(AidExtractTask::getResultData, resultJson);

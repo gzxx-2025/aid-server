@@ -182,20 +182,17 @@ export function createStoryboardVideoBatchCore(state: StoryboardVideoBatchState)
     applyBatchFailureToLocalPanels
   } = panelState
 
-  function applySseProgress(p: {
-    progress?: number
-    stepIndex?: number
-    stepTotal?: number
-    message?: string
-    stepTitle?: string
-  }) {
-    getStore().applyStoryboardVideoBatchSseProgress(p as TaskSseProgressInput)
+  function applySseProgress(p: TaskSseProgressInput) {
+    getStore().applyStoryboardVideoBatchSseProgress(p)
   }
 
   async function seedProgressFromTaskDetail(taskId: number, fallbackTotal: number) {
     try {
       const detail = await userTaskDetailCached(taskId)
       if (!detail) return
+      if (detail.eta) {
+        getStore().applyStoryboardVideoBatchSseProgress({ eta: detail.eta })
+      }
       const totalShots = Number((detail as { totalShots?: number }).totalShots)
       const total = Number.isFinite(totalShots) && totalShots > 0 ? totalShots : fallbackTotal
       if (total > 0) {

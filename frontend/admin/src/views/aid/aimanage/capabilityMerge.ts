@@ -10,6 +10,13 @@ const MANAGED_TOP_LEVEL_FIELDS = new Set([
   'supportsReasoning', 'supportsReasoningDisable', 'returnsReasoningContent',
   'supportsReasoningBudget', 'defaultReasoningEnabled', 'reasoningApiStyle',
   'outputTokenApiField', 'allowedReasoningLevels',
+  'defaultReasoningLevel', 'defaultReasoningBudgetTokens', 'maxReasoningBudgetTokens', 'inputModalities', 'outputModalities',
+  'supportsImageInput', 'supportsVideoInput', 'supportsAudioInput', 'supportsDocumentInput',
+  'maxInputImages', 'maxInputVideos', 'maxInputAudios', 'maxInputDocuments',
+  'inputImageFormats', 'inputVideoFormats', 'inputAudioFormats', 'inputDocumentFormats',
+  'maxInputImageFileSizeMb', 'maxInputVideoFileSizeMb', 'maxInputAudioFileSizeMb',
+  'maxInputDocumentFileSizeMb', 'maxInputVideoDurationSeconds', 'maxInputAudioDurationSeconds',
+  'maxInputDocumentPages', 'contextWindowTokens', 'maxOutputTokens', 'supportsReasoningContent',
   'referenceAudioMinDurationSeconds', 'referenceAudioMaxDurationSeconds',
   'referenceAudioMaxTotalDurationSeconds', 'referenceAudioFormats', 'sceneRules'
 ]);
@@ -22,6 +29,36 @@ const isObject = (value: unknown): value is JsonObject =>
   !!value && typeof value === 'object' && !Array.isArray(value);
 
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
+
+/** 解析新旧 capabilityJson 的输入模态；旧数据缺少数组时兼容四个布尔能力位。 */
+export function parseInputModalities(raw: unknown): string[] {
+  const source = isObject(raw) ? raw : {};
+  const values = Array.isArray(source.inputModalities)
+    ? source.inputModalities
+    : [
+        'TEXT',
+        source.supportsImageInput === true ? 'IMAGE' : '',
+        source.supportsVideoInput === true ? 'VIDEO' : '',
+        source.supportsAudioInput === true ? 'AUDIO' : '',
+        source.supportsDocumentInput === true ? 'DOCUMENT' : ''
+      ];
+  return Array.from(new Set([
+    'TEXT',
+    ...values.map((value) => String(value).trim().toUpperCase()).filter(Boolean)
+  ]));
+}
+
+/** 将编辑器的输入模态统一转换为 capabilityJson 的受管能力位。 */
+export function buildInputSupportFields(inputModalities: unknown): JsonObject {
+  const normalized = parseInputModalities({ inputModalities });
+  return {
+    inputModalities: normalized,
+    supportsImageInput: normalized.includes('IMAGE'),
+    supportsVideoInput: normalized.includes('VIDEO'),
+    supportsAudioInput: normalized.includes('AUDIO'),
+    supportsDocumentInput: normalized.includes('DOCUMENT')
+  };
+}
 
 /** 提取图形编辑器不管理的能力字段，供保存时无损合并。 */
 export function extractUnmanagedCapability(raw: unknown): JsonObject {

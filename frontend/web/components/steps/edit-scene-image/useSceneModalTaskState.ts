@@ -61,8 +61,6 @@ export function useSceneModalTaskState(ctx: EditSceneImageModalCtx): SceneModalT
     showMultiViewToolbarLoading,
     showCurrentGeneratingPlaceholder,
     resolveActiveSceneModalTaskKind,
-    showEditGenerateButtonLoading,
-    showDialogueGenerateButtonLoading,
     showGenerateFooterButtonLoading,
     clearUpscaleOverlay,
     resolvePersistedSceneModalSseTask,
@@ -386,11 +384,6 @@ export function useSceneModalTaskState(ctx: EditSceneImageModalCtx): SceneModalT
     }
 
     if (persisted) {
-      if (persisted.taskKind === 'dialogue') {
-        ctx.leftActiveTab.set('dialogue')
-      } else if (persisted.taskKind === 'edit-image') {
-        ctx.leftActiveTab.set('generate')
-      }
       const imageIdx = persisted.imageIdx ?? session?.imageIdx ?? ctx.currentImageIndex.get()
       if (sceneIdx === ctx.currentSceneIndex.get()) {
         ctx.currentImageIndex.set(imageIdx)
@@ -401,10 +394,6 @@ export function useSceneModalTaskState(ctx: EditSceneImageModalCtx): SceneModalT
         formatTaskSseLiveText(persisted, defaultProgressTextForTaskKind(persisted.taskKind)),
         persisted.taskKind
       )
-    } else if (session?.taskKind === 'dialogue') {
-      ctx.leftActiveTab.set('dialogue')
-    } else if (session?.taskKind === 'edit-image') {
-      ctx.leftActiveTab.set('generate')
     }
 
     if (sceneIdx === ctx.currentSceneIndex.get()) {
@@ -439,8 +428,6 @@ export function useSceneModalTaskState(ctx: EditSceneImageModalCtx): SceneModalT
     showMultiViewToolbarLoading,
     showCurrentGeneratingPlaceholder,
     resolveActiveSceneModalTaskKind,
-    showEditGenerateButtonLoading,
-    showDialogueGenerateButtonLoading,
     showGenerateFooterButtonLoading,
     clearUpscaleOverlay,
     resolvePersistedSceneModalSseTask,

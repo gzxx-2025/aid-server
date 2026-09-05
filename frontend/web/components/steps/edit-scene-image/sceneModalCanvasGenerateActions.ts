@@ -313,7 +313,7 @@ const handleMultiAngleGenerate = async (payload: MultiAngleGeneratePayload) => {
     imageUrl,
     anglePrompt: payload.multiAnglePromptConcat,
     modelCode,
-    aspectRatio: ctx.generationSettings.get().aspectRatio || undefined,
+    aspectRatio: ctx.dialogueSettings.get().aspectRatio || undefined,
     onSubmitted: ({ taskId }) => {
       submittedTaskId = taskId
       ctx.persistSceneModalSseTask(sceneIdx, index, 'multi-view', taskId, { formId })

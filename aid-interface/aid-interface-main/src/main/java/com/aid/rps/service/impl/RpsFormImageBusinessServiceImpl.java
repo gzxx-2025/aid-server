@@ -1,5 +1,6 @@
 package com.aid.rps.service.impl;
 
+import com.aid.common.error.TaskErrorSnapshot;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
@@ -63,6 +64,7 @@ import com.aid.rps.dto.RpsSceneFormImageSplitRequest;
 import com.aid.rps.dto.ExtractTaskMessage;
 import com.aid.rps.resolver.StoryboardImageReferenceResolver;
 import com.aid.rps.service.IRpsFormImageBusinessService;
+import com.aid.rps.service.IFormImageSelectionService;
 import com.aid.common.aid.rocketmq.config.RocketMqConfigManager;
 import com.aid.common.aid.rocketmq.core.MqTemplateFactory;
 import com.aid.common.aid.rocketmq.entity.MqResult;
@@ -173,6 +175,10 @@ public class RpsFormImageBusinessServiceImpl implements IRpsFormImageBusinessSer
 
     @Autowired
     private IAidRolePropSceneFormImageService rpsFormImageService;
+
+    /** 形态图片使用状态统一规则服务。 */
+    @Autowired
+    private IFormImageSelectionService formImageSelectionService;
     /** OSS 文件清理服务：硬删形态图前先删其 OSS 文件 */
     @Autowired
     private com.aid.media.cleanup.IMediaOssCleanupService mediaOssCleanupService;
@@ -455,17 +461,14 @@ public class RpsFormImageBusinessServiceImpl implements IRpsFormImageBusinessSer
         List<Long> toEnable = plan.imageIdsToEnable();
         if (CollectionUtil.isNotEmpty(toEnable))
         {
-            Date now = DateUtils.getNowDate();
-            LambdaUpdateWrapper<AidRolePropSceneFormImage> enableUpd = Wrappers.lambdaUpdate();
-            enableUpd.in(AidRolePropSceneFormImage::getId, toEnable);
-            enableUpd.eq(AidRolePropSceneFormImage::getUserId, userId);
-            enableUpd.eq(AidRolePropSceneFormImage::getDelFlag, DEL_FLAG_NORMAL);
-            enableUpd.set(AidRolePropSceneFormImage::getIsUse, 1);
-            enableUpd.set(AidRolePropSceneFormImage::getUpdateTime, now);
-            enableUpd.set(AidRolePropSceneFormImage::getUpdateBy, String.valueOf(userId));
-            rpsFormImageService.update(enableUpd);
+            List<Long> orderedIds = toEnable.stream()
+                    .filter(Objects::nonNull)
+                    .distinct()
+                    .sorted()
+                    .toList();
+            orderedIds.forEach(imageId -> formImageSelectionService.selectImage(imageId, userId));
             log.info("引用即启用: projectId={}, userId={}, 启用图数={}, ids={}",
-                    plan.projectId(), userId, toEnable.size(), toEnable);
+                    plan.projectId(), userId, orderedIds.size(), orderedIds);
         }
     }
 
@@ -1230,7 +1233,8 @@ public class RpsFormImageBusinessServiceImpl implements IRpsFormImageBusinessSer
             update.eq(AidExtractTask::getId, taskId);
             update.in(AidExtractTask::getStatus, TASK_STATUS_PENDING, TASK_STATUS_PROCESSING);
             update.set(AidExtractTask::getStatus, TASK_STATUS_FAILED);
-            update.set(AidExtractTask::getErrorMessage, safeMsg);
+            update.set(AidExtractTask::getErrorMessage, safeMsg)
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage(safeMsg));
             update.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
             extractTaskService.getBaseMapper().update(null, update);
         }

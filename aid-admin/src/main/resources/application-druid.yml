@@ -6,9 +6,9 @@ spring:
         druid:
             # 主库数据源
             master:
-                url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:aid_test}?useUnicode=true&characterEncoding=utf8&zeroDateTimeBehavior=convertToNull&useSSL=true&serverTimezone=GMT%2B8&allowPublicKeyRetrieval=true
-                username: ${DB_USERNAME:root}
-                password: ${DB_PASSWORD:123456}
+                url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:aid}?useUnicode=true&characterEncoding=utf8&zeroDateTimeBehavior=convertToNull&useSSL=true&serverTimezone=GMT%2B8&allowPublicKeyRetrieval=true
+                username: ${DB_USERNAME:aid}
+                password: ${DB_PASSWORD:}
             # 从库数据源
             slave:
                 # 从数据源开关/默认关闭
@@ -43,15 +43,15 @@ spring:
             keepAlive: true
             keepAliveBetweenTimeMillis: 30000
             webStatFilter:
-                enabled: true
+                enabled: false
             statViewServlet:
-                enabled: true
+                enabled: false
                 # 设置白名单，不填则允许所有访问
                 allow:
                 url-pattern: /druid/*
                 # 控制台管理用户名和密码
-                login-username: aid
-                login-password: 123456
+                login-username: ${DRUID_CONSOLE_USERNAME:}
+                login-password: ${DRUID_CONSOLE_PASSWORD:}
             filter:
                 stat:
                     enabled: true

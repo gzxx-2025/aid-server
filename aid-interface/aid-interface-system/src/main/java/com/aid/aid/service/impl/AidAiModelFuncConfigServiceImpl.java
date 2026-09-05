@@ -1,6 +1,5 @@
 package com.aid.aid.service.impl;
 
-import java.util.Arrays;
 import java.util.List;
 import cn.hutool.core.util.StrUtil;
 import com.aid.common.utils.DateUtils;
@@ -21,6 +20,10 @@ import com.aid.aid.service.IAidAiModelFuncConfigService;
 @Service
 public class AidAiModelFuncConfigServiceImpl extends ServiceImpl<AidAiModelFuncConfigMapper, AidAiModelFuncConfig> implements IAidAiModelFuncConfigService
 {
+    private static final String DEL_FLAG_NORMAL = "0";
+    private static final String DEL_FLAG_DELETED = "2";
+    private static final String STATUS_DISABLED = "1";
+
     @Autowired
     private AidAiModelFuncConfigMapper aidAiModelFuncConfigMapper;
 
@@ -33,7 +36,10 @@ public class AidAiModelFuncConfigServiceImpl extends ServiceImpl<AidAiModelFuncC
     @Override
     public AidAiModelFuncConfig selectAidAiModelFuncConfigById(Long id)
     {
-        return this.getById(id);
+        return this.getOne(Wrappers.<AidAiModelFuncConfig>lambdaQuery()
+                .eq(AidAiModelFuncConfig::getId, id)
+                .eq(AidAiModelFuncConfig::getDelFlag, DEL_FLAG_NORMAL)
+                .last("limit 1"), false);
     }
 
     /**
@@ -46,6 +52,7 @@ public class AidAiModelFuncConfigServiceImpl extends ServiceImpl<AidAiModelFuncC
     public List<AidAiModelFuncConfig> selectAidAiModelFuncConfigList(AidAiModelFuncConfig aidAiModelFuncConfig)
     {
         LambdaQueryWrapper<AidAiModelFuncConfig> wrapper = Wrappers.lambdaQuery();
+        wrapper.eq(AidAiModelFuncConfig::getDelFlag, DEL_FLAG_NORMAL);
         if (aidAiModelFuncConfig != null)
         {
             if (StrUtil.isNotBlank(aidAiModelFuncConfig.getFuncName()))
@@ -82,6 +89,11 @@ public class AidAiModelFuncConfigServiceImpl extends ServiceImpl<AidAiModelFuncC
     @Override
     public int insertAidAiModelFuncConfig(AidAiModelFuncConfig aidAiModelFuncConfig)
     {
+        if (StrUtil.isBlank(aidAiModelFuncConfig.getStatus()))
+        {
+            aidAiModelFuncConfig.setStatus("0");
+        }
+        aidAiModelFuncConfig.setDelFlag(DEL_FLAG_NORMAL);
         aidAiModelFuncConfig.setCreateTime(DateUtils.getNowDate());
         return this.save(aidAiModelFuncConfig) ? 1 : 0;
     }
@@ -112,7 +124,12 @@ public class AidAiModelFuncConfigServiceImpl extends ServiceImpl<AidAiModelFuncC
         {
             return 0;
         }
-        return this.removeByIds(Arrays.asList(ids)) ? 1 : 0;
+        return this.update(Wrappers.<AidAiModelFuncConfig>lambdaUpdate()
+                .in(AidAiModelFuncConfig::getId, List.of(ids))
+                .eq(AidAiModelFuncConfig::getDelFlag, DEL_FLAG_NORMAL)
+                .set(AidAiModelFuncConfig::getStatus, STATUS_DISABLED)
+                .set(AidAiModelFuncConfig::getDelFlag, DEL_FLAG_DELETED)
+                .set(AidAiModelFuncConfig::getUpdateTime, DateUtils.getNowDate())) ? 1 : 0;
     }
 
     /**
@@ -128,6 +145,11 @@ public class AidAiModelFuncConfigServiceImpl extends ServiceImpl<AidAiModelFuncC
         {
             return 0;
         }
-        return this.removeById(id) ? 1 : 0;
+        return this.update(Wrappers.<AidAiModelFuncConfig>lambdaUpdate()
+                .eq(AidAiModelFuncConfig::getId, id)
+                .eq(AidAiModelFuncConfig::getDelFlag, DEL_FLAG_NORMAL)
+                .set(AidAiModelFuncConfig::getStatus, STATUS_DISABLED)
+                .set(AidAiModelFuncConfig::getDelFlag, DEL_FLAG_DELETED)
+                .set(AidAiModelFuncConfig::getUpdateTime, DateUtils.getNowDate())) ? 1 : 0;
     }
 }

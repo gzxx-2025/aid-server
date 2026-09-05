@@ -32,7 +32,7 @@ public class StoryboardVideoEdgeGenerateRequest
     private String modelName;
 
     /**
-     * 首尾帧视频提示词（可选，仅单镜头时生效）。
+     * 首尾帧视频提示词（可选，仅单镜头时生效，最大 20000 字符）。
      * 为空时回落 {@code aid_storyboard.video_prompt}；两者皆空抛「请先生成提示词」。
      */
     private String videoPrompt;

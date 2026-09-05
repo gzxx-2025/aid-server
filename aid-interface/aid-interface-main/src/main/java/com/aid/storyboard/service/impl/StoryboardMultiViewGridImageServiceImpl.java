@@ -1,5 +1,6 @@
 package com.aid.storyboard.service.impl;
 
+import com.aid.common.error.TaskErrorSnapshot;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -950,7 +951,8 @@ public class StoryboardMultiViewGridImageServiceImpl implements IStoryboardMulti
         update.set(AidExtractTask::getStatus, newStatus);
         if (StrUtil.isNotBlank(errorMessage))
         {
-            update.set(AidExtractTask::getErrorMessage, errorMessage);
+            update.set(AidExtractTask::getErrorMessage, errorMessage)
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage(errorMessage));
         }
         update.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
         int rows = extractTaskService.getBaseMapper().update(null, update);
@@ -985,7 +987,8 @@ public class StoryboardMultiViewGridImageServiceImpl implements IStoryboardMulti
         update.eq(AidExtractTask::getId, taskId);
         update.in(AidExtractTask::getStatus, TASK_STATUS_PENDING, TASK_STATUS_PROCESSING);
         update.set(AidExtractTask::getStatus, TASK_STATUS_FAILED);
-        update.set(AidExtractTask::getErrorMessage, StrUtil.sub(safeMsg, 0, 255));
+        update.set(AidExtractTask::getErrorMessage, StrUtil.sub(safeMsg, 0, 255))
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage(StrUtil.sub(safeMsg, 0, 255)));
         update.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
         int rows = extractTaskService.getBaseMapper().update(null, update);
         if (rows == 0)
@@ -1009,7 +1012,8 @@ public class StoryboardMultiViewGridImageServiceImpl implements IStoryboardMulti
         update.eq(AidExtractTask::getId, taskId);
         update.in(AidExtractTask::getStatus, TASK_STATUS_PENDING, TASK_STATUS_PROCESSING);
         update.set(AidExtractTask::getStatus, TASK_STATUS_CANCELLED);
-        update.set(AidExtractTask::getErrorMessage, "用户取消");
+        update.set(AidExtractTask::getErrorMessage, "用户取消")
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage("用户取消"));
         update.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
         int rows = extractTaskService.getBaseMapper().update(null, update);
         if (rows == 0)
@@ -1026,7 +1030,8 @@ public class StoryboardMultiViewGridImageServiceImpl implements IStoryboardMulti
         update.eq(AidExtractTask::getId, taskId);
         update.in(AidExtractTask::getStatus, TASK_STATUS_PENDING, TASK_STATUS_PROCESSING);
         update.set(AidExtractTask::getStatus, TASK_STATUS_CANCELLED);
-        update.set(AidExtractTask::getErrorMessage, "用户取消");
+        update.set(AidExtractTask::getErrorMessage, "用户取消")
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage("用户取消"));
         if (StrUtil.isNotBlank(resultJson))
         {
             update.set(AidExtractTask::getResultData, resultJson);

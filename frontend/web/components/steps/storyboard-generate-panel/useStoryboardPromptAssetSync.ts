@@ -174,18 +174,21 @@ function resolveCanonicalPromptAsset(local: PromptAssetItem): PromptAssetItem {
 function removePromptAssetRefsByAssets(assets: PromptAssetItem[]) {
   const editor = getActivePromptEditor()
   if (!editor || !assets.length) return
-  for (const asset of assets) {
-    // 不传 imageIndex，避免本地序号重排后误删其它标签
-    editor.removePromptAssetRefByMatch({ assetId: asset.assetId, name: asset.name })
-  }
+  editor.applyPromptAssetRefChanges({
+    remove: assets.map((asset) => ({
+      assetId: asset.assetId,
+      assetType: asset.assetType,
+      name: asset.name
+    }))
+  })
 }
 
 function insertPromptAssetRefsByAssets(assets: PromptAssetItem[]) {
   const editor = getActivePromptEditor()
   if (!editor || !assets.length) return
-  for (const asset of assets) {
-    editor.upsertPromptAssetRef(resolveCanonicalPromptAsset(asset))
-  }
+  editor.applyPromptAssetRefChanges({
+    upsert: assets.map(resolveCanonicalPromptAsset)
+  })
 }
 
 function refreshPromptAssetRefKeySnapshot(html?: string) {
@@ -228,15 +231,21 @@ function syncStoryboardPromptAssetRefsInEditor() {
   if (!added.length && !removed.length) return
   promptStripSyncGuardRef.current = true
   try {
-    removePromptAssetRefsByAssets(removed)
-    insertPromptAssetRefsByAssets(added)
+    getActivePromptEditor()?.applyPromptAssetRefChanges({
+      remove: removed.map((asset) => ({
+        assetId: asset.assetId,
+        assetType: asset.assetType,
+        name: asset.name
+      })),
+      upsert: added.map(resolveCanonicalPromptAsset)
+    })
   } finally {
     promptStripSyncGuardRef.current = false
     refreshPromptAssetRefKeySnapshot()
   }
 }
 
-/** 描述框 → 参考图条：删除单个 @ 标签时同步移除对应参考图（整段清空不删条） */
+/** 描述框 → 参考图条：删除 @ 标签或清空描述时同步移除对应参考图。 */
 function syncStripImagesFromPromptRefDiff(html: string) {
   const p = propsRef.current!
   if (p.mode !== 'imageToVideo' && p.mode !== 'storyboard') return

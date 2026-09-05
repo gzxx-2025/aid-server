@@ -1,5 +1,9 @@
 package com.aid.storyboard.service.impl;
 
+import com.aid.common.error.ErrorNormalizer;
+import com.aid.common.error.TaskErrorResult;
+import com.aid.common.error.TaskErrorSnapshot;
+import com.aid.common.error.TaskErrorCode;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -397,6 +401,7 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
         String status;
         /** 失败原因短文案 */
         String errorMessage;
+        String errorDetailJson;
 
         boolean finished() {
             return Objects.nonNull(status);
@@ -965,7 +970,9 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
                             : e.getMessage();
                     String reason = TaskErrorPresentation.toUserMessage(rawReason, "对口型失败");
                     ctx.status = TASK_STATUS_FAILED;
-                    ctx.errorMessage = reason;
+                    TaskErrorResult error = ErrorNormalizer.normalize(e);
+                    ctx.errorMessage = error.getUserMessage();
+                    ctx.errorDetailJson = TaskErrorSnapshot.write(error);
                     log.error("对口型单条失败: taskId={}, storyboardId={}, error={}",
                             taskId, storyboard.getId(), rawReason, e);
                 }
@@ -999,8 +1006,7 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
                     String rawReason = e instanceof ServiceException serviceException
                             ? StrUtil.blankToDefault(serviceException.getDetailMessage(), serviceException.getMessage())
                             : e.getMessage();
-                    markItemFailed(taskId, storyboard.getId(),
-                            TaskErrorPresentation.toUserMessage(rawReason, "配音失败"));
+                    markItemFailed(taskId, storyboard.getId(), ErrorNormalizer.normalize(e));
                     log.error("对口型配音子任务提交失败: taskId={}, storyboardId={}",
                             taskId, storyboard.getId(), e);
                 }
@@ -1089,6 +1095,7 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
                     .in(AidExtractTask::getStatus, TASK_STATUS_PENDING, TASK_STATUS_PROCESSING)
                     .set(AidExtractTask::getStatus, TASK_STATUS_CANCELLED)
                     .set(AidExtractTask::getErrorMessage, "用户取消")
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage("用户取消"))
                     .set(AidExtractTask::getUpdateTime, DateUtils.getNowDate())
                     .set(AidExtractTask::getUpdateBy, "system"));
                 lockedTask = loadWorkflowParent(taskId);
@@ -1255,7 +1262,7 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
                         AidMediaTask::getMediaType, AidMediaTask::getBizTaskId,
                         AidMediaTask::getBizTaskType, AidMediaTask::getStatus,
                         AidMediaTask::getOssUrl, AidMediaTask::getModelName,
-                        AidMediaTask::getErrorMessage, AidMediaTask::getRequestJson)
+                        AidMediaTask::getErrorMessage, AidMediaTask::getErrorDetailJson, AidMediaTask::getRequestJson)
                 .eq(AidMediaTask::getId, mediaTaskId)
                 .last("LIMIT 1"), false);
         if (Objects.isNull(mediaTask) || Objects.isNull(mediaTask.getParentTaskId())) {
@@ -1348,8 +1355,8 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
 
             if (MediaTaskStatus.FAILED.name().equals(mediaTask.getStatus())) {
                 item.status = TASK_STATUS_FAILED;
-                item.errorMessage = TaskErrorPresentation.toUserMessage(
-                        mediaTask.getModelName(), mediaTask.getErrorMessage(), "配音失败");
+                item.errorMessage = TaskErrorSnapshot.fromTask(mediaTask).getUserMessage();
+                item.errorDetailJson = TaskErrorSnapshot.write(TaskErrorSnapshot.fromTask(mediaTask));
                 audioFailed = true;
                 persistProcessingItems(current.getId(), items);
             } else if (!MediaTaskStatus.SUCCEEDED.name().equals(mediaTask.getStatus())
@@ -1451,8 +1458,7 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
                     : ex.getMessage();
             log.error("对口型视频子任务提交失败, taskId={}, audioRecordId={}",
                     parent.getId(), audioRecord.getId(), ex);
-            markItemFailed(parent.getId(), audioRecord.getStoryboardId(),
-                    TaskErrorPresentation.toUserMessage(rawReason, "对口型失败"));
+            markItemFailed(parent.getId(), audioRecord.getStoryboardId(), ErrorNormalizer.normalize(ex));
         }
     }
 
@@ -1483,8 +1489,8 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
             item.lipSyncMediaTaskId = mediaTask.getId();
             if (MediaTaskStatus.FAILED.name().equals(mediaTask.getStatus())) {
                 item.status = TASK_STATUS_FAILED;
-                item.errorMessage = TaskErrorPresentation.toUserMessage(
-                        mediaTask.getModelName(), mediaTask.getErrorMessage(), "对口型失败");
+                item.errorMessage = TaskErrorSnapshot.fromTask(mediaTask).getUserMessage();
+                item.errorDetailJson = TaskErrorSnapshot.write(TaskErrorSnapshot.fromTask(mediaTask));
             } else if (MediaTaskStatus.SUCCEEDED.name().equals(mediaTask.getStatus())
                     && StrUtil.isNotBlank(mediaTask.getOssUrl())) {
                 item.workflowStage = WORKFLOW_FINALIZING;
@@ -1717,14 +1723,18 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
     }
 
     private void markItemFailed(Long taskId, Long storyboardId, String errorMessage) {
+        markItemFailed(taskId, storyboardId, ErrorNormalizer.normalizeByMessage(errorMessage));
+    }
+
+    private void markItemFailed(Long taskId, Long storyboardId, TaskErrorResult error) {
         String executionTraceId = requireLipSubmissionTrace(taskId);
         batchParentSubmissionGuard.executeManagedBusinessCommit(taskId, executionTraceId, () -> {
-            markItemFailedGuarded(taskId, storyboardId, errorMessage);
+            markItemFailedGuarded(taskId, storyboardId, error);
             return null;
         });
     }
 
-    private void markItemFailedGuarded(Long taskId, Long storyboardId, String errorMessage) {
+    private void markItemFailedGuarded(Long taskId, Long storyboardId, TaskErrorResult error) {
         RLock lock = acquireWorkflowLock(taskId);
         try {
             AidExtractTask parent = loadWorkflowParent(taskId);
@@ -1735,7 +1745,8 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
             ItemContext item = findItem(items, storyboardId);
             if (Objects.nonNull(item) && !item.finished()) {
                 item.status = TASK_STATUS_FAILED;
-                item.errorMessage = TaskErrorPresentation.toUserMessage(errorMessage, "对口型失败");
+                item.errorMessage = error.getUserMessage();
+                item.errorDetailJson = TaskErrorSnapshot.write(error);
                 persistProcessingItems(taskId, items);
             }
         } finally {
@@ -1764,6 +1775,7 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
         List<ItemContext> terminalItems;
         String finalStatus;
         String errorMessage = null;
+        TaskErrorResult representativeError = null;
         long succeeded;
         long failed;
         RLock lock = acquireWorkflowLock(taskId);
@@ -1787,8 +1799,14 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
                 errorMessage = String.format("%d 条对口型失败", failed);
             } else {
                 finalStatus = TASK_STATUS_FAILED;
-                errorMessage = terminalItems.stream().map(item -> item.errorMessage)
-                        .filter(StrUtil::isNotBlank).findFirst().orElse("对口型失败");
+                for (ItemContext item : terminalItems) {
+                    TaskErrorResult error = TaskErrorSnapshot.resolve(item.errorDetailJson, parent.getModelCode(), item.errorMessage);
+                    if (Objects.isNull(representativeError)
+                            || TaskErrorPresentation.specificity(error) > TaskErrorPresentation.specificity(representativeError)) {
+                        representativeError = error;
+                    }
+                }
+                errorMessage = Objects.isNull(representativeError) ? "对口型失败" : representativeError.getUserMessage();
             }
             boolean updated = extractTaskService.update(Wrappers.<AidExtractTask>lambdaUpdate()
                     .eq(AidExtractTask::getId, taskId)
@@ -1796,6 +1814,8 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
                     .set(AidExtractTask::getResultData, serializeItems(terminalItems))
                     .set(AidExtractTask::getStatus, finalStatus)
                     .set(AidExtractTask::getErrorMessage, errorMessage)
+                    .set(AidExtractTask::getErrorDetailJson, Objects.isNull(representativeError)
+                            ? TaskErrorSnapshot.fromMessage(errorMessage) : TaskErrorSnapshot.write(representativeError))
                     .set(AidExtractTask::getUpdateTime, DateUtils.getNowDate())
                     .set(AidExtractTask::getUpdateBy, "system"));
             if (!updated) {
@@ -1906,6 +1926,7 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
                         AidExtractTask::getProjectId, AidExtractTask::getEpisodeId,
                         AidExtractTask::getTaskType, AidExtractTask::getStatus,
                         AidExtractTask::getModelCode, AidExtractTask::getResultData,
+                        AidExtractTask::getBillingTraceId, AidExtractTask::getErrorDetailJson,
                         AidExtractTask::getTotalCount)
                 .eq(AidExtractTask::getId, taskId)
                 .eq(AidExtractTask::getDelFlag, DEL_FLAG_NORMAL)
@@ -1934,8 +1955,12 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
 
     private String requireLipSubmissionTrace(Long parentTaskId) {
         AidExtractTask parent = loadWorkflowParent(parentTaskId);
-        if (Objects.isNull(parent) || StrUtil.isBlank(parent.getBillingTraceId())) {
-            throw new ServiceException("任务已停止");
+        if (!isActiveLipSyncParent(parent)) {
+            throw new BatchTaskExecutionRejectedException();
+        }
+        if (StrUtil.isBlank(parent.getBillingTraceId())) {
+            log.error("对口型活动任务缺少执行周期, taskId={}", parentTaskId);
+            throw new ServiceException("任务状态异常");
         }
         return parent.getBillingTraceId();
     }
@@ -1982,6 +2007,8 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
                 String status = raw.getString("status");
                 item.status = TASK_STATUS_PROCESSING.equals(status) ? null : status;
                 item.errorMessage = raw.getString("errorMessage");
+                item.errorDetailJson = Objects.nonNull(TaskErrorSnapshot.read(raw.toJSONString()))
+                        ? TaskErrorSnapshot.write(TaskErrorSnapshot.read(raw.toJSONString())) : null;
                 items.add(item);
             }
         } catch (Exception ex) {
@@ -2565,7 +2592,7 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
             if (StrUtil.length(sanitized) > MinimaxTtsConstants.BATCH_TEXT_MAX_LENGTH) {
                 log.info("批量对口型 MiniMax 单条文本超限: storyboardId={}, textLen={}, max={}",
                         storyboard.getId(), StrUtil.length(sanitized), MinimaxTtsConstants.BATCH_TEXT_MAX_LENGTH);
-                throw new ServiceException("文本过长");
+                throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_TOO_LONG, "文本过长，请精简");
             }
         }
     }
@@ -2668,6 +2695,7 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
                 .in(AidExtractTask::getStatus, TASK_STATUS_PENDING, TASK_STATUS_PROCESSING)
                 .set(AidExtractTask::getStatus, TASK_STATUS_FAILED)
                 .set(AidExtractTask::getErrorMessage, errorMessage)
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage(errorMessage))
                 .set(AidExtractTask::getUpdateTime, DateUtils.getNowDate())
                 .set(AidExtractTask::getUpdateBy, "system"));
         if (updated) {
@@ -2722,6 +2750,14 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
             item.put("workflowStage", ctx.workflowStage);
             item.put("status", Objects.isNull(ctx.status) ? TASK_STATUS_PROCESSING : ctx.status);
             item.put("errorMessage", ctx.errorMessage);
+            TaskErrorResult error = TaskErrorSnapshot.read(ctx.errorDetailJson);
+            if (Objects.nonNull(error)) {
+                item.put("errorCode", error.getErrorCode());
+                item.put("userMessage", error.getUserMessage());
+                item.put("errorType", error.getErrorType());
+                item.put("errorSource", error.getErrorSource());
+                item.put("retryable", error.isRetryable());
+            }
             result.add(item);
         }
         return result;
@@ -2747,7 +2783,8 @@ public class StoryboardLipSyncServiceImpl implements IStoryboardLipSyncService {
             update.set(AidExtractTask::getResultData, json);
             if (!TASK_STATUS_PROCESSING.equals(status)) {
                 update.set(AidExtractTask::getStatus, status);
-                update.set(AidExtractTask::getErrorMessage, errorMessage);
+                update.set(AidExtractTask::getErrorMessage, errorMessage)
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage(errorMessage));
             }
             update.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
             update.set(AidExtractTask::getUpdateBy, "system");

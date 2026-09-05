@@ -38,6 +38,14 @@ public interface SysLogininforMapper
     public List<SysLogininfor> selectLogininforList(SysLogininfor logininfor);
 
     /**
+     * 按用户ID查询登录记录，供 C 端账号安全中心使用。
+     *
+     * @param userId 当前用户ID
+     * @return 登录记录集合
+     */
+    public List<SysLogininfor> selectLogininforByUserId(@Param("userId") Long userId);
+
+    /**
      * 批量删除系统登录日志
      *
      * @param infoIds 需要删除的登录日志ID

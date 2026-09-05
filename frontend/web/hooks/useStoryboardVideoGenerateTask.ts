@@ -23,14 +23,12 @@ userTaskDetailCached,
 userTaskResume
 } from '~/utils/businessApi'
 import { parseTaskPartialFailedData } from '~/utils/taskPartialFailed'
+import type { TaskSseProgressInput } from '~/utils/taskSseProgressText'
 
 export { isUserOrMediaTaskOngoing as isStoryboardVideoTaskOngoing }
 
-export type StoryboardVideoGenerateProgress = {
-  message?: string
+export type StoryboardVideoGenerateProgress = TaskSseProgressInput & {
   percent?: number
-  stepTitle?: string
-  taskId?: number
 }
 
 export type StoryboardVideoGenerateResult =
@@ -79,6 +77,14 @@ export async function followStoryboardVideoGenerateTask(payload: {
 
   try {
     const cachedDetail = await userTaskDetailCached(taskId)
+    const initialProgress: TaskSseProgressInput | null = cachedDetail?.eta
+      ? {
+          taskId,
+          status: cachedDetail.status,
+          progress: cachedDetail.eta.displayProgress,
+          eta: cachedDetail.eta
+        }
+      : null
     if (cachedDetail) {
       const st = normalizeTaskStatus(cachedDetail.status)
       if (st === 'SUCCEEDED' || st === 'PARTIAL_FAILED') {
@@ -100,12 +106,12 @@ export async function followStoryboardVideoGenerateTask(payload: {
     const terminal = await waitUserTaskSseTerminal({
       taskId,
       timeoutMs: TASK_SSE_TIMEOUT_MS,
+      initialProgress,
       onProgress: (p) => {
         onProgress?.({
+          ...p,
           taskId,
-          percent: p.percent,
-          stepTitle: p.stepTitle,
-          message: p.message
+          percent: p.percent
         })
       }
     })

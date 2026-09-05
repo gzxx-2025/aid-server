@@ -216,7 +216,7 @@ export function useStoryboardModalDialogue(
       if (p.successCount != null && p.totalCount != null) {
         ctx.upscaleProgressText.set(`已生成 ${p.successCount}/${p.totalCount} 张...`)
       } else {
-        ctx.upscaleProgressText.set(p.stepTitle || p.message || '对话作图中...')
+        ctx.upscaleProgressText.set(p.message || p.stepTitle || '对话作图中...')
       }
       const task = ctx.getModalImageGenTask(storyboardId)
       if (task?.taskId) {

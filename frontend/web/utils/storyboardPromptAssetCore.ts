@@ -81,7 +81,13 @@ export function patchEmptyResolvedPromptAssets(
   if (!resolved.length || !local.length) return resolved
   return resolved.map((item) => {
     if (!isEmptyPromptAssetUrl(item.url)) return item
-    const match = local.find((l) => promptAssetNamesMatch(item, l) && !isEmptyPromptAssetUrl(l.url))
+    const matches = local.filter(
+      (candidate) =>
+        promptAssetMediaKind(candidate) === promptAssetMediaKind(item) &&
+        promptAssetNamesMatch(item, candidate) &&
+        !isEmptyPromptAssetUrl(candidate.url)
+    )
+    const match = matches.length === 1 ? matches[0] : undefined
     if (!match) return item
     return {
       ...item,
@@ -161,23 +167,43 @@ export function buildPromptAssetsFromResolve(
   )
 }
 
-/** 按 assetId、name、imageIndex 去重（保留先出现的项） */
+function promptAssetMediaKind(asset: Pick<PromptAssetItem, 'assetType'>): 'audio' | 'image' {
+  return asset.assetType === 'audio' ? 'audio' : 'image'
+}
+
+function promptAssetStableIdentity(asset: PromptAssetItem): string {
+  const id = String(asset.assetId || '').trim()
+  if (id) return `${promptAssetMediaKind(asset)}:id:${id}`
+  return `${promptAssetMediaKind(asset)}:fallback:${asset.imageIndex}:${normalizePromptAssetPlaceholderName(asset.name || asset.label)}`
+}
+
+function isProvisionalPromptAssetId(value: unknown): boolean {
+  const id = String(value || '').trim()
+  return !id || /^(?:resolved|placeholder|audio-placeholder)-/.test(id)
+}
+
+/** 仅按稳定身份去重；同名资产必须保留，序号冲突则在各媒体命名空间内顺延。 */
 export function dedupePromptAssets(assets: PromptAssetItem[]): PromptAssetItem[] {
-  const seenIds = new Set<string>()
-  const seenNames = new Set<string>()
-  const seenIndexes = new Set<number>()
+  const seen = new Set<string>()
+  const usedIndexes = {
+    image: new Set<number>(),
+    audio: new Set<number>()
+  }
   const result: PromptAssetItem[] = []
   for (const item of assets) {
-    const id = String(item.assetId || '').trim()
-    const name = normalizePromptAssetPlaceholderName(item.name || item.label)
-    const idx = item.imageIndex
-    if (id && seenIds.has(id)) continue
-    if (name && seenNames.has(name)) continue
-    if (idx > 0 && seenIndexes.has(idx)) continue
-    if (id) seenIds.add(id)
-    if (name) seenNames.add(name)
-    if (idx > 0) seenIndexes.add(idx)
-    result.push(item)
+    const identity = promptAssetStableIdentity(item)
+    if (seen.has(identity)) continue
+    seen.add(identity)
+
+    const kind = promptAssetMediaKind(item)
+    const indexes = usedIndexes[kind]
+    let imageIndex = Math.max(1, Math.floor(Number(item.imageIndex) || 1))
+    if (indexes.has(imageIndex)) {
+      imageIndex = 1
+      while (indexes.has(imageIndex)) imageIndex += 1
+    }
+    indexes.add(imageIndex)
+    result.push(imageIndex === item.imageIndex ? item : { ...item, imageIndex })
   }
   return result
 }
@@ -187,50 +213,72 @@ export function mergePromptAssets(
   resolved: PromptAssetItem[],
   local: PromptAssetItem[]
 ): PromptAssetItem[] {
-  const merged = resolved.map((a) => ({ ...a }))
-  const byId = new Set(merged.map((a) => a.assetId))
-  const byName = new Map(
-    merged.map((a) => [normalizePromptAssetPlaceholderName(a.name), a])
-  )
-  const usedIndexes = new Set(merged.map((a) => a.imageIndex))
-  let nextIndex = merged.reduce((m, a) => Math.max(m, a.imageIndex), 0) + 1
+  const merged = dedupePromptAssets(resolved).map((asset) => ({ ...asset }))
 
   for (const item of local) {
+    const kind = promptAssetMediaKind(item)
+    const itemId = String(item.assetId || '').trim()
     const localName = normalizePromptAssetPlaceholderName(item.name)
-    const existingByName = localName ? byName.get(localName) : undefined
+    const exactIndex = itemId
+      ? merged.findIndex(
+          (candidate) =>
+            promptAssetMediaKind(candidate) === kind &&
+            String(candidate.assetId || '').trim() === itemId
+        )
+      : -1
 
-    if (
-      existingByName &&
-      isEmptyPromptAssetUrl(existingByName.url) &&
-      !isEmptyPromptAssetUrl(item.url)
-    ) {
-      const idx = merged.findIndex((a) => a.assetId === existingByName.assetId)
-      if (idx >= 0) {
-        const prevId = merged[idx].assetId
-        merged[idx] = {
+    if (exactIndex >= 0) {
+      if (isEmptyPromptAssetUrl(merged[exactIndex]!.url) && !isEmptyPromptAssetUrl(item.url)) {
+        merged[exactIndex] = {
+          ...merged[exactIndex]!,
           ...item,
-          imageIndex: existingByName.imageIndex,
-          name: existingByName.name,
-          label: existingByName.label || item.label
+          imageIndex: merged[exactIndex]!.imageIndex,
+          name: merged[exactIndex]!.name,
+          label: merged[exactIndex]!.label || item.label
         }
-        byId.delete(prevId)
-        byId.add(merged[idx].assetId)
       }
       continue
     }
 
-    if (byId.has(item.assetId)) continue
-    if (localName && byName.has(localName)) continue
-    let next = item
-    if (usedIndexes.has(item.imageIndex)) {
-      next = { ...item, imageIndex: nextIndex++ }
-    } else {
-      nextIndex = Math.max(nextIndex, item.imageIndex + 1)
+    const sameName = localName
+      ? merged
+          .map((candidate, index) => ({ candidate, index }))
+          .filter(
+            ({ candidate }) =>
+              promptAssetMediaKind(candidate) === kind &&
+              normalizePromptAssetPlaceholderName(candidate.name) === localName
+          )
+      : []
+    const provisionalByName = sameName.filter(
+      ({ candidate }) =>
+        isProvisionalPromptAssetId(candidate.assetId) && isEmptyPromptAssetUrl(candidate.url)
+    )
+
+    if (
+      provisionalByName.length === 1 &&
+      !isEmptyPromptAssetUrl(item.url)
+    ) {
+      const { candidate, index } = provisionalByName[0]!
+      merged[index] = {
+        ...item,
+        imageIndex: candidate.imageIndex,
+        name: candidate.name,
+        label: candidate.label || item.label
+      }
+      continue
     }
-    merged.push(next)
-    byId.add(next.assetId)
-    if (localName) byName.set(localName, next)
-    usedIndexes.add(next.imageIndex)
+
+    const usedIndexes = new Set(
+      merged
+        .filter((candidate) => promptAssetMediaKind(candidate) === kind)
+        .map((candidate) => candidate.imageIndex)
+    )
+    let imageIndex = Math.max(1, Math.floor(Number(item.imageIndex) || 1))
+    if (usedIndexes.has(imageIndex)) {
+      imageIndex = 1
+      while (usedIndexes.has(imageIndex)) imageIndex += 1
+    }
+    merged.push(imageIndex === item.imageIndex ? { ...item } : { ...item, imageIndex })
   }
   return dedupePromptAssets(merged)
 }
@@ -333,13 +381,13 @@ export function findPromptAssetWithUrl(
 
   const name = normalizePromptAssetPlaceholderName(hint.name)
   if (name) {
-    const byName = assets.find(
+    const byName = assets.filter(
       (a) =>
         !isEmptyPromptAssetUrl(a.url) &&
         (normalizePromptAssetPlaceholderName(a.name) === name ||
           normalizePromptAssetPlaceholderName(a.label) === name)
     )
-    if (byName) return byName
+    if (byName.length === 1) return byName[0]
   }
 
   return undefined
@@ -483,32 +531,42 @@ export function promptAssetItemToRefValue(item: PromptAssetItem): PromptAssetRef
 /** 在资产表中查找（按 id、name、label） */
 export function findPromptAsset(
   assets: PromptAssetItem[],
-  hint: { assetId?: string; name?: string; label?: string; imageIndex?: number }
+  hint: {
+    assetId?: string
+    assetType?: PromptAssetType
+    name?: string
+    label?: string
+    imageIndex?: number
+  }
 ): PromptAssetItem | undefined {
+  const candidates = hint.assetType
+    ? assets.filter((asset) => asset.assetType === hint.assetType)
+    : assets
   if (hint.assetId) {
-    const byId = assets.find((a) => a.assetId === hint.assetId)
+    const byId = candidates.find((a) => a.assetId === hint.assetId)
     if (byId) return byId
   }
   if (hint.imageIndex != null) {
-    const byIdx = assets.find((a) => a.imageIndex === hint.imageIndex)
-    if (byIdx) return byIdx
+    const byIdx = candidates.filter((a) => a.imageIndex === hint.imageIndex)
+    if (byIdx.length === 1) return byIdx[0]
   }
   const name = normalizePromptAssetPlaceholderName(hint.name)
   if (name) {
-    const byName = assets.find(
+    const byName = candidates.filter(
       (a) =>
         normalizePromptAssetPlaceholderName(a.name) === name ||
         normalizePromptAssetPlaceholderName(a.label) === name
     )
-    if (byName) return byName
+    if (byName.length === 1) return byName[0]
   }
   const label = normalizePromptAssetPlaceholderName(hint.label)
   if (label) {
-    return assets.find(
+    const byLabel = candidates.filter(
       (a) =>
         normalizePromptAssetPlaceholderName(a.label) === label ||
         normalizePromptAssetPlaceholderName(a.name) === label
     )
+    if (byLabel.length === 1) return byLabel[0]
   }
   return undefined
 }

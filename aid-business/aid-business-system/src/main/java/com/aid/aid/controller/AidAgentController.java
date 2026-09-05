@@ -23,6 +23,8 @@ import com.aid.common.core.controller.BaseController;
 import com.aid.common.core.domain.AjaxResult;
 import com.aid.common.core.page.TableDataInfo;
 import com.aid.common.enums.BusinessType;
+import com.aid.common.utils.SecurityUtils;
+import com.aid.orchestration.IAiOrchestrationService;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -40,6 +42,9 @@ public class AidAgentController extends BaseController
 {
     @Autowired
     private IAidAgentService aidAgentService;
+
+    @Autowired
+    private IAiOrchestrationService orchestrationService;
 
     /**
      * 查询智能体列表（分页 + 条件，支持 bizType 过滤）
@@ -130,7 +135,7 @@ public class AidAgentController extends BaseController
     {
         try
         {
-            return toAjax(aidAgentService.deleteAgentById(id));
+            return toAjax(orchestrationService.deleteAgentIfUnreferenced(id, SecurityUtils.getUsername()));
         }
         catch (RuntimeException e)
         {

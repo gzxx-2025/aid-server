@@ -1,5 +1,6 @@
 import React from 'react';
 import * as AntIcons from '@ant-design/icons';
+import svgIconIds from 'virtual:svg-icons-names';
 import SvgIcon from './SvgIcon';
 
 interface Props {
@@ -48,6 +49,7 @@ const fallbackIconMap: Record<string, string> = {
   // 内容 / 运营
   notice: 'NotificationOutlined',
   message: 'MessageOutlined',
+  chat: 'MessageOutlined',
   question: 'QuestionCircleOutlined',
   international: 'GlobalOutlined',
   guide: 'CompassOutlined',
@@ -55,6 +57,7 @@ const fallbackIconMap: Record<string, string> = {
   // 媒体
   video: 'VideoCameraOutlined',
   audio: 'SoundOutlined',
+  sound: 'SoundOutlined',
   voice: 'AudioOutlined',
   mic: 'AudioOutlined',
   image: 'PictureOutlined',
@@ -73,14 +76,34 @@ const fallbackIconMap: Record<string, string> = {
   eye: 'EyeOutlined'
 };
 
+const svgIconNames = new Set(svgIconIds.map((id) => id.replace(/^icon-/, '')));
+
+function renderAntIcon(name: string | undefined, className?: string) {
+  if (!name || !/(?:Outlined|Filled|TwoTone)$/.test(name)) return null;
+  const IconCmp = (AntIcons as any)[name];
+  return IconCmp ? <IconCmp className={className} /> : null;
+}
+
 export default function MenuIcon({ icon, className }: Props) {
   if (!icon || icon === '#') return null;
-  // 先尝试映射到 antd icon
-  const mapped = fallbackIconMap[icon];
-  if (mapped && (AntIcons as any)[mapped]) {
-    const IconCmp = (AntIcons as any)[mapped];
-    return <IconCmp className={className} />;
+  const iconName = icon.trim();
+  if (!iconName || iconName === '#') return null;
+
+  const mappedIcon = renderAntIcon(fallbackIconMap[iconName.toLowerCase()], className);
+  if (mappedIcon) return mappedIcon;
+
+  const directAntIcon = renderAntIcon(iconName, className);
+  if (directAntIcon) return directAntIcon;
+
+  if (
+    iconName.startsWith('http://') ||
+    iconName.startsWith('https://') ||
+    iconName.startsWith('#') ||
+    svgIconNames.has(iconName)
+  ) {
+    return <SvgIcon icon={iconName} className={className} size={16} />;
   }
-  // 其次尝试 svg sprite
-  return <SvgIcon icon={icon} className={className} size={16} />;
+
+  const DefaultIcon = AntIcons.AppstoreOutlined;
+  return <DefaultIcon className={className} />;
 }

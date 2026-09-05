@@ -8,6 +8,10 @@ type EditorChangeSource,
 type EditorSelectionRange
 } from '~/utils/quill/controlledEditorSync'
 import {
+createEditorTextSelection,
+type EditorTextSelectionChange
+} from '~/utils/quill/editorTextSelection'
+import {
 readPromptAssetRefFromNode,
 registerPromptAssetRefBlot
 } from '~/utils/quill/promptAssetRefBlot'
@@ -53,6 +57,7 @@ export interface RichTextEditorMountDeps {
     enablePromptAssetRefs: boolean
     enablePromptParamRefs: boolean
     promptParamGroups: PromptParamGroup[]
+    onTextSelectionChange?: (selection: EditorTextSelectionChange | null) => void
   }
   quillRef: MutableRef<QuillInstance | null>
   quillCtorRef: MutableRef<QuillCtorType | null>
@@ -260,23 +265,91 @@ export async function mountRichTextEditorQuill(deps: RichTextEditorMountDeps): P
      * 只记录用户产生的完整选区。内部 HTML 同步可能短暂把 Quill 选区重置为 0，
      * 这类 API 选区不能覆盖失焦前保存的位置。
      */
+    let activeTextSelectionRange: EditorSelectionRange | null = null
+    let selectionAnchorFrame = 0
+
+    const emitTextSelection = () => {
+      const onTextSelectionChange = deps.getProps().onTextSelectionChange
+      if (!onTextSelectionChange || !activeTextSelectionRange?.length) return
+      const documentText = quill.getText(0, Math.max(0, quill.getLength() - 1))
+      const selection = createEditorTextSelection(
+        documentText,
+        activeTextSelectionRange.index,
+        activeTextSelectionRange.length
+      )
+      if (!selection) {
+        onTextSelectionChange(null)
+        return
+      }
+      const endBounds = quill.getBounds(
+        activeTextSelectionRange.index + activeTextSelectionRange.length,
+        0
+      )
+      if (!endBounds) {
+        onTextSelectionChange(null)
+        return
+      }
+      const containerRect = quill.container.getBoundingClientRect()
+      onTextSelectionChange({
+        selection,
+        anchor: {
+          left: containerRect.left + endBounds.left,
+          top: containerRect.top + endBounds.top,
+          bottom: containerRect.top + endBounds.bottom
+        }
+      })
+    }
+
+    const refreshSelectionAnchor = () => {
+      if (!activeTextSelectionRange?.length || selectionAnchorFrame) return
+      selectionAnchorFrame = window.requestAnimationFrame(() => {
+        selectionAnchorFrame = 0
+        emitTextSelection()
+      })
+    }
+
     const onSelectionChange = (
       range: EditorSelectionRange | null,
       _oldRange: EditorSelectionRange | null,
       source: EditorChangeSource
     ) => {
+      if (
+        range?.length === 0 &&
+        source !== 'user' &&
+        !deps.syncingFromPropRef.current &&
+        activeTextSelectionRange
+      ) {
+        activeTextSelectionRange = null
+        deps.getProps().onTextSelectionChange?.(null)
+      }
       if (source === 'user') deps.selectionRevisionRef.current += 1
       const event = { range, source, syncingInternally: deps.syncingFromPropRef.current }
       if (!shouldRememberEditorSelection(event)) return
       deps.lastSelectionRef.current = { index: event.range.index, length: event.range.length }
+      const onTextSelectionChange = deps.getProps().onTextSelectionChange
+      if (!onTextSelectionChange) return
+      if (event.range.length === 0) {
+        activeTextSelectionRange = null
+        onTextSelectionChange(null)
+        return
+      }
+      activeTextSelectionRange = { index: event.range.index, length: event.range.length }
+      emitTextSelection()
     }
     quill.on('selection-change', onSelectionChange)
+    editorRoot.addEventListener('scroll', refreshSelectionAnchor, { passive: true })
+    window.addEventListener('scroll', refreshSelectionAnchor, true)
+    window.addEventListener('resize', refreshSelectionAnchor)
 
     deps.cleanupEditorInputListenersRef.current = () => {
+      if (selectionAnchorFrame) window.cancelAnimationFrame(selectionAnchorFrame)
       editorRoot.removeEventListener('beforeinput', markInputting)
       editorRoot.removeEventListener('compositionstart', onCompositionStart)
       editorRoot.removeEventListener('compositionend', onCompositionEnd)
       editorRoot.removeEventListener('blur', onBlur)
+      editorRoot.removeEventListener('scroll', refreshSelectionAnchor)
+      window.removeEventListener('scroll', refreshSelectionAnchor, true)
+      window.removeEventListener('resize', refreshSelectionAnchor)
       quill.off('selection-change', onSelectionChange)
     }
 
@@ -333,6 +406,10 @@ export async function mountRichTextEditorQuill(deps: RichTextEditorMountDeps): P
       if (!q) return
       if (source === 'silent') return
       if (deps.syncingFromPropRef.current) return
+      if (source === 'user') {
+        activeTextSelectionRange = null
+        deps.getProps().onTextSelectionChange?.(null)
+      }
       const p = deps.getProps()
 
       if (p.lockCharacterSettingKeys && source === 'user' && deltaHasPositiveDelete(change)) {

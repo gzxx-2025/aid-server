@@ -16,17 +16,15 @@ import {
 clearStoryboardVideoModalGenSession
 } from '~/utils/storyboardVideoModalGenSession'
 import { formatTaskSseLiveText } from '~/utils/taskSseProgressText'
+import { useRef } from 'react'
 import type { VideoModalCtx,VideoModalSessionApi,VideoTaskKind } from './types'
 
-/** 对齐 Vue nextTick */
 import { createVideoModalSessionScopeOps } from './videoModalSessionScopeOps'
-function nextTick(fn: () => void) {
-  setTimeout(fn, 0)
-}
 
 /** 会话作用域 / overlay key / 占位 loading / 归属分镜判定（原 setup 前半段逻辑） */
 export function useVideoModalSession(ctx: VideoModalCtx): void {
   const { defaultVideoProgressTextForTaskKind, hasStoryboardVideoPendingState, isModalVideoGenOwnerScene, isStoryboardVideoGenerationInProgress, normalizeModalVideoGenTaskKind, overlayKeyParts, readSessionForScene, removeLocalGeneratingPlaceholders, resolveModalVideoGenOwnerSceneIdx, resolveStoryboardIdForSceneIndex, resolveVideoGenTaskSnapshotForStoryboard, sceneStoryboardIdNum, shouldRestoreStoryboardVideoGenerate, storyboardVideoModalSessionScope, suspendLateModalVideoFollowIfScopeChanged } = createVideoModalSessionScopeOps(ctx)
+  const videoCanvasScrollRequestSeq = useRef(0)
 
   function ensureGeneratingPlaceholderVideo(sceneIdx: number) {
     const videos = [...(ctx.props().scenes[sceneIdx]?.videos || [])]
@@ -227,20 +225,41 @@ export function useVideoModalSession(ctx: VideoModalCtx): void {
 
   function scrollVideoCanvasToIndex(sceneIdx: number, index: number) {
     if (sceneIdx !== ctx.currentSceneIndex.get() || index < 0) return
-    nextTick(() => {
-      nextTick(() => {
+    const requestSeq = ++videoCanvasScrollRequestSeq.current
+    let attempt = 0
+
+    const scrollWhenRendered = () => {
+      const delay = attempt === 0 ? 0 : 32
+      setTimeout(() => {
+        if (
+          requestSeq !== videoCanvasScrollRequestSeq.current ||
+          sceneIdx !== ctx.currentSceneIndex.get()
+        ) {
+          return
+        }
         const body = ctx.videoCanvasBodyRef.current
         if (!body) return
         const target =
           (body.querySelector(`[data-video-canvas-idx="${index}"]`) as HTMLElement | null) ||
           (body.querySelectorAll('.video-card')[index] as HTMLElement | undefined)
         if (target) {
-          target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          const bodyRect = body.getBoundingClientRect()
+          const targetRect = target.getBoundingClientRect()
+          const targetTop =
+            body.scrollTop + targetRect.top - bodyRect.top - (body.clientHeight - targetRect.height) / 2
+          body.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' })
+          return
+        }
+        attempt += 1
+        if (attempt < 8) {
+          scrollWhenRendered()
           return
         }
         body.scrollTo({ top: body.scrollHeight, behavior: 'smooth' })
-      })
-    })
+      }, delay)
+    }
+
+    scrollWhenRendered()
   }
 
   /** 左侧生成记录点击：选中并滚动中间列表到对应视频 */

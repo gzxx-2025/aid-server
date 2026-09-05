@@ -224,6 +224,7 @@ export function EditStoryboardDubbingModal({
   heroResetRef.current = hero.resetHeroVideoPreviewState
 
   const sceneTabBarRef = useRef<HorizontalScrollTabBarHandle | null>(null)
+  const dubbingVideoCanvasBodyRef = useRef<HTMLDivElement | null>(null)
 
   function scrollActiveSceneTabIntoView() {
     sceneTabBarRef.current?.scrollItemIntoView('.scene-image-tab.active')
@@ -442,6 +443,21 @@ export function EditStoryboardDubbingModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dubbingPreviewUrl])
 
+  useLayoutEffect(() => {
+    if (!open || dubbingCanvasMode === 'empty') return
+    const timer = window.setTimeout(() => {
+      const body = dubbingVideoCanvasBodyRef.current
+      const target = body?.querySelector('[data-dubbing-video-preview]') as HTMLElement | null
+      if (!body || !target) return
+      const bodyRect = body.getBoundingClientRect()
+      const targetRect = target.getBoundingClientRect()
+      const targetTop =
+        body.scrollTop + targetRect.top - bodyRect.top - (body.clientHeight - targetRect.height) / 2
+      body.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' })
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [dubbingCanvasMode, dubbingPreviewUrl, open, selectedNavKey])
+
   const canToggleHeroVideoWithSpace =
     open && Boolean(dubbingPreviewUrl) && hero.heroVideoMediaReady.value
   useVideoPlaybackSpaceShortcut(canToggleHeroVideoWithSpace, hero.toggleHeroVideoPlayback)
@@ -580,11 +596,14 @@ export function EditStoryboardDubbingModal({
                     暂无分镜视频，请先在「视频生成」步骤生成或上传
                   </div>
                 ) : (
-                  <div className="video-canvas-body video-canvas-body--enhance-wrap">
+                  <div
+                    ref={dubbingVideoCanvasBodyRef}
+                    className="video-canvas-body video-canvas-body--enhance-wrap"
+                  >
                     <div
+                      data-dubbing-video-preview
                       className={[
                         'video-card',
-                        'video-card--active',
                         dubbingCanvasMode === 'loading' ? 'video-card--generating' : ''
                       ]
                         .filter(Boolean)

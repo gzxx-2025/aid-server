@@ -45,6 +45,7 @@ public final class TaskErrorPresentation
         {
             exception.setDetailMessage(StrUtil.sub(rawMessage, 0, DETAIL_MESSAGE_MAX_LENGTH));
         }
+        exception.setTaskErrorJson(TaskErrorSnapshot.write(result));
         return exception;
     }
 
@@ -66,12 +67,26 @@ public final class TaskErrorPresentation
         {
             exception.setDetailMessage(StrUtil.sub(rawMessage, 0, DETAIL_MESSAGE_MAX_LENGTH));
         }
+        exception.setTaskErrorJson(TaskErrorSnapshot.write(result));
         return exception;
+    }
+
+    public static ServiceException fromCode(TaskErrorCode code, String userMessage) {
+        TaskErrorResult error = TaskErrorResult.of(code);
+        if (!ErrorNormalizer.usesProtectedUserMessage(code) && StrUtil.isNotBlank(userMessage)) {
+            error.setUserMessage(StrUtil.sub(userMessage, 0, EXCEPTION_MESSAGE_MAX_LENGTH));
+        }
+        return new ServiceException(StrUtil.sub(error.getUserMessage(), 0, EXCEPTION_MESSAGE_MAX_LENGTH))
+                .setTaskErrorJson(TaskErrorSnapshot.write(error));
     }
 
     public static int specificity(TaskErrorResult result)
     {
-        return isGeneric(result) ? GENERIC_PRIORITY : SPECIFIC_PRIORITY;
+        if (isGeneric(result)) {
+            return GENERIC_PRIORITY;
+        }
+        return TaskErrorCode.UPSTREAM_BAD_REQUEST.name().equals(result.getErrorCode())
+                ? GENERIC_PRIORITY + 1 : SPECIFIC_PRIORITY;
     }
 
     public static boolean isGeneric(TaskErrorResult result)
@@ -101,7 +116,7 @@ public final class TaskErrorPresentation
             case "USER_INPUT_EMPTY" -> "请补充生成内容";
             case "USER_INPUT_TOO_LONG" -> "内容过长，请精简";
             case "MERCHANT_QUOTA_EXHAUSTED", "PROVIDER_FREE_TIER_EXHAUSTED",
-                    "PROVIDER_QUOTA_EXHAUSTED" -> "模型额度不足";
+                    "PROVIDER_BALANCE_INSUFFICIENT", "PROVIDER_QUOTA_EXHAUSTED" -> "模型额度不足";
             case "UPSTREAM_AUTH_INVALID", "UPSTREAM_SERVICE_NOT_OPEN",
                     "MODEL_ACCOUNT_UNAVAILABLE" -> "当前生成服务暂不可用";
             case "PROVIDER_BUSY", "UPSTREAM_RATE_LIMITED" -> "任务较多，稍后重试";

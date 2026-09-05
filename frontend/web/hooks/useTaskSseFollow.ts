@@ -182,6 +182,7 @@ function releaseTaskSseFollowSlot(taskId: number, slot: TaskSseFollowSlot) {
 export async function waitUserTaskSseTerminal(payload: {
   taskId: number
   timeoutMs?: number
+  initialProgress?: TaskSseProgressInput | null
   onProgress?: (p: TaskSseProgressInput & { percent?: number }) => void
 }): Promise<TaskSseTerminalWaitResult> {
   const taskId = Number(payload.taskId)
@@ -193,11 +194,12 @@ export async function waitUserTaskSseTerminal(payload: {
   }
 
   const slot = claimTaskSseFollowSlot(taskId)
+  let latestProgress = payload.initialProgress ?? null
 
   const runOnce = async (): Promise<TaskSseTerminalWaitResult> => {
     if (slot.superseded) return { kind: 'superseded' }
 
-    const stream = createTaskStream(taskId)
+    const stream = createTaskStream(taskId, { initialProgress: latestProgress })
     slot.abort = () => {
       try {
         stream.close()
@@ -207,6 +209,7 @@ export async function waitUserTaskSseTerminal(payload: {
     }
 
     const stopProgress = stream.subscribeProgress((p) => {
+      latestProgress = p
       onProgress?.({
         ...p,
         percent: typeof p.progress === 'number' ? p.progress : undefined

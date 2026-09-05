@@ -60,17 +60,6 @@ public interface IUserEpisodeBusinessService
     int softDeleteUserEpisodeById(Long id, Long userId);
 
     /**
-     * 用户提交剧集审核（带归属校验）
-     * 除「审核中(3)」外的状态均可提交（「审核通过(4)」仅在存在待审新片时可重新提审，需已有成品视频），
-     * 提交后状态置为「审核中(3)」并清空状态原因，同时写入审核流水。
-     *
-     * @param id 剧集ID
-     * @param userId 用户ID
-     * @return 提交审核后的剧集
-     */
-    AidComicEpisode submitAudit(Long id, Long userId);
-
-    /**
      * 剧集实体批量转 VO：带出所属项目的画面比例/剧本类型/风格字段，
      * 并附加每集最新成片信息（episodeEditorId / finalVideoUrl / exportStatus，取自 aid_episode_editor）。
      *

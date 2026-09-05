@@ -1,10 +1,8 @@
-/** 杂项域：官方参数词库、枚举字典、首页 Banner、常见问题。 */
+/** 杂项域：官方参数词库、枚举字典、常见问题。 */
 import type {
 ApiEnvelope,
 EnumDictGroup,
 EnumDictListRequest,
-HomeBannerListRequest,
-HomeBannerVO,
 OfficialPromptCategoryItem,
 OfficialPromptItem,
 OfficialPromptItemDetailRequest,
@@ -24,9 +22,6 @@ stableRequestKey,
 unwrap,
 type ListBurstSlot
 } from '~/utils/business/shared'
-
-const userHomeBannerListInflight = new Map<string, Promise<PaginatedListResult<HomeBannerVO>>>()
-const userHomeBannerListBurst: ListBurstSlot<PaginatedListResult<HomeBannerVO>> = { current: null }
 
 /** 官方只读参数词库：分类列表 POST /api/user/prompt/official/category/list */
 export async function userPromptOfficialCategoryList(): Promise<OfficialPromptCategoryItem[]> {
@@ -118,20 +113,6 @@ export async function userDictEnumList(body: EnumDictListRequest): Promise<EnumD
     const res = await request.post<ApiEnvelope<EnumDictGroup[]>>('/api/user/dict/enum/list', body)
     const data = unwrap(res)
     return Array.isArray(data) ? data : []
-  })
-}
-
-/** 首页 Banner 列表：POST /api/user/home/banner/list */
-export async function userHomeBannerList(
-  body: HomeBannerListRequest = {}
-): Promise<PaginatedListResult<HomeBannerVO>> {
-  const pageNum = body.pageNum ?? 1
-  const pageSize = body.pageSize ?? 10
-  const reqBody = { ...body, pageNum, pageSize }
-  const key = stableRequestKey(reqBody)
-  return runListDedupe(key, userHomeBannerListInflight, userHomeBannerListBurst, async () => {
-    const res = await request.post('/api/user/home/banner/list', reqBody)
-    return extractPaginatedResponse<HomeBannerVO>(res, pageNum, pageSize)
   })
 }
 

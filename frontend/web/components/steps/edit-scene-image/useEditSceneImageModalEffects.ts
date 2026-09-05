@@ -66,7 +66,7 @@ useEffect(() => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
 }, [scenesFingerprint, currentSceneIndex.value])
 
-// 原 watch([open, csi, cii, currentImg 关键字段], { immediate: true })：选图后同步初始化两种作图模式
+// 原 watch([open, csi, cii, currentImg 关键字段], { immediate: true })：选图后初始化对话作图
 const prefillImg = currentImg()
 const prefillRefsFingerprint = JSON.stringify(prefillImg?.referenceImages ?? [])
 useEffect(() => {

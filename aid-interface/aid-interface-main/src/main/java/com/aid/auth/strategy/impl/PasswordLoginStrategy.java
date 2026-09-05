@@ -100,11 +100,11 @@ public class PasswordLoginStrategy implements LoginStrategy {
         // 登录成功清除失败计数
         sysLoginService.clearLoginFailure(request.getAccount());
 
+        LoginUser loginUser = (LoginUser) authentication.getPrincipal();
         AsyncManager.me().execute(AsyncFactory.recordLogininfor(
-                request.getAccount(), Constants.LOGIN_SUCCESS,
+                loginUser.getUserId(), request.getAccount(), Constants.LOGIN_SUCCESS,
                 MessageUtils.message("user.login.success")));
 
-        LoginUser loginUser = (LoginUser) authentication.getPrincipal();
         sysLoginService.recordLoginInfo(loginUser.getUserId());
 
         return loginUser;

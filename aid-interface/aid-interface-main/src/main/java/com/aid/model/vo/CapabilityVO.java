@@ -170,5 +170,49 @@ public class CapabilityVO implements Serializable
 
     /** 是否启用 Base64 传图（运营开关，仅 supportsBase64Image=true 时生效；开启后参考图下载转 Base64 下发） */
     private Boolean base64ImageEnabled;
+
+    /** 文本模型允许的输入与输出模态，取值为 TEXT、IMAGE、VIDEO、AUDIO、DOCUMENT。 */
+    private List<String> inputModalities;
+    private List<String> outputModalities;
+
+    /** 文本模型各输入模态能力及单次数量上限。 */
+    private Boolean supportsImageInput;
+    private Boolean supportsAudioInput;
+    private Boolean supportsDocumentInput;
+    private Integer maxInputImages;
+    private Integer maxInputVideos;
+    private Integer maxInputAudios;
+    private Integer maxInputDocuments;
+
+    /** 文本模型多模态文件约束。 */
+    private List<String> inputImageFormats;
+    private List<String> inputVideoFormats;
+    private List<String> inputAudioFormats;
+    private List<String> inputDocumentFormats;
+    private Integer maxInputImageFileSizeMb;
+    private Integer maxInputVideoFileSizeMb;
+    private Integer maxInputAudioFileSizeMb;
+    private Integer maxInputDocumentFileSizeMb;
+    private Integer maxInputVideoDurationSeconds;
+    private Integer maxInputAudioDurationSeconds;
+    private Integer maxInputDocumentPages;
+
+    /** 文本上下文与输出上限。 */
+    private Integer contextWindowTokens;
+    private Integer maxOutputTokens;
+
+    /** 文本模型思考能力与统一调用参数。 */
+    private Boolean supportsReasoning;
+    private Boolean supportsReasoningDisable;
+    private Boolean supportsReasoningContent;
+    /** 旧能力字段，读取历史配置时继续兼容。 */
+    private Boolean returnsReasoningContent;
+    private Boolean supportsReasoningBudget;
+    private Boolean defaultReasoningEnabled;
+    private Integer defaultReasoningBudgetTokens;
+    private Integer maxReasoningBudgetTokens;
+    private String defaultReasoningLevel;
+    private List<String> allowedReasoningLevels;
+    private String reasoningApiStyle;
 }
 

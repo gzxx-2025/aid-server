@@ -1,5 +1,6 @@
 package com.aid.rps.service.impl;
 
+import com.aid.common.error.TaskErrorSnapshot;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -431,7 +432,8 @@ public class StoryboardImagePromptServiceImpl implements IStoryboardImagePromptS
                         upd.eq(AidExtractTask::getBillingTraceId, expectedTraceId);
                     }
                     upd.set(AidExtractTask::getStatus, TASK_STATUS_FAILED);
-                    upd.set(AidExtractTask::getErrorMessage, "提交失败: " + StrUtil.sub(origMsg, 0, 80));
+                    upd.set(AidExtractTask::getErrorMessage, "提交失败: " + StrUtil.sub(origMsg, 0, 80))
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage("提交失败: " + StrUtil.sub(origMsg, 0, 80)));
                     upd.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
                     extractTaskService.update(upd);
                 }
@@ -1624,7 +1626,8 @@ public class StoryboardImagePromptServiceImpl implements IStoryboardImagePromptS
         update.eq(AidExtractTask::getBillingTraceId, expectedTraceId);
         update.set(AidExtractTask::getStatus, status);
         update.set(AidExtractTask::getResultData, resultJson);
-        update.set(AidExtractTask::getErrorMessage, errorMessage);
+        update.set(AidExtractTask::getErrorMessage, errorMessage)
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage(errorMessage));
         update.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
         if (!extractTaskService.update(update))
         {

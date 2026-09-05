@@ -1,5 +1,7 @@
 package com.aid.asset.service.impl;
 
+import com.aid.common.error.TaskErrorCode;
+import com.aid.common.error.TaskErrorPresentation;
 import cn.hutool.core.collection.CollectionUtil;
 import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -132,7 +134,7 @@ public class UserComicAssetServiceImpl implements IUserComicAssetService {
         // 风格资产必须填写提示词。
         if (Objects.equals(ASSET_TYPE_STYLE, assetType) && StrUtil.isBlank(request.getPromptText())) {
             log.error("C端参考资产创建失败-风格提示词为空: userId={}", userId);
-            throw new ServiceException("提示词不能为空");
+            throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_EMPTY, "请填写提示词");
         }
         if (StrUtil.isBlank(request.getImageUrl())) {
             log.error("C端参考资产创建失败-图片为空: userId={}", userId);
@@ -463,7 +465,7 @@ public class UserComicAssetServiceImpl implements IUserComicAssetService {
         if (Objects.equals(ASSET_TYPE_STYLE, existed.getAssetType())
                 && Objects.nonNull(request.getPromptText()) && StrUtil.isBlank(request.getPromptText())) {
             log.error("C端参考资产修改-风格提示词为空: userId={}, id={}", userId, request.getId());
-            throw new ServiceException("提示词不能为空");
+            throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_EMPTY, "请填写提示词");
         }
 
         String trimmedName = null;

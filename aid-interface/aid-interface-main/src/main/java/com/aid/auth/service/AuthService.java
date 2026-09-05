@@ -2,14 +2,27 @@ package com.aid.auth.service;
 
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.crypto.digest.DigestUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.github.pagehelper.PageHelper;
+import com.github.pagehelper.PageInfo;
 import com.aid.aid.domain.AidConfig;
 import com.aid.auth.domain.dto.BindAccountRequest;
 import com.aid.auth.domain.dto.CancelAccountRequest;
+import com.aid.auth.domain.dto.ChangePasswordRequest;
+import com.aid.auth.domain.dto.LoginHistoryRequest;
 import com.aid.auth.domain.dto.LoginRequest;
+import com.aid.auth.domain.dto.RebindAccountRequest;
 import com.aid.auth.domain.dto.ResetPasswordRequest;
 import com.aid.auth.domain.dto.SendCodeRequest;
+import com.aid.auth.domain.dto.SessionRevokeRequest;
+import com.aid.auth.domain.dto.SetPasswordRequest;
 import com.aid.auth.domain.dto.UnbindAccountRequest;
+import com.aid.auth.domain.vo.AccountLoginHistoryPageVO;
+import com.aid.auth.domain.vo.AccountLoginHistoryVO;
+import com.aid.auth.domain.vo.AccountSecurityVO;
+import com.aid.auth.domain.vo.AccountSessionVO;
+import com.aid.auth.domain.vo.PasswordPolicyVO;
 import com.aid.auth.domain.vo.PublicConfigVO;
 import com.aid.auth.policy.AuthCodePolicy;
 import com.aid.auth.policy.AuthCodePolicyService;
@@ -18,6 +31,7 @@ import com.aid.aid.domain.vo.UserInfoVO;
 import com.aid.aid.domain.vo.UserSocialVO;
 import com.aid.aid.domain.vo.AdminBrandConfigVO;
 import com.aid.aid.service.IAdminBrandConfigService;
+import com.aid.aid.service.IAccountCancellationService;
 import com.aid.aid.service.IAidConfigService;
 import com.aid.auth.strategy.LoginStrategy;
 import com.aid.aid.domain.AidUserProfile;
@@ -32,6 +46,9 @@ import com.aid.common.aid.sms.config.SmsConfigManager;
 import com.aid.common.aid.sms.utils.SmsUtils;
 import com.aid.common.aid.wxlogin.config.WxLoginConfigManager;
 import com.aid.common.constant.AuthConstants;
+import com.aid.common.constant.AccountCancellationConstants;
+import com.aid.common.constant.CacheConstants;
+import com.aid.common.constant.UserConstants;
 import com.aid.common.core.domain.entity.SysUser;
 import com.aid.common.core.domain.model.LoginUser;
 import com.aid.common.core.redis.RedisCache;
@@ -41,6 +58,8 @@ import com.aid.common.utils.ip.IpUtils;
 import com.aid.common.utils.uuid.IdUtils;
 import com.aid.common.core.service.TokenService;
 import com.aid.core.service.ISysUserService;
+import com.aid.core.domain.SysLogininfor;
+import com.aid.core.service.ISysLogininforService;
 import com.aid.notify.wechat.service.IWechatNotifyConfigService;
 import com.aid.notify.wechat.service.IWechatNotifyService;
 import com.aid.notify.wechat.vo.WechatNotifyPreferenceVO;
@@ -57,7 +76,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -88,10 +110,16 @@ public class AuthService {
     private ISysUserService userService;
 
     @Resource
+    private ISysLogininforService logininforService;
+
+    @Resource
     private AidUserProfileMapper userProfileMapper;
 
     @Resource
     private AidUserSocialMapper userSocialMapper;
+
+    @Resource
+    private IAccountCancellationService accountCancellationService;
 
     /** 验证码策略读取器：长度 / 有效期 / 间隔 / 日上限均由 aid_config 动态读取 */
     @Resource
@@ -245,32 +273,65 @@ public class AuthService {
                 && !AuthConstants.SCENE_BIND.equals(scene)
                 && !AuthConstants.SCENE_UNBIND.equals(scene)
                 && !AuthConstants.SCENE_RESET.equals(scene)
-                && !AuthConstants.SCENE_CANCEL.equals(scene)) {
+                && !AuthConstants.SCENE_CANCEL.equals(scene)
+                && !AuthConstants.SCENE_SET_PASSWORD.equals(scene)
+                && !AuthConstants.SCENE_REBIND_OLD.equals(scene)
+                && !AuthConstants.SCENE_REBIND_NEW.equals(scene)) {
             log.info("发送验证码场景非法: scene={}", scene);
             throw new ServiceException("场景数据异常");
         }
 
-        // 解绑 / 注销场景：从当前用户获取手机号/邮箱（target 客户端不传）
-        if (AuthConstants.SCENE_UNBIND.equals(scene) || AuthConstants.SCENE_CANCEL.equals(scene)) {
+        boolean authenticatedScene = AuthConstants.SCENE_UNBIND.equals(scene)
+                || AuthConstants.SCENE_CANCEL.equals(scene)
+                || AuthConstants.SCENE_SET_PASSWORD.equals(scene)
+                || AuthConstants.SCENE_REBIND_OLD.equals(scene)
+                || AuthConstants.SCENE_REBIND_NEW.equals(scene);
+        SysUser currentUser = null;
+        if (authenticatedScene) {
             Long userId = SecurityUtils.getUserId();
-            SysUser user = userService.selectUserById(userId);
-            if (Objects.isNull(user)) {
+            currentUser = userService.selectUserById(userId);
+            if (Objects.isNull(currentUser)) {
                 throw new ServiceException("用户不存在");
             }
+        }
+
+        // 解绑、注销、首次设置密码和换绑旧地址验证：目标必须从当前账号读取，不能信任客户端传值。
+        boolean currentTargetScene = AuthConstants.SCENE_UNBIND.equals(scene)
+                || AuthConstants.SCENE_CANCEL.equals(scene)
+                || AuthConstants.SCENE_SET_PASSWORD.equals(scene)
+                || AuthConstants.SCENE_REBIND_OLD.equals(scene);
+        if (currentTargetScene) {
+            if (AuthConstants.SCENE_SET_PASSWORD.equals(scene)
+                    && Objects.nonNull(currentUser.getPwdUpdateDate())) {
+                throw new ServiceException("账号已设置密码，请使用修改密码功能");
+            }
             if (AuthConstants.BIND_TYPE_SMS.equals(codeType)) {
-                target = user.getPhonenumber();
+                target = currentUser.getPhonenumber();
                 if (StrUtil.isBlank(target)) {
                     throw new ServiceException("您未绑定手机号");
                 }
             } else {
-                target = user.getEmail();
+                target = currentUser.getEmail();
                 if (StrUtil.isBlank(target)) {
                     throw new ServiceException("您未绑定邮箱");
                 }
             }
         }
 
-        // 除解绑/注销外，其它场景 target 必填，防止 NPE
+        // 换绑新地址发码前必须确认原地址存在，且新地址与当前地址不同。
+        if (AuthConstants.SCENE_REBIND_NEW.equals(scene)) {
+            String currentTarget = AuthConstants.BIND_TYPE_SMS.equals(codeType)
+                    ? currentUser.getPhonenumber() : currentUser.getEmail();
+            if (StrUtil.isBlank(currentTarget)) {
+                throw new ServiceException(AuthConstants.BIND_TYPE_SMS.equals(codeType)
+                        ? "您未绑定手机号" : "您未绑定邮箱");
+            }
+            if (Objects.equals(currentTarget, target)) {
+                throw new ServiceException("新地址不能与当前绑定地址相同");
+            }
+        }
+
+        // 客户端传 target 的场景必须显式校验，防止 NPE。
         if (StrUtil.isBlank(target)) {
             log.info("发送验证码 target 为空: scene={}, codeType={}", scene, codeType);
             throw new ServiceException("目标地址不能为空");
@@ -278,13 +339,13 @@ public class AuthService {
 
         validateTargetFormat(target, codeType);
 
-        // 绑定场景：检查是否已被绑定
-        if (AuthConstants.SCENE_BIND.equals(scene)) {
+        // 绑定及换绑新地址场景：检查是否已被其他账号使用。
+        if (AuthConstants.SCENE_BIND.equals(scene) || AuthConstants.SCENE_REBIND_NEW.equals(scene)) {
             checkBindTarget(target, codeType);
         }
 
-        // 登录场景仅对尚未注册的账号校验邀请码，并且必须早于限流计数和短信/邮件发送。
-        validateLoginInviteBeforeSend(target, codeType, scene, request.getInviteCode());
+        // 登录场景仅对尚未注册的账号校验注销冷静期和邀请码，且必须早于限流计数和短信/邮件发送。
+        validateLoginRegistrationBeforeSend(target, codeType, scene, request.getInviteCode());
 
         String clientIp = IpUtils.getIpAddr();
 
@@ -317,15 +378,21 @@ public class AuthService {
         log.info("验证码发送成功: target={}, codeType={}, scene={}, ip={}", target, codeType, scene, clientIp);
     }
 
-    /** 发送登录验证码前校验新用户邀请码；老用户登录和非登录场景不处理邀请码。 */
-    private void validateLoginInviteBeforeSend(String target, String codeType, String scene, String inviteCode) {
-        if (!AuthConstants.SCENE_LOGIN.equals(scene) || StrUtil.isBlank(inviteCode)) {
+    /** 发送登录验证码前校验新用户注销冷静期和邀请码。 */
+    private void validateLoginRegistrationBeforeSend(String target, String codeType, String scene, String inviteCode) {
+        if (!AuthConstants.SCENE_LOGIN.equals(scene)) {
             return;
         }
         if (Objects.nonNull(findUserByTarget(target, codeType))) {
             return;
         }
-        inviteService.validateForRegistration(inviteCode);
+        String identityType = AuthConstants.BIND_TYPE_SMS.equals(codeType)
+                ? AccountCancellationConstants.IDENTITY_PHONE
+                : AccountCancellationConstants.IDENTITY_EMAIL;
+        accountCancellationService.checkRegistrationAllowed(identityType, target);
+        if (StrUtil.isNotBlank(inviteCode)) {
+            inviteService.validateForRegistration(inviteCode);
+        }
     }
 
     /** publicConfig 平台配置 Redis 缓存 key（全局共享，不缓存登录用户个人状态）。 */
@@ -443,6 +510,7 @@ public class AuthService {
                 .smsPolicy(toCodePolicyVo(smsRaw))
                 .emailPolicy(toCodePolicyVo(mailRaw))
                 .login(login)
+                .passwordPolicy(buildPasswordPolicy())
                 .crypto(crypto)
                 .wechatNotify(wechatNotify)
                 .basic(basic)
@@ -461,6 +529,13 @@ public class AuthService {
             log.warn("publicConfig 缓存写入失败（不影响响应）: err={}", e.getMessage());
         }
         return vo;
+    }
+
+    private PasswordPolicyVO buildPasswordPolicy() {
+        return PasswordPolicyVO.builder()
+                .minLength(UserConstants.PASSWORD_MIN_LENGTH)
+                .maxLength(UserConstants.PASSWORD_MAX_LENGTH)
+                .build();
     }
 
     /**
@@ -740,9 +815,8 @@ public class AuthService {
             throw new ServiceException("重置方式错误");
         }
 
-        if (!Objects.equals(newPassword, confirmPassword)) {
-            throw new ServiceException("两次密码不一致");
-        }
+        validateNewPassword(newPassword, confirmPassword);
+        validateTargetFormat(target, resetType);
 
         // 校验验证码（按 reset 场景隔离）
         validateCode(AuthConstants.SCENE_RESET, target, resetType, code);
@@ -753,9 +827,218 @@ public class AuthService {
         }
 
         // 直接重置密码字段，不触发角色/岗位清空逻辑
-        userService.resetUserPwd(user.getUserId(), SecurityUtils.encryptPassword(newPassword));
+        if (userService.resetUserPwd(user.getUserId(), SecurityUtils.encryptPassword(newPassword)) <= 0) {
+            throw new ServiceException("密码重置失败");
+        }
+        revokeUserSessions(user.getUserId(), null);
 
         log.info("密码重置成功: userId={}", user.getUserId());
+    }
+
+    /**
+     * 查询当前账号可用登录方式、安全状态和账号操作能力。
+     */
+    public AccountSecurityVO getAccountSecurity() {
+        SysUser user = requireCurrentUser();
+        boolean phoneBound = StrUtil.isNotBlank(user.getPhonenumber());
+        boolean emailBound = StrUtil.isNotBlank(user.getEmail());
+        boolean passwordSet = Objects.nonNull(user.getPwdUpdateDate());
+        boolean wechatBound = hasWechatBinding(user.getUserId());
+
+        List<String> loginMethods = new ArrayList<>();
+        if (phoneBound) {
+            loginMethods.add(AuthConstants.BIND_TYPE_SMS);
+        }
+        if (emailBound) {
+            loginMethods.add(AuthConstants.BIND_TYPE_EMAIL);
+        }
+        if (wechatBound) {
+            loginMethods.add(AuthConstants.BIND_TYPE_WECHAT);
+        }
+        if (passwordSet) {
+            loginMethods.add("password");
+        }
+
+        PublicConfigVO.LoginChannels channels = buildLoginChannels();
+        return AccountSecurityVO.builder()
+                .passwordSet(passwordSet)
+                .phoneBound(phoneBound)
+                .maskedPhone(maskPhone(user.getPhonenumber()))
+                .emailBound(emailBound)
+                .maskedEmail(maskEmail(user.getEmail()))
+                .wechatBound(wechatBound)
+                .loginMethods(loginMethods)
+                // 密码本身没有独立账号标识，解绑后仍须保留手机号、邮箱或微信之一。
+                .canUnbindPhone(phoneBound && (emailBound || wechatBound))
+                .canUnbindEmail(emailBound && (phoneBound || wechatBound))
+                .canUnbindWechat(wechatBound && (phoneBound || emailBound))
+                .smsAvailable(channels.isSmsEnabled())
+                .emailAvailable(channels.isEmailEnabled())
+                .wechatAvailable(channels.isWechatEnabled())
+                .reRegistrationRestrictionEnabled(accountCancellationService.isRestrictionEnabled())
+                .reRegistrationRestrictionDays(accountCancellationService.getRestrictionDays())
+                .passwordPolicy(buildPasswordPolicy())
+                .build();
+    }
+
+    /**
+     * 为验证码注册或微信注册后尚未设置密码的账号首次设置密码。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void setPassword(SetPasswordRequest request) {
+        SysUser user = requireCurrentUser();
+        if (Objects.nonNull(user.getPwdUpdateDate())) {
+            throw new ServiceException("账号已设置密码，请使用修改密码功能");
+        }
+        String verifyType = requireCodeChannel(request.getVerifyType(), "验证方式错误");
+        String target = getBoundTarget(user, verifyType);
+        validateNewPassword(request.getNewPassword(), request.getConfirmPassword());
+        validateCode(AuthConstants.SCENE_SET_PASSWORD, target, verifyType, request.getCode());
+
+        if (userService.resetUserPwd(user.getUserId(), SecurityUtils.encryptPassword(request.getNewPassword())) <= 0) {
+            throw new ServiceException("密码设置失败");
+        }
+        revokeUserSessions(user.getUserId(), null);
+        log.info("首次设置密码成功: userId={}", user.getUserId());
+    }
+
+    /**
+     * 使用旧密码修改当前账号密码。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void changePassword(ChangePasswordRequest request) {
+        SysUser user = requireCurrentUser();
+        if (Objects.isNull(user.getPwdUpdateDate()) || StrUtil.isBlank(user.getPassword())) {
+            throw new ServiceException("账号尚未设置密码");
+        }
+        if (!SecurityUtils.matchesPassword(request.getOldPassword(), user.getPassword())) {
+            throw new ServiceException("旧密码错误");
+        }
+        validateNewPassword(request.getNewPassword(), request.getConfirmPassword());
+        if (SecurityUtils.matchesPassword(request.getNewPassword(), user.getPassword())) {
+            throw new ServiceException("新密码不能与旧密码相同");
+        }
+
+        if (userService.resetUserPwd(user.getUserId(), SecurityUtils.encryptPassword(request.getNewPassword())) <= 0) {
+            throw new ServiceException("密码修改失败");
+        }
+        revokeUserSessions(user.getUserId(), null);
+        log.info("修改密码成功: userId={}", user.getUserId());
+    }
+
+    /**
+     * 双验证码换绑手机号或邮箱。旧验证码和新验证码均通过后才更新账号。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void rebindAccount(RebindAccountRequest request) {
+        SysUser user = requireCurrentUser();
+        String bindType = requireCodeChannel(request.getBindType(), "换绑类型错误");
+        String oldTarget = getBoundTarget(user, bindType);
+        String newTarget = StrUtil.trim(request.getNewTarget());
+        if (StrUtil.isBlank(newTarget)) {
+            throw new ServiceException("新地址不能为空");
+        }
+        if (Objects.equals(oldTarget, newTarget)) {
+            throw new ServiceException("新地址不能与当前绑定地址相同");
+        }
+        validateTargetFormat(newTarget, bindType);
+        checkBindTarget(newTarget, bindType);
+
+        String oldKey = AuthConstants.getCodeCacheKey(AuthConstants.SCENE_REBIND_OLD, bindType, oldTarget);
+        String newKey = AuthConstants.getCodeCacheKey(AuthConstants.SCENE_REBIND_NEW, bindType, newTarget);
+        validateCodeWithoutConsume(oldKey, request.getOldCode(), AuthConstants.SCENE_REBIND_OLD, bindType, oldTarget);
+        validateCodeWithoutConsume(newKey, request.getNewCode(), AuthConstants.SCENE_REBIND_NEW, bindType, newTarget);
+        consumeValidatedCode(oldKey, request.getOldCode());
+        consumeValidatedCode(newKey, request.getNewCode());
+
+        if (AuthConstants.BIND_TYPE_SMS.equals(bindType)) {
+            bindPhone(user, newTarget);
+        } else {
+            bindEmail(user, newTarget);
+        }
+        revokeUserSessions(user.getUserId(), SecurityUtils.getLoginUser().getToken());
+        log.info("账号换绑成功: userId={}, bindType={}", user.getUserId(), bindType);
+    }
+
+    /** 查询当前账号的全部有效会话，响应只暴露不可逆公开标识，不返回真实 token。 */
+    public List<AccountSessionVO> listAccountSessions() {
+        LoginUser current = SecurityUtils.getLoginUser();
+        String currentKey = CacheConstants.LOGIN_TOKEN_KEY + current.getToken();
+        List<AccountSessionVO> sessions = new ArrayList<>();
+        for (SessionEntry entry : findUserSessions(current.getUserId())) {
+            LoginUser loginUser = entry.loginUser;
+            sessions.add(AccountSessionVO.builder()
+                    .sessionId(toPublicSessionId(loginUser.getToken()))
+                    .current(Objects.equals(currentKey, entry.key))
+                    .ipaddr(loginUser.getIpaddr())
+                    .loginLocation(loginUser.getLoginLocation())
+                    .browser(loginUser.getBrowser())
+                    .os(loginUser.getOs())
+                    .activeTime(toDate(loginUser.getLoginTime()))
+                    .expireTime(toDate(loginUser.getExpireTime()))
+                    .build());
+        }
+        sessions.sort(Comparator.comparing(AccountSessionVO::getActiveTime,
+                Comparator.nullsLast(Comparator.reverseOrder())));
+        return sessions;
+    }
+
+    /** 移除当前账号的指定非当前会话。 */
+    public void revokeSession(SessionRevokeRequest request) {
+        LoginUser current = SecurityUtils.getLoginUser();
+        String currentKey = CacheConstants.LOGIN_TOKEN_KEY + current.getToken();
+        for (SessionEntry entry : findUserSessions(current.getUserId())) {
+            if (!Objects.equals(toPublicSessionId(entry.loginUser.getToken()), request.getSessionId())) {
+                continue;
+            }
+            if (Objects.equals(currentKey, entry.key)) {
+                throw new ServiceException("不能移除当前会话，请使用退出全部会话");
+            }
+            redisCache.deleteObject(entry.key);
+            log.info("用户移除指定会话: userId={}, sessionId={}", current.getUserId(), request.getSessionId());
+            return;
+        }
+        throw new ServiceException("会话不存在或已失效");
+    }
+
+    /** 退出当前账号除本次请求以外的所有会话。 */
+    public int logoutOtherSessions() {
+        LoginUser current = SecurityUtils.getLoginUser();
+        return revokeUserSessions(current.getUserId(), current.getToken());
+    }
+
+    /** 退出当前账号全部会话，包括当前会话。 */
+    public int logoutAllSessions() {
+        LoginUser current = SecurityUtils.getLoginUser();
+        return revokeUserSessions(current.getUserId(), null);
+    }
+
+    /** 分页查询当前账号登录历史，不允许客户端指定其他用户。 */
+    public AccountLoginHistoryPageVO getLoginHistory(LoginHistoryRequest request) {
+        int pageNum = request == null || request.getPageNum() == null ? 1 : Math.max(request.getPageNum(), 1);
+        int pageSize = request == null || request.getPageSize() == null
+                ? 10 : Math.min(Math.max(request.getPageSize(), 1), 100);
+        PageHelper.startPage(pageNum, pageSize);
+        List<SysLogininfor> rows = logininforService.selectLogininforByUserId(SecurityUtils.getUserId());
+        long total = new PageInfo<>(rows).getTotal();
+        List<AccountLoginHistoryVO> list = rows.stream()
+                .map(row -> AccountLoginHistoryVO.builder()
+                        .id(row.getInfoId())
+                        .status(row.getStatus())
+                        .ipaddr(row.getIpaddr())
+                        .loginLocation(row.getLoginLocation())
+                        .browser(row.getBrowser())
+                        .os(row.getOs())
+                        .message(row.getMsg())
+                        .loginTime(row.getLoginTime())
+                        .build())
+                .collect(Collectors.toList());
+        return AccountLoginHistoryPageVO.builder()
+                .total(total)
+                .pageNum(pageNum)
+                .pageSize(pageSize)
+                .list(list)
+                .build();
     }
 
     /**
@@ -796,6 +1079,28 @@ public class AuthService {
         // 使用 cancel 场景独立 cache key
         validateCode(AuthConstants.SCENE_CANCEL, target, verifyType, code);
 
+        // 注销前记录全部可用于再次注册的身份哈希，第三方绑定随后才允许删除。
+        // 查询字段保持最小集合，避免把第三方原始响应带入注销链路。
+        LambdaQueryWrapper<AidUserSocial> socialWrapper = new LambdaQueryWrapper<>();
+        socialWrapper.select(AidUserSocial::getPlatformSource, AidUserSocial::getOpenid, AidUserSocial::getUnionid)
+                .eq(AidUserSocial::getUserId, userId);
+        List<AidUserSocial> socialList = userSocialMapper.selectList(socialWrapper);
+        accountCancellationService.recordCancellation(
+                userId, AccountCancellationConstants.IDENTITY_PHONE, user.getPhonenumber());
+        accountCancellationService.recordCancellation(
+                userId, AccountCancellationConstants.IDENTITY_EMAIL, user.getEmail());
+        if (CollUtil.isNotEmpty(socialList)) {
+            for (AidUserSocial social : socialList) {
+                if (!AuthConstants.BIND_TYPE_WECHAT.equals(social.getPlatformSource())) {
+                    continue;
+                }
+                accountCancellationService.recordCancellation(
+                        userId, AccountCancellationConstants.IDENTITY_WECHAT_OPENID, social.getOpenid());
+                accountCancellationService.recordCancellation(
+                        userId, AccountCancellationConstants.IDENTITY_WECHAT_UNIONID, social.getUnionid());
+            }
+        }
+
         // 特殊化处理用户敏感信息，防止精确查询时出问题；
         // 拼接前按列长（均为 varchar(100)）截断原值预留后缀空间，防超长导致注销 UPDATE 失败
         String suffix = "_cancelled_" + userId + "_" + System.currentTimeMillis();
@@ -824,23 +1129,17 @@ public class AuthService {
         }
 
         // 硬删除用户第三方登录绑定关系
-        LambdaQueryWrapper<AidUserSocial> socialWrapper = new LambdaQueryWrapper<>();
-        socialWrapper.eq(AidUserSocial::getUserId, userId);
-        int deletedCount = userSocialMapper.delete(socialWrapper);
+        LambdaQueryWrapper<AidUserSocial> socialDeleteWrapper = new LambdaQueryWrapper<>();
+        socialDeleteWrapper.eq(AidUserSocial::getUserId, userId);
+        int deletedCount = userSocialMapper.delete(socialDeleteWrapper);
         log.info("注销账号-删除第三方登录绑定: userId={}, deletedCount={}", userId, deletedCount);
 
-        // 先 logout 清掉当前会话 token，再 deleteUserById 逻辑删除用户：
-        //   若先删除后登出，logout() 内的 SecurityUtils.getLoginUser() 可能取不到用户导致 token 清理失败，
-        //   事务回滚时还会残留悬挂会话。
-        try {
-            logout();
-        } catch (Exception logoutEx) {
-            // logout 失败不影响注销主流程（事务即将结束，token 清理会在 afterCompletion 补偿），
-            // 但记录 WARN 便于排查
-            log.warn("账号注销时 logout 失败, userId={}, err={}", userId, logoutEx.getMessage());
-        }
+        // 注销后清理该账号全部登录态，避免其它设备继续持有已注销账号的旧会话。
+        revokeUserSessions(userId, null);
 
-        userService.deleteUserById(userId);
+        if (userService.deleteUserById(userId) <= 0) {
+            throw new ServiceException("账号注销失败");
+        }
 
         log.info("账号注销成功: userId={}", userId);
     }
@@ -1259,6 +1558,16 @@ public class AuthService {
             sceneName = "绑定账号";
         } else if (AuthConstants.SCENE_RESET.equals(scene)) {
             sceneName = "重置密码";
+        } else if (AuthConstants.SCENE_UNBIND.equals(scene)) {
+            sceneName = "解绑账号";
+        } else if (AuthConstants.SCENE_CANCEL.equals(scene)) {
+            sceneName = "注销账号";
+        } else if (AuthConstants.SCENE_SET_PASSWORD.equals(scene)) {
+            sceneName = "设置密码";
+        } else if (AuthConstants.SCENE_REBIND_OLD.equals(scene)) {
+            sceneName = "换绑身份确认";
+        } else if (AuthConstants.SCENE_REBIND_NEW.equals(scene)) {
+            sceneName = "换绑新地址";
         } else {
             sceneName = "验证";
         }
@@ -1306,7 +1615,7 @@ public class AuthService {
     /**
      * 校验验证码（带场景隔离）
      *
-     * @param scene    业务场景：login / bind / unbind / reset / cancel
+     * @param scene    业务场景：login / bind / unbind / reset / cancel / set_password / rebind_old / rebind_new
      * @param target   手机号或邮箱
      * @param codeType 渠道：sms / email
      * @param code     用户输入的验证码
@@ -1327,8 +1636,10 @@ public class AuthService {
             throw new ServiceException("验证码错误");
         }
 
-        // 验证通过后删除验证码
-        redisCache.deleteObject(cacheKey);
+        // 比对成功后按值原子删除，防止并发请求重复消费同一验证码。
+        if (!redisCache.deleteObjectIfValueEquals(cacheKey, cachedCode)) {
+            throw new ServiceException("验证码已使用或已过期");
+        }
     }
 
     /**
@@ -1583,6 +1894,138 @@ public class AuthService {
 
         // 硬删除绑定记录
         userSocialMapper.deleteById(social.getId());
+    }
+
+    private SysUser requireCurrentUser() {
+        Long userId = SecurityUtils.getUserId();
+        SysUser user = userService.selectUserById(userId);
+        if (Objects.isNull(user)) {
+            throw new ServiceException("用户不存在");
+        }
+        return user;
+    }
+
+    private boolean hasWechatBinding(Long userId) {
+        LambdaQueryWrapper<AidUserSocial> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(AidUserSocial::getUserId, userId)
+                .eq(AidUserSocial::getPlatformSource, AuthConstants.BIND_TYPE_WECHAT)
+                .eq(AidUserSocial::getDelFlag, "0");
+        return userSocialMapper.selectCount(wrapper) > 0;
+    }
+
+    private String requireCodeChannel(String rawChannel, String errorMessage) {
+        if (StrUtil.isBlank(rawChannel)) {
+            throw new ServiceException(errorMessage);
+        }
+        String channel = AuthConstants.normalizeChannel(rawChannel);
+        if (!AuthConstants.BIND_TYPE_SMS.equals(channel) && !AuthConstants.BIND_TYPE_EMAIL.equals(channel)) {
+            throw new ServiceException(errorMessage);
+        }
+        return channel;
+    }
+
+    private String getBoundTarget(SysUser user, String channel) {
+        String target = AuthConstants.BIND_TYPE_SMS.equals(channel)
+                ? user.getPhonenumber() : user.getEmail();
+        if (StrUtil.isBlank(target)) {
+            throw new ServiceException(AuthConstants.BIND_TYPE_SMS.equals(channel)
+                    ? "您未绑定手机号" : "您未绑定邮箱");
+        }
+        return target;
+    }
+
+    private void validateNewPassword(String newPassword, String confirmPassword) {
+        if (!Objects.equals(newPassword, confirmPassword)) {
+            throw new ServiceException("两次密码不一致");
+        }
+        int length = StrUtil.length(newPassword);
+        if (length < UserConstants.PASSWORD_MIN_LENGTH || length > UserConstants.PASSWORD_MAX_LENGTH) {
+            throw new ServiceException("密码长度" + UserConstants.PASSWORD_MIN_LENGTH
+                    + "至" + UserConstants.PASSWORD_MAX_LENGTH + "位");
+        }
+    }
+
+    /** 换绑时先校验两个验证码，再按值原子消费，防止并发请求复用。 */
+    private void validateCodeWithoutConsume(String cacheKey, String code, String scene,
+                                            String codeType, String target) {
+        if (StrUtil.isBlank(code)) {
+            throw new ServiceException("验证码不能为空");
+        }
+        String cachedCode = redisCache.getCacheObject(cacheKey);
+        if (Objects.isNull(cachedCode)) {
+            log.info("验证码已过期: scene={}, codeType={}, target={}", scene, codeType, target);
+            throw new ServiceException("验证码已过期");
+        }
+        if (!Objects.equals(cachedCode, code)) {
+            log.info("验证码错误: scene={}, codeType={}, target={}", scene, codeType, target);
+            throw new ServiceException("验证码错误");
+        }
+    }
+
+    private void consumeValidatedCode(String cacheKey, String code) {
+        if (!redisCache.deleteObjectIfValueEquals(cacheKey, code)) {
+            throw new ServiceException("验证码已使用或已过期");
+        }
+    }
+
+    private List<SessionEntry> findUserSessions(Long userId) {
+        Collection<String> keys = redisCache.scanKeys(CacheConstants.LOGIN_TOKEN_KEY + "*");
+        if (Objects.isNull(keys) || keys.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<SessionEntry> result = new ArrayList<>();
+        for (String key : keys) {
+            try {
+                LoginUser loginUser = redisCache.getCacheObject(key, LoginUser.class);
+                if (Objects.nonNull(loginUser)
+                        && Objects.equals(userId, loginUser.getUserId())
+                        && StrUtil.isNotBlank(loginUser.getToken())) {
+                    result.add(new SessionEntry(key, loginUser));
+                }
+            } catch (Exception e) {
+                log.warn("账号会话解析失败，已跳过: key={}, err={}", key, e.getMessage());
+            }
+        }
+        return result;
+    }
+
+    /**
+     * @param exceptToken 需要保留的 token；null 表示全部移除
+     * @return 移除的会话数
+     */
+    private int revokeUserSessions(Long userId, String exceptToken) {
+        String exceptKey = StrUtil.isBlank(exceptToken)
+                ? null : CacheConstants.LOGIN_TOKEN_KEY + exceptToken;
+        int removed = 0;
+        for (SessionEntry entry : findUserSessions(userId)) {
+            if (Objects.equals(entry.key, exceptKey)) {
+                continue;
+            }
+            if (redisCache.deleteObject(entry.key)) {
+                removed++;
+            }
+        }
+        log.info("账号会话清理完成: userId={}, keepCurrent={}, removed={}",
+                userId, Objects.nonNull(exceptKey), removed);
+        return removed;
+    }
+
+    private String toPublicSessionId(String token) {
+        return DigestUtil.sha256Hex(token).substring(0, 24);
+    }
+
+    private Date toDate(Long timestamp) {
+        return timestamp == null ? null : new Date(timestamp);
+    }
+
+    private static final class SessionEntry {
+        private final String key;
+        private final LoginUser loginUser;
+
+        private SessionEntry(String key, LoginUser loginUser) {
+            this.key = key;
+            this.loginUser = loginUser;
+        }
     }
 
     /**

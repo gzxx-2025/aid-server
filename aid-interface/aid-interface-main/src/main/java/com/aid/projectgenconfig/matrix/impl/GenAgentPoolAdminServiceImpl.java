@@ -207,8 +207,10 @@ public class GenAgentPoolAdminServiceImpl implements IGenAgentPoolAdminService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void saveCell(GenPoolSaveCellRequest request, String operator) {
+        validateCell(request);
         LambdaUpdateWrapper<AidGenAgentPool> del = Wrappers.lambdaUpdate();
-        del.eq(AidGenAgentPool::getBizCategoryCode, request.getBizCategoryCode())
+        del.eq(AidGenAgentPool::getStep, request.getStep())
+                .eq(AidGenAgentPool::getBizCategoryCode, request.getBizCategoryCode())
                 .eq(AidGenAgentPool::getCreationMode, request.getCreationMode())
                 .eq(AidGenAgentPool::getScriptType, request.getScriptType())
                 .eq(AidGenAgentPool::getDelFlag, DEL_FLAG_NORMAL)
@@ -259,7 +261,8 @@ public class GenAgentPoolAdminServiceImpl implements IGenAgentPoolAdminService {
     @Transactional(rollbackFor = Exception.class)
     public void deleteCell(String step, String bizCategoryCode, String creationMode, String scriptType, String operator) {
         LambdaUpdateWrapper<AidGenAgentPool> del = Wrappers.lambdaUpdate();
-        del.eq(AidGenAgentPool::getBizCategoryCode, bizCategoryCode)
+        del.eq(AidGenAgentPool::getStep, step)
+                .eq(AidGenAgentPool::getBizCategoryCode, bizCategoryCode)
                 .eq(AidGenAgentPool::getCreationMode, creationMode)
                 .eq(AidGenAgentPool::getScriptType, scriptType)
                 .eq(AidGenAgentPool::getDelFlag, DEL_FLAG_NORMAL)
@@ -267,6 +270,70 @@ public class GenAgentPoolAdminServiceImpl implements IGenAgentPoolAdminService {
                 .set(AidGenAgentPool::getUpdateBy, operator)
                 .set(AidGenAgentPool::getUpdateTime, DateUtils.getNowDate());
         aidGenAgentPoolService.update(del);
+    }
+
+    /**
+     * 保存前由服务端再次校验智能体与模型成员关系，不能只信任管理端下拉选项。
+     */
+    private void validateCell(GenPoolSaveCellRequest request) {
+        String economyAgent = StrUtil.trimToNull(request.getEconomyAgent());
+        String performanceAgent = StrUtil.trimToNull(request.getPerformanceAgent());
+        if (StrUtil.isBlank(economyAgent) && StrUtil.isBlank(performanceAgent)) {
+            throw new IllegalArgumentException("经济模式和性能模式至少配置一个默认智能体");
+        }
+        if (StrUtil.isNotBlank(request.getEconomyModel()) && StrUtil.isBlank(economyAgent)) {
+            throw new IllegalArgumentException("配置经济模式模型前必须先选择智能体");
+        }
+        if (StrUtil.isNotBlank(request.getPerformanceModel()) && StrUtil.isBlank(performanceAgent)) {
+            throw new IllegalArgumentException("配置性能模式模型前必须先选择智能体");
+        }
+
+        GenPoolOptionsVO options = getOptions(request.getBizCategoryCode());
+        Set<String> availableAgents = options.getAgents().stream()
+                .map(SelectOption::getValue).collect(java.util.stream.Collectors.toSet());
+        Map<String, GenPoolModelOptionVO> availableModels = options.getModels().stream()
+                .collect(java.util.stream.Collectors.toMap(GenPoolModelOptionVO::getValue, model -> model));
+
+        Set<String> requestedAgents = new LinkedHashSet<>();
+        if (StrUtil.isNotBlank(economyAgent)) requestedAgents.add(economyAgent);
+        if (StrUtil.isNotBlank(performanceAgent)) requestedAgents.add(performanceAgent);
+        if (CollectionUtil.isNotEmpty(request.getExtraPoolAgents())) {
+            request.getExtraPoolAgents().stream().map(StrUtil::trim).filter(StrUtil::isNotBlank)
+                    .forEach(requestedAgents::add);
+        }
+        for (String agentCode : requestedAgents) {
+            if (!availableAgents.contains(agentCode)) {
+                throw new IllegalArgumentException("智能体【" + agentCode + "】未启用或不属于当前业务分类");
+            }
+        }
+        validateModelOption("经济模式", request.getEconomyModel(), request.getEconomyResolution(),
+                request.getEconomyAspectRatio(), availableModels);
+        validateModelOption("性能模式", request.getPerformanceModel(), request.getPerformanceResolution(),
+                request.getPerformanceAspectRatio(), availableModels);
+    }
+
+    /** 校验矩阵模型属于 funcCode 模型池，并校验清晰度、比例没有越过模型能力声明。 */
+    private void validateModelOption(String label, String modelCode, String resolution, String aspectRatio,
+                                     Map<String, GenPoolModelOptionVO> availableModels) {
+        String code = StrUtil.trimToNull(modelCode);
+        if (StrUtil.isBlank(code)) {
+            if (StrUtil.isNotBlank(resolution) || StrUtil.isNotBlank(aspectRatio)) {
+                throw new IllegalArgumentException(label + "未选择模型时不能配置清晰度或比例");
+            }
+            return;
+        }
+        GenPoolModelOptionVO option = availableModels.get(code);
+        if (Objects.isNull(option)) {
+            throw new IllegalArgumentException(label + "模型未启用或不属于当前业务模型池");
+        }
+        if (StrUtil.isNotBlank(resolution) && CollectionUtil.isNotEmpty(option.getSizeOptions())
+                && !option.getSizeOptions().contains(resolution)) {
+            throw new IllegalArgumentException(label + "清晰度不在模型能力范围内");
+        }
+        if (StrUtil.isNotBlank(aspectRatio) && CollectionUtil.isNotEmpty(option.getAspectRatioOptions())
+                && !option.getAspectRatioOptions().contains(aspectRatio)) {
+            throw new IllegalArgumentException(label + "比例不在模型能力范围内");
+        }
     }
 
     /** 构造一条池行 */

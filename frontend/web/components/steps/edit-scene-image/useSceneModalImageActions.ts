@@ -3,6 +3,7 @@
 import { message } from 'antd'
 import { createSceneModalImageInteractionOps } from './sceneModalImageInteractionOps'
 import {
+isSinglePrimaryImageType,
 normalizeImageId,
 resolveRpsSourceType
 } from './sceneModalTaskParsers'
@@ -19,7 +20,6 @@ export interface SceneModalImageActionsApi {
   handleImageTitleBlur: (index: number) => Promise<void>
   removeImage: (index: number) => void
   handleDialogueImportMultiple: (payload: { sceneIndex: number; images: any[] }) => void
-  handleGenerateImportMultiple: (payload: { sceneIndex: number; images: any[] }) => void
   removeDialogueSourceImage: (index: number) => void
   handlePreviewImage: (index: number) => void
   handleReplaceImage: (index: number) => void
@@ -33,7 +33,40 @@ export interface SceneModalImageActionsApi {
 }
 
 export function useSceneModalImageActions(ctx: EditSceneImageModalCtx): SceneModalImageActionsApi {
-  const { handleAssetLibraryImport, handleDeleteImage, handleDialogueImportMultiple, handleDownloadImage, handleGenerateImportMultiple, handleImageTitleBlur, handleModifyImage, handleOpenAssetLibrary, handlePreviewImage, handleReplaceImage, handleUploadLocalImage, isAddingSceneImage, isCancellingAdd, removeDialogueSourceImage, removeImage, startEditImageTitle } = createSceneModalImageInteractionOps(ctx)
+  const { handleAssetLibraryImport, handleDeleteImage, handleDialogueImportMultiple, handleDownloadImage, handleImageTitleBlur, handleModifyImage, handleOpenAssetLibrary, handlePreviewImage, handleReplaceImage, handleUploadLocalImage, isAddingSceneImage, isCancellingAdd, removeDialogueSourceImage, removeImage, startEditImageTitle } = createSceneModalImageInteractionOps(ctx)
+
+  function applyMainImageSelection(
+    imageIndex: number,
+    ids?: { imageId?: number | null; formId?: number | null }
+  ) {
+    const nextImages = ctx.localSceneImages.get().map((image, index) => {
+      if (index === imageIndex) {
+        const nextImage = { ...image, _isSet: true }
+        delete nextImage._pending
+        if (ids?.imageId != null && Number.isFinite(Number(ids.imageId))) {
+          nextImage.rpsImageId = Number(ids.imageId)
+        }
+        if (ids?.formId != null && Number.isFinite(Number(ids.formId))) {
+          nextImage.rpsFormId = Number(ids.formId)
+        }
+        return nextImage
+      }
+      if (isSinglePrimaryImageType(ctx.props().imageType) && image._isSet) {
+        return { ...image, _isSet: false }
+      }
+      return image
+    })
+
+    ctx.localSceneImages.set(nextImages)
+    const selectedKey = normalizeImageId(nextImages[imageIndex]?.id)
+    if (isSinglePrimaryImageType(ctx.props().imageType)) {
+      ctx.addedImageIds.set(selectedKey ? new Set([selectedKey]) : new Set())
+    } else if (selectedKey) {
+      ctx.addedImageIds.set(new Set([...ctx.addedImageIds.get(), selectedKey]))
+    }
+    ctx.emitSceneTabUpdate(ctx.buildVisibleImagesForParent())
+  }
+
   async function handleSetMainFromHistory(imageIndex: number) {
     if (isAddingSceneImage()) return
     ctx.currentImageIndex.set(imageIndex)
@@ -75,12 +108,7 @@ export function useSceneModalImageActions(ctx: EditSceneImageModalCtx): SceneMod
           })
 
           if (setOk) {
-            currentImg._isSet = true
-            ;(currentImg as { rpsImageId?: number }).rpsImageId = targetImageId
-            ctx.localSceneImages.set([...ctx.localSceneImages.get()])
-            const key = normalizeImageId(currentImg.id)
-            if (key) ctx.addedImageIds.set(new Set([...ctx.addedImageIds.get(), key]))
-            ctx.emitSceneTabUpdate(ctx.buildVisibleImagesForParent())
+            applyMainImageSelection(imgIdx, { imageId: targetImageId, formId })
             message.success('已设置为主图')
           }
         } finally {
@@ -124,20 +152,7 @@ export function useSceneModalImageActions(ctx: EditSceneImageModalCtx): SceneMod
       }
     }
 
-    // 移除待添加标记，正式添加到列表
     const img = ctx.localSceneImages.get()[index]
-    if (img) {
-      delete img._pending
-      ctx.localSceneImages.set([...ctx.localSceneImages.get()])
-      // 记录已添加的图片ID（用于显示"取消添加"按钮）
-      const addKey = normalizeImageId(img.id)
-      if (addKey) {
-        ctx.addedImageIds.set(new Set([...ctx.addedImageIds.get(), addKey]))
-      }
-    }
-
-    // 清空待添加状态
-    ctx.pendingImage.current = null
 
     let synced = false
     if (img?.url && (img?.rpsImageId == null || !Number.isFinite(Number(img?.rpsImageId)))) {
@@ -179,20 +194,8 @@ export function useSceneModalImageActions(ctx: EditSceneImageModalCtx): SceneMod
       message.warning('设置展示图失败，请稍后重试')
       return
     }
-    if (img) {
-      img._isSet = true
-      if (resolvedImageId != null && Number.isFinite(Number(resolvedImageId))) {
-        ;(img as { rpsImageId?: number }).rpsImageId = Number(resolvedImageId)
-      }
-      if (formId != null && Number.isFinite(Number(formId))) {
-        ;(img as { rpsFormId?: number }).rpsFormId = Number(formId)
-      }
-      ctx.localSceneImages.set([...ctx.localSceneImages.get()])
-    }
-
-    const images = ctx.buildVisibleImagesForParent()
-
-    ctx.emitSceneTabUpdate(images)
+    applyMainImageSelection(index, { imageId: resolvedImageId, formId })
+    ctx.pendingImage.current = null
 
     message.success('场景图已添加')
 
@@ -287,7 +290,6 @@ export function useSceneModalImageActions(ctx: EditSceneImageModalCtx): SceneMod
     handleImageTitleBlur,
     removeImage,
     handleDialogueImportMultiple,
-    handleGenerateImportMultiple,
     removeDialogueSourceImage,
     handlePreviewImage,
     handleReplaceImage,

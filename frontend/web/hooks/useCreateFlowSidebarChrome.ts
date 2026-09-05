@@ -7,11 +7,12 @@ import type { FloatingPanelHandle } from '~/components/common/UserMenuDropdown'
 import { useAuthPublicConfig } from '~/composables/useAuthPublicConfig'
 import { useHomeSidebarExtraNav } from '~/composables/useHomeSidebarExtraNav'
 import { useUserStore } from '~/stores/user'
+import { logoutToPublicHome, requireLogin } from '~/utils/authLoginNavigation'
 import { retainFloatingPosition } from '~/utils/reactUpdateGuards'
 
 /**
  * 创作页左侧栏（原 composables/useCreateFlowSidebarChrome.ts）：
- * 与案例广场一致，「我的作品 / 资产库」走独立页面路由，避免内嵌面板缓存串作品。
+ * 与首页一致，「我的作品 / 资产库」走独立页面路由，避免内嵌面板缓存串作品。
  */
 export function useCreateFlowSidebarChrome() {
   const router = useRouter()
@@ -40,8 +41,8 @@ export function useCreateFlowSidebarChrome() {
   }, [anyPaymentEnabled, isLoggedIn])
 
   const goLogin = useCallback(() => {
-    router.push('/login')
-  }, [router])
+    requireLogin()
+  }, [])
 
   const goHomeFromCreate = useCallback(() => {
     router.push('/')
@@ -49,7 +50,7 @@ export function useCreateFlowSidebarChrome() {
 
   const openWorksPanel = useCallback(() => {
     if (!isLoggedInRef.current) {
-      router.push('/login')
+      requireLogin({ redirect: '/works' })
       return
     }
     router.push('/works')
@@ -57,7 +58,7 @@ export function useCreateFlowSidebarChrome() {
 
   const openAssetsPanel = useCallback(() => {
     if (!isLoggedInRef.current) {
-      router.push('/login')
+      requireLogin({ redirect: '/assets' })
       return
     }
     router.push('/assets')
@@ -65,7 +66,7 @@ export function useCreateFlowSidebarChrome() {
 
   const openInvite = useCallback(() => {
     if (!isLoggedInRef.current) {
-      router.push('/login')
+      requireLogin({ redirect: '/invite' })
       return
     }
     router.push('/invite')
@@ -126,9 +127,8 @@ export function useCreateFlowSidebarChrome() {
       cancelText: '取消',
       centered: true,
       onOk: () => {
-        useUserStore.getState().logout()
+        logoutToPublicHome((href) => router.replace(href))
         closeUserMenu()
-        router.push('/login')
       }
     })
   }, [closeUserMenu, router])
@@ -147,7 +147,7 @@ export function useCreateFlowSidebarChrome() {
 
   const onRecharge = useCallback(() => {
     if (!isLoggedInRef.current) {
-      router.push('/login')
+      requireLogin()
       return
     }
     if (!anyPaymentEnabledRef.current) {
@@ -155,7 +155,7 @@ export function useCreateFlowSidebarChrome() {
       return
     }
     setShowRechargeModal(true)
-  }, [router])
+  }, [])
 
   const openRechargeFromMenu = useCallback(() => {
     closeUserMenu()
@@ -169,7 +169,7 @@ export function useCreateFlowSidebarChrome() {
 
   const handleOpenRechargeByEvent = useCallback(() => {
     if (!isLoggedInRef.current) {
-      router.push('/login')
+      requireLogin()
       return
     }
     if (!anyPaymentEnabledRef.current) {
@@ -177,7 +177,7 @@ export function useCreateFlowSidebarChrome() {
       return
     }
     setShowRechargeModal(true)
-  }, [router])
+  }, [])
 
   return {
     showRechargeModal,

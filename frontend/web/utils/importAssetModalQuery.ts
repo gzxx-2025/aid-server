@@ -40,6 +40,14 @@ export function isImageCategoryCode(code: string | null | undefined): boolean {
   return code.endsWith('_image')
 }
 
+const VIDEO_CATEGORY_CODE_SET = new Set(['storyboard_video', 'storyboard-video'])
+
+export function isVideoCategoryCode(code: string | null | undefined): boolean {
+  if (!code) return false
+  if (VIDEO_CATEGORY_CODE_SET.has(code)) return true
+  return code.endsWith('_video')
+}
+
 /** 从导入弹窗选中节点解析 categoryCode */
 export function resolveImportModalCategoryCode(
   category: string | null | undefined,
@@ -59,7 +67,7 @@ export function resolveImportModalCategoryCode(
   return null
 }
 
-export type ImportAssetDisplayMode = 'folder' | 'image' | 'file'
+export type ImportAssetDisplayMode = 'folder' | 'image' | 'video' | 'file'
 
 export function resolveImportAssetDisplayMode(
   items: Array<{ type?: string; thumbnail?: string }>,
@@ -67,6 +75,9 @@ export function resolveImportAssetDisplayMode(
 ): ImportAssetDisplayMode {
   if (!items.length) return 'folder'
   if (items.every((a) => a.type === 'folder')) return 'folder'
+  if (isVideoCategoryCode(categoryCode)) return 'video'
+  const mediaItems = items.filter((item) => item.type !== 'folder')
+  if (mediaItems.length > 0 && mediaItems.every((item) => item.type === 'video')) return 'video'
   if (isImageCategoryCode(categoryCode)) return 'image'
   if (items.some((a) => a.type === 'image' && a.thumbnail)) return 'image'
   if (items.some((a) => a.type === 'video' && a.thumbnail)) return 'image'
@@ -103,7 +114,8 @@ export function mapUserAssetRowToImportItem(row: UserAssetRow) {
     : []
   const name = row.assetName || '未命名'
   const categoryCode = String(row.assetType || '').trim()
-  const video = /\.(mp4|webm|mov|avi|mkv|m4v)(\?|$)/i.test(url)
+  const video =
+    isVideoCategoryCode(categoryCode) || /\.(mp4|webm|mov|avi|mkv|m4v)(\?|$)/i.test(url)
   const thumb = url || extras[0] || ''
   let type: 'image' | 'video' | 'script' = 'script'
   if (video) type = 'video'

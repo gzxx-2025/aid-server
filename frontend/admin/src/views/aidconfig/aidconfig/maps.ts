@@ -26,6 +26,7 @@ export const CATEGORY_NAMES: Record<string, string> = {
   project_gen_config: '项目生成配置',
   image_moderation: '图片内容安全审查',
   login_policy: '登录与在线策略',
+  account_security: '账号安全',
   admin_entry: '后台登录入口',
   default_avatar: '默认头像',
   admin_brand: '后台品牌图片',
@@ -56,7 +57,7 @@ export const CONFIG_SECTIONS: ConfigSection[] = [
   {
     key: 'account',
     name: '登录与认证',
-    categories: ['login_policy', 'admin_entry', 'default_avatar', 'wxLogin', 'captcha', 'api_crypto', 'security']
+    categories: ['account_security', 'login_policy', 'admin_entry', 'default_avatar', 'wxLogin', 'captcha', 'api_crypto', 'security']
   },
   { key: 'task', name: '任务与并发', categories: ['media', 'mps', 'tencent_asr', 'taskq', 'mq'] },
   { key: 'ai', name: 'AI 与生成', categories: ['agent_model', 'project_gen_config', 'storyboard'] },
@@ -80,6 +81,10 @@ export function isRestartRequired(category: string | undefined, name: string): b
  * 用于像 captcha 这种存在通用字段名（如 type）的分类，避免与其它分类的同名字段冲突。
  */
 export const CATEGORY_FIELD_LABELS: Record<string, Record<string, string>> = {
+  account_security: {
+    cancel_re_registration_enabled: '限制注销账号再次注册',
+    cancel_re_registration_days: '再次注册限制天数'
+  },
   // 登录与在线策略（need10）
   login_policy: {
     allow_multi_online: '允许多端同时在线',
@@ -432,6 +437,7 @@ export const PROVIDER_FILTER_DRIVER: Record<string, { field: string; default: st
  * 使用显式白名单可以保留前导零，也能保证空值配置仍渲染为正确的数值输入框。
  */
 const NUMBER_FIELDS_BY_CATEGORY: Record<string, string[]> = {
+  account_security: ['cancel_re_registration_days'],
   admin_entry: ['rate_limit_per_min'],
   api_crypto: ['gzip_threshold', 'max_plain_size', 'timestamp_window_ms'],
   captcha: ['captcha_expire_seconds', 'token_expire_seconds'],

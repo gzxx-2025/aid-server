@@ -1,5 +1,8 @@
 package com.aid.media.service.impl;
 
+import com.aid.common.error.TaskErrorSnapshot;
+import com.aid.common.error.TaskErrorCode;
+import com.aid.common.error.TaskErrorPresentation;
 import cn.hutool.core.collection.CollectionUtil;
 import cn.hutool.core.util.IdUtil;
 import cn.hutool.core.util.StrUtil;
@@ -27,6 +30,7 @@ import com.aid.common.error.TaskErrorResult;
 import com.aid.common.error.TaskSuccessValidator;
 import com.aid.common.constant.HttpConstants;
 import com.aid.common.exception.ServiceException;
+import com.aid.common.aid.redis.utils.RedisUtils;
 import com.aid.common.oss.entity.UploadResult;
 import com.aid.common.oss.factory.OssFactory;
 import com.aid.common.satoken.utils.LoginHelper;
@@ -54,6 +58,8 @@ import com.aid.media.dto.PreparedMediaBillingInput;
 import com.aid.media.enums.MediaBillingStatus;
 import com.aid.media.enums.MediaTaskStatus;
 import com.aid.media.enums.MediaType;
+import com.aid.media.eta.MediaEtaRecorder;
+import com.aid.media.eta.MediaEtaService;
 import com.aid.media.provider.ImageProviderClient;
 import com.aid.media.provider.KlingVideoRequestBuilder;
 import com.aid.media.provider.MinimaxH3VideoRequestBuilder;
@@ -63,6 +69,8 @@ import com.aid.media.provider.ProviderUsageSupport;
 import com.aid.media.provider.ReasoningContentSanitizer;
 import com.aid.media.provider.ProviderTaskResult;
 import com.aid.media.provider.TextProviderClient;
+import com.aid.media.provider.TextGenerationControl;
+import com.aid.media.provider.TextModelCapabilityValidator;
 import com.aid.media.provider.TextOutputLimitResolver;
 import com.aid.media.provider.TextStreamCallbacks;
 import com.aid.media.provider.VideoProviderClient;
@@ -109,6 +117,10 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.net.URI;
 import java.util.*;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
@@ -117,6 +129,8 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class MediaGenerationServiceImpl implements IMediaGenerationService, MediaBillingQuotePreparer {
+
+    private final Map<Long, TextStreamCancellationControl> activeTextStreams = new ConcurrentHashMap<>();
 
     // 默认图片模型名称：与首期默认协议一致，可在 aid_ai_model 覆盖。
     private static final String DEFAULT_IMAGE_MODEL = DashscopeConstants.PROTOCOL_IMAGE;
@@ -128,6 +142,8 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService, Medi
     private static final String DEFAULT_TEXT_PROTOCOL = OpenAiCompatibleConstants.PROTOCOL_TEXT;
     // 流式 SSE 审计快照写入 aid_media_task.response_json 时的最大字符数，防止超大字段。
     private static final int TEXT_STREAM_RAW_MAX_CHARS = 100_000;
+    private static final String TEXT_CANCEL_CHANNEL = "aid:media:text:cancel";
+    private static final long TEXT_CANCEL_PERSISTENCE_CHECK_NANOS = TimeUnit.MILLISECONDS.toNanos(250);
     // 补偿轮询最小扫描间隔（秒）：避免刚被前端轮询的任务立刻被补偿任务重复查询。
     private static final int COMPENSATION_MIN_SCAN_GAP_SECONDS = 5;
     // 补偿轮询默认批量：单次最多处理 50 条，避免长事务或瞬时压力峰值。
@@ -137,6 +153,7 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService, Medi
     private static final int OSS_COMPENSATION_READY_GAP_SECONDS = 60;
     // provider 远程调用慢调用 WARN 阈值（毫秒）：超过则单独 WARN，便于一眼定位 390s 这类慢上游。
     private static final long SLOW_SUBMIT_WARN_MS = 60_000L;
+    private static final String STORYBOARD_VIDEO_GENERATE_BIZ_TYPE = "storyboard_video_generate";
     /** 上游产物下载最多允许的受控重定向次数。 */
     private static final int ORIGIN_DOWNLOAD_MAX_REDIRECTS = 3;
     // 秒→毫秒换算：产物时长在任务表按秒存储，解析结果需向上取整到秒。
@@ -208,6 +225,17 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService, Medi
     // 滚动文本 child 创建门禁：与父周期回滚共用数据库行锁，阻断迟到 worker 跨周期建单。
     private final IExtractBillingService extractBillingService;
 
+    /** ETA 计算与成功样本采集采用字段注入，避免扩大本类已有大型构造器的测试改造面。 */
+    @org.springframework.beans.factory.annotation.Autowired
+    private MediaEtaService mediaEtaService;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private MediaEtaRecorder mediaEtaRecorder;
+
+    /** 父任务取消标记用于阻止其遗留 QUEUED 子任务在取消后再次被调度。 */
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.aid.rps.queue.TaskCancelFlagManager taskCancelFlagManager;
+
     @PostConstruct
     void clampMaxCompensationRetry() {
         if (maxCompensationRetry < 1) {
@@ -217,6 +245,7 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService, Medi
         // 初始化 REQUIRES_NEW 短事务模板：建任务/预冻结独立提交，不并入上层调用方事务。
         this.requiresNewTxTemplate = new TransactionTemplate(transactionTemplate.getTransactionManager());
         this.requiresNewTxTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        RedisUtils.subscribe(TEXT_CANCEL_CHANNEL, Long.class, this::cancelLocalTextStream);
     }
 
     @Override
@@ -338,8 +367,10 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService, Medi
     @Override
     public PreparedMediaBillingInput prepareTextBilling(MediaTextGenerateRequest request)
     {
+        TextGenerationControl.normalize(request, false);
         validateTextRequest(request);
         AiModelConfigVo modelConfig = resolveModel(request.getModelName(), MediaType.TEXT);
+        TextModelCapabilityValidator.normalizeAndValidate(modelConfig, request);
         TextOutputLimitResolver.normalize(request, modelConfig);
         return new PreparedMediaBillingInput(modelConfig,
                 BillingInputExtractor.fromTextRequest(request));
@@ -808,17 +839,27 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService, Medi
 
     @Override
     public void generateTextStream(MediaTextGenerateRequest request, MediaTextStreamSink sink) {
+        TextGenerationControl.normalize(request, true);
         validateTextRequest(request);
         Long effectiveUserId = request.getUserId() != null ? request.getUserId() : getCurrentUserIdSafe();
         AiModelConfigVo modelConfig = resolveModel(request.getModelName(), MediaType.TEXT);
+        TextModelCapabilityValidator.normalizeAndValidate(modelConfig, request);
         TextOutputLimitResolver.normalize(request, modelConfig);
         String requestJson = MediaTaskPayloadSanitizer.serializeRequest(request);
+        String requestHash = buildRequestHash(MediaType.TEXT.name(), request, effectiveUserId);
+        AidMediaTask existing = StrUtil.isNotBlank(request.getCallId())
+                ? findTaskByIdempotencyKey(request.getCallId()) : null;
+        if (existing != null) {
+            validateTextIdempotencyWinner(existing, request, effectiveUserId, modelConfig.getModelCode());
+            notifyExistingTextStream(sink, existing);
+            return;
+        }
         TextProviderClient client = resolveTextClient(request.getModelName(), modelConfig);
         boolean canRun = concurrencyLimiter.tryAcquire(effectiveUserId, modelConfig.getModelCode());
         boolean exempt = Boolean.TRUE.equals(request.getBillingExempt());
 
         AidMediaTask task = buildTextStreamTask(request, requestJson, modelConfig, client,
-                canRun, effectiveUserId);
+                canRun, effectiveUserId, requestHash);
         try {
             // 调用线程同步完成“任务落库 + 预冻结”，短事务提交后才向业务返回 taskId。
             requiresNewTxTemplate.executeWithoutResult(status -> {
@@ -833,6 +874,20 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService, Medi
                 }
                 updateTaskWithPayloadArchive(task);
             });
+        } catch (DuplicateKeyException duplicate) {
+            if (canRun) {
+                releaseConcurrencyAfterCompletion(task);
+            }
+            AidMediaTask winner = findTaskByIdempotencyKey(request.getCallId());
+            if (winner != null) {
+                validateTextIdempotencyWinner(winner, request, effectiveUserId, modelConfig.getModelCode());
+                log.info("文本流式逻辑调用已由并发请求创建，附着原任务, callId={}, taskId={}",
+                        request.getCallId(), winner.getId());
+                notifyExistingTextStream(sink, winner);
+                return;
+            }
+            safeNotifyTextSink(task.getId(), "failed", () -> sink.onFailed("任务处理中"));
+            return;
         } catch (RuntimeException prepareError) {
             log.error("文本流式任务准备失败, taskId={}, errorType={}", task.getId(),
                     prepareError.getClass().getSimpleName(), prepareError);
@@ -874,12 +929,16 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService, Medi
         }
 
         try {
-            boolean accepted = executeTextStreamAsync(
-                    () -> runTextStreamWorker(request, modelConfig, client, sink, task));
+            TextStreamCancellationControl control = new TextStreamCancellationControl();
+            activeTextStreams.put(task.getId(), control);
+            boolean accepted = executeTextStreamAsync(control,
+                    () -> runTextStreamWorker(request, modelConfig, client, sink, task, control));
             if (!accepted) {
+                activeTextStreams.remove(task.getId(), control);
                 rejectPreparedTextStreamTask(task, sink, null);
             }
         } catch (Exception rejectEx) {
+            activeTextStreams.remove(task.getId());
             log.error("文本流式提交线程池被拒绝, taskId={}, errorType={}", task.getId(),
                     rejectEx.getClass().getSimpleName(), rejectEx);
             rejectPreparedTextStreamTask(task, sink, rejectEx);
@@ -890,20 +949,23 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService, Medi
      * 共享线程池使用 CallerRunsPolicy。文本长流禁止回落到请求线程，因此用线程身份守卫把
      * CallerRuns 转为显式拒绝；不修改共享池的既有拒绝策略，也不新建第二套队列。
      */
-    private boolean executeTextStreamAsync(Runnable worker) {
+    private boolean executeTextStreamAsync(TextStreamCancellationControl control, Runnable worker) {
         if (threadPoolTaskExecutor.getThreadPoolExecutor().isShutdown()) {
             return false;
         }
         Thread submitThread = Thread.currentThread();
         AtomicBoolean callerRunsFallback = new AtomicBoolean(false);
         AtomicBoolean executeReturned = new AtomicBoolean(false);
-        threadPoolTaskExecutor.execute(() -> {
+        FutureTask<Void> future = new FutureTask<>(() -> {
             if (Thread.currentThread() == submitThread && !executeReturned.get()) {
                 callerRunsFallback.set(true);
-                return;
+                return null;
             }
             worker.run();
+            return null;
         });
+        control.attach(future);
+        threadPoolTaskExecutor.execute(future);
         executeReturned.set(true);
         return !callerRunsFallback.get();
     }
@@ -924,7 +986,7 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService, Medi
 
     private AidMediaTask buildTextStreamTask(MediaTextGenerateRequest request, String requestJson,
                                               AiModelConfigVo modelConfig, TextProviderClient client,
-                                              boolean canRun, Long effectiveUserId) {
+                                              boolean canRun, Long effectiveUserId, String requestHash) {
         AidMediaTask task = new AidMediaTask();
         task.setUserId(effectiveUserId);
         task.setProjectId(request.getProjectId());
@@ -933,6 +995,8 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService, Medi
         task.setProtocol(client.protocol());
         task.setModelName(modelConfig.getModelCode());
         task.setPrompt(summarizeTextPromptForTask(request));
+        task.setRequestHash(requestHash);
+        task.setIdempotencyKey(StrUtil.blankToDefault(request.getCallId(), null));
         task.setRequestJson(requestJson);
         task.setStatus(canRun ? MediaTaskStatus.PENDING.name() : MediaTaskStatus.QUEUED.name());
         task.setBillingStatus(Boolean.TRUE.equals(request.getBillingExempt())
@@ -945,11 +1009,40 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService, Medi
     }
 
     /**
+     * 流式幂等命中只附着既有任务。进行中任务交给 Run 事件/查询恢复，绝不再次提交 Provider。
+     */
+    private void notifyExistingTextStream(MediaTextStreamSink sink, AidMediaTask existing) {
+        try {
+            sink.onTaskPrepared(existing.getId());
+        } catch (RuntimeException attachError) {
+            log.info("文本流式幂等任务附着失败, taskId={}, errorType={}",
+                    existing.getId(), attachError.getClass().getSimpleName());
+            safeNotifyTextSink(existing.getId(), "failed", () -> sink.onFailed("请求失败"));
+            return;
+        }
+        if (MediaTaskStatus.SUCCEEDED.name().equals(existing.getStatus())) {
+            safeNotifyTextSink(existing.getId(), "done",
+                    () -> sink.onDone(StrUtil.blankToDefault(existing.getResultText(), ""), null));
+            return;
+        }
+        if (MediaTaskStatus.FAILED.name().equals(existing.getStatus())) {
+            safeNotifyTextSink(existing.getId(), "failed",
+                    () -> sink.onFailed(StrUtil.blankToDefault(existing.getErrorMessage(), "生成失败")));
+            return;
+        }
+        if (MediaTaskStatus.CANCELLED.name().equals(existing.getStatus())) {
+            safeNotifyTextSink(existing.getId(), "failed", () -> sink.onFailed("任务已取消"));
+            return;
+        }
+        safeNotifyTextSink(existing.getId(), "detached", () -> sink.onDetached(existing.getId()));
+    }
+
+    /**
      * 业务含义：后台线程只读取上游 SSE 并竞争终态；任务与冻结金额已在调用线程提交。
      */
     private void runTextStreamWorker(MediaTextGenerateRequest request, AiModelConfigVo modelConfig,
                                      TextProviderClient client, MediaTextStreamSink sink,
-                                     AidMediaTask task) {
+                                     AidMediaTask task, TextStreamCancellationControl control) {
         StringBuilder aggregated = new StringBuilder();
         StringBuilder raw = new StringBuilder();
         AtomicBoolean streamFailed = new AtomicBoolean(false);
@@ -960,16 +1053,27 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService, Medi
             // 业务含义：阻塞读 SSE，增量同时推 sink 与本地聚合，供落库全文。
             client.streamChat(modelConfig, request, new TextStreamCallbacks() {
                 @Override
+                public void onResponseBody(AutoCloseable responseBody) {
+                    control.attachResponseBody(responseBody);
+                }
+
+                @Override
                 public void onDelta(String textDelta) {
+                    if (isTextStreamCancellationRequested(task.getId(), control)) {
+                        throw new CancellationException("用户停止");
+                    }
                     if (textDelta != null) {
                         aggregated.append(textDelta);
+                        if (!control.updatePartialIfActive(aggregated.toString())) {
+                            throw new CancellationException("用户停止");
+                        }
                         safeNotifyTextSink(task.getId(), "delta", () -> sink.onDelta(textDelta));
                     }
                 }
 
                 @Override
                 public void onReasoningDelta(String reasoningDelta) {
-                    if (reasoningDelta != null) {
+                    if (reasoningDelta != null && Boolean.TRUE.equals(request.getIncludeReasoning())) {
                         safeNotifyTextSink(task.getId(), "reasoning_delta",
                                 () -> sink.onReasoningDelta(reasoningDelta));
                     }
@@ -1069,27 +1173,142 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService, Medi
                 safeNotifyTextSink(task.getId(), "done", () -> sink.onDone(aggregatedText, rawSnapshot));
                 publishTextTaskCompletedSafely(task);
             }
+        } catch (CancellationException ex) {
+            log.info("文本流任务已停止, taskId={}", task.getId());
         } catch (IOException ex) {
             log.error("文本流式 IO 异常, taskId={}, errorType={}", task.getId(),
                     ex.getClass().getSimpleName());
+            task.setErrorDetailJson(TaskErrorSnapshot.write(ErrorNormalizer.normalize(
+                    String.valueOf(task.getId()), null, task.getModelName(), ex)));
             boolean terminalWon = finishTextStreamFailure(task,
                     ProviderErrorSanitizer.safeMessage(ex.getMessage(), "上游连接失败"), null,
                     MediaTaskStatus.PENDING.name(), capturedUsage.get());
             if (terminalWon) {
                 releaseConcurrency(task);
-                safeNotifyTextSink(task.getId(), "failed", () -> sink.onFailed("生成失败"));
+                safeNotifyTextSink(task.getId(), "failed", () -> sink.onFailed(TaskErrorSnapshot.fromTask(task).getUserMessage()));
                 publishTextTaskCompletedSafely(task);
             }
         } catch (Exception ex) {
             log.error("文本流式编排失败, taskId={}, errorType={}", task.getId(),
                     ex.getClass().getSimpleName());
+            task.setErrorDetailJson(TaskErrorSnapshot.write(ErrorNormalizer.normalize(
+                    String.valueOf(task.getId()), null, task.getModelName(), ex)));
             boolean terminalWon = finishTextStreamFailure(task,
                     ProviderErrorSanitizer.safeMessage(ex.getMessage(), "生成编排失败"), null,
                     MediaTaskStatus.PENDING.name(), capturedUsage.get());
             if (terminalWon) {
                 releaseConcurrency(task);
-                safeNotifyTextSink(task.getId(), "failed", () -> sink.onFailed("生成失败"));
+                safeNotifyTextSink(task.getId(), "failed", () -> sink.onFailed(TaskErrorSnapshot.fromTask(task).getUserMessage()));
                 publishTextTaskCompletedSafely(task);
+            }
+        } finally {
+            activeTextStreams.remove(task.getId(), control);
+        }
+    }
+
+    @Override
+    public MediaTaskResponse cancelTextTask(Long taskId, Long userId) {
+        if (taskId == null || taskId <= 0 || userId == null || userId <= 0) {
+            throw new ServiceException("任务参数错误");
+        }
+        AidMediaTask task = aidMediaTaskMapper.selectOne(new LambdaQueryWrapper<AidMediaTask>()
+                .eq(AidMediaTask::getId, taskId)
+                .eq(AidMediaTask::getUserId, userId)
+                .eq(AidMediaTask::getMediaType, MediaType.TEXT.name())
+                .last("LIMIT 1"));
+        if (task == null) {
+            throw new ServiceException("任务不存在");
+        }
+        if (MediaTaskStatus.CANCELLED.name().equals(task.getStatus())) {
+            publishTextCancelSignalSafely(taskId);
+            cancelLocalTextStream(taskId);
+            return toResponse(aidMediaTaskMapper.selectById(taskId));
+        }
+        if (!MediaTaskStatus.PENDING.name().equals(task.getStatus())
+                && !MediaTaskStatus.QUEUED.name().equals(task.getStatus())) {
+            throw new ServiceException("任务已结束");
+        }
+
+        String expectedStatus = task.getStatus();
+        TextStreamCancellationControl control = activeTextStreams.get(taskId);
+        String partialText = control == null ? task.getResultText() : control.partialText();
+        task.setStatus(MediaTaskStatus.CANCELLED.name());
+        task.setResultText(StrUtil.isBlank(partialText) ? null : partialText);
+        task.setResponseJson(null);
+        task.setErrorMessage("用户停止");
+        boolean terminalWon = finishTextStreamTerminal(task, expectedStatus, false, null);
+        if (!terminalWon) {
+            AidMediaTask current = aidMediaTaskMapper.selectById(taskId);
+            if (current == null) {
+                throw new ServiceException("任务不存在");
+            }
+            if (!MediaTaskStatus.CANCELLED.name().equals(current.getStatus())) {
+                if (MediaTaskStatus.PENDING.name().equals(current.getStatus())
+                        || MediaTaskStatus.QUEUED.name().equals(current.getStatus())) {
+                    return cancelTextTask(taskId, userId);
+                }
+                throw new ServiceException("任务已结束");
+            }
+            return toResponse(current);
+        }
+
+        publishTextCancelSignalSafely(taskId);
+        cancelLocalTextStream(taskId);
+        if (MediaTaskStatus.PENDING.name().equals(expectedStatus)) {
+            releaseConcurrency(task);
+        } else {
+            drainQueue();
+        }
+        publishTextTaskCompletedSafely(task);
+        AidMediaTask current = aidMediaTaskMapper.selectById(taskId);
+        return toResponse(current == null ? task : current);
+    }
+
+    private boolean isTextStreamCancellationRequested(Long taskId, TextStreamCancellationControl control) {
+        if (control.isCancelled()) {
+            return true;
+        }
+        if (!control.shouldCheckPersistentCancellation(TEXT_CANCEL_PERSISTENCE_CHECK_NANOS)) {
+            return false;
+        }
+        AidMediaTask current = aidMediaTaskMapper.selectOne(new LambdaQueryWrapper<AidMediaTask>()
+                .select(AidMediaTask::getStatus)
+                .eq(AidMediaTask::getId, taskId)
+                .last("LIMIT 1"));
+        if (current != null && MediaTaskStatus.CANCELLED.name().equals(current.getStatus())) {
+            control.cancel();
+            return true;
+        }
+        return false;
+    }
+
+    private void publishTextCancelSignalSafely(Long taskId) {
+        try {
+            RedisUtils.publish(TEXT_CANCEL_CHANNEL, taskId);
+        } catch (RuntimeException publishError) {
+            log.warn("文本任务取消信号发布失败，worker 将通过 DB 终态复核停止, taskId={}, errorType={}",
+                    taskId, publishError.getClass().getSimpleName());
+        }
+    }
+
+    private void cancelLocalTextStream(Long taskId) {
+        TextStreamCancellationControl control = activeTextStreams.get(taskId);
+        if (control == null) {
+            return;
+        }
+        String partialText = control.cancelAndGetPartial();
+        if (StrUtil.isNotBlank(partialText)) {
+            int enriched = aidMediaTaskMapper.update(null, new LambdaUpdateWrapper<AidMediaTask>()
+                    .eq(AidMediaTask::getId, taskId)
+                    .eq(AidMediaTask::getStatus, MediaTaskStatus.CANCELLED.name())
+                    .set(AidMediaTask::getResultText, partialText)
+                    .set(AidMediaTask::getUpdateBy, "system")
+                    .set(AidMediaTask::getUpdateTime, new Date()));
+            if (enriched == 1) {
+                AidMediaTask cancelled = aidMediaTaskMapper.selectById(taskId);
+                if (cancelled != null) {
+                    publishTextTaskCompletedSafely(cancelled);
+                }
             }
         }
     }
@@ -1106,6 +1325,10 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService, Medi
     private boolean finishTextStreamFailure(AidMediaTask task, String errorMessage, String responseJson,
                                             String expectedStatus, Map<String, Object> usage) {
         task.setStatus(MediaTaskStatus.FAILED.name());
+        if (TaskErrorSnapshot.read(task.getErrorDetailJson()) == null) {
+            task.setErrorDetailJson(TaskErrorSnapshot.write(ErrorNormalizer.normalize(
+                    String.valueOf(task.getId()), null, task.getModelName(), -1, errorMessage)));
+        }
         task.setErrorMessage(ProviderErrorSanitizer.safeMessage(errorMessage, "生成失败"));
         task.setResponseJson(responseJson);
         task.setResultText(null);
@@ -1417,6 +1640,48 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService, Medi
         return drained;
     }
 
+    @Override
+    public int cancelQueuedVideoTasksForParent(Long parentTaskId, Long userId) {
+        if (Objects.isNull(parentTaskId) || parentTaskId <= 0
+                || Objects.isNull(userId) || userId <= 0) {
+            return 0;
+        }
+        long lowerBizTaskId;
+        long upperBizTaskId;
+        try {
+            lowerBizTaskId = Math.multiplyExact(parentTaskId,
+                    com.aid.rps.queue.MediaGenFanInSupport.BIZ_SEQ_PARENT_FACTOR);
+            upperBizTaskId = Math.addExact(lowerBizTaskId,
+                    com.aid.rps.queue.MediaGenFanInSupport.BIZ_SEQ_PARENT_FACTOR);
+        } catch (ArithmeticException overflow) {
+            log.error("分镜视频父任务关联ID溢出: parentTaskId={}", parentTaskId, overflow);
+            return 0;
+        }
+
+        LambdaQueryWrapper<AidMediaTask> wrapper = new LambdaQueryWrapper<>();
+        wrapper.select(AidMediaTask::getId);
+        wrapper.eq(AidMediaTask::getUserId, userId);
+        wrapper.eq(AidMediaTask::getMediaType, MediaType.VIDEO.name());
+        wrapper.eq(AidMediaTask::getBizTaskType, STORYBOARD_VIDEO_GENERATE_BIZ_TYPE);
+        wrapper.eq(AidMediaTask::getStatus, MediaTaskStatus.QUEUED.name());
+        wrapper.and(scope -> scope.eq(AidMediaTask::getParentTaskId, parentTaskId)
+                .or(legacy -> legacy.isNull(AidMediaTask::getParentTaskId)
+                        .ge(AidMediaTask::getBizTaskId, lowerBizTaskId)
+                        .lt(AidMediaTask::getBizTaskId, upperBizTaskId)));
+        wrapper.orderByAsc(AidMediaTask::getId);
+        List<AidMediaTask> queuedTasks = aidMediaTaskMapper.selectList(wrapper);
+        int cancelledCount = 0;
+        for (AidMediaTask queuedTask : queuedTasks) {
+            if (taskCompletionService.cancelQueuedTask(
+                    queuedTask.getId(), userId, "用户取消，未提交")) {
+                cancelledCount++;
+            }
+        }
+        log.info("分镜视频排队子任务取消完成: parentTaskId={}, queuedClosed={}",
+                parentTaskId, cancelledCount);
+        return cancelledCount;
+    }
+
     /**
      * OSS 持久化补偿：扫描成功但 ossUrl 为空的任务，重试下载+上传+业务回填。
      *
@@ -1712,6 +1977,9 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService, Medi
      * 采集器内部吞异常，不影响主流程。
      */
     private void recordSubmitHealthSuccess(AidMediaTask task) {
+        if (task.getTerminalTime() == null) {
+            task.setTerminalTime(new Date());
+        }
         Long latencyMs = Objects.nonNull(task.getCreateTime())
                 ? System.currentTimeMillis() - task.getCreateTime().getTime() : null;
         modelHealthRecorder.recordSuccess(task.getModelName(), task.getMediaType(), latencyMs);
@@ -2560,7 +2828,7 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService, Medi
     private void validatePrompt(String prompt) {
         // 统一校验 prompt 非空，保证上下游处理逻辑一致。
         if (StringUtils.isBlank(prompt)) {
-            throw new ServiceException("提示词不能为空");
+            throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_EMPTY, "请填写提示词");
         }
     }
 
@@ -2715,11 +2983,12 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService, Medi
         }
         // 单轮 prompt 有字即视为有效用户输入。
         boolean hasPrompt = StringUtils.isNotBlank(request.getPrompt());
-        // 多轮中任一条非空 content 即视为有效用户输入。
+        // 多轮中正文或任一有效内容块都可构成模型输入。
         boolean hasMessageBody = false;
         if (CollectionUtil.isNotEmpty(request.getMessages())) {
             for (MediaTextGenerateRequest.TextMessageItem item : request.getMessages()) {
-                if (item != null && StringUtils.isNotBlank(item.getContent())) {
+                if (item != null && (StringUtils.isNotBlank(item.getContent())
+                        || CollectionUtil.isNotEmpty(item.getParts()))) {
                     hasMessageBody = true;
                     break;
                 }
@@ -2727,7 +2996,7 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService, Medi
         }
         // 两者皆无则无法构造 user 侧语义，拒绝请求。
         if (!hasPrompt && !hasMessageBody) {
-            throw new ServiceException("提示词不能为空");
+            throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_EMPTY, "请填写提示词");
         }
     }
 
@@ -2746,14 +3015,24 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService, Medi
         boolean hasNonSystemContent = false;
         if (CollectionUtil.isNotEmpty(request.getMessages())) {
             for (MediaTextGenerateRequest.TextMessageItem item : request.getMessages()) {
-                if (item == null || StringUtils.isBlank(item.getContent())) {
+                if (item == null) {
                     continue;
                 }
                 if ("system".equalsIgnoreCase(item.getRole())) {
                     continue;
                 }
-                sb.append(item.getContent()).append(';');
-                hasNonSystemContent = true;
+                if (StringUtils.isNotBlank(item.getContent())) {
+                    sb.append(item.getContent()).append(';');
+                    hasNonSystemContent = true;
+                }
+                if (CollectionUtil.isNotEmpty(item.getParts())) {
+                    long mediaCount = item.getParts().stream().filter(Objects::nonNull)
+                            .filter(part -> !"text".equalsIgnoreCase(part.getType())).count();
+                    if (mediaCount > 0) {
+                        sb.append("[媒体:").append(mediaCount).append("];");
+                        hasNonSystemContent = true;
+                    }
+                }
             }
             // 极端兜底:仅有 system 消息且业务方未传 digest 时,降级写一个占位标识,
             // 避免 prompt 列写入空字符串后续审计无法定位任务来源
@@ -2903,7 +3182,9 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService, Medi
                 && Objects.equals(StrUtil.blankToDefault(request.getBizTaskType(), null),
                         StrUtil.blankToDefault(winner.getBizTaskType(), null))
                 && Objects.equals(modelCode, winner.getModelName())
-                && Objects.equals(request.getBillingAttemptId(), storedAttemptId);
+                && Objects.equals(request.getBillingAttemptId(), storedAttemptId)
+                && Objects.equals(buildRequestHash(MediaType.TEXT.name(), request, effectiveUserId),
+                        winner.getRequestHash());
         if (!sameIdentity) {
             log.error("文本调用幂等身份冲突，拒绝复用: callId={}, winnerTaskId={}, "
                             + "requestUser={}, winnerUser={}, requestBiz={}/{}, winnerBiz={}/{}, "
@@ -3036,6 +3317,14 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService, Medi
      * 填充更新信息：updateBy、updateTime
      */
     private MediaTaskArchiveService.PreparedTerminalPayload fillUpdateInfo(AidMediaTask task) {
+        if (MediaTaskStatus.FAILED.name().equals(task.getStatus())) {
+            if (TaskErrorSnapshot.read(task.getErrorDetailJson()) == null) {
+                task.setErrorDetailJson(TaskErrorSnapshot.write(ErrorNormalizer.normalize(
+                        String.valueOf(task.getId()), null, task.getModelName(), -1, task.getErrorMessage())));
+            }
+        } else {
+            task.setErrorDetailJson(null);
+        }
         if (MediaType.TEXT.name().equals(task.getMediaType())) {
             // Provider 适配器是第一道防线；统一写库/归档边界再次剔除明文思维链，
             // 防止未来新增 Provider 遗漏脱敏后污染 response_json、归档或错误字段。
@@ -3043,6 +3332,11 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService, Medi
             if (StringUtils.isNotBlank(task.getErrorMessage())) {
                 task.setErrorMessage(ProviderErrorSanitizer.safeMessage(task.getErrorMessage(), "文本生成失败"));
             }
+        }
+        if ((MediaTaskStatus.SUCCEEDED.name().equals(task.getStatus())
+                || MediaTaskStatus.FAILED.name().equals(task.getStatus()))
+                && task.getTerminalTime() == null) {
+            task.setTerminalTime(new Date());
         }
         // 终态统一压缩 request_json、清空 response_json；开关开启时先保留不可变快照并异步归档。
         MediaTaskArchiveService.PreparedTerminalPayload preparedPayload =
@@ -3562,6 +3856,8 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService, Medi
                 task.setStatus(dbTask.getStatus());
                 task.setBillingStatus(dbTask.getBillingStatus());
                 task.setErrorMessage(dbTask.getErrorMessage());
+                task.setErrorDetailJson(dbTask.getErrorDetailJson());
+                task.setTerminalTime(dbTask.getTerminalTime());
                 task.setOriginUrl(dbTask.getOriginUrl());
                 task.setResultText(dbTask.getResultText());
                 task.setOssUrl(dbTask.getOssUrl());
@@ -3648,7 +3944,8 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService, Medi
             } else if (Objects.equals(task.getMediaType(), MediaType.TEXT.name())) {
                 MediaTextGenerateRequest textReq = JSONUtil.toBean(task.getRequestJson(), MediaTextGenerateRequest.class);
                 TextProviderClient client = resolveTextClient(textReq.getModelName(), modelConfig);
-                boolean useNonStream = textReq.getPreferNonStream() != null && textReq.getPreferNonStream();
+                TextGenerationControl.normalize(textReq, false);
+                boolean useNonStream = !TextGenerationControl.isStreaming(textReq);
                 log.info("排队拉起文本任务: taskId={}, mode={}", task.getId(),
                         useNonStream ? "NON_STREAM" : "STREAM");
                 markTextProviderCallStarted(task, textReq);
@@ -3685,6 +3982,9 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService, Medi
             //    整段用 try/catch 兜住：OSS / 回调 / 事件均为成功后的副作用，其异常不得冒泡到下方失败 catch，
             //    否则会对已成功并已释放并发槽的任务再次走退款/释放，导致并发计数被重复扣减。
             if (terminalWon && MediaTaskStatus.SUCCEEDED.name().equals(task.getStatus())) {
+                if (mediaEtaRecorder != null) {
+                    mediaEtaRecorder.recordSuccess(task);
+                }
                 try {
                     persistOssIfNeeded(task);
                     tryInvokeGenResultCallback(task);
@@ -3718,6 +4018,8 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService, Medi
                     task.getId(), task.getModelName(), submitElapsedMs, ex);
             }
             task.setStatus(MediaTaskStatus.FAILED.name());
+            task.setErrorDetailJson(TaskErrorSnapshot.write(ErrorNormalizer.normalize(
+                    String.valueOf(task.getId()), null, task.getModelName(), ex)));
             task.setErrorMessage(textTask
                     ? ProviderErrorSanitizer.safeMessage(ex.getMessage(), "文本提交失败")
                     : StringUtils.defaultIfBlank(ex.getMessage(), "提交失败"));
@@ -3806,7 +4108,8 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService, Medi
     private void publishTextTaskCompletedSafely(AidMediaTask task) {
         if (task == null || task.getId() == null || !MediaType.TEXT.name().equals(task.getMediaType())
                 || !(MediaTaskStatus.SUCCEEDED.name().equals(task.getStatus())
-                || MediaTaskStatus.FAILED.name().equals(task.getStatus()))) {
+                || MediaTaskStatus.FAILED.name().equals(task.getStatus())
+                || MediaTaskStatus.CANCELLED.name().equals(task.getStatus()))) {
             return;
         }
         try {
@@ -3926,6 +4229,12 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService, Medi
             drainQueue();
             return;
         }
+        if (isCancelledStoryboardVideoParent(task)) {
+            taskCompletionService.cancelQueuedTask(taskId, userId, "用户取消，未提交");
+            concurrencyLimiter.release(userId, modelName);
+            drainQueue();
+            return;
+        }
         String userStr = task.getUserId() != null ? String.valueOf(task.getUserId()) : "";
         LambdaUpdateWrapper<AidMediaTask> updateWrapper = new LambdaUpdateWrapper<>();
         updateWrapper.eq(AidMediaTask::getId, taskId);
@@ -3942,6 +4251,20 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService, Medi
         }
         task.setStatus(MediaTaskStatus.PENDING.name());
         doSubmitToProvider(task);
+    }
+
+    private boolean isCancelledStoryboardVideoParent(AidMediaTask task) {
+        if (Objects.isNull(taskCancelFlagManager) || Objects.isNull(task)
+                || !STORYBOARD_VIDEO_GENERATE_BIZ_TYPE.equals(task.getBizTaskType())) {
+            return false;
+        }
+        Long parentTaskId = task.getParentTaskId();
+        if (Objects.isNull(parentTaskId) && Objects.nonNull(task.getBizTaskId())) {
+            parentTaskId = task.getBizTaskId()
+                    / com.aid.rps.queue.MediaGenFanInSupport.BIZ_SEQ_PARENT_FACTOR;
+        }
+        return Objects.nonNull(parentTaskId) && parentTaskId > 0
+                && taskCancelFlagManager.isCancelled(parentTaskId);
     }
 
     private MediaTaskResponse toResponse(AidMediaTask task) {
@@ -3961,7 +4284,7 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService, Medi
             } catch (Exception ignored) {
             }
         }
-        // 运行时归一化：从 errorMessage 实时派生结构化错误字段
+        // 终态错误优先读取持久化快照。
         String errorCode = null;
         String errorType = null;
         String errorSource = null;
@@ -3969,9 +4292,8 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService, Medi
         String rechargeOwner = null;
         boolean retryable = false;
         String userMessage = task.getErrorMessage();
-        if (StringUtils.isNotBlank(task.getErrorMessage())) {
-            TaskErrorResult normalized = ErrorNormalizer.classify(
-                    null, task.getModelName(), -1, task.getErrorMessage());
+        if (StringUtils.isNotBlank(task.getErrorMessage()) || StringUtils.isNotBlank(task.getErrorDetailJson())) {
+            TaskErrorResult normalized = TaskErrorSnapshot.fromTask(task);
             errorCode = normalized.getErrorCode();
             errorType = normalized.getErrorType();
             errorSource = normalized.getErrorSource();
@@ -3987,6 +4309,7 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService, Medi
             .modelName(task.getModelName())
             .status(task.getStatus())
             .queuePosition(queuePosition)
+            .eta(mediaEtaService == null ? null : mediaEtaService.estimateMediaTask(task, queuePosition))
             .providerTaskId(task.getProviderTaskId())
             .originUrl(task.getOriginUrl())
             .ossUrl(task.getOssUrl())
@@ -4029,8 +4352,7 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService, Medi
 
         wrapper.orderByDesc(AidMediaTask::getCreateTime);
 
-        // 结构化错误字段（errorCode/errorSource/needRecharge/rechargeOwner/retryable）不落库，
-        // 由 toListItem 从 errorMessage 运行时归一化派生。
+        // 列表读取紧凑终态错误快照，不读取原始请求和响应。
         // frozenAmount 必须查出，供 RefundStatusMapper.resolveWithFrozen 精确区分"预冻结失败"与"已退款"。
         wrapper.select(AidMediaTask::getId,
             AidMediaTask::getProjectId,
@@ -4043,6 +4365,7 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService, Medi
             AidMediaTask::getOssUrl,
             AidMediaTask::getResultText,
             AidMediaTask::getErrorMessage,
+            AidMediaTask::getErrorDetailJson,
             AidMediaTask::getBillingStatus,
             AidMediaTask::getFrozenAmount,
             AidMediaTask::getActualCost,
@@ -4063,7 +4386,7 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService, Medi
         if (promptSummary != null && promptSummary.length() > 200) {
             promptSummary = promptSummary.substring(0, 200);
         }
-        // 运行时归一化：从 errorMessage 实时派生结构化错误字段
+        // 终态错误优先读取持久化快照。
         String errorCode = null;
         String errorType = null;
         String errorSource = null;
@@ -4071,9 +4394,8 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService, Medi
         String rechargeOwner = null;
         Boolean retryable = null;
         String userMessage = task.getErrorMessage();
-        if (StringUtils.isNotBlank(task.getErrorMessage())) {
-            TaskErrorResult normalized = ErrorNormalizer.classify(
-                    null, task.getModelName(), -1, task.getErrorMessage());
+        if (StringUtils.isNotBlank(task.getErrorMessage()) || StringUtils.isNotBlank(task.getErrorDetailJson())) {
+            TaskErrorResult normalized = TaskErrorSnapshot.fromTask(task);
             errorCode = normalized.getErrorCode();
             errorType = normalized.getErrorType();
             errorSource = normalized.getErrorSource();

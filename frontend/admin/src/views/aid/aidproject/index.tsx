@@ -1,7 +1,6 @@
 import React from 'react';
 import { Tag } from 'antd';
 import CrudPage, { type CrudConfig, type EmbeddedScope, scopedConfig } from '@/components/CrudPage';
-import HiddenStylePromptJsonField from '@/components/HiddenStylePromptJsonField';
 import {
   listAidproject, getAidproject, addAidproject, updateAidproject, delAidproject
 } from '@/api/aid/aidproject';
@@ -60,14 +59,6 @@ const config: CrudConfig = {
     { name: 'scriptType', label: '剧本类型', type: 'select', options: SCRIPT_TYPE_OPTIONS },
     { name: 'videoStyleType', label: '风格名称', disabled: true },
     { name: 'videoStyleValue', label: '公开风格描述快照', type: 'textarea', span: 24, disabled: true },
-    {
-      name: 'hiddenStylePromptJson',
-      label: '隐藏风格提示词快照',
-      type: 'custom',
-      span: 24,
-      render: () => <HiddenStylePromptJsonField readOnly />,
-      viewRender: (value: string | null) => <HiddenStylePromptJsonField value={value} readOnly />
-    },
     { name: 'defaultGenMode', label: '默认生成模式', type: 'select', options: GEN_MODE_OPTIONS },
     { name: 'defaultStoryboardMode', label: '默认分镜模式', type: 'select', options: STORYBOARD_MODE_OPTIONS },
     { name: 'defaultCreationMode', label: '默认创作模式', type: 'select', options: CREATION_MODE_OPTIONS },
@@ -78,10 +69,9 @@ const config: CrudConfig = {
   ],
   beforeSubmit: (data: any) => {
     const payload = { ...data };
-    // 项目公开风格与隐藏模板共同组成创建/切换时的快照，后台普通编辑不得覆盖。
+    // 风格快照由创作流程维护，后台普通编辑不得覆盖。
     delete payload.videoStyleType;
     delete payload.videoStyleValue;
-    delete payload.hiddenStylePromptJson;
     return payload;
   }
 };

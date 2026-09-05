@@ -2,7 +2,6 @@ import { request } from '@/utils/request'
 
 export interface AidProjectDetail {
   id: number
-  hiddenStylePromptJson?: string | null
   [key: string]: unknown
 }
 

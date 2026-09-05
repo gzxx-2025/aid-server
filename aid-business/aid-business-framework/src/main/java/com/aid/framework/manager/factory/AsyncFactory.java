@@ -38,6 +38,15 @@ public class AsyncFactory
     public static TimerTask recordLogininfor(final String username, final String status, final String message,
             final Object... args)
     {
+        return recordLogininfor((Long) null, username, status, message, args);
+    }
+
+    /**
+     * 记录带用户ID的登录信息。用户改绑手机号或邮箱后，仍可按稳定用户ID查询自己的历史。
+     */
+    public static TimerTask recordLogininfor(final Long userId, final String username, final String status,
+            final String message, final Object... args)
+    {
         final String userAgent = ServletUtils.getRequest().getHeader("User-Agent");
         final String ip = IpUtils.getIpAddr();
         return new TimerTask()
@@ -60,6 +69,7 @@ public class AsyncFactory
                 String browser = UserAgentUtils.getBrowser(userAgent);
                 // 封装对象
                 SysLogininfor logininfor = new SysLogininfor();
+                logininfor.setUserId(userId);
                 logininfor.setUserName(username);
                 logininfor.setIpaddr(ip);
                 logininfor.setLoginLocation(address);

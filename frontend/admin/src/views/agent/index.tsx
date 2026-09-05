@@ -29,7 +29,6 @@ import {
   CopyOutlined,
   DeleteOutlined,
   EditOutlined,
-  ExclamationCircleOutlined,
   ExportOutlined,
   EyeOutlined,
   FileTextOutlined,
@@ -46,9 +45,14 @@ import {
   getAgent,
   createAgent,
   updateAgent,
-  deleteAgent,
+  listAgentByBizCategoryAdmin,
   type AgentItem
 } from '@/api/aid/agent';
+import {
+  getAgentRetirementImpact,
+  retireAgent,
+  type OrchestrationImpact
+} from '@/api/aid/orchestration';
 import { getDocLinks } from '@/api/aidconfig/upgrade';
 import { listModel } from '@/api/aid/aimanage';
 import { listFuncconfig } from '@/api/aid/funcconfig';
@@ -58,6 +62,7 @@ import PageHeader from '@/components/PageHeader';
 import StatCard from '@/components/StatCard';
 import { useAuth } from '@/hooks/useAuth';
 import { resolveAppUrl } from '@/utils/ruoyi';
+import RetirementModal from '@/views/aid/orchestration/RetirementModal';
 
 const STATUS_OPTIONS = [
   { label: '启用', value: 1 },
@@ -274,6 +279,14 @@ export default function AgentPage() {
   const [pageSize, setPageSize] = useState(10);
   const [searchForm] = Form.useForm<SearchForm>();
   const [searchValues, setSearchValues] = useState<SearchForm>({});
+  const [retireState, setRetireState] = useState<{
+    open: boolean;
+    loading: boolean;
+    submitting: boolean;
+    row?: AgentItem;
+    impact?: OrchestrationImpact;
+    replacements: { label: string; value: string }[];
+  }>({ open: false, loading: false, submitting: false, replacements: [] });
 
   // 查看
   const [viewOpen, setViewOpen] = useState(false);
@@ -474,20 +487,45 @@ export default function AgentPage() {
     } finally { setSaving(false); }
   };
 
-  const handleDelete = (row: AgentItem) => {
-    Modal.confirm({
-      title: '删除确认',
-      icon: <ExclamationCircleOutlined style={{ color: '#ef4444' }} />,
-      content: <span>确认删除智能体「<b>{row.name}</b>」（{row.agentCode}）？删除后将无法恢复。</span>,
-      okText: '确认删除',
-      okButtonProps: { danger: true },
-      cancelText: '取消',
-      async onOk() {
-        await deleteAgent(row.id);
-        message.success('删除成功');
-        loadList();
-      }
-    });
+  const handleDelete = async (row: AgentItem) => {
+    setRetireState({ open: true, loading: true, submitting: false, row, replacements: [] });
+    try {
+      const [impactRes, candidatesRes]: any[] = await Promise.all([
+        getAgentRetirementImpact(row.id),
+        row.bizCategoryCode
+          ? listAgentByBizCategoryAdmin(row.bizCategoryCode)
+          : Promise.resolve({ data: [] })
+      ]);
+      const replacements = (candidatesRes.data || [])
+        .filter((agent: AgentItem) => agent.id !== row.id && agent.status === 1)
+        .map((agent: AgentItem) => ({
+          value: agent.agentCode,
+          label: `${agent.name}（${agent.agentCode}）`
+        }));
+      setRetireState({
+        open: true,
+        loading: false,
+        submitting: false,
+        row,
+        impact: impactRes.data,
+        replacements
+      });
+    } catch {
+      setRetireState({ open: false, loading: false, submitting: false, replacements: [] });
+    }
+  };
+
+  const confirmRetireAgent = async (replacementCode?: string) => {
+    if (!retireState.row) return;
+    setRetireState((state) => ({ ...state, submitting: true }));
+    try {
+      await retireAgent(retireState.row.id, replacementCode);
+      message.success(replacementCode ? '智能体引用已替换并完成下线' : '智能体引用已清理并完成下线');
+      setRetireState({ open: false, loading: false, submitting: false, replacements: [] });
+      loadList();
+    } finally {
+      setRetireState((state) => state.open ? { ...state, submitting: false } : state);
+    }
   };
 
   const handleRemoteUpdate = () => {
@@ -715,7 +753,7 @@ export default function AgentPage() {
           </Auth>
           <Tooltip title="复制编码"><Button type="link" size="small" icon={<CopyOutlined />} onClick={() => handleCopy(r.agentCode)} /></Tooltip>
           <Auth permission="aid:agent:remove">
-            <Tooltip title="删除"><Button type="link" size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(r)} /></Tooltip>
+            <Tooltip title="受控下线"><Button type="link" size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(r)} /></Tooltip>
           </Auth>
         </Space>
       )
@@ -1098,6 +1136,15 @@ export default function AgentPage() {
           </Form>
         </Spin>
       </Modal>
+      <RetirementModal
+        open={retireState.open}
+        loading={retireState.loading}
+        submitting={retireState.submitting}
+        impact={retireState.impact}
+        replacementOptions={retireState.replacements}
+        onCancel={() => setRetireState({ open: false, loading: false, submitting: false, replacements: [] })}
+        onConfirm={confirmRetireAgent}
+      />
     </div>
   );
 }

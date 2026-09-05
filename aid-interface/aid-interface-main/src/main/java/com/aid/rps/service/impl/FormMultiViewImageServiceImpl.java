@@ -1,5 +1,8 @@
 package com.aid.rps.service.impl;
 
+import com.aid.media.util.MediaTaskPayloadSanitizer;
+import com.aid.common.error.ErrorNormalizer;
+import com.aid.common.error.TaskErrorSnapshot;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -50,6 +53,7 @@ import com.aid.rps.dto.AssetExtractTaskVO;
 import com.aid.rps.dto.FormMultiViewImageGenerateRequest;
 import com.aid.rps.helper.AssetExtractHelper;
 import com.aid.rps.service.IAssetExtractService;
+import com.aid.rps.service.IFormImageSelectionService;
 import com.aid.rps.service.IFormMultiViewImageService;
 import com.aid.rps.sse.AssetExtractSseManager;
 import com.aid.service.IAiModelConfigService;
@@ -139,6 +143,10 @@ public class FormMultiViewImageServiceImpl implements IFormMultiViewImageService
 
     @Autowired
     private IAidRolePropSceneFormImageService rpsFormImageService;
+
+    /** 生成图片默认使用状态统一规则。 */
+    @Autowired
+    private IFormImageSelectionService formImageSelectionService;
 
     @Autowired
     private IAidAiModelService aidAiModelService;
@@ -881,7 +889,7 @@ public class FormMultiViewImageServiceImpl implements IFormMultiViewImageService
     }
     /**
      * 落地一条 {@code aid_role_prop_scene_form_image}（source_type = ai_multi_view）。
-     * 与自动白底图（ai_auto）/ 设定卡（ai_builder）区分，但使用的存储位置 / 写入规则一致，
+     * 与自动形态图（ai_auto）/ 设定卡（ai_builder）区分，但使用的存储位置 / 写入规则一致，
      * 不新建任何平行表。机位提示词作为 JSON 附带在 reference_images 列，便于追溯。
      */
     private Long persistMultiViewFormImage(AidRolePropSceneForm form, AidRolePropScene asset,
@@ -930,13 +938,11 @@ public class FormMultiViewImageServiceImpl implements IFormMultiViewImageService
         img.setReferenceImages(referenceImagesJson);
         img.setBatchNo(Objects.nonNull(taskId) ? String.valueOf(taskId) : null);
         img.setSortOrder((int) existingCount);
-        // 批量生成后的图片默认启用，方便后续分镜脚本直接引用。
-        img.setIsUse(1);
         img.setImageStatus("completed");
         img.setDelFlag(DEL_FLAG_NORMAL);
         img.setCreateTime(DateUtils.getNowDate());
         img.setCreateBy(String.valueOf(userId));
-        rpsFormImageService.save(img);
+        formImageSelectionService.saveGeneratedImage(img, userId, true);
         return img.getId();
     }
     /**
@@ -951,7 +957,8 @@ public class FormMultiViewImageServiceImpl implements IFormMultiViewImageService
         update.set(AidExtractTask::getStatus, newStatus);
         if (StrUtil.isNotBlank(errorMessage))
         {
-            update.set(AidExtractTask::getErrorMessage, errorMessage);
+            update.set(AidExtractTask::getErrorMessage, errorMessage)
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage(errorMessage));
         }
         update.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
         int rows = extractTaskService.getBaseMapper().update(null, update);
@@ -992,12 +999,19 @@ public class FormMultiViewImageServiceImpl implements IFormMultiViewImageService
      */
     private boolean updateTaskFailed(Long taskId, String errorMessage)
     {
-        String safeMsg = StrUtil.isNotBlank(errorMessage) ? errorMessage : "生成失败";
+        return updateTaskFailed(taskId, ErrorNormalizer.normalizeByMessage(errorMessage));
+    }
+
+    /** 同一次 CAS 保存失败状态、诊断摘要和安全错误快照。 */
+    private boolean updateTaskFailed(Long taskId, com.aid.common.error.TaskErrorResult errorResult)
+    {
+        String safeMsg = StrUtil.blankToDefault(errorResult.getRawMessage(), errorResult.getUserMessage());
         LambdaUpdateWrapper<AidExtractTask> update = Wrappers.lambdaUpdate();
         update.eq(AidExtractTask::getId, taskId);
         update.in(AidExtractTask::getStatus, TASK_STATUS_PENDING, TASK_STATUS_PROCESSING);
         update.set(AidExtractTask::getStatus, TASK_STATUS_FAILED);
-        update.set(AidExtractTask::getErrorMessage, StrUtil.sub(safeMsg, 0, 255));
+        update.set(AidExtractTask::getErrorMessage, StrUtil.sub(MediaTaskPayloadSanitizer.sanitizeForStorage(safeMsg), 0, 255))
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.write(errorResult));
         update.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
         int rows = extractTaskService.getBaseMapper().update(null, update);
         if (rows == 0)
@@ -1006,19 +1020,6 @@ public class FormMultiViewImageServiceImpl implements IFormMultiViewImageService
             return false;
         }
         return true;
-    }
-
-    /**
-     * CAS 标记任务失败（结构化版本兼容入口）：保留此重载避免调用点大改,
-     * 但内部只写 errorMessage 到 DB。
-     * 注意：DB 存的是原始上游错误文案（rawMessage），而非友好文案。
-     * 这样运行时 ErrorNormalizer.classifyByMessage(task.getErrorMessage()) 才能正确归一化。
-     */
-    private boolean updateTaskFailed(Long taskId, com.aid.common.error.TaskErrorResult errorResult)
-    {
-        // 优先存 rawMessage（上游原文），fallback 到 userMessage（友好文案）
-        String dbMessage = errorResult.getRawMessage() != null ? errorResult.getRawMessage() : errorResult.getUserMessage();
-        return updateTaskFailed(taskId, dbMessage);
     }
 
     /**
@@ -1033,7 +1034,8 @@ public class FormMultiViewImageServiceImpl implements IFormMultiViewImageService
         update.eq(AidExtractTask::getId, taskId);
         update.in(AidExtractTask::getStatus, TASK_STATUS_PENDING, TASK_STATUS_PROCESSING);
         update.set(AidExtractTask::getStatus, TASK_STATUS_CANCELLED);
-        update.set(AidExtractTask::getErrorMessage, "用户取消");
+        update.set(AidExtractTask::getErrorMessage, "用户取消")
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage("用户取消"));
         update.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
         int rows = extractTaskService.getBaseMapper().update(null, update);
         if (rows == 0)
@@ -1055,7 +1057,8 @@ public class FormMultiViewImageServiceImpl implements IFormMultiViewImageService
         update.eq(AidExtractTask::getId, taskId);
         update.in(AidExtractTask::getStatus, TASK_STATUS_PENDING, TASK_STATUS_PROCESSING);
         update.set(AidExtractTask::getStatus, TASK_STATUS_CANCELLED);
-        update.set(AidExtractTask::getErrorMessage, "用户取消");
+        update.set(AidExtractTask::getErrorMessage, "用户取消")
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage("用户取消"));
         if (StrUtil.isNotBlank(resultJson))
         {
             update.set(AidExtractTask::getResultData, resultJson);

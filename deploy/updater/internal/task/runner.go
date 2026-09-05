@@ -124,6 +124,10 @@ func (r *Runner) RecoverInterrupted() {
 
 // PollOnce 检查任务文件，存在则认领并执行；返回是否执行了任务。
 func (r *Runner) PollOnce() bool {
+	if err := r.recoverNginx(); err != nil {
+		log.Printf("Nginx中断恢复失败，暂停接收任务: %v", err)
+		return false
+	}
 	if _, err := os.Stat(r.cfg.TaskFile); err != nil {
 		return false
 	}
@@ -162,6 +166,8 @@ func (r *Runner) PollOnce() bool {
 		runErr = r.runSelfUpgrade(t)
 	case ActionConfigValidate:
 		runErr = r.runConfigValidate(t)
+	case ActionNginxValidate, ActionNginxApply, ActionNginxRollback:
+		runErr = r.runNginx(t)
 	case ActionConfigApply:
 		runErr = r.runConfigApply(t)
 	case ActionConfigRollback:
@@ -202,6 +208,12 @@ func (r *Runner) PollOnce() bool {
 		message = "配置诊断已完成"
 	case ActionCertInstall:
 		message = "HTTPS证书已安全安装，请应用配置后生效"
+	case ActionNginxValidate:
+		message = "Nginx候选配置校验通过，未保存或重载"
+	case ActionNginxApply:
+		message = "Nginx配置已保存并请求平滑重载，请核验站点入口"
+	case ActionNginxRollback:
+		message = "已恢复上次Nginx配置并请求平滑重载"
 	}
 	r.reporter.SetTask(t.TaskID, t.Action, health.TaskStateSuccess, message)
 	return true

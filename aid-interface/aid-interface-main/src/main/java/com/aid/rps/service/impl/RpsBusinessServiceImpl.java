@@ -33,6 +33,7 @@ import com.aid.aid.service.IAidRolePropSceneFormService;
 import com.aid.aid.service.IAidRolePropSceneService;
 import com.aid.aid.service.IAidScenePlotService;
 import com.aid.common.error.TaskErrorPresentation;
+import com.aid.common.exception.ServiceException;
 import com.aid.common.utils.DateUtils;
 import com.aid.common.vo.BatchOperationResultVO;
 import com.aid.media.dto.MediaTaskResponse;
@@ -46,6 +47,7 @@ import com.aid.rps.dto.RpsQueryRequest;
 import com.aid.rps.dto.RpsUpdateFormRequest;
 import com.aid.rps.dto.RpsUpdateMainRequest;
 import com.aid.rps.service.IRpsBusinessService;
+import com.aid.rps.service.IFormImageSelectionService;
 import com.aid.aid.service.IStoryboardSceneSnapshotService;
 import com.aid.rps.vo.RpsAssetVO;
 import com.aid.rps.vo.RpsFormImageVO;
@@ -130,6 +132,10 @@ public class RpsBusinessServiceImpl implements IRpsBusinessService {
     /** 形态图片实例服务，查询 / 创建需走 form_image 表 */
     @Autowired
     private IAidRolePropSceneFormImageService rpsFormImageService;
+
+    /** 形态图片使用状态统一规则服务。 */
+    @Autowired
+    private IFormImageSelectionService formImageSelectionService;
     /** OSS 文件清理服务：硬删形态图时先删其 OSS 文件 */
     @Autowired
     private com.aid.media.cleanup.IMediaOssCleanupService mediaOssCleanupService;
@@ -1325,80 +1331,14 @@ public class RpsBusinessServiceImpl implements IRpsBusinessService {
     @Transactional
     public void useForm(Long imageId, Long userId)
     {
-        // /form/use 为"多选使用中"语义——
-        // 仅把目标图设为 is_use=1，不再清空同 form 其它图片，允许多张同时为使用中。
-        AidRolePropSceneFormImage img = getFormImageOrThrow(imageId, userId);
-        // 已经是使用中：幂等返回
-        if (Objects.nonNull(img.getIsUse()) && img.getIsUse() == 1)
-        {
-            log.info("图片已是使用中，跳过更新: imageId={}, formId={}", imageId, img.getFormId());
-            return;
-        }
-        // 仅更新当前图片为使用中
-        LambdaUpdateWrapper<AidRolePropSceneFormImage> setSelf = Wrappers.lambdaUpdate();
-        setSelf.eq(AidRolePropSceneFormImage::getId, imageId);
-        setSelf.eq(AidRolePropSceneFormImage::getDelFlag, DEL_FLAG_NORMAL);
-        setSelf.set(AidRolePropSceneFormImage::getIsUse, 1);
-        setSelf.set(AidRolePropSceneFormImage::getUpdateTime, DateUtils.getNowDate());
-        setSelf.set(AidRolePropSceneFormImage::getUpdateBy, String.valueOf(userId));
-        rpsFormImageService.update(setSelf);
-        log.info("图片加入使用中集合: imageId={}, formId={}", imageId, img.getFormId());
+        formImageSelectionService.selectImage(imageId, userId);
     }
 
     @Override
     @Transactional
     public void unuseForm(Long imageId, Long userId)
     {
-        // /form/unuse 为"多选使用中"语义——
-        // 仅取消当前图片的 is_use；但必须保证同 form 至少保留 1 张 is_use=1。
-        AidRolePropSceneFormImage img = getFormImageOrThrow(imageId, userId);
-        // 已是未使用：幂等返回
-        if (Objects.isNull(img.getIsUse()) || img.getIsUse() != 1)
-        {
-            log.info("图片已非使用中，跳过更新: imageId={}, formId={}", imageId, img.getFormId());
-            return;
-        }
-        // count + update 非原子，两个并发取消可能把 is_use 同时打到 0。
-        // 改为"条件更新"：UPDATE ... WHERE id=? AND is_use=1 AND EXISTS (
-        //   SELECT 1 FROM aid_role_prop_scene_form_image sibling
-        //   WHERE sibling.form_id=? AND sibling.is_use=1 AND sibling.id <> ? AND sibling.del_flag='0'
-        // )
-        // 实现上 MyBatis-Plus 不支持子查询，这里用"先把当前图片 is_use 置 0，再根据影响行数判断是否还能再回退"
-        // 更简单的做法：悲观锁——先对 form 下所有 is_use=1 的图片做 FOR UPDATE 锁住行，再判断数量。
-        // 但 RpsFormImage 不走 Mapper 自定义 FOR UPDATE，这里保留 count + update 语义，
-        // 外层事务确保回滚；并追加"最终验证"条件语句：仅当同 form 已有另外至少一张 is_use=1 时才允许置 0。
-        Long formId = img.getFormId();
-        LambdaQueryWrapper<AidRolePropSceneFormImage> countQ = Wrappers.lambdaQuery();
-        countQ.select(AidRolePropSceneFormImage::getId);
-        countQ.eq(AidRolePropSceneFormImage::getFormId, formId);
-        countQ.eq(AidRolePropSceneFormImage::getIsUse, 1);
-        countQ.eq(AidRolePropSceneFormImage::getDelFlag, DEL_FLAG_NORMAL);
-        // 仅加悲观锁在 MyBatis Plus 里要手写 SQL，这里用 count 先做快速失败校验
-        long inUseCount = rpsFormImageService.count(countQ);
-        if (inUseCount <= 1L)
-        {
-            log.info("取消使用失败，需至少保留一张: imageId={}, formId={}, inUseCount={}",
-                    imageId, formId, inUseCount);
-            throw new RuntimeException("不可取消，需保留至少一张");
-        }
-        // 条件更新：WHERE id=? AND is_use=1
-        LambdaUpdateWrapper<AidRolePropSceneFormImage> upd = Wrappers.lambdaUpdate();
-        upd.eq(AidRolePropSceneFormImage::getId, imageId);
-        upd.eq(AidRolePropSceneFormImage::getIsUse, 1);
-        upd.eq(AidRolePropSceneFormImage::getDelFlag, DEL_FLAG_NORMAL);
-        upd.set(AidRolePropSceneFormImage::getIsUse, 0);
-        upd.set(AidRolePropSceneFormImage::getUpdateTime, DateUtils.getNowDate());
-        upd.set(AidRolePropSceneFormImage::getUpdateBy, String.valueOf(userId));
-        boolean updated = rpsFormImageService.update(upd);
-        if (!updated) {
-            // 并发下另一线程已经把 is_use 置 0；再次检查剩余数量，若已归零则回滚本次操作
-            long finalCount = rpsFormImageService.count(countQ);
-            if (finalCount <= 0L) {
-                log.info("unuseForm 并发冲突导致同 form 已无使用中图片, imageId={}, formId={}", imageId, formId);
-                throw new RuntimeException("并发冲突");
-            }
-        }
-        log.info("图片移出使用中集合: imageId={}, formId={}", imageId, formId);
+        formImageSelectionService.unselectImage(imageId, userId);
     }
 
     @Override
@@ -1435,6 +1375,12 @@ public class RpsBusinessServiceImpl implements IRpsBusinessService {
                 // 经自身代理调用，确保每条目走独立 @Transactional 事务
                 self.useForm(imageId, userId);
                 result.addSuccess(imageId);
+            }
+            catch (ServiceException e)
+            {
+                log.info("批量设置使用中-业务校验失败: imageId={}, userId={}, err={}",
+                        imageId, userId, e.getMessage());
+                result.addFailure(imageId, e.getMessage());
             }
             catch (RuntimeException e)
             {
@@ -1481,6 +1427,12 @@ public class RpsBusinessServiceImpl implements IRpsBusinessService {
                 }
                 self.unuseForm(imageId, userId);
                 result.addSuccess(imageId);
+            }
+            catch (ServiceException e)
+            {
+                log.info("批量取消使用中-业务校验失败: imageId={}, userId={}, err={}",
+                        imageId, userId, e.getMessage());
+                result.addFailure(imageId, e.getMessage());
             }
             catch (RuntimeException e)
             {
@@ -1541,29 +1493,6 @@ public class RpsBusinessServiceImpl implements IRpsBusinessService {
                 false);
     }
 
-    /**
-     * 查 form_image 并校验归属与软删状态。
-     */
-    private AidRolePropSceneFormImage getFormImageOrThrow(Long imageId, Long userId)
-    {
-        // imageId 为空时统一报"参数缺失"，避免隐式走成"图片不存在"
-        if (Objects.isNull(imageId))
-        {
-            log.info("图片使用状态处理失败，imageId 为空: userId={}", userId);
-            throw new RuntimeException("参数缺失");
-        }
-        LambdaQueryWrapper<AidRolePropSceneFormImage> q = Wrappers.lambdaQuery();
-        q.eq(AidRolePropSceneFormImage::getId, imageId);
-        q.eq(AidRolePropSceneFormImage::getUserId, userId);
-        q.eq(AidRolePropSceneFormImage::getDelFlag, DEL_FLAG_NORMAL);
-        AidRolePropSceneFormImage img = rpsFormImageService.getOne(q);
-        if (Objects.isNull(img))
-        {
-            log.info("图片不存在: imageId={}, userId={}", imageId, userId);
-            throw new RuntimeException("图片不存在");
-        }
-        return img;
-    }
     /**
      * 校验主表资产类型（scene/character/prop）
      */
@@ -2685,7 +2614,7 @@ public class RpsBusinessServiceImpl implements IRpsBusinessService {
     private RpsFormVO convertToFormVO(AidRolePropSceneForm form, List<AidRolePropSceneFormImage> imgs, String assetType)
     {
         // 主图Url 仅可来自 form_image：优先 is_use=1 的图片 → 其次最新一张；form 表不承载图片字段。
-        // form_image 支持"多张同时使用中"，本字段只取首张命中（单图展示口径），完整列表见 images。
+        // 场景允许多张同时使用中，本字段只取首张命中；角色、道具同一形态仅一张主图。
         String imageUrl = null;
         Long currentImageId = null;
         if (CollectionUtil.isNotEmpty(imgs))

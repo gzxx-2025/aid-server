@@ -14,6 +14,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import com.aid.orchestration.IAiOrchestrationService;
 
 /**
  * AI模型功能配置Controller
@@ -27,10 +28,13 @@ public class AidAiModelFuncConfigController extends BaseController
     @Autowired
     private IAidAiModelFuncConfigService aidAiModelFuncConfigService;
 
+    @Autowired
+    private IAiOrchestrationService orchestrationService;
+
     /**
      * 查询AI模型功能配置列表
      */
-    @PreAuthorize("@ss.hasPermi('aid:funcconfig:list')")
+    @PreAuthorize("@ss.hasAnyPermi('aid:funcconfig:query,aid:funcconfig:list')")
     @GetMapping("/list")
     public TableDataInfo list(AidAiModelFuncConfig aidAiModelFuncConfig)
     {
@@ -70,6 +74,7 @@ public class AidAiModelFuncConfigController extends BaseController
     @PostMapping
     public AjaxResult add(@RequestBody AidAiModelFuncConfig aidAiModelFuncConfig)
     {
+        orchestrationService.validateFunctionConfig(aidAiModelFuncConfig);
         return toAjax(aidAiModelFuncConfigService.insertAidAiModelFuncConfig(aidAiModelFuncConfig));
     }
 
@@ -81,6 +86,7 @@ public class AidAiModelFuncConfigController extends BaseController
     @PutMapping
     public AjaxResult edit(@RequestBody AidAiModelFuncConfig aidAiModelFuncConfig)
     {
+        orchestrationService.validateFunctionConfig(aidAiModelFuncConfig);
         return toAjax(aidAiModelFuncConfigService.updateAidAiModelFuncConfig(aidAiModelFuncConfig));
     }
 
@@ -92,6 +98,7 @@ public class AidAiModelFuncConfigController extends BaseController
 	@DeleteMapping("/{ids}")
     public AjaxResult remove(@PathVariable Long[] ids)
     {
+        orchestrationService.validateFunctionConfigsRemovable(ids);
         return toAjax(aidAiModelFuncConfigService.deleteAidAiModelFuncConfigByIds(ids));
     }
 }

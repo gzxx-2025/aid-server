@@ -42,6 +42,12 @@ public class SysLogininforServiceImpl implements ISysLogininforService
         return logininforMapper.selectLogininforList(logininfor);
     }
 
+    @Override
+    public List<SysLogininfor> selectLogininforByUserId(Long userId)
+    {
+        return logininforMapper.selectLogininforByUserId(userId);
+    }
+
     /**
      * 批量删除系统登录日志
      *

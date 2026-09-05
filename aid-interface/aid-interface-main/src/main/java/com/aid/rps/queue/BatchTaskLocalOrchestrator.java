@@ -1,5 +1,6 @@
 package com.aid.rps.queue;
 
+import com.aid.common.error.TaskErrorSnapshot;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -414,6 +415,13 @@ public class BatchTaskLocalOrchestrator
     private boolean updateResult(Long taskId, String dispatchToken, String status,
                                  String resultJson, String errorMessage)
     {
+        return updateResult(taskId, dispatchToken, status, resultJson, errorMessage,
+                TaskErrorSnapshot.fromMessage(errorMessage));
+    }
+
+    private boolean updateResult(Long taskId, String dispatchToken, String status,
+                                 String resultJson, String errorMessage, String errorDetailJson)
+    {
         LambdaUpdateWrapper<AidExtractTask> update = Wrappers.lambdaUpdate();
         update.eq(AidExtractTask::getId, taskId);
         update.eq(AidExtractTask::getBillingTraceId, dispatchToken);
@@ -425,7 +433,11 @@ public class BatchTaskLocalOrchestrator
         }
         if (Objects.nonNull(errorMessage))
         {
-            update.set(AidExtractTask::getErrorMessage, errorMessage);
+            update.set(AidExtractTask::getErrorMessage, errorMessage)
+                .set(AidExtractTask::getErrorDetailJson, errorDetailJson);
+        }
+        if (TASK_STATUS_SUCCEEDED.equals(status)) {
+            update.set(AidExtractTask::getErrorMessage, null).set(AidExtractTask::getErrorDetailJson, null);
         }
         update.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
         return extractTaskService.getBaseMapper().update(null, update) > 0;
@@ -436,7 +448,8 @@ public class BatchTaskLocalOrchestrator
                                  com.aid.common.error.TaskErrorResult error)
     {
         String msg = Objects.isNull(error) ? "生成失败" : StrUtil.blankToDefault(error.getUserMessage(), "生成失败");
-        return updateResult(taskId, dispatchToken, TASK_STATUS_FAILED, null, StrUtil.sub(msg, 0, 80));
+        return updateResult(taskId, dispatchToken, TASK_STATUS_FAILED, null, StrUtil.sub(msg, 0, 80),
+                TaskErrorSnapshot.write(error));
     }
 
     private void sendPartialFailedSafely(Long taskId, String resultJson, String message,

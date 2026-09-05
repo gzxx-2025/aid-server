@@ -26,11 +26,6 @@ import type { ResolvedStoryboardGeneratePanelProps } from './types'
 import { usePromptSelectionMigration } from './usePromptSelectionMigration'
 import { useStoryboardPromptAssetSync } from './useStoryboardPromptAssetSync'
 
-/** 对齐 Vue nextTick */
-function nextTick(fn: () => void) {
-  setTimeout(fn, 0)
-}
-
 interface PromptSyncOptions {
   props: ResolvedStoryboardGeneratePanelProps
   /** 事件回调 / 异步流程内读最新 props */
@@ -47,6 +42,26 @@ export function useStoryboardPanelPromptSync(options: PromptSyncOptions) {
   const { props, propsRef, promptEditorExpandedRef, promptEditorCollapsedRef } = options
 
   const [paramSettingsOpen, setParamSettingsOpenState] = useState(false)
+  const paramSettingsConfirmRevisionRef = useRef(0)
+  const pendingSyncTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set())
+  const schedulePromptSync = (fn: () => void) => {
+    const timer = setTimeout(() => {
+      pendingSyncTimersRef.current.delete(timer)
+      fn()
+    }, 0)
+    pendingSyncTimersRef.current.add(timer)
+    return () => {
+      clearTimeout(timer)
+      pendingSyncTimersRef.current.delete(timer)
+    }
+  }
+  useEffect(
+    () => () => {
+      for (const timer of pendingSyncTimersRef.current) clearTimeout(timer)
+      pendingSyncTimersRef.current.clear()
+    },
+    []
+  )
   const paramSettingsOpenRef = useRef(false)
   const setParamSettingsOpen = (v: boolean) => {
     paramSettingsOpenRef.current = v
@@ -86,9 +101,12 @@ export function useStoryboardPanelPromptSync(options: PromptSyncOptions) {
 
   const storyboardPromptAssets = useMemo(() => {
     const audioAssets = collectPromptAudioAssetsFromMedia(props.referenceAudios ?? [])
+    const extraImageAssets = (props.extraPromptAssets ?? []).filter(
+      (asset) => asset.assetType !== 'audio'
+    )
     const startIndex =
-      (props.extraPromptAssets?.length ?? 0) > 0
-        ? Math.max(...props.extraPromptAssets!.map((a) => a.imageIndex)) + 1
+      extraImageAssets.length > 0
+        ? Math.max(...extraImageAssets.map((asset) => asset.imageIndex)) + 1
         : 1
 
     if (props.mode === 'storyboard' || props.mode === 'imageToVideo') {
@@ -203,9 +221,7 @@ export function useStoryboardPanelPromptSync(options: PromptSyncOptions) {
   function onDraftSyncAssetRefs(assets: PromptAssetItem[]) {
     const editor = getMainPromptEditor()
     if (!editor) return
-    for (const asset of assets) {
-      editor.upsertPromptAssetRef(asset)
-    }
+    editor.applyPromptAssetRefChanges({ upsert: assets })
   }
 
   function syncParamRefsFromPayload(payload: ParamSettingsConfirmPayload) {
@@ -245,10 +261,12 @@ export function useStoryboardPanelPromptSync(options: PromptSyncOptions) {
   }
 
   function onParamSettingsConfirm(payload: ParamSettingsConfirmPayload) {
+    const confirmRevision = ++paramSettingsConfirmRevisionRef.current
     propsRef.current!.onParamSettingsConfirm?.(payload)
     // 不再 syncMissing 全量回填：灵感空间内已通过 toggle/syncAssetRefs 维护描述框；
     // 确认后条变化由差分同步处理，避免清空描述后再确认把旧资产整批写回
-    nextTick(() => {
+    schedulePromptSync(() => {
+      if (confirmRevision !== paramSettingsConfirmRevisionRef.current) return
       prevLocalStripImageAssetsRef.current = snapshotLocalStripImageAssets()
       stripAssetSyncSeededRef.current = true
       refreshPromptAssetRefKeySnapshot()
@@ -274,14 +292,12 @@ export function useStoryboardPanelPromptSync(options: PromptSyncOptions) {
       }
 
       const runParamSync = () => {
+        if (confirmRevision !== paramSettingsConfirmRevisionRef.current) return
         syncParamRefsFromPayload(payload)
-        if (enablePromptAssetRefsOf(propsRef.current!) || enablePromptParamRefsOf(propsRef.current!)) {
-          getMainPromptEditor()?.hydratePromptRefEmbeds()
-        }
         refreshPromptAssetRefKeySnapshot()
       }
 
-      if (promptPatched) nextTick(runParamSync)
+      if (promptPatched) schedulePromptSync(runParamSync)
       else runParamSync()
     })
   }
@@ -290,9 +306,7 @@ export function useStoryboardPanelPromptSync(options: PromptSyncOptions) {
   function insertPromptAssetRefsAtCaret(assets: PromptAssetItem[]): boolean {
     const editor = getActivePromptEditor()
     if (!editor || !assets.length) return false
-    for (const asset of assets) {
-      editor.insertPromptAssetRef(asset)
-    }
+    editor.insertPromptAssetRefs(assets)
     return true
   }
 
@@ -335,6 +349,7 @@ export function useStoryboardPanelPromptSync(options: PromptSyncOptions) {
         } else if (img) {
           getActivePromptEditor()?.removePromptAssetRefByMatch({
             assetId: String(img.id || ''),
+            assetType: 'other',
             name: String(img.title || img.name || '')
           })
         }
@@ -353,7 +368,8 @@ export function useStoryboardPanelPromptSync(options: PromptSyncOptions) {
 
   // watch([assets, referenceImage(s), isSettingExpanded, mode], deep, immediate)
   useEffect(() => {
-    nextTick(() => {
+    let cancelRetry: (() => void) | undefined
+    const cancel = schedulePromptSync(() => {
       const p = propsRef.current!
       if (p.mode === 'storyboardVideo') {
         if (paramSettingsOpenRef.current || p.suppressPromptReactiveSync) return
@@ -366,12 +382,17 @@ export function useStoryboardPanelPromptSync(options: PromptSyncOptions) {
           !p.suppressPromptReactiveSync &&
           !getActivePromptEditor()
         ) {
-          nextTick(() => syncStoryboardPromptAssetRefsInEditor())
+          cancelRetry = schedulePromptSync(() => syncStoryboardPromptAssetRefsInEditor())
         }
       }
-      if (paramSettingsOpenRef.current || propsRef.current!.suppressPromptReactiveSync) return
-      getActivePromptEditor()?.hydratePromptRefEmbeds()
+      if (!paramSettingsOpenRef.current && !p.suppressPromptReactiveSync) {
+        getActivePromptEditor()?.hydratePromptRefEmbeds()
+      }
     })
+    return () => {
+      cancel()
+      cancelRetry?.()
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     props.sceneImages,
@@ -386,11 +407,12 @@ export function useStoryboardPanelPromptSync(options: PromptSyncOptions) {
 
   // watch(prompt, immediate)
   useEffect(() => {
-    const html = props.prompt
-    nextTick(() => {
+    const cancel = schedulePromptSync(() => {
+      const html = propsRef.current!.prompt || ''
       syncStripImagesFromPromptRefDiff(html || '')
       syncStripAudiosFromPromptRefDiff(html || '')
     })
+    return cancel
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.prompt])
 
@@ -400,7 +422,7 @@ export function useStoryboardPanelPromptSync(options: PromptSyncOptions) {
     const wasOpen = prevParamSettingsOpenRef.current
     prevParamSettingsOpenRef.current = paramSettingsOpen
     if (wasOpen && !paramSettingsOpen) {
-      nextTick(() => {
+      return schedulePromptSync(() => {
         prevLocalStripImageAssetsRef.current = snapshotLocalStripImageAssets()
         stripAssetSyncSeededRef.current = true
         refreshPromptAssetRefKeySnapshot()
@@ -412,12 +434,12 @@ export function useStoryboardPanelPromptSync(options: PromptSyncOptions) {
 
   // watch([各参数选中值, isSettingExpanded, mode, paramGroups], deep)
   useEffect(() => {
-    nextTick(() => {
+    const cancel = schedulePromptSync(() => {
       if (propsRef.current!.suppressPromptReactiveSync) return
       if (paramSettingsOpenRef.current) return
       syncStoryboardPromptParamRefsInEditor()
-      getActivePromptEditor()?.hydratePromptRefEmbeds()
     })
+    return cancel
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     props.selectedComposition,

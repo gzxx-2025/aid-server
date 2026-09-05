@@ -65,20 +65,6 @@ html[data-viewport-large-clamp='1'].layout-create-flow #__nuxt > div {
   overflow: hidden;
 }
 
-html[data-viewport-large-clamp='1'] .home-legacy-page {
-  min-height: var(--vps-comp-vh) !important;
-}
-
-html[data-viewport-large-clamp='1'] .case-detail-root,
-html[data-viewport-large-clamp='1'] .case-detail-page {
-  min-height: var(--vps-comp-dvh) !important;
-}
-
-html[data-viewport-large-clamp='1'] .case-detail-page {
-  height: var(--vps-comp-dvh) !important;
-  max-height: var(--vps-comp-dvh) !important;
-}
-
 html[data-viewport-large-clamp='1'] .create-page {
   height: var(--vps-comp-dvh) !important;
   min-height: var(--vps-comp-dvh) !important;

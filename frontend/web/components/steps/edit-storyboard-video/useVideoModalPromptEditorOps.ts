@@ -2,6 +2,10 @@
 
 import { message } from 'antd'
 import { useRef } from 'react'
+import {
+createAsyncPromptApplyGuard,
+type AsyncPromptApplyTicket
+} from '~/utils/asyncPromptApplyGuard'
 import { matchesModalTaskOverlayKey } from '~/composables/useModalTaskScope'
 import {
 filterAspectRatiosForVideoModal,
@@ -41,6 +45,32 @@ function nextTickAsync(): Promise<void> {
 
 
 export function useVideoModalPromptEditorOps(ctx: VideoModalCtx) {
+  type PromptChannel = 'imageToVideo' | 'multiParam'
+  const promptApplyGuardsRef = useRef({
+    imageToVideo: createAsyncPromptApplyGuard(),
+    multiParam: createAsyncPromptApplyGuard()
+  })
+  const promptScopeKey = (
+    channel: PromptChannel,
+    storyboardId = ctx.currentStoryboardId()
+  ) => `storyboard-video:${channel}:${String(storyboardId ?? '')}`
+  const beginVideoPromptApply = (channel: PromptChannel, storyboardId: number) =>
+    promptApplyGuardsRef.current[channel].begin(promptScopeKey(channel, storyboardId))
+  const invalidateVideoPromptApply = (channel: PromptChannel) =>
+    promptApplyGuardsRef.current[channel].invalidate()
+  const canApplyVideoPrompt = (channel: PromptChannel, ticket: AsyncPromptApplyTicket) =>
+    promptApplyGuardsRef.current[channel].isCurrent(ticket, promptScopeKey(channel))
+  const handleImageToVideoPromptEditorChange = (value: string) => {
+    promptApplyGuardsRef.current.imageToVideo.markEdited()
+    ctx.imageToVideoPrompt.set(value)
+  }
+  const handleMultiParamPromptEditorChange = (value: string) => {
+    promptApplyGuardsRef.current.multiParam.markEdited()
+    ctx.multiParamPrompt.set(value)
+  }
+  const handleEdgeVideoPromptEditorChange = (value: string) => {
+    ctx.edgeVideoPrompt.set(value)
+  }
   const dict = usePromptDictionary()
   /** 事件回调 / 异步流程内读最新词库（避免闭包旧值） */
   const dictRef = useRef(dict)
@@ -173,55 +203,67 @@ export function useVideoModalPromptEditorOps(ctx: VideoModalCtx) {
     return scriptApiTextToEditorHtml(text)
   }
 
-  async function applyVideoPromptFromApi(plain: string) {
+  async function applyVideoPromptFromApi(
+    plain: string,
+    ticket = beginVideoPromptApply('imageToVideo', Number(ctx.currentStoryboardId()))
+  ): Promise<boolean> {
+    if (!canApplyVideoPrompt('imageToVideo', ticket)) return false
     const raw = String(plain || '').trim()
     if (!raw) {
+      if (!canApplyVideoPrompt('imageToVideo', ticket)) return false
       ctx.resolvedVideoPromptAssets.set([])
       ctx.imageToVideoPrompt.set('')
-      return
+      return true
+    }
+
+    await ensureDictLoaded()
+    if (!canApplyVideoPrompt('imageToVideo', ticket)) return false
+
+    const audioIds = collectReferenceAudioIds(ctx.referenceAudios.get())
+    const originalHasPlaceholders = promptPlainHasAssetPlaceholders(raw)
+    const inject = prependDefaultReferenceImageToPlainPrompt(
+      raw,
+      ctx.referenceImages.get()[0] ?? null
+    )
+    const text = inject.plain
+    const injectedAsset = inject.injected ? (inject.asset as PromptAssetItem) : null
+
+    const localAssets = collectStoryboardPromptAssets(
+      ctx.sceneImages.get(),
+      ctx.characterImages.get(),
+      ctx.propImages.get(),
+      ctx.otherImages.get()
+    )
+    const localWithInjected = injectedAsset ? [injectedAsset, ...localAssets] : localAssets
+
+    let resolvedAssets: PromptAssetItem[] = []
+    let unresolvedAudio = false
+    let unresolvedNames: string[] = []
+    if (originalHasPlaceholders || audioIds.length > 0) {
+      const saveCtx = await resolveStoryScriptSaveContext(ctx.store(), ctx.route())
+      if (!canApplyVideoPrompt('imageToVideo', ticket)) return false
+      const imageResolve = await resolveStoryboardImageAssetsFromPlain(text, saveCtx, {
+        referenceAudioIds: audioIds
+      })
+      if (!canApplyVideoPrompt('imageToVideo', ticket)) return false
+      unresolvedAudio = Boolean(imageResolve.unresolvedReferenceAudioIds?.length)
+      unresolvedNames = imageResolve.unresolvedNames
+      resolvedAssets = patchEmptyResolvedPromptAssets(
+        imageResolve.resolvedAssets,
+        localWithInjected
+      )
+    } else if (injectedAsset) {
+      resolvedAssets = [injectedAsset]
     }
 
     ctx.videoPromptProgrammaticSyncDepth.set(ctx.videoPromptProgrammaticSyncDepth.get() + 1)
     try {
-      await ensureDictLoaded()
-
-      const audioIds = collectReferenceAudioIds(ctx.referenceAudios.get())
-      const originalHasPlaceholders = promptPlainHasAssetPlaceholders(raw)
-      const inject = prependDefaultReferenceImageToPlainPrompt(
-        raw,
-        ctx.referenceImages.get()[0] ?? null
-      )
-      const text = inject.plain
-      const injectedAsset = inject.injected ? (inject.asset as PromptAssetItem) : null
-
       applyVideoParamSelectionsFromPlain(text)
-
-      const localAssets = collectStoryboardPromptAssets(
-        ctx.sceneImages.get(),
-        ctx.characterImages.get(),
-        ctx.propImages.get(),
-        ctx.otherImages.get()
-      )
-      const localWithInjected = injectedAsset ? [injectedAsset, ...localAssets] : localAssets
-
-      let resolvedAssets: PromptAssetItem[] = []
-      if (originalHasPlaceholders || audioIds.length > 0) {
-        const saveCtx = await resolveStoryScriptSaveContext(ctx.store(), ctx.route())
-        const imageResolve = await resolveStoryboardImageAssetsFromPlain(text, saveCtx, {
-          referenceAudioIds: audioIds
-        })
-        if (imageResolve.unresolvedReferenceAudioIds?.length) {
-          message.warning('参考音频不可用，请重新选择')
-        }
-        resolvedAssets = patchEmptyResolvedPromptAssets(
-          imageResolve.resolvedAssets,
-          localWithInjected
-        )
-        if (imageResolve.unresolvedNames.length) {
-          message.warning(`部分参考图未匹配：${imageResolve.unresolvedNames.join('、')}`)
-        }
-      } else if (injectedAsset) {
-        resolvedAssets = [injectedAsset]
+      if (unresolvedAudio) {
+        message.warning('参考音频不可用，请重新选择')
+      }
+      if (unresolvedNames.length) {
+        message.warning(`部分参考图未匹配：${unresolvedNames.join('、')}`)
       }
 
       ctx.resolvedVideoPromptAssets.set(resolvedAssets)
@@ -235,55 +277,69 @@ export function useVideoModalPromptEditorOps(ctx: VideoModalCtx) {
       )
       ctx.syncResolvedPromptAssetsToImportReferences(resolvedAssets, 'imageToVideo')
       await nextTickAsync()
+      return true
     } finally {
       ctx.videoPromptProgrammaticSyncDepth.set(ctx.videoPromptProgrammaticSyncDepth.get() - 1)
     }
   }
 
-  async function applyMultiParamPromptFromApi(plain: string) {
+  async function applyMultiParamPromptFromApi(
+    plain: string,
+    ticket = beginVideoPromptApply('multiParam', Number(ctx.currentStoryboardId()))
+  ): Promise<boolean> {
+    if (!canApplyVideoPrompt('multiParam', ticket)) return false
     const raw = String(plain || '').trim()
     if (!raw) {
+      if (!canApplyVideoPrompt('multiParam', ticket)) return false
       ctx.resolvedMultiParamPromptAssets.set([])
       ctx.multiParamPrompt.set('')
-      return
+      return true
+    }
+
+    await ensureDictLoaded()
+    if (!canApplyVideoPrompt('multiParam', ticket)) return false
+
+    const audioIds = collectReferenceAudioIds(ctx.referenceAudios.get())
+    const originalHasPlaceholders = promptPlainHasAssetPlaceholders(raw)
+    const inject = prependDefaultReferenceImageToPlainPrompt(raw, ctx.sceneImages.get()[0] ?? null)
+    const text = inject.plain
+    const injectedAsset = inject.injected ? (inject.asset as PromptAssetItem) : null
+
+    const localAssets = collectStoryboardPromptAssets(
+      ctx.sceneImages.get(),
+      ctx.characterImages.get(),
+      ctx.propImages.get(),
+      ctx.otherImages.get()
+    )
+    const localWithInjected = injectedAsset ? [injectedAsset, ...localAssets] : localAssets
+
+    let resolvedAssets: PromptAssetItem[] = []
+    let unresolvedAudio = false
+    let unresolvedNames: string[] = []
+    if (originalHasPlaceholders || audioIds.length > 0) {
+      const saveCtx = await resolveStoryScriptSaveContext(ctx.store(), ctx.route())
+      if (!canApplyVideoPrompt('multiParam', ticket)) return false
+      const imageResolve = await resolveStoryboardImageAssetsFromPlain(text, saveCtx, {
+        referenceAudioIds: audioIds
+      })
+      if (!canApplyVideoPrompt('multiParam', ticket)) return false
+      unresolvedAudio = Boolean(imageResolve.unresolvedReferenceAudioIds?.length)
+      unresolvedNames = imageResolve.unresolvedNames
+      resolvedAssets = patchEmptyResolvedPromptAssets(
+        imageResolve.resolvedAssets,
+        localWithInjected
+      )
+    } else if (injectedAsset) {
+      resolvedAssets = [injectedAsset]
     }
 
     ctx.videoPromptProgrammaticSyncDepth.set(ctx.videoPromptProgrammaticSyncDepth.get() + 1)
     try {
-      await ensureDictLoaded()
-
-      const audioIds = collectReferenceAudioIds(ctx.referenceAudios.get())
-      const originalHasPlaceholders = promptPlainHasAssetPlaceholders(raw)
-      const inject = prependDefaultReferenceImageToPlainPrompt(raw, ctx.sceneImages.get()[0] ?? null)
-      const text = inject.plain
-      const injectedAsset = inject.injected ? (inject.asset as PromptAssetItem) : null
-
-      const localAssets = collectStoryboardPromptAssets(
-        ctx.sceneImages.get(),
-        ctx.characterImages.get(),
-        ctx.propImages.get(),
-        ctx.otherImages.get()
-      )
-      const localWithInjected = injectedAsset ? [injectedAsset, ...localAssets] : localAssets
-
-      let resolvedAssets: PromptAssetItem[] = []
-      if (originalHasPlaceholders || audioIds.length > 0) {
-        const saveCtx = await resolveStoryScriptSaveContext(ctx.store(), ctx.route())
-        const imageResolve = await resolveStoryboardImageAssetsFromPlain(text, saveCtx, {
-          referenceAudioIds: audioIds
-        })
-        if (imageResolve.unresolvedReferenceAudioIds?.length) {
-          message.warning('参考音频不可用，请重新选择')
-        }
-        resolvedAssets = patchEmptyResolvedPromptAssets(
-          imageResolve.resolvedAssets,
-          localWithInjected
-        )
-        if (imageResolve.unresolvedNames.length) {
-          message.warning(`部分参考图未匹配：${imageResolve.unresolvedNames.join('、')}`)
-        }
-      } else if (injectedAsset) {
-        resolvedAssets = [injectedAsset]
+      if (unresolvedAudio) {
+        message.warning('参考音频不可用，请重新选择')
+      }
+      if (unresolvedNames.length) {
+        message.warning(`部分参考图未匹配：${unresolvedNames.join('、')}`)
       }
 
       ctx.resolvedMultiParamPromptAssets.set(resolvedAssets)
@@ -305,6 +361,7 @@ export function useVideoModalPromptEditorOps(ctx: VideoModalCtx) {
       )
       ctx.syncResolvedPromptAssetsToImportReferences(resolvedAssets, 'multiParam')
       await nextTickAsync()
+      return true
     } finally {
       ctx.videoPromptProgrammaticSyncDepth.set(ctx.videoPromptProgrammaticSyncDepth.get() - 1)
     }
@@ -313,11 +370,16 @@ export function useVideoModalPromptEditorOps(ctx: VideoModalCtx) {
     applyMultiParamPromptFromApi,
     applyVideoParamSelectionsFromPlain,
     applyVideoPromptFromApi,
+    beginVideoPromptApply,
     aspectRatioEnumOptions,
     cameraMovementOptions,
     edgeVideoPromptPlain,
     ensureDictLoaded,
     imageToVideoPromptPlain,
+    handleEdgeVideoPromptEditorChange,
+    handleImageToVideoPromptEditorChange,
+    handleMultiParamPromptEditorChange,
+    invalidateVideoPromptApply,
     isStoryboardVideoPromptGeneratingForScene,
     multiParamPromptParamGroups,
     multiParamPromptPlain,

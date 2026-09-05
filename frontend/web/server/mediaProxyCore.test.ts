@@ -33,7 +33,7 @@ describe('media proxy host validation', () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
     const response = await handleMediaProxyRequest(
-      new Request('http://studio.local/media/proxy?url=http%3A%2F%2F127.0.0.1%2Fvideo.mp4')
+      new Request('http://example.local/media/proxy?url=http%3A%2F%2F127.0.0.1%2Fvideo.mp4')
     )
 
     expect(response.status).toBe(400)
@@ -56,7 +56,7 @@ describe('media proxy host validation', () => {
 
     const response = await handleMediaProxyRequest(
       new Request(
-        'http://studio.local/media/proxy?url=https%3A%2F%2Fcdn.example.com%2Fvideo.mp4',
+        'http://example.local/media/proxy?url=https%3A%2F%2Fcdn.example.com%2Fvideo.mp4',
         { headers: { range: 'bytes=0-3' } }
       )
     )

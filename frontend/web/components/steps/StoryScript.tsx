@@ -1,7 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { forwardRef, useCallback, useContext, useEffect, useImperativeHandle, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
+  CommentOutlined,
   CopyOutlined,
   DeleteOutlined,
   FileTextOutlined,
@@ -11,11 +13,13 @@ import {
   UploadOutlined
 } from '@ant-design/icons'
 import { Button, Drawer, message, Modal, Spin } from 'antd'
-import RichTextEditor from '~/components/common/RichTextEditor'
+import agentIconRaw from '~/assets/img/home/agent-icon.svg'
+import RichTextEditor, { type RichTextEditorHandle } from '~/components/common/RichTextEditor'
 import { getRouteLikeSnapshot } from '~/hooks/useRouteLike'
 import { useStoryScriptAutoSave } from '~/hooks/useStoryScriptAutoSave'
 import { useCreationStore } from '~/stores/creation'
 import type { ScriptDetailRow } from '~/types/business-api'
+import { assetUrl } from '~/utils/assetUrl'
 import { userScriptDelete, userScriptList } from '~/utils/businessApi'
 import {
   htmlPlainTextLength,
@@ -27,6 +31,12 @@ import {
   STORY_SCRIPT_MAX_CHARS_MOVIE,
   STORY_SCRIPT_MAX_CHARS_SERIES
 } from '~/utils/htmlPlain'
+import {
+  formatEditorSelectionLocation,
+  type EditorTextReplacement,
+  type EditorTextSelection,
+  type EditorTextSelectionChange
+} from '~/utils/quill/editorTextSelection'
 import { resolveStoryScriptSaveContext } from '~/utils/storyScriptSaveContext'
 import {
   flushStoryScriptAutoSave,
@@ -34,13 +44,30 @@ import {
   type StoryScriptFlushResult
 } from '~/utils/storyScriptPersistence'
 import { saveStoryScriptAsNewVersion } from '~/utils/storyScriptVersionSave'
+import { formatStoryScriptAutosaveHint } from '~/utils/storyScriptAutosaveHint'
+import { createFlowShellContext } from '~/utils/createFlowInjection'
 import ImportScriptModal from './ImportScriptModal'
 import './story-script.css'
+
+const agentIconUrl = assetUrl(agentIconRaw)
 
 interface Props {
   value: string
   description?: string
   onChange: (value: string) => void
+  agentOpen?: boolean
+  onAgentToggle?: () => void
+  onAgentReference?: (selection: EditorTextSelection) => void
+}
+
+export interface StoryScriptHandle {
+  applyAgentSelectionEdit: (
+    selection: EditorTextSelection,
+    replacement: string
+  ) => 'applied' | 'stale' | 'empty' | 'limit' | 'unavailable'
+  applyAgentSelectionEdits: (
+    replacements: readonly EditorTextReplacement[]
+  ) => 'applied' | 'stale' | 'empty' | 'limit' | 'unavailable'
 }
 
 const MAX_UNDO_HISTORY_SIZE = 50
@@ -68,8 +95,22 @@ function confirmAction(title: string, content: string, okText: string): Promise<
   })
 }
 
-export function StoryScript({ value = '', description: _description = '撰写或导入剧本内容', onChange }: Props) {
+export const StoryScript = forwardRef<StoryScriptHandle, Props>(function StoryScript(
+  {
+    value = '',
+    description: _description = '撰写或导入剧本内容',
+    onChange,
+    agentOpen = false,
+    onAgentToggle,
+    onAgentReference
+  },
+  forwardedRef
+) {
   const currentProjectType = useCreationStore((s) => s.currentProjectType)
+  const createFlowShell = useContext(createFlowShellContext)
+  const editorRef = useRef<RichTextEditorHandle | null>(null)
+
+  /** 电影 1 万字 / 剧集 10 万字（纯文字，不含空格与标点） */
   const scriptMaxLength =
     currentProjectType === 'series' ? STORY_SCRIPT_MAX_CHARS_SERIES : STORY_SCRIPT_MAX_CHARS_MOVIE
 
@@ -77,6 +118,19 @@ export function StoryScript({ value = '', description: _description = '撰写或
   const [lastExternalValue, setLastExternalValue] = useState(value)
   const [showHistoryPanel, setShowHistoryPanel] = useState(false)
   const [showImportModal, setShowImportModal] = useState(false)
+  const [textSelection, setTextSelection] = useState<EditorTextSelectionChange | null>(null)
+
+  useImperativeHandle(
+    forwardedRef,
+    () => ({
+      applyAgentSelectionEdit: (selection, replacement) =>
+        editorRef.current?.replaceTextSelection(selection, replacement) ?? 'unavailable',
+      applyAgentSelectionEdits: (replacements) =>
+        editorRef.current?.replaceTextSelections(replacements) ?? 'unavailable'
+    }),
+    []
+  )
+
   const [expandedHistoryId, setExpandedHistoryId] = useState<number | null>(null)
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyLoadingMore, setHistoryLoadingMore] = useState(false)
@@ -94,6 +148,7 @@ export function StoryScript({ value = '', description: _description = '撰写或
 
   if (lastExternalValue !== value) {
     setLastExternalValue(value)
+    if (textSelection) setTextSelection(null)
     if (localContent !== value) {
       setLocalContent(value)
       setHistory((current) =>
@@ -119,6 +174,21 @@ export function StoryScript({ value = '', description: _description = '撰写或
   }
 
   const { saveState } = useStoryScriptAutoSave(localContent, applyEditorContent)
+  const flushLatestEditorContent = useCallback(async (): Promise<StoryScriptFlushResult> => {
+    const ctx = await resolveStoryScriptSaveContext(
+      useCreationStore.getState(),
+      getRouteLikeSnapshot()
+    )
+    if (!ctx) return 'error'
+    queueStoryScriptAutoSave(ctx, storyScriptOriginalTextForApi(localContent))
+    return flushStoryScriptAutoSave(ctx)
+  }, [localContent])
+
+  useEffect(() => {
+    if (!createFlowShell?.registerStoryScriptFlush) return
+    createFlowShell.registerStoryScriptFlush(flushLatestEditorContent)
+    return () => createFlowShell.registerStoryScriptFlush?.(null)
+  }, [createFlowShell, flushLatestEditorContent])
 
   const handleContentChange = (html: string) => {
     setLocalContent(html)
@@ -193,13 +263,6 @@ export function StoryScript({ value = '', description: _description = '撰写或
 
   async function resolveSaveContext() {
     return resolveStoryScriptSaveContext(useCreationStore.getState(), getRouteLikeSnapshot())
-  }
-
-  async function flushLatestEditorContent(): Promise<StoryScriptFlushResult> {
-    const ctx = await resolveSaveContext()
-    if (!ctx) return 'clean'
-    queueStoryScriptAutoSave(ctx, storyScriptOriginalTextForApi(localContent))
-    return flushStoryScriptAutoSave(ctx)
   }
 
   async function loadHistory(pageNum: number, append: boolean) {
@@ -320,19 +383,15 @@ export function StoryScript({ value = '', description: _description = '撰写或
     return `历史版本 ${Number(version.comicVersion) || '-'}`
   }
 
-  const saveStatusText = (() => {
-    if (saveState.status === 'dirty') return '有未保存修改'
-    if (saveState.status === 'saving') return '保存中'
-    if (saveState.status === 'error') return '保存失败'
-    if (saveState.status === 'conflict') return '内容冲突'
-    if (!saveState.lastSavedAt) return '已保存'
-    const time = new Date(saveState.lastSavedAt).toLocaleTimeString('zh-CN', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false
-    })
-    return `已保存 ${time}`
-  })()
+  const autosaveHintText = formatStoryScriptAutosaveHint(saveState.status, saveState.lastSavedAt)
+  const autosaveHintClassName =
+    saveState.status === 'error'
+      ? ' is-error'
+      : saveState.status === 'conflict'
+        ? ' is-conflict'
+        : ''
+  const scriptCharCount = htmlPureTextCharCount(localContent)
+  const scriptCharCountAtLimit = scriptCharCount >= scriptMaxLength
 
   return (
     <div className="story-script create-step-story-script">
@@ -356,13 +415,21 @@ export function StoryScript({ value = '', description: _description = '撰写或
           </button>
         </div>
         <div className="toolbar-right">
-          <span
-            className={`story-script-save-status is-${saveState.status}`}
-            title={saveState.errorMessage || undefined}
-            aria-live="polite"
-          >
-            {saveStatusText}
-          </span>
+          {onAgentToggle ? (
+            <div className={`agent-btn-slot${agentOpen ? ' is-collapsed' : ''}`}>
+              <Button
+                onClick={onAgentToggle}
+                className="agent-btn"
+                aria-label="打开 AI写剧本"
+                aria-expanded={agentOpen}
+                aria-hidden={agentOpen}
+                tabIndex={agentOpen ? -1 : 0}
+                icon={<img src={agentIconUrl} alt="" className="agent-btn__icon" />}
+              >
+                AI写剧本
+              </Button>
+            </div>
+          ) : null}
           <Button
             onClick={() => setShowImportModal(true)}
             className="import-btn"
@@ -377,7 +444,41 @@ export function StoryScript({ value = '', description: _description = '撰写或
       </div>
 
       <div className="editor-container">
+        {onAgentReference &&
+        textSelection &&
+        typeof document !== 'undefined' &&
+        textSelection.anchor.bottom >= 0 &&
+        textSelection.anchor.top <= window.innerHeight
+          ? createPortal(
+              <button
+                type="button"
+                className="story-script-selection-action"
+                aria-label="针对选段批注"
+                title={formatEditorSelectionLocation(textSelection.selection)}
+                style={{
+                  left: Math.min(
+                    Math.max(12, textSelection.anchor.left + 8),
+                    Math.max(12, window.innerWidth - 144)
+                  ),
+                  top:
+                    textSelection.anchor.bottom + 44 <= window.innerHeight
+                      ? textSelection.anchor.bottom + 8
+                      : Math.max(8, textSelection.anchor.top - 40)
+                }}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => {
+                  onAgentReference(textSelection.selection)
+                  setTextSelection(null)
+                }}
+              >
+                <CommentOutlined />
+                针对选段批注
+              </button>,
+              document.body
+            )
+          : null}
         <RichTextEditor
+          ref={editorRef}
           value={localContent}
           onChange={handleContentChange}
           className="script-editor"
@@ -387,8 +488,21 @@ export function StoryScript({ value = '', description: _description = '撰写或
           minHeight="500px"
           maxLength={scriptMaxLength}
           countPureTextOnly
-          showCount
+          showCount={false}
+          onTextSelectionChange={setTextSelection}
         />
+        <div className="story-script-editor-footer" aria-live="polite">
+          <span
+            className={`story-script-autosave-hint${autosaveHintClassName}`}
+          >
+            {autosaveHintText}
+          </span>
+          <span
+            className={`story-script-char-count${scriptCharCountAtLimit ? ' is-limit' : ''}`}
+          >
+            {scriptCharCount}/{scriptMaxLength}
+          </span>
+        </div>
       </div>
 
       <Drawer
@@ -437,6 +551,7 @@ export function StoryScript({ value = '', description: _description = '撰写或
                         <Button
                           size="small"
                           type="link"
+                          className="story-script-history-action story-script-history-action--restore"
                           onClick={(event) => {
                             event.stopPropagation()
                             void restoreVersion(version)
@@ -447,7 +562,7 @@ export function StoryScript({ value = '', description: _description = '撰写或
                         <Button
                           size="small"
                           type="link"
-                          danger
+                          className="story-script-history-action story-script-history-action--delete"
                           onClick={(event) => {
                             event.stopPropagation()
                             void deleteVersion(version)
@@ -485,6 +600,6 @@ export function StoryScript({ value = '', description: _description = '撰写或
       />
     </div>
   )
-}
+})
 
 export default StoryScript

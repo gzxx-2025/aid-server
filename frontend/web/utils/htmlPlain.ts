@@ -24,6 +24,9 @@ export const STORY_SCRIPT_MAX_CHARS_MOVIE = 10_000
 /** 剧本创作：剧集作品单集字数上限（纯文字） */
 export const STORY_SCRIPT_MAX_CHARS_SERIES = 100_000
 
+/** 编辑场景/角色/道具、分镜图、分镜视频弹窗描述框字数上限（纯文字） */
+export const EDIT_ASSET_PROMPT_MAX_CHARS = 100_000
+
 /**
  * 统计纯文字字数：汉字、字母、数字；不含空格、换行与标点符号。
  * 用于剧本创作等场景的字数限制展示与校验。

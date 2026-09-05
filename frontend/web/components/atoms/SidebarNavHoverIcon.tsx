@@ -21,7 +21,7 @@ export default function SidebarNavHoverIcon({ type, className }: SidebarNavHover
   return (
     <span className={rootClass} aria-hidden="true">
       {type === 'gallery' ? (
-        /* 案例广场：原图 fill 静态层 + hover 描摹与翻起 */
+        /* 首页：原图 fill 静态层 + hover 描摹与翻起 */
         <svg
           className="sidebar-nav-hover-icon__svg"
           viewBox="0 0 24 24"

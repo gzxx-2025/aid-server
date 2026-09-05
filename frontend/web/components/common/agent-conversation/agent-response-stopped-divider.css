@@ -1,0 +1,32 @@
+.agent-response-stopped-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin: 10px 0 2px;
+  color: #727c8a;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.agent-response-stopped-divider::before,
+.agent-response-stopped-divider::after {
+  content: '';
+  flex: 1 1 auto;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.agent-response-stopped-divider__label {
+  flex: 0 0 auto;
+  color: #6f7886;
+  white-space: nowrap;
+}
+
+.story-agent-assistant-message .agent-response-stopped-divider {
+  margin-top: 8px;
+}
+
+.story-agent-document .agent-response-stopped-divider {
+  margin: 0 12px 12px;
+}

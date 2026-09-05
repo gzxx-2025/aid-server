@@ -17,6 +17,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -29,7 +30,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
-/** 可发现式供应商后台能力；可灵提供余额/任务，MiniMax H3 提供近 7 天视频任务。 */
+/** 可发现式供应商后台查询能力。 */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -44,6 +45,8 @@ public class ProviderUpstreamOperationsServiceImpl implements IProviderUpstreamO
     private static final Set<String> PRODUCT_TYPES = Set.of("video", "image", "try_on");
     private static final Set<String> SEARCH_TYPES = Set.of("task_ids", "external_task_ids");
     private static final String MINIMAX_PROVIDER_CODE = "minimax";
+    private static final String VIDU_PROVIDER_CODE = "vidu";
+    private static final String DEEPSEEK_PROVIDER_CODE = "deepseek";
     private static final Set<String> MINIMAX_TASK_STATUSES = Set.of(
         "queued", "running", "succeeded", "failed", "cancelled");
     private static final Set<String> MINIMAX_TASK_TYPES = Set.of("generation");
@@ -57,8 +60,10 @@ public class ProviderUpstreamOperationsServiceImpl implements IProviderUpstreamO
         AidAiProvider provider = requireProvider(providerId);
         boolean kling = KLING_PROVIDER_CODE.equalsIgnoreCase(StrUtil.trim(provider.getProviderCode()));
         boolean minimax = MINIMAX_PROVIDER_CODE.equalsIgnoreCase(StrUtil.trim(provider.getProviderCode()));
+        boolean vidu = VIDU_PROVIDER_CODE.equalsIgnoreCase(StrUtil.trim(provider.getProviderCode()));
+        boolean deepseek = DEEPSEEK_PROVIDER_CODE.equalsIgnoreCase(StrUtil.trim(provider.getProviderCode()));
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("balance", kling);
+        result.put("balance", kling || vidu || deepseek);
         result.put("upstreamTasks", kling || minimax);
         if (kling) {
             result.put("taskStatuses", TASK_STATUSES);
@@ -74,12 +79,27 @@ public class ProviderUpstreamOperationsServiceImpl implements IProviderUpstreamO
             result.put("supportsTimeRange", false);
             result.put("recentDays", 7);
         }
+        if (vidu) {
+            result.put("balanceUnit", "credits");
+            result.put("balanceDelayNotice", "余额来自 Vidu 官方积分查询接口");
+        }
+        if (deepseek) {
+            result.put("balanceUnit", "CNY/USD");
+            result.put("balanceDelayNotice", "余额来自 DeepSeek 官方账户余额接口");
+        }
         return result;
     }
 
     @Override
     public Map<String, Object> balance(Long providerId, Long startTime, Long endTime, String resourcePackName) {
-        AidAiProvider provider = requireKling(providerId);
+        AidAiProvider provider = requireProvider(providerId);
+        if (VIDU_PROVIDER_CODE.equalsIgnoreCase(StrUtil.trim(provider.getProviderCode()))) {
+            return viduBalance(provider);
+        }
+        if (DEEPSEEK_PROVIDER_CODE.equalsIgnoreCase(StrUtil.trim(provider.getProviderCode()))) {
+            return deepseekBalance(provider);
+        }
+        provider = requireKling(providerId);
         long now = Instant.now().toEpochMilli();
         long end = endTime == null ? now : endTime;
         long start = startTime == null ? end - 30L * 24L * 60L * 60L * 1000L : startTime;
@@ -111,6 +131,95 @@ public class ProviderUpstreamOperationsServiceImpl implements IProviderUpstreamO
             Map<String, Object> immutable = parseBalanceData(data, now);
             balanceCache.put(providerId, new BalanceCache(cacheKey, now, immutable));
             return immutable;
+        }
+    }
+
+    /** Vidu 官方 GET /ent/v2/credits，只汇总 remains 中各资源包类型的 credit_remain。 */
+    private Map<String, Object> viduBalance(AidAiProvider provider) {
+        if (StrUtil.isBlank(provider.getApiKey())) {
+            throw failure("missing Vidu api key, providerId=" + provider.getId(), "API密钥未配置");
+        }
+        String url = buildProviderUrl(provider, "/ent/v2/credits?show_detail=false");
+        String headerName = StrUtil.blankToDefault(provider.getAuthHeader(), "Authorization");
+        String prefix = StrUtil.blankToDefault(provider.getAuthPrefix(), "Token ");
+        try (HttpResponse response = HttpRequest.get(url)
+                .header(headerName, prefix + provider.getApiKey().trim())
+                .header("Content-Type", "application/json")
+                .timeout(HTTP_TIMEOUT_MS)
+                .execute()) {
+            String raw = response.body();
+            JsonNode root = JSONUtil.isTypeJSON(raw) ? MAPPER.readTree(raw) : null;
+            if (!response.isOk() || root == null || !root.isObject() || !root.path("remains").isArray()) {
+                log.warn("Vidu balance query failed, providerId={}, httpStatus={}, responseLength={}",
+                        provider.getId(), response.getStatus(), StrUtil.length(raw));
+                throw new ServiceException(response.getStatus() == 401 ? "上游鉴权配置无效" : "余额查询失败");
+            }
+            BigDecimal total = BigDecimal.ZERO;
+            List<Map<String, Object>> remains = new ArrayList<>();
+            for (JsonNode item : root.path("remains")) {
+                JsonNode remain = item.get("credit_remain");
+                if (remain != null && remain.isNumber()) {
+                    total = total.add(remain.decimalValue());
+                } else if (remain != null && remain.isTextual()) {
+                    try { total = total.add(new BigDecimal(remain.asText())); }
+                    catch (NumberFormatException ignored) { }
+                }
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("type", item.path("type").asText(""));
+                row.put("credit_remain", remain == null || remain.isNull() ? null : remain.asText());
+                remains.add(row);
+            }
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("balance", total);
+            result.put("unit", "credits");
+            result.put("remains", remains);
+            result.put("queriedAt", Instant.now().toEpochMilli());
+            return Collections.unmodifiableMap(result);
+        } catch (ServiceException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            log.warn("Vidu balance query unavailable, providerId={}, error={}",
+                    provider.getId(), ex.getClass().getSimpleName());
+            throw new ServiceException("上游服务暂不可用");
+        }
+    }
+
+    /** DeepSeek 官方 GET /user/balance，返回账户当前总可用余额。 */
+    private Map<String, Object> deepseekBalance(AidAiProvider provider) {
+        if (StrUtil.isBlank(provider.getApiKey())) {
+            throw failure("missing DeepSeek api key, providerId=" + provider.getId(), "API密钥未配置");
+        }
+        String url = buildProviderUrl(provider, "/user/balance");
+        String headerName = StrUtil.blankToDefault(provider.getAuthHeader(), "Authorization");
+        String prefix = StrUtil.blankToDefault(provider.getAuthPrefix(), "Bearer ");
+        try (HttpResponse response = HttpRequest.get(url)
+                .header(headerName, prefix + provider.getApiKey().trim())
+                .header("Content-Type", "application/json")
+                .timeout(HTTP_TIMEOUT_MS)
+                .execute()) {
+            String raw = response.body();
+            JsonNode root = JSONUtil.isTypeJSON(raw) ? MAPPER.readTree(raw) : null;
+            JsonNode balanceInfos = root == null ? null : root.path("balance_infos");
+            if (!response.isOk() || balanceInfos == null || !balanceInfos.isArray() || balanceInfos.isEmpty()) {
+                log.warn("DeepSeek balance query failed, providerId={}, httpStatus={}, responseLength={}",
+                        provider.getId(), response.getStatus(), StrUtil.length(raw));
+                throw new ServiceException(response.getStatus() == 401 ? "上游鉴权配置无效" : "余额查询失败");
+            }
+            JsonNode primary = balanceInfos.get(0);
+            BigDecimal total = new BigDecimal(primary.path("total_balance").asText());
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("balance", total);
+            result.put("unit", primary.path("currency").asText(""));
+            result.put("isAvailable", root.path("is_available").asBoolean(false));
+            result.put("balanceInfos", MAPPER.convertValue(balanceInfos, new TypeReference<List<Map<String, Object>>>() { }));
+            result.put("queriedAt", Instant.now().toEpochMilli());
+            return Collections.unmodifiableMap(result);
+        } catch (ServiceException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            log.warn("DeepSeek balance query unavailable, providerId={}, error={}",
+                    provider.getId(), ex.getClass().getSimpleName());
+            throw new ServiceException("上游服务暂不可用");
         }
     }
 

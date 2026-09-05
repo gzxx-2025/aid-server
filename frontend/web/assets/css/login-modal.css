@@ -1,0 +1,64 @@
+/* 登录弹窗壳层（字段 antd 覆盖已抽到 auth-dark-field.css） */
+
+.login-modal-overlay {
+  box-sizing: border-box;
+  padding: 1.75rem 1rem;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.login-modal-overlay[data-state='open'] {
+  opacity: 1;
+}
+
+.login-modal-frame {
+  box-sizing: border-box;
+  width: 1440px;
+  height: 1024px;
+}
+
+.login-modal-fit-shell {
+  position: relative;
+  flex-shrink: 0;
+  opacity: 0;
+  transform: translateY(12px);
+  transition:
+    opacity 0.22s ease,
+    transform 0.22s ease;
+}
+
+.login-modal-overlay[data-state='open'] .login-modal-fit-shell {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-modal-overlay,
+  .login-modal-fit-shell {
+    transition: none;
+  }
+}
+
+@media (max-width: 1023px) {
+  .login-modal-fit-shell {
+    width: auto !important;
+    height: auto !important;
+    max-width: min(27.5rem, calc(100vw - 2rem));
+  }
+
+  .login-modal-frame {
+    width: 100% !important;
+    height: auto !important;
+    max-height: calc(100vh - 3.5rem);
+    max-height: calc(100dvh - 3.5rem);
+    transform: none !important;
+  }
+
+  .login-modal-visual {
+    display: none !important;
+  }
+
+  .login-modal-form {
+    width: 100% !important;
+  }
+}

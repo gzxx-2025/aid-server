@@ -25,6 +25,7 @@ export interface CreateFirstStepModalProps {
   flowEditMode?: boolean
   projectTypeLocked?: boolean
   contentConfigLocked?: boolean
+  contentConfigLockReason?: 'storyboard' | 'assets'
   syncProjectTypeFromParent?: boolean
   onOpenChange: (open: boolean) => void
   onTitleChange: (value: string) => void
@@ -51,6 +52,7 @@ export function CreateFirstStepModal({
   flowEditMode = false,
   projectTypeLocked = false,
   contentConfigLocked = false,
+  contentConfigLockReason,
   syncProjectTypeFromParent = false,
   onOpenChange,
   onTitleChange,
@@ -99,6 +101,7 @@ export function CreateFirstStepModal({
           flowEditMode={flowEditMode}
           projectTypeLocked={projectTypeLocked}
           contentConfigLocked={contentConfigLocked}
+          contentConfigLockReason={contentConfigLockReason}
           syncProjectTypeFromParent={syncProjectTypeFromParent}
           title={title}
           projectType={projectType}

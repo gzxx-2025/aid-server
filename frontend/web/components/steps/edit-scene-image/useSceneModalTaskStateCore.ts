@@ -39,6 +39,7 @@ slotHasLoadedImagesForModalImpl,
 syncExternalGeneratingForModalScopeImpl
 } from './sceneModalExternalStatus'
 import {
+isSinglePrimaryImageType,
 isTerminalUserTaskStatus,
 mapSessionTaskKind
 } from './sceneModalTaskParsers'
@@ -130,7 +131,11 @@ function clearSceneModalTaskStateIfOwned(
 
 function claimFormImagesForModal(taskId: number, taskType: unknown, completeData: unknown) {
   const pid = Number(ctx.store().currentProjectId)
-  const options = { projectId: Number.isFinite(pid) && pid > 0 ? pid : undefined }
+  const imageType = ctx.props().imageType
+  const options = {
+    projectId: Number.isFinite(pid) && pid > 0 ? pid : undefined,
+    singleSelection: isSinglePrimaryImageType(imageType)
+  }
   const id = Number(taskId)
   return Number.isFinite(id) && id > 0
     ? ctx.sceneModalFormImageClaimOwner.claim(id, taskType, completeData, options)
@@ -221,20 +226,11 @@ function resolveActiveSceneModalTaskKind(sceneIdx: number): SceneModalSseTaskKin
   return null
 }
 
-const showEditGenerateButtonLoading = () => {
+const showGenerateFooterButtonLoading = () => {
   if (!isSceneModalImageGenerating(ctx.currentSceneIndex.get())) return false
-  return resolveActiveSceneModalTaskKind(ctx.currentSceneIndex.get()) === 'edit-image'
+  const taskKind = resolveActiveSceneModalTaskKind(ctx.currentSceneIndex.get())
+  return taskKind === 'dialogue' || taskKind === 'edit-image'
 }
-
-const showDialogueGenerateButtonLoading = () => {
-  if (!isSceneModalImageGenerating(ctx.currentSceneIndex.get())) return false
-  return resolveActiveSceneModalTaskKind(ctx.currentSceneIndex.get()) === 'dialogue'
-}
-
-const showGenerateFooterButtonLoading = () =>
-  ctx.leftActiveTab.get() === 'generate'
-    ? showEditGenerateButtonLoading()
-    : showDialogueGenerateButtonLoading()
 
 function clearUpscaleOverlay() {
   ctx.upscaleUiPhase.set('idle')
@@ -416,8 +412,6 @@ function resetSceneModalDeferredRestoreState() {
     showMultiViewToolbarLoading,
     showCurrentGeneratingPlaceholder,
     resolveActiveSceneModalTaskKind,
-    showEditGenerateButtonLoading,
-    showDialogueGenerateButtonLoading,
     showGenerateFooterButtonLoading,
     clearUpscaleOverlay,
     resolvePersistedSceneModalSseTask,

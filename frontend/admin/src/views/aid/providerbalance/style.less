@@ -1,0 +1,26 @@
+.provider-balance-page {
+  --pb-border: #e5e6eb;
+  --pb-muted: #86909c;
+
+  .balance-master-alert { margin-bottom: 14px; border-radius: 10px; }
+  .balance-stats { margin-bottom: 14px; }
+  .balance-stats .ant-card { border-radius: 12px; box-shadow: 0 3px 16px rgb(29 33 41 / 5%); }
+  .balance-stats .ant-statistic-content-prefix { color: #165dff; margin-right: 10px; }
+  .balance-main-card { border-radius: 12px; box-shadow: 0 4px 18px rgb(29 33 41 / 5%); }
+  .panel-intro { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 4px 0 18px; }
+  .panel-intro h5 { margin: 0 0 4px; }
+  .provider-name { font-weight: 600; color: #1d2129; }
+  .form-alert { margin-bottom: 18px; }
+  .settings-section { margin: 14px 0; background: #fafbfc; }
+  .channel-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 20px; }
+  .channel-card { display: flex; align-items: center; gap: 13px; border: 1px solid var(--pb-border); border-radius: 12px; padding: 16px; background: #fff; }
+  .channel-card.is-ready { border-color: #b7ebc0; background: linear-gradient(135deg, #fff, #f6ffed); }
+  .channel-card.is-disabled { background: #f7f8fa; }
+  .channel-icon { display: grid; place-items: center; width: 42px; height: 42px; font-size: 21px; border-radius: 10px; background: rgb(22 93 255 / 7%); }
+  .wechat-qr { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 16px 0 26px; text-align: center; }
+
+  @media (max-width: 900px) {
+    .channel-grid { grid-template-columns: 1fr; }
+    .panel-intro { align-items: flex-start; flex-direction: column; }
+  }
+}

@@ -36,6 +36,38 @@ export default function ValueField({ name, value, onChange, models, category }: 
   const [showSecret, setShowSecret] = useState(false);
 
   // 0. 分类内专属控件（优先级最高）
+  if (category === 'account_security' && name === 'cancel_re_registration_enabled') {
+    const checked = value === 'true';
+    return (
+      <div style={{ width: '100%' }}>
+        <div className="switch-wrap">
+          <Switch checked={checked} onChange={(enabled) => onChange(enabled ? 'true' : 'false')} />
+          <span className="switch-text">{checked ? '已开启' : '已关闭'}</span>
+        </div>
+        <div style={{ marginTop: 6, color: '#64748b', fontSize: 12, lineHeight: '20px' }}>
+          开启后，原手机号、邮箱或微信在限制期内不能再次注册；关闭后注销账号可以立即重新注册。
+        </div>
+      </div>
+    );
+  }
+  if (category === 'account_security' && name === 'cancel_re_registration_days') {
+    return (
+      <div style={{ width: '100%' }}>
+        <InputNumber
+          value={value === '' || value === null || value === undefined ? undefined : Number(value)}
+          onChange={(days) => onChange(days == null ? '' : String(days))}
+          min={1}
+          max={3650}
+          precision={0}
+          addonAfter="天"
+          style={{ width: '100%' }}
+        />
+        <div style={{ marginTop: 6, color: '#64748b', fontSize: 12, lineHeight: '20px' }}>
+          允许设置 1—3650 天，仅在上方限制开关开启时生效，默认 15 天。
+        </div>
+      </div>
+    );
+  }
   // 0.0 微信支付证书字段：privateKey（应用私钥/apiclient_key.pem）、serialNo（证书序列号/apiclient_cert.pem）
   //     支持上传证书文件并解析内容/序列号，仅解析存库、不落盘。
   if (category === 'wxpay' && (name === 'privateKey' || name === 'serialNo' || name === 'publicKey')) {

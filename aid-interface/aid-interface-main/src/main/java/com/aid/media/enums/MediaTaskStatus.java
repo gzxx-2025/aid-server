@@ -14,5 +14,6 @@ public enum MediaTaskStatus {
     // 任务处理成功。
     SUCCEEDED,
     // 任务处理失败。
-    FAILED
+    FAILED,
+    CANCELLED
 }

@@ -770,6 +770,10 @@ public class AiModelBusinessServiceImpl implements IAiModelBusinessService
                 CapabilityVO parsed = JSONUtil.toBean(json, CapabilityVO.class);
                 if (Objects.nonNull(parsed))
                 {
+                    if (Objects.equals(MODEL_TYPE_TEXT, modelType))
+                    {
+                        normalizeTextCapability(parsed);
+                    }
                     return parsed;
                 }
             }
@@ -817,11 +821,72 @@ public class AiModelBusinessServiceImpl implements IAiModelBusinessService
         }
         else
         {
-            // text 模型：仅 textOnly 占位
+            cap.setInputModalities(List.of("TEXT"));
+            cap.setOutputModalities(List.of("TEXT"));
+            cap.setSupportsImageInput(Boolean.FALSE);
+            cap.setSupportsVideoInput(Boolean.FALSE);
+            cap.setSupportsAudioInput(Boolean.FALSE);
+            cap.setSupportsDocumentInput(Boolean.FALSE);
+            cap.setMaxInputImages(0);
+            cap.setMaxInputVideos(0);
+            cap.setMaxInputAudios(0);
+            cap.setMaxInputDocuments(0);
+            cap.setSupportsReasoning(Boolean.FALSE);
+            cap.setSupportsReasoningDisable(Boolean.FALSE);
+            cap.setSupportsReasoningContent(Boolean.FALSE);
+            cap.setReturnsReasoningContent(Boolean.FALSE);
+            cap.setSupportsReasoningBudget(Boolean.FALSE);
+            cap.setDefaultReasoningEnabled(Boolean.FALSE);
+            cap.setAllowedReasoningLevels(List.of());
             rules.put("textOnly", buildSceneRule(false, false, false, null));
         }
         cap.setSceneRules(rules);
         return cap;
+    }
+
+    /** 文本模型能力保持稳定非 null 契约；仅在官方未公布数量时使用 10 的约定值。 */
+    private void normalizeTextCapability(CapabilityVO cap)
+    {
+        LinkedHashSet<String> inputModalities = new LinkedHashSet<>();
+        inputModalities.add("TEXT");
+        if (cap.getInputModalities() != null)
+        {
+            cap.getInputModalities().stream().filter(StrUtil::isNotBlank)
+                    .map(value -> value.trim().toUpperCase()).forEach(inputModalities::add);
+        }
+        cap.setInputModalities(new ArrayList<>(inputModalities));
+        if (cap.getOutputModalities() == null || cap.getOutputModalities().isEmpty())
+        {
+            cap.setOutputModalities(List.of("TEXT"));
+        }
+        cap.setSupportsImageInput(Boolean.TRUE.equals(cap.getSupportsImageInput()) || inputModalities.contains("IMAGE"));
+        cap.setSupportsVideoInput(Boolean.TRUE.equals(cap.getSupportsVideoInput()) || inputModalities.contains("VIDEO"));
+        cap.setSupportsAudioInput(Boolean.TRUE.equals(cap.getSupportsAudioInput()) || inputModalities.contains("AUDIO"));
+        cap.setSupportsDocumentInput(Boolean.TRUE.equals(cap.getSupportsDocumentInput()) || inputModalities.contains("DOCUMENT"));
+        cap.setMaxInputImages(normalizeTextInputCount(cap.getSupportsImageInput(), cap.getMaxInputImages()));
+        cap.setMaxInputVideos(normalizeTextInputCount(cap.getSupportsVideoInput(), cap.getMaxInputVideos()));
+        cap.setMaxInputAudios(normalizeTextInputCount(cap.getSupportsAudioInput(), cap.getMaxInputAudios()));
+        cap.setMaxInputDocuments(normalizeTextInputCount(cap.getSupportsDocumentInput(), cap.getMaxInputDocuments()));
+        cap.setSupportsReasoning(Boolean.TRUE.equals(cap.getSupportsReasoning()));
+        cap.setSupportsReasoningDisable(Boolean.TRUE.equals(cap.getSupportsReasoningDisable()));
+        cap.setSupportsReasoningContent(Boolean.TRUE.equals(cap.getSupportsReasoningContent())
+                || Boolean.TRUE.equals(cap.getReturnsReasoningContent()));
+        cap.setReturnsReasoningContent(cap.getSupportsReasoningContent());
+        cap.setSupportsReasoningBudget(Boolean.TRUE.equals(cap.getSupportsReasoningBudget()));
+        cap.setDefaultReasoningEnabled(Boolean.TRUE.equals(cap.getDefaultReasoningEnabled()));
+        if (cap.getAllowedReasoningLevels() == null)
+        {
+            cap.setAllowedReasoningLevels(List.of());
+        }
+    }
+
+    private Integer normalizeTextInputCount(Boolean supported, Integer value)
+    {
+        if (!Boolean.TRUE.equals(supported))
+        {
+            return 0;
+        }
+        return value == null || value == 0 ? 10 : Math.max(-1, value);
     }
 
     /**

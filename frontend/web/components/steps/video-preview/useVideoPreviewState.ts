@@ -37,7 +37,6 @@ export function useVideoPreviewState(): VideoPreviewState {
   const exportProgressPercent = useMirrored(0)
   const timelineLoading = useMirrored(false)
   const segmentsDownloading = useMirrored(false)
-  const exportNeedReaudit = useMirrored(false)
   const exportPendingVideoUrl = useMirrored('')
   const exportFinalVideoUrl = useMirrored('')
   const serverTimelineBaseline = useMirrored<TimelineData | null>(null)
@@ -89,7 +88,6 @@ export function useVideoPreviewState(): VideoPreviewState {
     exportProgressPercent,
     timelineLoading,
     segmentsDownloading,
-    exportNeedReaudit,
     exportPendingVideoUrl,
     exportFinalVideoUrl,
     serverTimelineBaseline,

@@ -21,7 +21,7 @@ import { useVideoModalPromptEditorOps } from './useVideoModalPromptEditorOps'
 
 /** 视频提示词：拉取回填 / 生成任务 / 参考音频占位联动（原 setup 提示词段逻辑） */
 export function useVideoModalPrompt(ctx: VideoModalCtx): void {
-  const { applyMultiParamPromptFromApi, applyVideoParamSelectionsFromPlain, applyVideoPromptFromApi, aspectRatioEnumOptions, cameraMovementOptions, edgeVideoPromptPlain, ensureDictLoaded, imageToVideoPromptPlain, isStoryboardVideoPromptGeneratingForScene, multiParamPromptParamGroups, multiParamPromptPlain, renderStoryboardVideoPromptApiTextToEditor, shootingTechniqueOptions, showGeneratingMultiParamPromptForScene, showGeneratingVideoPromptForScene, videoPromptParamGroups } = useVideoModalPromptEditorOps(ctx)
+  const { applyMultiParamPromptFromApi, applyVideoParamSelectionsFromPlain, applyVideoPromptFromApi, aspectRatioEnumOptions, beginVideoPromptApply, cameraMovementOptions, edgeVideoPromptPlain, ensureDictLoaded, handleEdgeVideoPromptEditorChange, handleImageToVideoPromptEditorChange, handleMultiParamPromptEditorChange, imageToVideoPromptPlain, invalidateVideoPromptApply, isStoryboardVideoPromptGeneratingForScene, multiParamPromptParamGroups, multiParamPromptPlain, renderStoryboardVideoPromptApiTextToEditor, shootingTechniqueOptions, showGeneratingMultiParamPromptForScene, showGeneratingVideoPromptForScene, videoPromptParamGroups } = useVideoModalPromptEditorOps(ctx)
 
   async function fetchStoryboardImageToVideoPrompt(storyboardId: number): Promise<string> {
     const row = await fetchUserStoryboardDetailOnce(storyboardId)
@@ -57,10 +57,12 @@ export function useVideoModalPrompt(ctx: VideoModalCtx): void {
     if (isStoryboardVideoPromptGeneratingForScene()) return
     const id = ctx.currentStoryboardId()
     if (!id) {
+      invalidateVideoPromptApply('imageToVideo')
       ctx.resolvedVideoPromptAssets.set([])
       ctx.imageToVideoPrompt.set('')
       return
     }
+    const promptApplyTicket = beginVideoPromptApply('imageToVideo', id)
     const persisted = ctx.store().getStoryboardVideoPromptGenTask(id)
     if (
       (persisted?.taskKind === 'video-prompt-gen' ||
@@ -71,10 +73,9 @@ export function useVideoModalPrompt(ctx: VideoModalCtx): void {
     }
     try {
       const plain = await fetchStoryboardImageToVideoPrompt(id)
-      await applyVideoPromptFromApi(plain)
+      await applyVideoPromptFromApi(plain, promptApplyTicket)
     } catch {
-      ctx.resolvedVideoPromptAssets.set([])
-      ctx.imageToVideoPrompt.set('')
+      // 请求失败或已切换分镜时保留当前输入。
     }
   }
 
@@ -82,10 +83,12 @@ export function useVideoModalPrompt(ctx: VideoModalCtx): void {
     if (isStoryboardVideoPromptGeneratingForScene()) return
     const id = ctx.currentStoryboardId()
     if (!id) {
+      invalidateVideoPromptApply('multiParam')
       ctx.resolvedMultiParamPromptAssets.set([])
       ctx.multiParamPrompt.set('')
       return
     }
+    const promptApplyTicket = beginVideoPromptApply('multiParam', id)
     const persisted = ctx.store().getStoryboardVideoPromptGenTask(id)
     if (
       persisted?.taskKind === 'multi-video-prompt-gen' &&
@@ -95,17 +98,16 @@ export function useVideoModalPrompt(ctx: VideoModalCtx): void {
     }
     try {
       const plain = await fetchStoryboardMultiVideoPrompt(id)
-      await applyMultiParamPromptFromApi(plain)
+      await applyMultiParamPromptFromApi(plain, promptApplyTicket)
     } catch {
-      ctx.resolvedMultiParamPromptAssets.set([])
-      ctx.multiParamPrompt.set('')
+      // 请求失败或已切换分镜时保留当前输入。
     }
   }
 
   function writePromptPlainToActiveEditor(plain: string) {
     const text = String(plain || '')
     if (ctx.leftActiveTab.get() === 'multiParam') {
-      ctx.multiParamPrompt.set(
+      handleMultiParamPromptEditorChange(
         renderStoryboardVideoPromptApiTextToEditor(text, {
           assets: ctx.resolvedMultiParamPromptAssets.get(),
           paramGroups: multiParamPromptParamGroups(),
@@ -116,7 +118,7 @@ export function useVideoModalPrompt(ctx: VideoModalCtx): void {
       return
     }
     if (ctx.leftActiveTab.get() === 'startEndFrame') {
-      ctx.edgeVideoPrompt.set(
+      handleEdgeVideoPromptEditorChange(
         renderStoryboardVideoPromptApiTextToEditor(text, {
           enableAssetRefs: true,
           enableMarkdown: false
@@ -124,7 +126,7 @@ export function useVideoModalPrompt(ctx: VideoModalCtx): void {
       )
       return
     }
-    ctx.imageToVideoPrompt.set(
+    handleImageToVideoPromptEditorChange(
       renderStoryboardVideoPromptApiTextToEditor(text, {
         assets: ctx.resolvedVideoPromptAssets.get(),
         paramGroups: videoPromptParamGroups(),
@@ -190,7 +192,7 @@ export function useVideoModalPrompt(ctx: VideoModalCtx): void {
     const hideLoading = message.loading('正在保存视频提示词...', 0)
     try {
       // 图生方向无独立 save 接口；出片时传 videoPrompt 会自动落库 video_prompt_image
-      message.success('提示词格式正确，点击「开始生成」时将自动保存并出片')
+      message.success('提示词已就绪，点击「开始生成」时将自动保存并出片')
     } finally {
       hideLoading()
       ctx.isSavingVideoPrompt.set(false)
@@ -243,6 +245,11 @@ export function useVideoModalPrompt(ctx: VideoModalCtx): void {
     isStoryboardVideoPromptGeneratingForScene,
     applyVideoPromptFromApi,
     applyMultiParamPromptFromApi,
+    beginVideoPromptApply,
+    invalidateVideoPromptApply,
+    handleImageToVideoPromptEditorChange,
+    handleMultiParamPromptEditorChange,
+    handleEdgeVideoPromptEditorChange,
     loadStoryboardVideoPromptForScene,
     loadStoryboardMultiVideoPromptForScene,
     loadStoryboardEdgeVideoPromptForScene,

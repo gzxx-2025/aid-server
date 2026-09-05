@@ -1,8 +1,0 @@
-/* 原 pages/index-legacy.vue <style scoped> 平移（其余样式在全局 assets/css/home-legacy-page.css） */
-.home-legacy-page .filter-tab-ico {
-  display: block;
-  width: 14px;
-  height: 14px;
-  object-fit: contain;
-  flex-shrink: 0;
-}

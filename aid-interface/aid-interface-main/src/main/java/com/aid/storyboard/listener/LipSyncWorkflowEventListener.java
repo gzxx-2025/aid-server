@@ -1,6 +1,7 @@
 package com.aid.storyboard.listener;
 
 import java.util.Objects;
+import com.aid.rps.queue.BatchTaskExecutionRejectedException;
 
 import org.springframework.context.event.EventListener;
 import org.springframework.core.annotation.Order;
@@ -53,6 +54,8 @@ public class LipSyncWorkflowEventListener {
         }
         try {
             storyboardLipSyncService.reconcileParentTask(event.getParentTaskId());
+        } catch (BatchTaskExecutionRejectedException ignored) {
+            log.debug("对口型任务周期已结束，忽略迟到事件");
         } catch (Exception ex) {
             log.error("对口型父任务对账异常, taskId={}", event.getParentTaskId(), ex);
         }
@@ -64,6 +67,8 @@ public class LipSyncWorkflowEventListener {
         }
         try {
             storyboardLipSyncService.onChildMediaTaskChanged(mediaTaskId);
+        } catch (BatchTaskExecutionRejectedException ignored) {
+            log.debug("对口型任务周期已结束，忽略迟到事件");
         } catch (Exception ex) {
             // 媒体任务终态与统一结算已完成，编排异常交给重启对账补偿，不能反向污染公共媒体链路。
             log.error("对口型子任务事件推进异常, mediaTaskId={}", mediaTaskId, ex);

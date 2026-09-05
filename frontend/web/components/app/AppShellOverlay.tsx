@@ -87,11 +87,11 @@ export function AppShellOverlay() {
   const { siteName } = useAuthPublicConfig()
   /**
    * 全屏加载品牌统一走 /auth/public-config → basic.site_name。
-   * 未返回前用中文兜底，避免旧英文 fallback「AI Director」与接口中文名来回跳。
+   * 接口未返回时用「视觉·AID」兜底。
    * （首屏还会读 sessionStorage 缓存，多数情况一进来就是接口名。）
    */
-  const brandDisplayName = siteName || 'AI 创作平台'
-  const brandShortName = siteName || 'AI 创作平台'
+  const brandDisplayName = siteName || '视觉·AID'
+  const brandShortName = siteName || '视觉·AID'
   const { enterCreateFlowOverlayPending, endEnterCreateFlowOverlay } = useEnterCreateFlowOverlay()
 
   // 全局 loading 仅作为遮罩，不再通过 v-if 卸载 NuxtLayout（避免路由切换时空 vnode 报错）

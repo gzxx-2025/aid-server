@@ -33,6 +33,7 @@ import com.aid.common.core.controller.BaseController;
 import com.aid.common.core.domain.AjaxResult;
 import com.aid.common.core.redis.RedisCache;
 import com.aid.common.error.TaskErrorPresentation;
+import com.aid.common.error.TaskErrorSnapshot;
 import com.aid.common.exception.ServiceException;
 import com.aid.common.utils.SecurityUtils;
 import com.aid.notify.wechat.service.IWechatNotifyService;
@@ -47,6 +48,7 @@ import com.aid.rps.assembler.TaskDetailAssembler;
 import com.aid.rps.service.IAssetExtractService;
 import com.aid.rps.service.ITaskResumeService;
 import com.aid.rps.sse.AssetExtractSseManager;
+import com.aid.media.eta.MediaEtaService;
 
 import cn.hutool.core.util.StrUtil;
 import jakarta.annotation.Resource;
@@ -89,6 +91,9 @@ public class UserTaskController extends BaseController
 
     @Resource
     private IWechatNotifyService wechatNotifyService;
+
+    @Resource
+    private MediaEtaService mediaEtaService;
 
     /**
      * 统一「继续生成（续生）」入口。
@@ -260,6 +265,7 @@ public class UserTaskController extends BaseController
             AidExtractTask::getTaskType,
             AidExtractTask::getStatus,
             AidExtractTask::getErrorMessage,
+            AidExtractTask::getErrorDetailJson,
             AidExtractTask::getTotalCount,
             AidExtractTask::getModelCode,
             AidExtractTask::getCreateTime,
@@ -271,11 +277,10 @@ public class UserTaskController extends BaseController
         IPage<AidExtractTask> page = extractTaskService.page(new Page<>(pageNum, pageSize), wrapper);
         for (AidExtractTask task : page.getRecords())
         {
-            if (StrUtil.isNotBlank(task.getErrorMessage()))
+            if (StrUtil.isNotBlank(task.getErrorMessage()) || StrUtil.isNotBlank(task.getErrorDetailJson()))
             {
                 // C端列表只返回统一友好文案，禁止透传上游原始错误及可能回显的请求内容。
-                task.setErrorMessage(TaskErrorPresentation.toUserMessage(
-                        task.getModelCode(), task.getErrorMessage(), "任务执行异常"));
+                task.setErrorMessage(TaskErrorSnapshot.fromTask(task).getUserMessage());
             }
         }
         AjaxResult ajax = AjaxResult.success();
@@ -306,6 +311,13 @@ public class UserTaskController extends BaseController
         {
             vo.setQueuePosition(assetExtractService.getTaskQueuePosition(task.getId()));
         }
+        Map<String, Object> etaContext = new LinkedHashMap<>();
+        if (vo.getQueuePosition() != null)
+        {
+            etaContext.put("position", vo.getQueuePosition());
+            etaContext.put("ahead", Math.max(0, vo.getQueuePosition() - 1));
+        }
+        vo.setEta(mediaEtaService.estimateParentTask(task, etaContext));
         return success(vo);
     }
 
@@ -442,6 +454,7 @@ public class UserTaskController extends BaseController
             AidExtractTask::getInputSnapshot,
             AidExtractTask::getResultData,
             AidExtractTask::getErrorMessage,
+            AidExtractTask::getErrorDetailJson,
             AidExtractTask::getBillingStatus,
             AidExtractTask::getFrozenAmount,
             AidExtractTask::getTotalCount,
@@ -471,6 +484,7 @@ public class UserTaskController extends BaseController
         wrapper.eq(AidExtractTask::getDelFlag, "0");
         wrapper.select(AidExtractTask::getId, AidExtractTask::getStatus,
                 AidExtractTask::getResultData, AidExtractTask::getErrorMessage,
+                AidExtractTask::getErrorDetailJson,
                 AidExtractTask::getBillingStatus, AidExtractTask::getFrozenAmount,
                 AidExtractTask::getProjectId, AidExtractTask::getEpisodeId,
                 AidExtractTask::getTaskType, AidExtractTask::getModelCode);

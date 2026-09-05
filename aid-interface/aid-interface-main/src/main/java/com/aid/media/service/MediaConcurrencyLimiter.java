@@ -410,6 +410,24 @@ public class MediaConcurrencyLimiter {
     }
 
     /**
+     * 返回指定任务实际受约束的最小并发上限，供 ETA 按并行波次估算批量完成时间。
+     * 无限维度不参与取最小值；返回值至少为 1。
+     */
+    public int getEffectiveConcurrencyLimit(Long userId, String modelCode) {
+        refreshConfig();
+        ModelMeta meta = resolveModelMeta(modelCode);
+        int effective = Math.min(cachedGlobalLimit, getUserLimitValue(userId));
+        if (meta.modelLimit != UNLIMITED) {
+            effective = Math.min(effective, meta.modelLimit);
+        }
+        int providerLimit = resolveProviderLimit(meta.providerId);
+        if (providerLimit != UNLIMITED) {
+            effective = Math.min(effective, providerLimit);
+        }
+        return Math.max(1, effective);
+    }
+
+    /**
      * 读取指定计数 Key 的当前值（缺失/异常按 0）。
      */
     private int readCounter(String key) {

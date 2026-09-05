@@ -138,28 +138,6 @@ export function createSceneModalImageInteractionOps(ctx: EditSceneImageModalCtx)
     }
   }
 
-  function handleGenerateImportMultiple(payload: { sceneIndex: number; images: any[] }) {
-    void payload.sceneIndex
-    const list = (payload.images || [])
-      .map((img) => {
-        const url = String(img?.url || img?.thumbnail || '').trim()
-        if (!url) return null
-        return { url, title: img?.title || img?.name }
-      })
-      .filter(Boolean) as DialogueSourceImage[]
-    const existed = new Set(ctx.generateSourceImages.get().map((item) => item.url))
-    const toAppend = list.filter((item) => !existed.has(item.url))
-    const remaining = FORM_IMAGE_REFERENCE_LIMIT - ctx.generateSourceImages.get().length
-    const finalAppend = toAppend.slice(0, Math.max(0, remaining))
-    if (finalAppend.length < toAppend.length) {
-      message.warning(`参考图最多 ${FORM_IMAGE_REFERENCE_LIMIT} 张，已截取前几张`)
-    }
-    ctx.generateSourceImages.set([...ctx.generateSourceImages.get(), ...finalAppend])
-    if (finalAppend.length > 0) {
-      message.success(`已导入 ${finalAppend.length} 张参考图`)
-    }
-  }
-
   function removeDialogueSourceImage(index: number) {
     ctx.dialogueSourceImages.set(ctx.dialogueSourceImages.get().filter((_, i) => i !== index))
   }
@@ -276,7 +254,6 @@ export function createSceneModalImageInteractionOps(ctx: EditSceneImageModalCtx)
     handleDeleteImage,
     handleDialogueImportMultiple,
     handleDownloadImage,
-    handleGenerateImportMultiple,
     handleImageTitleBlur,
     handleModifyImage,
     handleOpenAssetLibrary,

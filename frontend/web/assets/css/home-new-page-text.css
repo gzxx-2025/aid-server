@@ -47,7 +47,37 @@
   color: var(--home-muted);
 }
 
-/* 案例广场 */
+/* 首页内容 */
+.home-new-open-intro {
+  position: relative;
+  z-index: 2;
+  width: min(760px, calc(100% - 48px));
+  margin: 0 auto;
+  padding: clamp(72px, 10vw, 132px) 24px;
+  text-align: center;
+}
+
+.home-new-open-intro__eyebrow {
+  margin: 0 0 16px;
+  color: #7c8cff;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.home-new-open-intro h1 {
+  margin: 0;
+  color: #f7f9ff;
+  font-size: clamp(32px, 5vw, 64px);
+  line-height: 1.12;
+}
+
+.home-new-open-intro > p:last-child {
+  margin: 22px auto 0;
+  color: rgba(232, 237, 255, 0.76);
+  font-size: clamp(15px, 1.5vw, 19px);
+  line-height: 1.8;
+}
 .home-new-index .gallery-section {
   background: transparent;
   padding: 8px 24px 32px;

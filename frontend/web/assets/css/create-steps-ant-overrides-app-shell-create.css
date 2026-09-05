@@ -2,7 +2,7 @@
 /* =============================================================================
    深蓝青主题 Ant 覆盖（html.app-shell-create）
    - 流程页：layouts/create.vue 为 html 添加 app-shell-create
-   - 首页壳（案例广场/我的作品/资产库）：layouts/home.vue 同步添加 app-shell-create，否则 Modal/Message 挂 body 仍为默认浅色
+   - 首页壳（首页/我的作品/资产库）：同步添加 app-shell-create，否则 Modal/Message 挂 body 仍为默认浅色
    - 覆盖 main.css 中橙色 --accent-* / --gradient-accent
    - 弹窗/下拉挂载到 body，须用 html 类选择器
    ============================================================================= */
@@ -138,69 +138,6 @@ html.app-shell-create .ant-btn-default:hover {
   border-color: rgba(74, 231, 253, 0.55) !important;
   color: #4ae7fd !important;
   background: rgba(14, 89, 250, 0.15) !important;
-}
-
-/*
- * 「生成提示词」描边按钮：压过 antd default hover/focus 的浅色边与状态切换闪白。
- * 编辑分镜图 / 分镜视频弹窗（modal-dark）共用 PromptScriptFileHeader。
- */
-html.app-shell-create .prompt-script-file-header .generate-prompt-btn--outline.ant-btn,
-html.app-shell-create .prompt-script-file-header .generate-prompt-btn--outline.ant-btn:hover,
-html.app-shell-create .prompt-script-file-header .generate-prompt-btn--outline.ant-btn:focus,
-html.app-shell-create .prompt-script-file-header .generate-prompt-btn--outline.ant-btn:active,
-html.app-shell-create .prompt-script-file-header .generate-prompt-btn--outline.ant-btn:focus-visible,
-html.app-shell-create .ant-modal .prompt-script-file-header .generate-prompt-btn--outline.ant-btn,
-html.app-shell-create .ant-modal .prompt-script-file-header .generate-prompt-btn--outline.ant-btn:hover,
-html.app-shell-create .ant-modal .prompt-script-file-header .generate-prompt-btn--outline.ant-btn:focus,
-html.app-shell-create .ant-modal .prompt-script-file-header .generate-prompt-btn--outline.ant-btn:active {
-  background: transparent !important;
-  border: 1px solid rgba(74, 231, 253, 0.65) !important;
-  box-shadow: none !important;
-  outline: none !important;
-  color: #4ae7fd !important;
-  --ant-button-default-border-color: rgba(74, 231, 253, 0.65);
-  --ant-button-default-hover-border-color: rgba(74, 231, 253, 0.65);
-  --ant-button-default-active-border-color: rgba(74, 231, 253, 0.65);
-  --ant-color-border: rgba(74, 231, 253, 0.65);
-}
-
-html.app-shell-create .prompt-script-file-header .generate-prompt-btn--outline.ant-btn:hover,
-html.app-shell-create .prompt-script-file-header .generate-prompt-btn--outline.ant-btn:focus,
-html.app-shell-create .prompt-script-file-header .generate-prompt-btn--outline.ant-btn:active,
-html.app-shell-create .ant-modal .prompt-script-file-header .generate-prompt-btn--outline.ant-btn:hover,
-html.app-shell-create .ant-modal .prompt-script-file-header .generate-prompt-btn--outline.ant-btn:focus,
-html.app-shell-create .ant-modal .prompt-script-file-header .generate-prompt-btn--outline.ant-btn:active {
-  background: rgba(9, 13, 20, 0.9) !important;
-}
-
-/* panel / scene-modal：primary 描边按钮，压过 main-btn-accent 的 border transparent */
-html.app-shell-create .prompt-script-file-header .generate-prompt-btn:not(.generate-prompt-btn--outline).ant-btn-primary,
-html.app-shell-create .prompt-script-file-header .generate-prompt-btn:not(.generate-prompt-btn--outline).ant-btn-primary:hover,
-html.app-shell-create .prompt-script-file-header .generate-prompt-btn:not(.generate-prompt-btn--outline).ant-btn-primary:focus,
-html.app-shell-create .prompt-script-file-header .generate-prompt-btn:not(.generate-prompt-btn--outline).ant-btn-primary:active,
-html.app-shell-create .ant-modal .prompt-script-file-header .generate-prompt-btn:not(.generate-prompt-btn--outline).ant-btn-primary,
-html.app-shell-create .ant-modal .prompt-script-file-header .generate-prompt-btn:not(.generate-prompt-btn--outline).ant-btn-primary:hover,
-html.app-shell-create .ant-modal .prompt-script-file-header .generate-prompt-btn:not(.generate-prompt-btn--outline).ant-btn-primary:focus,
-html.app-shell-create .ant-modal .prompt-script-file-header .generate-prompt-btn:not(.generate-prompt-btn--outline).ant-btn-primary:active {
-  background: rgba(18, 18, 18, 1) !important;
-  border: 1px solid rgba(74, 231, 253, 0.3) !important;
-  box-shadow: none !important;
-  outline: none !important;
-  transform: none !important;
-  color: inherit !important;
-}
-
-html.app-shell-create .prompt-script-file-header .generate-prompt-btn:not(.generate-prompt-btn--outline).ant-btn-primary:hover,
-html.app-shell-create .prompt-script-file-header .generate-prompt-btn:not(.generate-prompt-btn--outline).ant-btn-primary:focus,
-html.app-shell-create .ant-modal .prompt-script-file-header .generate-prompt-btn:not(.generate-prompt-btn--outline).ant-btn-primary:hover,
-html.app-shell-create .ant-modal .prompt-script-file-header .generate-prompt-btn:not(.generate-prompt-btn--outline).ant-btn-primary:focus {
-  border-color: rgba(74, 231, 253, 0.55) !important;
-  background: rgba(14, 89, 250, 0.12) !important;
-}
-
-html.app-shell-create .ant-modal .prompt-script-file-header .generate-prompt-btn--outline .text-gradient {
-  -webkit-text-fill-color: transparent !important;
-  color: transparent !important;
 }
 
 html.app-shell-create .ant-btn-text:not(:disabled):hover {

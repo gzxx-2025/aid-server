@@ -16,6 +16,6 @@ public class UserProjectQueryRequest {
     /** 类型: series剧集, movie电影 */
     private String projectType;
 
-    /** 状态(0草稿 1制作中 2完成未提交 3审核中 4审核通过 5审核失败) */
+    /** 状态(0草稿 1制作中 2已完成) */
     private Integer status;
 }

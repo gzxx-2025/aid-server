@@ -1,0 +1,130 @@
+.composer-send-button {
+  position: relative;
+  display: grid;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 16px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.composer-send-button.has-leading-content {
+  width: auto;
+  min-width: 56px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  padding-right: 32px;
+  padding-left: 8px;
+}
+
+.composer-send-button__leading {
+  position: relative;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+}
+
+.composer-send-button.has-leading-content > img,
+.composer-send-button.has-leading-content > .composer-send-button__spinner,
+.composer-send-button.has-leading-content > .composer-send-button__icon-layer {
+  position: absolute;
+  right: 0;
+  left: auto;
+  width: 32px;
+  height: 32px;
+}
+
+.composer-send-button__tooltip-wrap {
+  display: inline-grid;
+  line-height: 0;
+}
+
+.composer-send-button:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.composer-send-button:disabled {
+  cursor: not-allowed;
+}
+
+.composer-send-button:disabled:not(.is-pause):not(.is-resume) {
+  opacity: 1;
+}
+
+.composer-send-button.is-active-disabled:disabled {
+  opacity: 0.5;
+}
+
+.composer-send-button__icon-layer {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  transition: opacity 0.22s ease;
+}
+
+.composer-send-button__icon-layer.is-visible {
+  opacity: 1;
+}
+
+.composer-send-button__icon-layer.is-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.composer-send-button__icon-layer img {
+  display: block;
+  width: 32px;
+  height: 32px;
+}
+
+.composer-send-button__spinner {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 16px;
+  background: rgba(28, 30, 34, 0.72);
+}
+
+.composer-send-button__spinner::after {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(142, 151, 165, 0.28);
+  border-top-color: #4ae7fd;
+  border-radius: 50%;
+  animation: composer-send-spin 0.75s linear infinite;
+  content: '';
+}
+
+.composer-send-button.is-pause:not(:disabled) {
+  animation: composer-send-pause-ready 1.8s ease-in-out infinite;
+}
+
+@keyframes composer-send-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes composer-send-pause-ready {
+  50% {
+    box-shadow: 0 0 0 4px rgba(74, 231, 253, 0.055);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .composer-send-button__icon-layer {
+    transition: none;
+  }
+
+  .composer-send-button__spinner::after,
+  .composer-send-button.is-pause:not(:disabled) {
+    animation: none;
+  }
+}

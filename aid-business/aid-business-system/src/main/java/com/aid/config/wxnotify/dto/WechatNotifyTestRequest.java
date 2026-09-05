@@ -11,6 +11,6 @@ public class WechatNotifyTestRequest
     /** 测试接收人的公众号 OpenID */
     private String openid;
 
-    /** 事件类型：余额提醒、批量任务、审核结果或订单退款 */
+    /** 事件类型：余额提醒、批量任务或订单退款 */
     private String eventType;
 }

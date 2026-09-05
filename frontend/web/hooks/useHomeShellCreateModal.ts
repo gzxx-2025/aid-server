@@ -25,7 +25,7 @@ function cloneStoreGlobalSetting(): GlobalSettingData {
   ) as GlobalSettingData
 }
 
-/** 首页壳层（案例广场 / 我的作品 / 资产库）共用的「创建作品第一步」弹窗状态（原 Vue 模块级单例） */
+/** 首页壳层（首页 / 我的作品 / 资产库）共用的「创建作品第一步」弹窗状态。 */
 const useHomeShellCreateModalStore = create<HomeShellCreateModalState>(() => ({
   showCreateFirstStepModal: false,
   createConfirmLoading: false,

@@ -1,5 +1,7 @@
 package com.aid.media.provider.impl;
 
+import com.aid.common.error.TaskErrorCode;
+import com.aid.common.error.TaskErrorPresentation;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
@@ -193,7 +195,7 @@ public class ConfigurableAsyncVideoProviderClient implements VideoProviderClient
             log.error("可配置异步视频提示词超过上限, modelCode={}, max={}, actual={}",
                     modelConfig == null ? null : modelConfig.getModelCode(),
                     maxPromptLength, StrUtil.length(prompt));
-            throw new ServiceException("提示词过长");
+            throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_TOO_LONG, "提示词过长，请精简");
         }
     }
 

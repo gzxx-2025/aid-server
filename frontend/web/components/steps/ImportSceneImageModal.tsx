@@ -11,6 +11,7 @@ import type { UserAssetApiType } from '~/types/business-api'
 import { assetUrl } from '~/utils/assetUrl'
 import { useStackedModalZIndex } from '~/hooks/useStackedModalZIndex'
 import { invokeImportModalCallback } from '~/utils/importModalCallback'
+import { runNestedAssetLibraryImport } from '~/utils/nestedAssetLibraryImport'
 import PreviewableImageThumb from '~/components/common/PreviewableImageThumb'
 import noDataRaw from '@/assets/img/icon/no_data.svg'
 import emptyIconRaw from '@/assets/img/icon/empty_icon.svg'
@@ -192,12 +193,17 @@ export function ImportSceneImageModal({
       message.warning('未获取到可用图片地址')
       return false
     }
-    if (!(await importAsset({ ...asset, url: imageUrl, thumbnail: imageUrl }))) return false
-    setShowAssetLibraryModal(false)
-    onOpenChange(false)
-    setSelectedAsset(null)
-    setSelectedSceneId(null)
-    return true
+    const accepted = await runNestedAssetLibraryImport({
+      closeAssetLibrary: () => setShowAssetLibraryModal(false),
+      importAsset: (payload) => importAsset(payload),
+      closeOwner: () => {
+        onOpenChange(false)
+        setSelectedAsset(null)
+        setSelectedSceneId(null)
+      },
+      payload: { ...asset, url: imageUrl, thumbnail: imageUrl }
+    })
+    return accepted
   }
 
   const handleConfirm = async () => {
@@ -231,10 +237,10 @@ export function ImportSceneImageModal({
   }
 
   const handleCancel = () => {
+    setShowAssetLibraryModal(false)
     onOpenChange(false)
     setSelectedAsset(null)
     setSelectedSceneId(null)
-    setShowAssetLibraryModal(false)
   }
 
   useEffect(() => {
@@ -265,6 +271,7 @@ export function ImportSceneImageModal({
   }, [activeSubTab])
 
   return (
+    <>
     <Modal
       open={open}
       width={1100}
@@ -404,16 +411,16 @@ export function ImportSceneImageModal({
           </div>
         </div>
       </div>
-
-      <ImportScriptModal
-        open={showAssetLibraryModal}
-        onOpenChange={setShowAssetLibraryModal}
-        title="导入图片"
-        acceptAssetType="image"
-        zIndex={assetLibraryZIndex}
-        onImport={handleDirectImport}
-      />
     </Modal>
+    <ImportScriptModal
+      open={showAssetLibraryModal}
+      onOpenChange={setShowAssetLibraryModal}
+      title="导入图片"
+      acceptAssetType="image"
+      zIndex={assetLibraryZIndex}
+      onImport={handleDirectImport}
+    />
+    </>
   )
 }
 

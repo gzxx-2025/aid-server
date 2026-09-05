@@ -1,5 +1,8 @@
 package com.aid.media.service.impl;
 
+import com.aid.common.error.TaskErrorResult;
+import com.aid.common.error.ErrorNormalizer;
+import com.aid.common.error.TaskErrorSnapshot;
 import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.aid.aid.domain.media.AidMediaTask;
@@ -17,6 +20,7 @@ import com.aid.media.service.MediaTaskArchiveService;
 import com.aid.media.service.TaskCompletionService;
 import com.aid.media.util.MediaTaskPayloadSanitizer;
 import com.aid.media.enums.MediaType;
+import com.aid.media.eta.MediaEtaRecorder;
 import com.aid.modelhealth.service.ModelHealthRecorder;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -51,6 +55,10 @@ public class TaskCompletionServiceImpl implements TaskCompletionService {
     private final ModelHealthRecorder modelHealthRecorder;
     /** 可灵原始失败样本记录；内部完全隔离异常，不影响终态事务。 */
     private final KlingTerminalFailureRecorder klingTerminalFailureRecorder;
+
+    /** ETA 成功样本旁路采集；字段注入保持既有测试构造器源兼容。 */
+    @org.springframework.beans.factory.annotation.Autowired
+    private MediaEtaRecorder mediaEtaRecorder;
 
     /** 媒体类型：合成任务，走独立计费/回写分支 */
     private static final String COMPOSE_MEDIA_TYPE = ComposeConstants.MEDIA_TYPE_COMPOSE;
@@ -123,7 +131,9 @@ public class TaskCompletionServiceImpl implements TaskCompletionService {
                 MediaTaskStatus.WAIT_CALLBACK.name(),
                 MediaTaskStatus.PROCESSING.name());
         }
+        Date terminalTime = new Date();
         casWrapper.set(AidMediaTask::getStatus, targetStatus);
+        casWrapper.set(AidMediaTask::getTerminalTime, terminalTime);
         casWrapper.set(AidMediaTask::getUpdateBy, userStr);
         casWrapper.set(AidMediaTask::getUpdateTime, new Date());
         MediaTaskArchiveService.PreparedTerminalPayload preparedPayload =
@@ -135,6 +145,7 @@ public class TaskCompletionServiceImpl implements TaskCompletionService {
         if (MediaTaskStatus.SUCCEEDED.name().equals(targetStatus)) {
             casWrapper.set(AidMediaTask::getOriginUrl, taskResult.getResultUrl());
             casWrapper.set(AidMediaTask::getErrorMessage, null);
+            casWrapper.set(AidMediaTask::getErrorDetailJson, null);
             // COMPOSE 成片已由所选云引擎直接写入当前对象存储，或由本地 FFmpeg 上传到当前存储；
             // 随 origin_url 一并保存对象相对路径，避免后续再次下载转存。读取层统一按资源访问地址拼接。
             if (COMPOSE_MEDIA_TYPE.equals(task.getMediaType())) {
@@ -144,6 +155,12 @@ public class TaskCompletionServiceImpl implements TaskCompletionService {
                 }
             }
         } else {
+            TaskErrorResult error = taskResult.getTaskError();
+            if (Objects.isNull(error)) {
+                error = ErrorNormalizer.normalize(String.valueOf(taskId), null, task.getModelName(), -1,
+                        StrUtil.blankToDefault(taskResult.getRawErrorMessage(), taskResult.getErrorMessage()));
+            }
+            casWrapper.set(AidMediaTask::getErrorDetailJson, TaskErrorSnapshot.write(error));
             casWrapper.set(AidMediaTask::getErrorMessage,
                 MediaTaskPayloadSanitizer.sanitizeForStorage(taskResult.getErrorMessage()));
         }
@@ -153,6 +170,10 @@ public class TaskCompletionServiceImpl implements TaskCompletionService {
         if (rows == 0) {
             log.info("completeTask CAS 失败, taskId={} 已被其他路径处理", taskId);
             return false;
+        }
+        task.setTerminalTime(terminalTime);
+        if (MediaTaskStatus.SUCCEEDED.name().equals(targetStatus) && mediaEtaRecorder != null) {
+            mediaEtaRecorder.recordSuccess(task);
         }
         if (MediaTaskStatus.FAILED.name().equals(targetStatus)
             && StrUtil.isNotBlank(taskResult.getRawErrorMessage())) {
@@ -426,6 +447,9 @@ public class TaskCompletionServiceImpl implements TaskCompletionService {
         casWrapper.eq(AidMediaTask::getId, taskId);
         casWrapper.eq(AidMediaTask::getStatus, currentStatus);
         casWrapper.set(AidMediaTask::getStatus, MediaTaskStatus.FAILED.name());
+        casWrapper.set(AidMediaTask::getTerminalTime, new Date());
+        casWrapper.set(AidMediaTask::getErrorDetailJson, TaskErrorSnapshot.write(ErrorNormalizer.normalize(
+                String.valueOf(taskId), null, task.getModelName(), -1, errorMessage)));
         casWrapper.set(AidMediaTask::getErrorMessage,
             MediaTaskPayloadSanitizer.sanitizeForStorage(errorMessage));
         MediaTaskArchiveService.PreparedTerminalPayload preparedPayload =
@@ -493,6 +517,64 @@ public class TaskCompletionServiceImpl implements TaskCompletionService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    public boolean cancelQueuedTask(Long taskId, Long userId, String errorMessage) {
+        AidMediaTask task = aidMediaTaskMapper.selectById(taskId);
+        if (Objects.isNull(task)) {
+            log.info("取消排队媒体任务跳过，任务不存在: taskId={}", taskId);
+            return false;
+        }
+        if (!Objects.equals(userId, task.getUserId())) {
+            log.warn("取消排队媒体任务拒绝，用户不匹配: taskId={}, userId={}", taskId, userId);
+            return false;
+        }
+        if (!MediaTaskStatus.QUEUED.name().equals(task.getStatus())) {
+            log.info("取消排队媒体任务跳过，任务已推进: taskId={}, status={}", taskId, task.getStatus());
+            return false;
+        }
+
+        String userStr = String.valueOf(userId);
+        String safeMessage = MediaTaskPayloadSanitizer.sanitizeForStorage(errorMessage);
+        LambdaUpdateWrapper<AidMediaTask> casWrapper = new LambdaUpdateWrapper<>();
+        casWrapper.eq(AidMediaTask::getId, taskId);
+        casWrapper.eq(AidMediaTask::getUserId, userId);
+        casWrapper.eq(AidMediaTask::getStatus, MediaTaskStatus.QUEUED.name());
+        casWrapper.set(AidMediaTask::getStatus, MediaTaskStatus.FAILED.name());
+        casWrapper.set(AidMediaTask::getTerminalTime, new Date());
+        casWrapper.set(AidMediaTask::getErrorMessage, safeMessage);
+        casWrapper.set(AidMediaTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage(safeMessage));
+        MediaTaskArchiveService.PreparedTerminalPayload preparedPayload =
+            mediaTaskArchiveService.prepareTerminalPayload(
+                task, MediaTaskStatus.FAILED.name(), task.getResponseJson());
+        if (!Objects.equals(preparedPayload.getRequestJson(), task.getRequestJson())) {
+            casWrapper.set(AidMediaTask::getRequestJson, preparedPayload.getRequestJson());
+        }
+        casWrapper.set(AidMediaTask::getResponseJson, preparedPayload.getResponseJson());
+        casWrapper.set(AidMediaTask::getUpdateBy, userStr);
+        casWrapper.set(AidMediaTask::getUpdateTime, new Date());
+        if (aidMediaTaskMapper.update(null, casWrapper) == 0) {
+            log.info("取消排队媒体任务CAS未命中: taskId={}", taskId);
+            return false;
+        }
+
+        mediaTaskArchiveService.archiveAfterCommit(preparedPayload);
+        task = aidMediaTaskMapper.selectById(taskId);
+        boolean billingWon = billingFacadeService.refundBilling(task);
+        if (billingWon) {
+            LambdaUpdateWrapper<AidMediaTask> billingUpdate = new LambdaUpdateWrapper<>();
+            billingUpdate.eq(AidMediaTask::getId, taskId);
+            billingUpdate.set(AidMediaTask::getBillingStatus, task.getBillingStatus());
+            billingUpdate.set(AidMediaTask::getFrozenAmount, task.getFrozenAmount());
+            billingUpdate.set(AidMediaTask::getUpdateBy, userStr);
+            billingUpdate.set(AidMediaTask::getUpdateTime, new Date());
+            aidMediaTaskMapper.update(null, billingUpdate);
+        }
+        registerAfterCommitReleaseForUnsubmitted(task, false);
+        log.info("未提交媒体任务取消收口: taskId={}, billingWon={}", taskId, billingWon);
+        return billingWon;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
     public boolean requeueUnsubmittedTask(Long taskId) {
         AidMediaTask task = aidMediaTaskMapper.selectById(taskId);
         if (task == null || !MediaTaskStatus.PENDING.name().equals(task.getStatus())
@@ -506,6 +588,7 @@ public class TaskCompletionServiceImpl implements TaskCompletionService {
                 .or().eq(AidMediaTask::getProviderTaskId, ""));
         update.set(AidMediaTask::getStatus, MediaTaskStatus.QUEUED.name());
         update.set(AidMediaTask::getErrorMessage, null);
+        update.set(AidMediaTask::getErrorDetailJson, null);
         Date now = new Date();
         update.set(AidMediaTask::getNextPollTime, new Date(now.getTime() + 60_000L));
         update.set(AidMediaTask::getRetryCount, Objects.requireNonNullElse(task.getRetryCount(), 0) + 1);

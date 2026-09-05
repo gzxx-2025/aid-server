@@ -92,7 +92,7 @@ public interface IRpsBusinessService {
     BatchOperationResultVO deleteAssetBatch(List<Long> ids, Long userId);
 
     /**
-     * 设置指定图片为"使用中"（多选语义：仅设置目标图，不影响同 form 其它图片）。
+     * 设置指定图片为"使用中"：角色、道具同一形态只保留目标图片，场景允许多选。
      *
      * @param imageId 图片实例ID
      * @param userId  用户ID

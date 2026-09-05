@@ -618,6 +618,9 @@ public class AssetExtractHelper
         textRequest.setBizTaskType(BIZ_TASK_TYPE_EXTRACT);
         textRequest.setUserId(userId);
         textRequest.setPreferNonStream(true);
+        textRequest.setStream(Boolean.FALSE);
+        textRequest.setReasoningEnabled(Boolean.FALSE);
+        textRequest.setIncludeReasoning(Boolean.FALSE);
         textRequest.setOptions(buildLlmOptions());
         textRequest.setTaskPromptDigest(taskPromptDigest);
         textRequest.setMessages(buildMessages(systemPrompt, null, modelCode));
@@ -655,6 +658,9 @@ public class AssetExtractHelper
         textRequest.setBizTaskType(BIZ_TASK_TYPE_EXTRACT);
         textRequest.setUserId(userId);
         textRequest.setPreferNonStream(true);
+        textRequest.setStream(Boolean.FALSE);
+        textRequest.setReasoningEnabled(Boolean.FALSE);
+        textRequest.setIncludeReasoning(Boolean.FALSE);
         textRequest.setOptions(buildLlmOptions());
         textRequest.setTaskPromptDigest(taskPromptDigest);
         textRequest.setMessages(buildMessages(systemPrompt, userContent, modelCode));
@@ -797,6 +803,9 @@ public class AssetExtractHelper
         textRequest.setBizTaskType(StrUtil.isNotBlank(bizTaskType) ? bizTaskType : BIZ_TASK_TYPE_EXTRACT);
         textRequest.setUserId(userId);
         textRequest.setPreferNonStream(true);
+        textRequest.setStream(Boolean.FALSE);
+        textRequest.setReasoningEnabled(Boolean.FALSE);
+        textRequest.setIncludeReasoning(Boolean.FALSE);
         textRequest.setOptions(buildLlmOptions(callIdentity, requestedOutputTokens));
         textRequest.setTaskPromptDigest(taskPromptDigest);
         textRequest.setMessages(buildMessages(systemPrompt, userContent, modelCode));
@@ -1189,6 +1198,9 @@ public class AssetExtractHelper
         textRequest.setBizTaskType(StrUtil.isNotBlank(bizTaskType) ? bizTaskType : BIZ_TASK_TYPE_EXTRACT);
         textRequest.setUserId(userId);
         textRequest.setPreferNonStream(true);
+        textRequest.setStream(Boolean.FALSE);
+        textRequest.setReasoningEnabled(Boolean.FALSE);
+        textRequest.setIncludeReasoning(Boolean.FALSE);
         textRequest.setOptions(buildLlmOptions(callIdentity, requestedOutputTokens));
         textRequest.setTaskPromptDigest(taskPromptDigest);
         textRequest.setMessages(buildMessages(systemPrompt, userContent, modelCode));

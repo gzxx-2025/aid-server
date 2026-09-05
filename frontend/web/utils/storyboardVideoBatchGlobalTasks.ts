@@ -32,7 +32,7 @@ export function createStoryboardVideoBatchGlobalTasks(
 ) {
   const { getStore } = core
 
-  async function requestStop() {
+  async function requestStop(options?: { alreadyRequestedTaskId?: number | null }) {
     state.stopRequested = true
     core.closePromptStream()
     const promptTaskId =
@@ -42,9 +42,14 @@ export function createStoryboardVideoBatchGlobalTasks(
     const taskIds = [promptTaskId, videoTaskId]
       .map((id) => parseTaskId(id))
       .filter((id): id is number => id != null)
+    let requestedCount = options?.alreadyRequestedTaskId ? 1 : 0
+    let attemptedCount = 0
     for (const taskId of [...new Set(taskIds)]) {
+      if (taskId === options?.alreadyRequestedTaskId) continue
+      attemptedCount++
       try {
         await requestCancelUserTaskById(taskId)
+        requestedCount++
       } catch {
         /* ignore */
       }
@@ -52,10 +57,17 @@ export function createStoryboardVideoBatchGlobalTasks(
     core.syncActivePromptTaskIdToStore(null)
     core.syncActiveVideoTaskIdToStore(null)
     core.stopVideoBatchGeneration()
+    return { requested: requestedCount > 0, attemptedCount }
   }
 
   function onGlobalStopTask(event: Event) {
-    const detail = (event as CustomEvent<{ taskId?: number; taskType?: string | null }>).detail
+    const detail = (
+      event as CustomEvent<{
+        taskId?: number
+        taskType?: string | null
+        remoteCancelRequested?: boolean
+      }>
+    ).detail
     const id = parseTaskId(detail?.taskId)
     if (!id) return
     if (
@@ -67,7 +79,10 @@ export function createStoryboardVideoBatchGlobalTasks(
     ) {
       return
     }
-    void requestStop()
+    // 任务中心请求成功才跳过该 taskId；网络失败时允许本页链路补一次真实取消请求。
+    void requestStop({
+      alreadyRequestedTaskId: detail?.remoteCancelRequested ? id : null
+    })
   }
 
   function onGlobalTrackTask(

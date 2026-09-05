@@ -5,6 +5,8 @@ import com.aid.auth.domain.dto.LoginRequest;
 import com.aid.auth.strategy.LoginStrategy;
 import com.aid.auth.util.SilentRegistrationUtils;
 import com.aid.aid.service.IAidConfigService;
+import com.aid.aid.service.IAccountCancellationService;
+import com.aid.common.constant.AccountCancellationConstants;
 import com.aid.common.constant.AuthConstants;
 import com.aid.common.constant.Constants;
 import com.aid.common.core.domain.entity.SysUser;
@@ -62,6 +64,9 @@ public class EmailLoginStrategy implements LoginStrategy {
     @Resource
     private IRegisterBonusService registerBonusService;
 
+    @Resource
+    private IAccountCancellationService accountCancellationService;
+
     @Override
     public String getLoginType() {
         return "email";
@@ -103,6 +108,8 @@ public class EmailLoginStrategy implements LoginStrategy {
 
         if (Objects.isNull(user)) {
             // 用户不存在，自动注册
+            accountCancellationService.checkRegistrationAllowed(
+                    AccountCancellationConstants.IDENTITY_EMAIL, email);
             user = createSysUser(email);
             // 注册事务内严格校验并绑定邀请关系，失败时连同新用户一起回滚。
             inviteService.bindOnRegister(user.getUserId(), request.getInviteCode(), AuthConstants.BIND_TYPE_EMAIL);
@@ -117,7 +124,7 @@ public class EmailLoginStrategy implements LoginStrategy {
         }
 
         AsyncManager.me().execute(AsyncFactory.recordLogininfor(
-                email, Constants.LOGIN_SUCCESS, "邮箱验证码登录成功"));
+                user.getUserId(), email, Constants.LOGIN_SUCCESS, "邮箱验证码登录成功"));
 
         sysUserService.updateLoginInfo(user.getUserId(), IpUtils.getIpAddr(), DateUtils.getNowDate());
 

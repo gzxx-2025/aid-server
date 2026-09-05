@@ -19,6 +19,9 @@ public class SysLogininfor extends BaseEntity
     @Excel(name = "序号", cellType = ColumnType.NUMERIC)
     private Long infoId;
 
+    /** 用户ID；登录成功时记录，用于账号改绑后仍能查询本人历史 */
+    private Long userId;
+
     /** 用户账号 */
     @Excel(name = "用户账号")
     private String userName;
@@ -60,6 +63,16 @@ public class SysLogininfor extends BaseEntity
     public void setInfoId(Long infoId)
     {
         this.infoId = infoId;
+    }
+
+    public Long getUserId()
+    {
+        return userId;
+    }
+
+    public void setUserId(Long userId)
+    {
+        this.userId = userId;
     }
 
     public String getUserName()

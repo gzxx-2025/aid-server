@@ -625,7 +625,7 @@ export function EditStoryboardImageModal(props: EditStoryboardImageModalProps) {
                               iconType="scene"
                               headerTheme="scene-modal"
                               prompt={ctx.storyboardPrompt.value}
-                              onPromptChange={(v) => ctx.storyboardPrompt.set(v)}
+                              onPromptChange={ctx.handleStoryboardPromptEditorChange}
                               promptPlaceholder="描述想要生成的画面，如：一只可爱的猫咪"
                               sceneImages={ctx.sceneImages.value}
                               characterImages={ctx.characterImages.value}

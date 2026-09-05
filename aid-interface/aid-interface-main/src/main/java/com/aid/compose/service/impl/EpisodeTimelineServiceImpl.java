@@ -47,7 +47,6 @@ import com.aid.compose.service.StoryboardVideoSelectionResolver;
 import com.aid.compose.util.MaterialUrlGuard;
 import com.aid.compose.util.TimelineMediaFingerprint;
 import com.aid.media.enums.MediaTaskStatus;
-import com.aid.project.service.IProjectContentGuardService;
 import com.aid.voice.util.DialogueSubtitleFormatter;
 import com.aid.voice.util.DialogueTextSanitizer;
 
@@ -142,9 +141,6 @@ public class EpisodeTimelineServiceImpl implements EpisodeTimelineService {
     /** 媒体 URL 解析器：库内相对路径 ↔ 完整可播放 URL */
     private final MediaUrlResolver mediaUrlResolver;
 
-    /** 项目内容修改守卫：项目公开期间禁止保存剪辑工程，须先关闭公开 */
-    private final IProjectContentGuardService projectContentGuardService;
-
     /** 分镜当前视频唯一解析入口，保证初始化、自愈与导出使用同一选择口径。 */
     private final StoryboardVideoSelectionResolver storyboardVideoSelectionResolver;
 
@@ -206,9 +202,6 @@ public class EpisodeTimelineServiceImpl implements EpisodeTimelineService {
             log.info("时间轴保存拒绝: 当前工程正在导出, episodeEditorId={}", editor.getId());
             throw new ServiceException("导出中请稍候");
         }
-
-        // 公开锁：项目公开期间禁止修改剪辑工程，须先关闭公开
-        projectContentGuardService.assertProjectEditable(editor.getProjectId());
 
         TimelineData timeline = request.getTimeline();
         // 校验 + 补默认值 + URL 统一转相对路径 + 重算总时长

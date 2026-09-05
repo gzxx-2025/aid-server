@@ -139,13 +139,17 @@ export function useStoryboardVideoBatchActions(opts: {
 
   async function stopVideoGeneration() {
     setVideoGenerationStopped(true)
-    await videoBatchGen.requestStop()
+    const stopResult = await videoBatchGen.requestStop()
     const next = panelsRef.current.map((p) => ({
       ...p,
       generating: false
     }))
     onChangeRef.current(next)
-    message.info('已停止生成')
+    if (stopResult.requested) {
+      message.info('已请求停止；已开始的视频仍会结算，未开始的将退回积分')
+    } else {
+      message.warning('停止请求失败，已停止本页跟进')
+    }
   }
 
   async function regeneratePanel(index: number) {

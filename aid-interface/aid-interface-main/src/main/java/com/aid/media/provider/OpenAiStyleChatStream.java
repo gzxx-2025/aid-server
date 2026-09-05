@@ -343,6 +343,7 @@ public final class OpenAiStyleChatStream {
             callbacks.onError("请求被中断", e);
             return;
         }
+        callbacks.onResponseBody(resp.body());
         if (resp.statusCode() < 200 || resp.statusCode() >= 300) {
             String errBody = readAllAndClose(resp.body());
             log.error("文本流式上游 HTTP 失败, url={}, status={}, bodyLen={}",

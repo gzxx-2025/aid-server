@@ -18,6 +18,6 @@ public class UserEpisodeQueryRequest {
     /** 单集标题（模糊查询） */
     private String comicTitle;
 
-    /** 状态(0草稿 1制作中 2完成未审核 3审核中 4审核通过 5审核失败) */
+    /** 状态(0草稿 1制作中 2已完成) */
     private Integer status;
 }

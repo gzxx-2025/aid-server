@@ -49,6 +49,12 @@ public final class ProviderErrorSanitizer {
             if (code == null) {
                 code = text(error.path("status"));
             }
+            if (code == null) {
+                code = text(root.path("code"));
+            }
+            if (message == null) {
+                message = text(root.path("msg"));
+            }
             if (message == null && error.isTextual()) {
                 message = error.asText();
             }

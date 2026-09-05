@@ -1,12 +1,27 @@
 'use client'
 
 import { usePathname,useRouter,useSearchParams } from 'next/navigation'
-import { useMemo } from 'react'
+import { createContext, createElement, useContext, useLayoutEffect, useMemo, type ReactNode } from 'react'
 import type { RouteLikeLocation,RouteLikeNavigator } from '~/types/routeLike'
+
+const embeddedRoutePathContext = createContext<string | null>(null)
+let embeddedSnapshotPath: string | null = null
+
+/** 嵌入式创作流程页面使用；未提供时普通流程路由行为完全不变。 */
+export function EmbeddedRouteLikeProvider({ path, children }: { path: string; children: ReactNode }) {
+  useLayoutEffect(() => {
+    embeddedSnapshotPath = path
+    return () => {
+      if (embeddedSnapshotPath === path) embeddedSnapshotPath = null
+    }
+  }, [path])
+  return createElement(embeddedRoutePathContext.Provider, { value: path }, children)
+}
 
 /** 把 Next 的 pathname + searchParams 组装成原 vue-router route 形状，供平移的 utils 使用 */
 export function useRouteLike(): RouteLikeLocation {
   const path = usePathname() ?? ''
+  const embeddedPath = useContext(embeddedRoutePathContext)
   const searchParams = useSearchParams()
   return useMemo(() => {
     const query: RouteLikeLocation['query'] = {}
@@ -14,8 +29,8 @@ export function useRouteLike(): RouteLikeLocation {
       const all = searchParams.getAll(key)
       query[key] = all.length > 1 ? all : all[0]
     }
-    return { path, query }
-  }, [path, searchParams])
+    return { path: embeddedPath ?? path, query }
+  }, [embeddedPath, path, searchParams])
 }
 
 /** 把 Next router 适配为原 vue-router Router.replace 的对象签名 */
@@ -41,5 +56,5 @@ export function getRouteLikeSnapshot(): RouteLikeLocation {
     const all = params.getAll(key)
     query[key] = all.length > 1 ? all : all[0]
   }
-  return { path: window.location.pathname, query }
+  return { path: embeddedSnapshotPath ?? window.location.pathname, query }
 }

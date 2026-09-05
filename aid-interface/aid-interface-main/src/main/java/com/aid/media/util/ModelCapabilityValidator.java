@@ -1,5 +1,7 @@
 package com.aid.media.util;
 
+import com.aid.common.error.TaskErrorCode;
+import com.aid.common.error.TaskErrorPresentation;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -10,7 +12,6 @@ import java.util.Objects;
 import java.util.Set;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.aid.common.exception.ServiceException;
 import com.aid.domain.vo.AiModelConfigVo;
 import com.aid.media.dto.MediaImageGenerateRequest;
 import com.aid.media.dto.MediaVideoGenerateRequest;
@@ -74,7 +75,7 @@ public final class ModelCapabilityValidator {
         if (max >= 0 && prompt.length() > max) {
             log.info("提示词超过模型能力上限: modelCode={}, cjk={}, max={}, actual={}",
                     modelConfig.getModelCode(), cjk, max, prompt.length());
-            throw new ServiceException("提示词过长");
+            throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_TOO_LONG, "提示词过长，请精简");
         }
     }
 
@@ -297,7 +298,7 @@ public final class ModelCapabilityValidator {
         if (!supportsAudio) {
             if (Boolean.TRUE.equals(audio)) {
                 log.info("模型不支持音画同出: modelCode={}, audio={}", modelConfig.getModelCode(), audio);
-                throw new ServiceException("模型不支持音频");
+                throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_INVALID, "模型不支持音频");
             }
             // 显式无声或历史脏值：清空，避免误下发
             request.setAudio(null);
@@ -406,7 +407,7 @@ public final class ModelCapabilityValidator {
                             + " referenceAudioId={}",
                     modelConfig.getModelCode(), reason, audio.getSourceType(),
                     audio.getAudioRecordId(), audio.getReferenceAudioId());
-            throw new ServiceException(message);
+            throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_INVALID, message);
         }
         log.warn("参考音频不合规已剔除: modelCode={}, reason={}, name={}",
                 modelConfig.getModelCode(), reason, audio.getName());
@@ -428,7 +429,7 @@ public final class ModelCapabilityValidator {
         if (hasExplicit) {
             log.info("视频参考音频校验失败: modelCode={}, reason={}, count={}",
                     modelConfig.getModelCode(), reason, audios.size());
-            throw new ServiceException(message);
+            throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_INVALID, message);
         }
         log.warn("参考音频降级丢弃: modelCode={}, reason={}, count={}",
                 modelConfig.getModelCode(), reason, audios.size());
@@ -499,7 +500,7 @@ public final class ModelCapabilityValidator {
         }
         log.info("模型能力校验未命中: modelCode={}, key={}, value={}, whitelist={}",
                 modelCode, whitelistKey, value, whitelist);
-        throw new ServiceException(errorMessage);
+        throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_INVALID, errorMessage);
     }
 
     /** 场景白名单优先、模型顶层白名单兜底的单项校验。 */
@@ -519,7 +520,7 @@ public final class ModelCapabilityValidator {
         }
         log.info("模型场景能力校验未命中: modelCode={}, scene={}, key={}, value={}, whitelist={}",
                 modelCode, sceneCode, whitelistKey, value, whitelist);
-        throw new ServiceException(errorMessage);
+        throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_INVALID, errorMessage);
     }
 
     /** 根据图片输入与组图开关识别能力场景。 */
@@ -562,7 +563,7 @@ public final class ModelCapabilityValidator {
         }
         log.info("模型时长校验未命中: modelCode={}, duration={}, whitelist={}",
                 modelCode, durationSeconds, node);
-        throw new ServiceException("时长不支持");
+        throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_INVALID, "时长不支持");
     }
 
     /**

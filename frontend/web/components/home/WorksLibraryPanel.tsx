@@ -1,7 +1,7 @@
 'use client'
 
-import { ExportOutlined,SearchOutlined } from '@ant-design/icons'
-import { message,Modal,Tooltip } from 'antd'
+import { SearchOutlined } from '@ant-design/icons'
+import { message, Modal } from 'antd'
 import { useRouter,useSearchParams } from 'next/navigation'
 import type { SyntheticEvent } from 'react'
 import { useCallback,useEffect,useMemo,useRef,useState } from 'react'
@@ -16,11 +16,10 @@ import { assetUrl } from '~/utils/assetUrl'
 import {
 userEpisodeCreate,
 userProjectDelete,
-userProjectList,
-userProjectUnpublish
+userProjectList
 } from '~/utils/businessApi'
 import { buildOpenProjectFlowQuery,resolveCreateFlowEntryPath } from '~/utils/createFlowProjectContext'
-import { CREATE_SERIES_EPISODE_LIST_PATH } from '~/utils/createFlowRoutes'
+import { CREATE_FLOW_STEP_ORDER,CREATE_SERIES_EPISODE_LIST_PATH } from '~/utils/createFlowRoutes'
 import { emptyImageIconUrl } from '~/utils/emptyImageIcon'
 import {
   buildWorksPageHref,
@@ -31,17 +30,8 @@ import {
 hydrateCreationStoreFromProjectDetail,
 resetProjectDetailHydrateCache
 } from '~/utils/hydrateCreationStoreFromProjectDetail'
-import {
-auditStatusBadgeLabel,
-auditStatusBadgeTone,
-isProjectPublicLockError,
-isProjectPublished,
-projectPublicLockUserHint,
-type AuditBadgeTone
-} from '~/utils/projectAudit'
 import WorksLibraryAddCard from './WorksLibraryAddCard'
 import './WorksLibraryPanel.css'
-import WorksLibraryPublishedAction from './WorksLibraryPublishedAction'
 
 type WorkCategory = WorksPageTab
 
@@ -57,10 +47,7 @@ export interface WorksLibraryPanelProps {
 type WorkListItem = Work & {
   category: WorkCategory
   episodeCount?: number
-  isPublished: boolean
   hasCover: boolean
-  auditStatusLabel?: string | null
-  auditStatusTone?: AuditBadgeTone | null
 }
 
 const typeTabs: { label: string; value: WorkCategory }[] = [
@@ -74,7 +61,11 @@ function toWorkStatus(status?: number): Work['status'] {
   return 'draft'
 }
 
-function toCurrentStep(status?: number): CreationStep {
+function toCurrentStep(status?: number, currentStep?: number | null): CreationStep {
+  const stepIndex = Number(currentStep) - 1
+  if (Number.isInteger(stepIndex) && stepIndex >= 0 && stepIndex < CREATE_FLOW_STEP_ORDER.length) {
+    return CREATE_FLOW_STEP_ORDER[stepIndex]
+  }
   if (status === 4) return 'preview'
   if (status === 1 || status === 2 || status === 3) return 'dubbing'
   return 'global-setting'
@@ -100,19 +91,10 @@ function mapProjectToWorkItem(row: UserProjectRow): WorkListItem {
     views: 0,
     likes: 0,
     tags: [],
-    currentStep: toCurrentStep(row.status),
+    currentStep: toCurrentStep(row.status, row.currentStep),
     category,
     episodeCount,
-    isPublished: isProjectPublished(row.isPublic),
-    auditStatusLabel: auditStatusBadgeLabel(row.status),
-    auditStatusTone: auditStatusBadgeTone(row.status)
   }
-}
-
-function auditBadgeClass(tone?: AuditBadgeTone | null): string {
-  if (tone === 'reviewing') return 'works-lib-card__cover-badge--reviewing'
-  if (tone === 'failed') return 'works-lib-card__cover-badge--failed'
-  return ''
 }
 
 function formatCompactNumber(n: number): string {
@@ -260,10 +242,6 @@ export function WorksLibraryPanel({ onOpenCreate }: WorksLibraryPanelProps) {
       message.success('已新增一集')
       await fetchWorkList()
     } catch (e: unknown) {
-      if (isProjectPublicLockError(e)) {
-        message.error(projectPublicLockUserHint())
-        return
-      }
       const err = e as { msg?: string; message?: string }
       message.error(err?.msg || err?.message || '新增失败')
     } finally {
@@ -303,80 +281,6 @@ export function WorksLibraryPanel({ onOpenCreate }: WorksLibraryPanelProps) {
       return
     }
     void openWork(work)
-  }
-
-  const publishNavigatingProjectIdRef = useRef<number | null>(null)
-
-  /** 卡片右下角「发布至案例广场」跳转到作品当前进行到的流程步骤。 */
-  async function publishToCasePlazaFromCard(work: WorkListItem) {
-    const projectId = Number(work.id)
-    if (!Number.isFinite(projectId) || projectId <= 0) {
-      message.error('项目ID无效')
-      return
-    }
-    if (publishNavigatingProjectIdRef.current != null) return
-    publishNavigatingProjectIdRef.current = projectId
-    beginEnterCreateFlowOverlay()
-    try {
-      resetProjectDetailHydrateCache(projectId)
-      const projectTypeGuess = work.category === 'series' ? 'series' : 'movie'
-      const q = buildOpenProjectFlowQuery(projectId, {
-        embedded: false,
-        projectType: projectTypeGuess
-      })
-      const entryPath = await resolveCreateFlowEntryPath(projectId, projectTypeGuess)
-      router.push(`${entryPath}?${serializeFlowQuery(q)}`)
-      await hydrateCreationStoreFromProjectDetail(useCreationStore.getState(), projectId, {
-        force: true
-      })
-      const projectType = useCreationStore.getState().currentProjectType
-      if (projectType && projectType !== projectTypeGuess) {
-        const q2 = buildOpenProjectFlowQuery(projectId, {
-          embedded: false,
-          projectType
-        })
-        const entryPath2 = await resolveCreateFlowEntryPath(projectId, projectType)
-        router.replace(`${entryPath2}?${serializeFlowQuery(q2)}`)
-      }
-    } catch {
-      endEnterCreateFlowOverlay()
-      message.error('获取项目详情失败，请稍后重试')
-    } finally {
-      publishNavigatingProjectIdRef.current = null
-    }
-  }
-
-  const [unpublishingProjectId, setUnpublishingProjectId] = useState<number | null>(null)
-  const unpublishDialogProjectIdRef = useRef<number | null>(null)
-
-  function cancelPublishWork(work: WorkListItem) {
-    const projectId = Number(work.id)
-    if (!Number.isFinite(projectId) || projectId <= 0) return
-    if (unpublishingProjectId !== null || unpublishDialogProjectIdRef.current !== null) return
-    unpublishDialogProjectIdRef.current = projectId
-    Modal.confirm({
-      title: '确认取消发布？',
-      content: '取消后作品将从案例广场下架，您可继续修改内容。',
-      okText: '取消发布',
-      cancelText: '取消',
-      onOk: async () => {
-        setUnpublishingProjectId(projectId)
-        try {
-          await userProjectUnpublish({ id: projectId })
-          message.success('已取消发布')
-          await fetchWorkList()
-        } catch (e: unknown) {
-          const err = e as { msg?: string; message?: string }
-          message.error(err?.msg || err?.message || '取消发布失败')
-          throw e
-        } finally {
-          setUnpublishingProjectId(null)
-        }
-      },
-      afterClose: () => {
-        unpublishDialogProjectIdRef.current = null
-      }
-    })
   }
 
   const filteredWorks = useMemo(() => {
@@ -614,16 +518,6 @@ export function WorksLibraryPanel({ onOpenCreate }: WorksLibraryPanelProps) {
                     </span>
                   </div>
                 ) : null}
-                {/* 审核状态固定在左上角，卡片悬停时也保持可见。 */}
-                {work.auditStatusLabel ? (
-                  <span
-                    className={`works-lib-card__cover-badge ${auditBadgeClass(
-                      work.auditStatusTone
-                    )}`.trimEnd()}
-                  >
-                    {work.auditStatusLabel}
-                  </span>
-                ) : null}
                 <div className="works-lib-card__cover-actions">
                   <button
                     type="button"
@@ -656,25 +550,18 @@ export function WorksLibraryPanel({ onOpenCreate }: WorksLibraryPanelProps) {
                       <span className="works-lib-card__ep-label">
                         集数 <em>{work.episodeCount ?? 0}</em>
                       </span>
-                      {work.isPublished ? (
-                        <WorksLibraryPublishedAction
-                          loading={unpublishingProjectId === Number(work.id)}
-                          onCancel={() => cancelPublishWork(work)}
-                        />
-                      ) : (
-                        <button
-                          type="button"
-                          className="works-lib-card__ep-add works-lib-card__ep-add--primary"
-                          disabled={addingEpisodeProjectId === Number(work.id)}
-                          aria-label="添加集"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            void addEpisodeFromCard(work)
-                          }}
-                        >
-                          +
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        className="works-lib-card__ep-add works-lib-card__ep-add--primary"
+                        disabled={addingEpisodeProjectId === Number(work.id)}
+                        aria-label="添加集"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          void addEpisodeFromCard(work)
+                        }}
+                      >
+                        +
+                      </button>
                     </div>
                   </div>
                 ) : (
@@ -684,30 +571,6 @@ export function WorksLibraryPanel({ onOpenCreate }: WorksLibraryPanelProps) {
                       <span className="works-lib-card__updated">
                         最后更新 {formatDate(work.updatedAt)}
                       </span>
-                      {work.isPublished ? (
-                        <WorksLibraryPublishedAction
-                          loading={unpublishingProjectId === Number(work.id)}
-                          onCancel={() => cancelPublishWork(work)}
-                        />
-                      ) : (
-                        <Tooltip
-                          title="发布至案例广场"
-                          placement="top"
-                          classNames={{ root: 'works-lib-publish-tooltip' }}
-                        >
-                          <button
-                            type="button"
-                            className="works-lib-card__open"
-                            aria-label="发布至案例广场"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              void publishToCasePlazaFromCard(work)
-                            }}
-                          >
-                            <ExportOutlined />
-                          </button>
-                        </Tooltip>
-                      )}
                     </div>
                   </>
                 )}

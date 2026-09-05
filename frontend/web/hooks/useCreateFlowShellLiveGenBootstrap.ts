@@ -24,8 +24,9 @@ import { purgeTerminalStep4LiveGenTasks } from '~/utils/step4LiveGenRestore'
 export function useCreateFlowShellLiveGenBootstrap(options: {
   route: RouteLikeLocation
   syncProjectContextFromRoute: () => void
+  enabled?: boolean
 }) {
-  const { route, syncProjectContextFromRoute } = options
+  const { route, syncProjectContextFromRoute, enabled = true } = options
   const storyboardScriptGen = useStoryboardScriptBatchGenerate()
 
   const routeRef = useRef(route)
@@ -127,8 +128,9 @@ export function useCreateFlowShellLiveGenBootstrap(options: {
 
   // 原 onMounted + watch([store ids, route.query ids], flush: 'post')
   useEffect(() => {
+    if (!enabled) return
     scheduleRef.current()
-  }, [currentProjectId, currentEpisodeId, routeProjectId, routeEpisodeId])
+  }, [currentProjectId, currentEpisodeId, routeProjectId, routeEpisodeId, enabled])
 
   return { scheduleShellLiveGenBootstrap }
 }

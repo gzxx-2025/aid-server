@@ -21,6 +21,9 @@ const (
 	ActionConfigRollback = "CONFIG_ROLLBACK"
 	ActionConfigTest     = "CONFIG_TEST"
 	ActionCertInstall    = "CERT_INSTALL"
+	ActionNginxValidate  = "NGINX_VALIDATE"
+	ActionNginxApply     = "NGINX_APPLY"
+	ActionNginxRollback  = "NGINX_ROLLBACK"
 
 	// SupportedSchemaVersion 当前支持的任务结构版本
 	SupportedSchemaVersion = 1
@@ -64,6 +67,7 @@ type Task struct {
 	// CertificateFile/PrivateKeyFile 是后端放入升级器受控收件目录的随机暂存文件。
 	CertificateFile string `json:"certificateFile,omitempty"`
 	PrivateKeyFile  string `json:"privateKeyFile,omitempty"`
+	NginxRevision   string `json:"nginxRevision,omitempty"`
 }
 
 // Parse 从文件解析任务并做基础校验。
@@ -85,7 +89,7 @@ func Parse(path string) (*Task, error) {
 	switch t.Action {
 	case ActionUpgrade, ActionUpdaterUpgrade, ActionRollback,
 		ActionConfigValidate, ActionConfigApply, ActionConfigRollback,
-		ActionConfigTest, ActionCertInstall:
+		ActionConfigTest, ActionCertInstall, ActionNginxValidate, ActionNginxApply, ActionNginxRollback:
 	default:
 		return nil, fmt.Errorf("未知任务动作: %s", t.Action)
 	}

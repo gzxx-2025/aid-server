@@ -183,7 +183,7 @@ export async function userAssetRpsFormImageUpscale(
   return unwrap(res)
 }
 
-/** 从表形态设为使用中：POST /api/user/asset/rps/form/use（支持单个 / 批量） */
+/** 从表形态设为使用中：POST /api/user/asset/rps/form/use（主图单选，每次一个 imageId） */
 export async function userAssetRpsFormUse(
   body: UserAssetRpsFormUseRequest
 ): Promise<UserAssetRpsFormUseBatchData | null> {

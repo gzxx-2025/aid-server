@@ -42,14 +42,4 @@ public class EpisodeExportStatusResult {
     /** 导出任务标识（合成任务ID字符串），用于排查问题 */
     private String exportTaskId;
 
-    /**
-     * 待审核新成片地址（出参自动拼域名）。
-     * 非空 = 审核中/已过审内容重新导出产生了新成片：公开页仍展示 finalVideoUrl 旧片，
-     * 新片需重新提交审核，过审后自动转正替换旧片并清空本字段。
-     */
-    @MediaUrl
-    private String pendingVideoUrl;
-
-    /** 是否需要重新提交审核（pendingVideoUrl 非空即 true），前端据此展示「成片已变更需重新审核」警示 */
-    private Boolean needReaudit;
 }

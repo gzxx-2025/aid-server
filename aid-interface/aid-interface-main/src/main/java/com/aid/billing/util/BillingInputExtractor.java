@@ -522,29 +522,42 @@ public final class BillingInputExtractor {
         if (billingOutputTokens <= 0) {
             billingOutputTokens = com.aid.media.provider.TextOutputLimitResolver.billingCeiling(providerOutputTokens);
         }
-        Object reasoningBudget = extractFromOptionsObj(request.getOptions(), "_aid_reasoning_budget_tokens");
-        int normalizedReasoningBudget = reasoningBudget == null ? 0 : positiveTokenBudget(reasoningBudget);
-        boolean reasoningEnabled = Boolean.parseBoolean(String.valueOf(
-                extractFromOptionsObj(request.getOptions(), "_aid_reasoning_enabled")));
+        int normalizedReasoningBudget = request.getReasoningBudgetTokens() == null
+                ? 0 : positiveTokenBudget(request.getReasoningBudgetTokens());
+        boolean reasoningEnabled = Boolean.TRUE.equals(request.getReasoningEnabled());
         params.put("outputTokens", billingOutputTokens);
         params.put("providerOutputTokenCap", providerOutputTokens);
         params.put("billingOutputTokenCeiling", billingOutputTokens);
         params.put("reasoningEnabled", reasoningEnabled);
-        params.put("reasoningOverridePresent", request.getOptions() != null
-                && request.getOptions().containsKey("_aid_reasoning_enabled"));
+        params.put("reasoningOverridePresent", request.getReasoningEnabled() != null);
         params.put("reasoningBudgetTokens", normalizedReasoningBudget);
         params.put("reasoningBudgetOverridePresent", normalizedReasoningBudget > 0);
         params.put("outputLimitPresent", true);
         params.put("estimatedOutputChars", estimatedOutputChars);
         params.put("totalChars", (int) Math.min((long) inputChars + estimatedOutputChars, Integer.MAX_VALUE));
 
-        Map<String, Object> textOptions = request.getOptions();
-        if (textOptions != null) {
-            int imageCount = sizeOfList(textOptions.get("images")) + sizeOfList(textOptions.get("referenceImages"));
-            if (imageCount > 0) {
-                params.put("referenceImageCount", imageCount);
+        Map<String, Integer> modalityCounts = new HashMap<>();
+        if (request.getMessages() != null) {
+            for (MediaTextGenerateRequest.TextMessageItem message : request.getMessages()) {
+                if (message == null || message.getParts() == null) {
+                    continue;
+                }
+                for (MediaTextGenerateRequest.TextContentPart part : message.getParts()) {
+                    if (part != null && part.getType() != null && !"text".equalsIgnoreCase(part.getType())) {
+                        modalityCounts.merge(part.getType().trim().toLowerCase(), 1, Integer::sum);
+                    }
+                }
             }
         }
+        Map<String, Object> textOptions = request.getOptions();
+        int legacyImages = textOptions == null ? 0
+                : sizeOfList(textOptions.get("images")) + sizeOfList(textOptions.get("referenceImages"));
+        modalityCounts.merge("image", legacyImages, Integer::sum);
+        modalityCounts.forEach((type, count) -> {
+            if (count > 0) {
+                params.put(type + "InputCount", count);
+            }
+        });
         return new BillingInput("TEXT", params);
     }
 

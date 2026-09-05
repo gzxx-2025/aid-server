@@ -5,6 +5,9 @@ package com.aid.media.provider;
  */
 public interface TextStreamCallbacks {
 
+    /** 注册当前上游响应体，供真正取消时从其他线程主动关闭阻塞读取。 */
+    default void onResponseBody(AutoCloseable responseBody) {}
+
     // 业务含义：模型输出的可见正文增量片段（多段拼接即为完整回复）。
     void onDelta(String textDelta);
 

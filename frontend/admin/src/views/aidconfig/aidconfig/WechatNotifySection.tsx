@@ -107,18 +107,6 @@ const EVENT_METAS: EventMeta[] = [
     ]
   },
   {
-    key: 'audit_result',
-    title: '项目数据提交审核结果通知',
-    templateId: 'ecvqMISxQCAJiUcyzf2yItc4imo7mVN-Zbsq6IjIpCY',
-    templateNo: '56784',
-    scene: '内容提交审核、审核通过、审核驳回、发布成功或审核回撤时触发，审核结果使用公众号模板枚举值。',
-    fields: [
-      { name: 'projectName', label: '项目名称', keyword: 'thing1', hint: 'thing1.DATA，最多20字' },
-      { name: 'finishTime', label: '完成时间', keyword: 'time2', hint: 'time2.DATA' },
-      { name: 'auditResult', label: '提交审核结果', keyword: 'const3', hint: 'const3.DATA，固定枚举值' }
-    ]
-  },
-  {
     key: 'order_refund',
     title: '退款通知',
     templateId: 'XVkL-i8pVaz9LZT-fnmd-p9tRHJkLnUlQrx_GCImZPY',
@@ -282,7 +270,7 @@ export default function WechatNotifySection({ onJumpToWxLogin }: Props) {
     { label: 'AppSecret 已配置', ok: status?.secretConfigured },
     { label: 'Token 已配置', ok: status?.tokenConfigured },
     { label: 'EncodingAESKey 已配置', ok: status?.encodingAesKeyConfigured },
-    { label: '六个官方标准模板已启用', ok: status?.templateConfigured }
+    { label: '五个官方标准模板已启用', ok: status?.templateConfigured }
   ];
 
   return (

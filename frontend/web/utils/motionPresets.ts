@@ -1,4 +1,4 @@
-/** 展示页（案例广场、作品库等）— 稍强、有电影感 */
+/** 展示页（首页、作品库等）— 稍强、有电影感 */
 export const MOTION_SHOWCASE = {
   duration: 0.5,
   ease: 'power2.out',

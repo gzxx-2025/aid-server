@@ -34,7 +34,6 @@ public class WechatNotifyConfigServiceImpl implements IWechatNotifyConfigService
     public static final String EVENT_BATCH_STARTED = "batch_started";
     public static final String EVENT_BATCH_SUCCEEDED = "batch_succeeded";
     public static final String EVENT_BATCH_FAILED = "batch_failed";
-    public static final String EVENT_AUDIT_RESULT = "audit_result";
     public static final String EVENT_ORDER_REFUND = "order_refund";
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
@@ -138,7 +137,7 @@ public class WechatNotifyConfigServiceImpl implements IWechatNotifyConfigService
         if (!secretConfigured) { missing.add("先配置微信公众号 AppSecret"); }
         if (!tokenConfigured) { missing.add("先配置微信公众号 Token"); }
         if (!aesConfigured) { missing.add("先配置 EncodingAESKey"); }
-        if (!templateConfigured) { missing.add("启用六个官方标准模板"); }
+        if (!templateConfigured) { missing.add("启用五个官方标准模板"); }
         status.setMissingItems(missing);
         status.setReady(Boolean.TRUE.equals(config.getEnabled()) && missing.isEmpty());
         return status;
@@ -162,7 +161,6 @@ public class WechatNotifyConfigServiceImpl implements IWechatNotifyConfigService
         rules.add("仅在用户绑定微信公众号并开启推送后发送。");
         rules.add("只推送全量批量生成的关键节点：开始、完成、失败或部分失败。");
         rules.add("单个生成、只选择部分ID生成、手动上传或普通编辑不会推送。");
-        rules.add("内容提交审核、审核通过、审核驳回、发布成功和审核回撤会推送审核结果通知。");
         rules.add("支付订单全额退款成功后会推送退款通知。");
         rules.add("微信消息使用官方标准模板，详细消耗、余额和失败原因请进入系统查看。");
         WechatNotifyConfig config = getConfig();
@@ -261,10 +259,6 @@ public class WechatNotifyConfigServiceImpl implements IWechatNotifyConfigService
                 "hLaniNK4118iL8hKO1itKOssx1n1xgtGPhX8H1zT4q0",
                 field("productName", "thing2"), field("orderAmount", "amount3"),
                 field("failureTime", "time4")));
-        templates.put(EVENT_AUDIT_RESULT, template("项目数据提交审核结果通知",
-                "ecvqMISxQCAJiUcyzf2yItc4imo7mVN-Zbsq6IjIpCY",
-                field("projectName", "thing1"), field("finishTime", "time2"),
-                field("auditResult", "const3")));
         templates.put(EVENT_ORDER_REFUND, template("退款通知",
                 "XVkL-i8pVaz9LZT-fnmd-p9tRHJkLnUlQrx_GCImZPY",
                 field("orderName", "thing8"), field("orderNo", "thing7"),

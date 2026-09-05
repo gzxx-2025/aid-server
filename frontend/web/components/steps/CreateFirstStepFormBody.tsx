@@ -37,6 +37,10 @@ import ratio16by9IconSelMod from '~/assets/img/createProcess/16-9-sel.svg'
 import unionLeftIconMod from '~/assets/img/createProcess/Union-l.svg'
 import unionRightIconMod from '~/assets/img/createProcess/Union-r.svg'
 import { SERIES_PROJECT_CONFIG_STORYBOARD_LOCKED_HINT } from '~/utils/seriesProjectConfigGuard'
+import {
+  PROJECT_CONFIG_ASSETS_LOCKED_HINT,
+  PROJECT_CONFIG_ASSETS_STYLE_LOCK_HINT
+} from '~/utils/projectConfigAssetGuard'
 import { assetUrl } from '~/utils/assetUrl'
 import './create-first-step-form-body.css'
 
@@ -73,6 +77,7 @@ export interface CreateFirstStepFormBodyProps {
   flowEditMode?: boolean
   projectTypeLocked?: boolean
   contentConfigLocked?: boolean
+  contentConfigLockReason?: 'storyboard' | 'assets'
   syncProjectTypeFromParent?: boolean
   /** 页面内嵌布局（非弹窗） */
   pageLayout?: boolean
@@ -152,6 +157,7 @@ export function CreateFirstStepFormBody({
   flowEditMode = false,
   projectTypeLocked = false,
   contentConfigLocked = false,
+  contentConfigLockReason,
   syncProjectTypeFromParent = false,
   pageLayout = false,
   className,
@@ -492,7 +498,9 @@ export function CreateFirstStepFormBody({
         <div className="content_box">
           {contentConfigLocked && (
             <p className="content-config-lock-hint" role="status">
-              {SERIES_PROJECT_CONFIG_STORYBOARD_LOCKED_HINT}
+              {contentConfigLockReason === 'assets'
+                ? PROJECT_CONFIG_ASSETS_LOCKED_HINT
+                : SERIES_PROJECT_CONFIG_STORYBOARD_LOCKED_HINT}
             </p>
           )}
           <div className="field-group inline-options">
@@ -682,7 +690,11 @@ export function CreateFirstStepFormBody({
             modelValue={modelValue}
             styleLibraryOnly={true}
             forceStyleLocked={contentConfigLocked}
-            styleLockHint="已有剧集生成分镜脚本，画面风格仅可查看。"
+            styleLockHint={
+              contentConfigLockReason === 'assets'
+                ? PROJECT_CONFIG_ASSETS_STYLE_LOCK_HINT
+                : '已有剧集生成分镜脚本，画面风格仅可查看。'
+            }
             styleThumbSizePx={107}
             description=""
             onModelValueChange={onRightPanelModelUpdate}

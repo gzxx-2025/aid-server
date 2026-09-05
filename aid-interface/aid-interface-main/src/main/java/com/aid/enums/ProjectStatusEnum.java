@@ -24,24 +24,9 @@ public enum ProjectStatusEnum {
     PROCESSING(1, "制作中"),
 
     /**
-     * 完成未提交
+     * 已完成
      */
-    FINISHED_UNSUBMITTED(2, "完成未提交"),
-
-    /**
-     * 审核中
-     */
-    AUDITING(3, "审核中"),
-
-    /**
-     * 审核通过
-     */
-    AUDIT_PASSED(4, "审核通过"),
-
-    /**
-     * 审核失败
-     */
-    AUDIT_FAILED(5, "审核失败");
+    COMPLETED(2, "已完成");
 
     @EnumValue
     private final Integer value;

@@ -50,6 +50,18 @@ export default function CapabilityEditor({ modelType, form, cap, onCapChange, on
 
   const updateCap = (patch: Partial<CapabilityModel>) => onCapChange({ ...cap, ...patch });
 
+  const updateTextModalities = (values: string[]) => {
+    const inputModalities = Array.from(new Set(['TEXT', ...values]));
+    const supportsImageInput = inputModalities.includes('IMAGE');
+    const maxInputImages = supportsImageInput ? cap.maxInputImages || 10 : 0;
+    updateCap({ inputModalities, maxInputImages,
+      maxInputVideos: inputModalities.includes('VIDEO') ? cap.maxInputVideos || 10 : 0,
+      maxInputAudios: inputModalities.includes('AUDIO') ? cap.maxInputAudios || 10 : 0,
+      maxInputDocuments: inputModalities.includes('DOCUMENT') ? cap.maxInputDocuments || 10 : 0 });
+    onFormChange({ supportsImageInput,
+      supportsMultiImageInput: supportsImageInput && (maxInputImages === -1 || maxInputImages > 1) });
+  };
+
   const resolutionMappingValue = (source: string) => {
     const mapping = cap.upstreamResolutionMap || {};
     const key = Object.keys(mapping).find((item) => item.toLowerCase() === source.toLowerCase());
@@ -68,12 +80,77 @@ export default function CapabilityEditor({ modelType, form, cap, onCapChange, on
   if (modelType === 'text') {
     return <div>
       <Alert type="info" showIcon style={{ marginBottom: 12 }}
-        message="思考能力与展示能力分开配置；供应商真实 usage 决定缓存/思考分桶结算。" />
+        message="这里声明模型能力；是否流式和是否思考由每次业务调用决定，供应商真实 usage 决定结算。" />
+      <div style={{ marginBottom: 14 }}>
+        <GroupLabel text="输入模态" keyName="inputModalities" />
+        <Checkbox.Group
+          options={['TEXT', 'IMAGE', 'VIDEO', 'AUDIO', 'DOCUMENT']}
+          value={cap.inputModalities || ['TEXT']}
+          onChange={(values) => updateTextModalities(values as string[])}
+        />
+      </div>
+      <Space wrap align="end" style={{ marginBottom: 14 }}>
+        {[
+          ['IMAGE', '图片上限', 'maxInputImages'],
+          ['VIDEO', '视频上限', 'maxInputVideos'],
+          ['AUDIO', '音频上限', 'maxInputAudios'],
+          ['DOCUMENT', '文档上限', 'maxInputDocuments']
+        ].map(([modality, label, field]) => (
+          <div key={field}>
+            <GroupLabel text={label} keyName={field} />
+            <InputNumber min={-1} precision={0} style={{ width: 120 }}
+              disabled={!(cap.inputModalities || []).includes(modality)}
+              value={(cap as any)[field] ?? null}
+              placeholder="未公布填10"
+              onChange={(value) => {
+                updateCap({ [field]: value } as Partial<CapabilityModel>);
+                if (field === 'maxInputImages') {
+                  onFormChange({ supportsMultiImageInput: value === -1 || Number(value) > 1 });
+                }
+              }} />
+          </div>
+        ))}
+      </Space>
+      <Space wrap align="end" style={{ marginBottom: 14 }}>
+        <div><GroupLabel text="上下文Token" keyName="contextWindowTokens" /><InputNumber min={1} precision={0} value={cap.contextWindowTokens ?? null} onChange={(v) => updateCap({ contextWindowTokens: v })} /></div>
+        <div><GroupLabel text="最大输出Token" keyName="maxOutputTokens" /><InputNumber min={1} precision={0} value={cap.maxOutputTokens ?? null} onChange={(v) => updateCap({ maxOutputTokens: v })} /></div>
+        <div><GroupLabel text="文档最大页数" keyName="maxInputDocumentPages" /><InputNumber min={1} precision={0} disabled={!(cap.inputModalities || []).includes('DOCUMENT')} value={cap.maxInputDocumentPages ?? null} onChange={(v) => updateCap({ maxInputDocumentPages: v })} /></div>
+        <div><GroupLabel text="视频最长秒数" keyName="maxInputVideoDurationSeconds" /><InputNumber min={1} precision={0} disabled={!(cap.inputModalities || []).includes('VIDEO')} value={cap.maxInputVideoDurationSeconds ?? null} onChange={(v) => updateCap({ maxInputVideoDurationSeconds: v })} /></div>
+        <div><GroupLabel text="音频最长秒数" keyName="maxInputAudioDurationSeconds" /><InputNumber min={1} precision={0} disabled={!(cap.inputModalities || []).includes('AUDIO')} value={cap.maxInputAudioDurationSeconds ?? null} onChange={(v) => updateCap({ maxInputAudioDurationSeconds: v })} /></div>
+      </Space>
+      <Space wrap align="end" style={{ marginBottom: 14 }}>
+        {[
+          ['IMAGE', '单张图片 MB', 'maxInputImageFileSizeMb'],
+          ['VIDEO', '单个视频 MB', 'maxInputVideoFileSizeMb'],
+          ['AUDIO', '单个音频 MB', 'maxInputAudioFileSizeMb'],
+          ['DOCUMENT', '单个文档 MB', 'maxInputDocumentFileSizeMb']
+        ].map(([modality, label, field]) => (
+          <div key={field}>
+            <GroupLabel text={label} keyName={field} />
+            <InputNumber min={1} precision={0} style={{ width: 150 }}
+              disabled={!(cap.inputModalities || []).includes(modality)}
+              value={(cap as any)[field] ?? null}
+              onChange={(value) => updateCap({ [field]: value } as Partial<CapabilityModel>)} />
+          </div>
+        ))}
+      </Space>
+      <Space wrap align="end" style={{ marginBottom: 14 }}>
+        {[
+          ['IMAGE', '图片格式', 'inputImageFormats'],
+          ['VIDEO', '视频格式', 'inputVideoFormats'],
+          ['AUDIO', '音频格式', 'inputAudioFormats'],
+          ['DOCUMENT', '文档格式', 'inputDocumentFormats']
+        ].map(([modality, label, field]) => (
+          <div key={field}><GroupLabel text={label} keyName={field} /><Select mode="tags" style={{ width: 210 }}
+            disabled={!(cap.inputModalities || []).includes(modality)} value={(cap as any)[field] || []}
+            onChange={(value) => updateCap({ [field]: value } as Partial<CapabilityModel>)} /></div>
+        ))}
+      </Space>
       <Space wrap align="start">
         <div><GroupLabel text="支持思考" keyName="supportsReasoning" /><Switch checked={cap.supportsReasoning === true} onChange={(v) => updateCap(v ? { supportsReasoning: true } : { supportsReasoning: false, supportsReasoningDisable: false, returnsReasoningContent: false, supportsReasoningBudget: false, defaultReasoningEnabled: false, reasoningApiStyle: undefined, outputTokenApiField: undefined, allowedReasoningLevels: [] })} /></div>
         <div><GroupLabel text="允许关闭" keyName="supportsReasoningDisable" /><Switch disabled={!cap.supportsReasoning} checked={cap.supportsReasoningDisable === true} onChange={(v) => updateCap({ supportsReasoningDisable: v })} /></div>
         <div><GroupLabel text="返回思考内容" keyName="returnsReasoningContent" /><Switch disabled={!cap.supportsReasoning} checked={cap.returnsReasoningContent === true} onChange={(v) => updateCap({ returnsReasoningContent: v })} /></div>
-        <div><GroupLabel text="支持Token预算" keyName="supportsReasoningBudget" /><Switch disabled={!cap.supportsReasoning} checked={cap.supportsReasoningBudget === true} onChange={(v) => updateCap({ supportsReasoningBudget: v })} /></div>
+        <div><GroupLabel text="支持Token预算" keyName="supportsReasoningBudget" /><Switch disabled={!cap.supportsReasoning} checked={cap.supportsReasoningBudget === true} onChange={(v) => updateCap(v ? { supportsReasoningBudget: true } : { supportsReasoningBudget: false, defaultReasoningBudgetTokens: null, maxReasoningBudgetTokens: null })} /></div>
         <div><GroupLabel text="默认开启" keyName="defaultReasoningEnabled" /><Switch disabled={!cap.supportsReasoning} checked={cap.defaultReasoningEnabled === true} onChange={(v) => updateCap({ defaultReasoningEnabled: v })} /></div>
       </Space>
       <Space wrap align="end" style={{ marginTop: 14 }}>
@@ -86,6 +163,15 @@ export default function CapabilityEditor({ modelType, form, cap, onCapChange, on
         <div><GroupLabel text="允许档位" keyName="allowedReasoningLevels" /><Select mode="tags" style={{ width: 300 }} value={cap.allowedReasoningLevels || []}
           onChange={(v) => updateCap({ allowedReasoningLevels: v })}
           options={['minimal', 'low', 'medium', 'high', 'xhigh', 'max'].map((value) => ({ value, label: value }))} /></div>
+        <div><GroupLabel text="默认档位" keyName="defaultReasoningLevel" /><Select allowClear style={{ width: 160 }} disabled={!cap.supportsReasoning}
+          value={cap.defaultReasoningLevel} onChange={(v) => updateCap({ defaultReasoningLevel: v })}
+          options={(cap.allowedReasoningLevels || []).map((value) => ({ value, label: value }))} /></div>
+        <div><GroupLabel text="默认思考预算" keyName="defaultReasoningBudgetTokens" /><InputNumber min={1} precision={0} style={{ width: 170 }}
+          disabled={!cap.supportsReasoning || !cap.supportsReasoningBudget} value={cap.defaultReasoningBudgetTokens ?? null}
+          onChange={(v) => updateCap({ defaultReasoningBudgetTokens: v })} /></div>
+        <div><GroupLabel text="最大思考预算" keyName="maxReasoningBudgetTokens" /><InputNumber min={1} precision={0} style={{ width: 170 }}
+          disabled={!cap.supportsReasoning || !cap.supportsReasoningBudget} value={cap.maxReasoningBudgetTokens ?? null}
+          onChange={(v) => updateCap({ maxReasoningBudgetTokens: v })} /></div>
       </Space>
       <Collapse ghost style={{ marginTop: 12 }} items={[{
         key: 'preview', label: '查看 capabilityJson（只读预览）',

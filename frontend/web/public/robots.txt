@@ -1,0 +1,10 @@
+User-agent: *
+Allow: /
+Disallow: /assets
+Disallow: /billing
+Disallow: /create
+Disallow: /forgot-password
+Disallow: /login
+Disallow: /user
+Disallow: /aid
+Disallow: /url

@@ -777,8 +777,9 @@ export function BatchGenerateStoryboardModal({
             </Button>
             <Button
               type="primary"
+              danger={action === 'delete'}
               loading={confirmLoading}
-              className="bgsm-btn-ok"
+              className={`bgsm-btn-ok${action === 'delete' ? ' bgsm-btn-ok--danger' : ''}`}
               disabled={selectedIds.size === 0 || listLoading || confirmLoading}
               onClick={handleConfirm}
               icon={

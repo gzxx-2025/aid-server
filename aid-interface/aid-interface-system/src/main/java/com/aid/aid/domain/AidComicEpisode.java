@@ -42,24 +42,14 @@ public class AidComicEpisode extends BaseEntity implements Serializable
     @Excel(name = "单集标题")
     private String comicTitle;
 
-    /** 待审核单集标题；审核通过后原子替换 comic_title */
-    private String pendingComicTitle;
-
     /** 单集描述 */
     @Excel(name = "单集描述")
     private String comicDesc;
-
-    /** 待审核单集描述；审核通过后原子替换 comic_desc */
-    private String pendingComicDesc;
 
     /** 单集封面图 */
     @Excel(name = "单集封面图")
     @MediaUrl
     private String comicCoverUrl;
-
-    /** 待审核单集封面；审核通过后原子替换 comic_cover_url */
-    @MediaUrl
-    private String pendingComicCoverUrl;
 
     /** 所属用户ID */
     @Excel(name = "所属用户ID")
@@ -79,8 +69,8 @@ public class AidComicEpisode extends BaseEntity implements Serializable
     @Excel(name = "当前步骤")
     private Integer currentStep;
 
-    /** 状态(0草稿 1制作中 2完成未审核 3审核中 4审核通过 5审核失败) */
-    @Excel(name = "状态(0草稿 1制作中 2完成未审核 3审核中 4审核通过 5审核失败)")
+    /** 状态(0草稿 1制作中 2已完成) */
+    @Excel(name = "状态(0草稿 1制作中 2已完成)")
     private Integer status;
 
     /** 状态原因 */

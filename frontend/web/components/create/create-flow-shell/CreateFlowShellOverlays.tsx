@@ -3,7 +3,6 @@
 import { lazy, Suspense, type ComponentProps } from 'react'
 import UserMenuDropdown from '~/components/common/UserMenuDropdown'
 
-const PublishCasePlazaModal = lazy(() => import('~/components/common/PublishCasePlazaModal'))
 const ExtractAgentModal = lazy(() =>
   import('~/components/steps/ExtractAgentModal').then((module) => ({
     default: module.ExtractAgentModal
@@ -29,7 +28,6 @@ interface CreateFlowShellOverlaysProps {
   globalSettingModal: ComponentProps<typeof CreateFirstStepModal>
   projectConfigModal: ComponentProps<typeof ProjectGenConfigModal>
   userMenu: ComponentProps<typeof UserMenuDropdown>
-  publishModal: ComponentProps<typeof PublishCasePlazaModal>
 }
 
 export function CreateFlowShellOverlays(props: CreateFlowShellOverlaysProps) {
@@ -48,9 +46,6 @@ export function CreateFlowShellOverlays(props: CreateFlowShellOverlaysProps) {
         <ProjectGenConfigModal {...props.projectConfigModal} />
       </Suspense>
       <UserMenuDropdown {...props.userMenu} />
-      <Suspense fallback={null}>
-        <PublishCasePlazaModal {...props.publishModal} />
-      </Suspense>
     </>
   )
 }

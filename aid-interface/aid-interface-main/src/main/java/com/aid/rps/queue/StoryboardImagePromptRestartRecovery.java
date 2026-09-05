@@ -1,5 +1,6 @@
 package com.aid.rps.queue;
 
+import com.aid.common.error.TaskErrorSnapshot;
 import java.util.Objects;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -104,12 +105,14 @@ public class StoryboardImagePromptRestartRecovery implements BatchTaskRestartRec
         if (produced)
         {
             taskUpd.set(AidExtractTask::getStatus, TASK_STATUS_PARTIAL_FAILED);
-            taskUpd.set(AidExtractTask::getErrorMessage, "服务重启中断，部分已完成，可继续生成");
+            taskUpd.set(AidExtractTask::getErrorMessage, "服务重启中断，部分已完成，可继续生成")
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage("服务重启中断，部分已完成，可继续生成"));
         }
         else
         {
             taskUpd.set(AidExtractTask::getStatus, TASK_STATUS_FAILED);
-            taskUpd.set(AidExtractTask::getErrorMessage, "服务重启中断，已退回");
+            taskUpd.set(AidExtractTask::getErrorMessage, "服务重启中断，已退回")
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage("服务重启中断，已退回"));
         }
         taskUpd.set(AidExtractTask::getRemark, null);
         taskUpd.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());

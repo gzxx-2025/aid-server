@@ -208,6 +208,7 @@ public class RpsController extends BaseController
 
     /**
      * 接口10：设置图片为使用中（单个 / 批量同接口）。
+     * 角色、道具同一形态只保留目标图片，场景允许多选。
      * 单个：传 {@code imageId}（或兼容旧 {@code id}）；批量：传 {@code imageIds} 列表。
      * 三者解析后去重合并，逐条独立事务执行，单条失败不牵连其它，出参为统一批量结果
      * {@link BatchOperationResultVO}（含成功 / 失败明细）。

@@ -111,42 +111,11 @@
 .prompt-script-file-header--panel
   .prompt-row-actions
   .generate-prompt-btn:not(.generate-prompt-btn--outline),
-.prompt-script-file-header--panel
-  .prompt-row-actions
-  .generate-prompt-btn:not(.generate-prompt-btn--outline):hover,
-.prompt-script-file-header--panel
-  .prompt-row-actions
-  .generate-prompt-btn:not(.generate-prompt-btn--outline):focus,
-.prompt-script-file-header--panel
-  .prompt-row-actions
-  .generate-prompt-btn:not(.generate-prompt-btn--outline):active,
 .prompt-script-file-header--scene-modal
   .prompt-row-actions
-  .generate-prompt-btn:not(.generate-prompt-btn--outline),
-.prompt-script-file-header--scene-modal
-  .prompt-row-actions
-  .generate-prompt-btn:not(.generate-prompt-btn--outline):hover,
-.prompt-script-file-header--scene-modal
-  .prompt-row-actions
-  .generate-prompt-btn:not(.generate-prompt-btn--outline):focus,
-.prompt-script-file-header--scene-modal
-  .prompt-row-actions
-  .generate-prompt-btn:not(.generate-prompt-btn--outline):active {
+  .generate-prompt-btn:not(.generate-prompt-btn--outline) {
   background: rgba(18, 18, 18, 1) !important;
   border: 1px solid rgba(74, 231, 253, 0.3) !important;
-  box-shadow: none !important;
-  outline: none !important;
-}
-
-/* primary 全局 hover 会把 border 设为 transparent，悬停时保持青描边 */
-.prompt-script-file-header--panel
-  .prompt-row-actions
-  .generate-prompt-btn:not(.generate-prompt-btn--outline):not(:disabled):hover,
-.prompt-script-file-header--scene-modal
-  .prompt-row-actions
-  .generate-prompt-btn:not(.generate-prompt-btn--outline):not(:disabled):hover {
-  border-color: rgba(74, 231, 253, 0.55) !important;
-  background: rgba(14, 89, 250, 0.12) !important;
 }
 
 .prompt-script-file-header .ref-link-btn {
@@ -220,32 +189,16 @@
   font-size: 13px;
   font-weight: 500;
   background: transparent !important;
-  /* 固定 1px 描边，避免 antd hover/focus 切换时先绘默认浅色边再覆盖导致白边闪烁 */
   border: 1px solid rgba(74, 231, 253, 0.65) !important;
   box-shadow: none !important;
-  outline: none !important;
-  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease !important;
 }
 
 .prompt-script-file-header .generate-prompt-btn--outline:hover,
-.prompt-script-file-header .generate-prompt-btn--outline:focus,
-.prompt-script-file-header .generate-prompt-btn--outline:active,
-.prompt-script-file-header .generate-prompt-btn--outline:focus-visible,
-.prompt-script-file-header .generate-prompt-btn--outline.ant-btn-default:not(:disabled):not(.ant-btn-disabled):hover,
-.prompt-script-file-header .generate-prompt-btn--outline.ant-btn-default:not(:disabled):not(.ant-btn-disabled):focus,
-.prompt-script-file-header .generate-prompt-btn--outline.ant-btn-default:not(:disabled):not(.ant-btn-disabled):active {
+.prompt-script-file-header .generate-prompt-btn--outline:active {
   background: rgba(9, 13, 20, 0.9) !important;
-  border: 1px solid rgba(74, 231, 253, 0.65) !important;
   border-color: rgba(74, 231, 253, 0.65) !important;
   color: #4ae7fd !important;
   box-shadow: none !important;
-  outline: none !important;
-}
-
-/* 弹窗内 ant-btn-default * 会强制浅色字，保留渐变字填充 */
-.prompt-script-file-header .generate-prompt-btn--outline .text-gradient {
-  -webkit-text-fill-color: transparent !important;
-  color: transparent !important;
 }
 
 /* modal-dark：参考图 = 实心胶囊；生成提示词 = 青描边透明底（上文的 outline） */

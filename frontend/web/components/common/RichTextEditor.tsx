@@ -7,7 +7,8 @@ import {
   useMemo,
   useRef,
   useState,
-  type CSSProperties
+  type CSSProperties,
+  type ReactNode
 } from 'react'
 import { message } from 'antd'
 import {
@@ -33,10 +34,15 @@ import {
   shouldRestoreEditorFocusAfterExternalSync,
   shouldScrollEditorAfterSelectionRestore
 } from '~/utils/quill/editorScroll'
+import type {
+  EditorTextReplacement,
+  EditorTextSelection,
+  EditorTextSelectionChange
+} from '~/utils/quill/editorTextSelection'
 import {
   dedupePromptAssets,
-  extractReferencedAssetIdsFromHtml,
-  extractReferencedImageIndexesFromHtml,
+  formatAssetApiPlaceholder,
+  formatAudioApiPlaceholder,
   isEmptyPromptAssetUrl,
   plainTextLengthForPrompt,
   promptAssetItemToRefValue,
@@ -78,6 +84,8 @@ export interface RichTextEditorProps {
   minHeight?: string
   maxHeight?: string
   showCount?: boolean
+  /** 字数统计左侧的弱提示（如自动保存状态） */
+  footerHint?: ReactNode
   disabled?: boolean
   /**
    * 角色设定：锁定小节标题与基本信息各字段标签行（均为 `scp-char-setting-section` 原子 Embed）；
@@ -98,6 +106,8 @@ export interface RichTextEditorProps {
     paramType: PromptParamType
     selection: { key: string; value: string } | null
   }) => void
+  /** 用户主动选中的纯文本及其末端位置；失焦不会清空，重新落下光标时清空。 */
+  onTextSelectionChange?: (selection: EditorTextSelectionChange | null) => void
   className?: string
   style?: CSSProperties
 }
@@ -108,12 +118,23 @@ export interface RichTextEditorHandle {
   getHtml: () => string
   getPlainPrompt: () => string
   insertPromptAssetRef: (item: PromptAssetItem) => void
+  insertPromptAssetRefs: (items: PromptAssetItem[]) => void
   upsertPromptAssetRef: (item: PromptAssetItem) => void
   removePromptAssetRef: (assetId: string) => void
   removePromptAssetRefByMatch: (hint: {
     assetId?: string
+    assetType?: PromptAssetItem['assetType']
     imageIndex?: number
     name?: string
+  }) => void
+  applyPromptAssetRefChanges: (changes: {
+    remove?: Array<{
+      assetId?: string
+      assetType?: PromptAssetItem['assetType']
+      imageIndex?: number
+      name?: string
+    }>
+    upsert?: PromptAssetItem[]
   }) => void
   togglePromptAssetRef: (item: PromptAssetItem, selected: boolean) => void
   syncMissingPromptAssetRefs: (overrideAssets?: PromptAssetItem[]) => void
@@ -122,6 +143,13 @@ export interface RichTextEditorHandle {
     selection: { key: string; value: string } | null | undefined
   ) => void
   hydratePromptRefEmbeds: () => void
+  replaceTextSelection: (
+    selection: EditorTextSelection,
+    replacement: string
+  ) => 'applied' | 'stale' | 'empty' | 'limit' | 'unavailable'
+  replaceTextSelections: (
+    replacements: readonly EditorTextReplacement[]
+  ) => 'applied' | 'stale' | 'empty' | 'limit' | 'unavailable'
 }
 
 export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(
@@ -301,6 +329,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
       } finally {
         syncingFromPropRef.current = false
       }
+      propsRef.current.onTextSelectionChange?.(null)
       const clampedSelection = clampEditorSelection(
         selectionToRestore,
         Math.max(0, quill.getLength() - 1)
@@ -471,37 +500,6 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
     useEffect(() => {
       quillRef.current?.enable(!props.disabled)
     }, [props.disabled])
-
-    // 原 watch([promptAssets, promptParamGroups], { deep: true })：用 JSON 指纹代替深比较
-    const promptRefsFingerprint = useMemo(
-      () => JSON.stringify([props.promptAssets, props.promptParamGroups]),
-       
-      [props.promptAssets, props.promptParamGroups]
-    )
-    useEffect(() => {
-      const quill = quillRef.current
-      if (!quill || !isReadyRef.current) return
-      const p = propsRef.current
-      if (!p.enablePromptAssetRefs && !p.enablePromptParamRefs) return
-      const cur = getEmittedHtml(quill)
-      const plain = storyboardPromptHtmlToPlain(cur)
-      if (
-        !plain.includes('@') &&
-        !plainHasImageLabeledParamFields(plain) &&
-        !plainHasVideoLabeledParamFields(plain)
-      ) {
-        return
-      }
-      const next = rebuildPromptRefHtml(cur)
-      if (next && next !== cur) {
-        const curPlain = storyboardPromptHtmlToPlain(cur)
-        const nextPlain = storyboardPromptHtmlToPlain(next)
-        if (curPlain !== nextPlain) {
-          applyHtml(next)
-        }
-      }
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [promptRefsFingerprint])
 
     function closeAssetPicker() {
       setPickerOpen(false)
@@ -690,46 +688,110 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
       closeParamPicker()
     }
 
-    function upsertPromptAssetRef(item: PromptAssetItem) {
+    type PromptAssetMatchHint = {
+      assetId?: string
+      assetType?: PromptAssetItem['assetType']
+      imageIndex?: number
+      name?: string
+    }
+
+    function replacePromptAssetRefInEditor(item: PromptAssetItem): boolean {
       const quill = quillRef.current
-      if (!quill || !propsRef.current.enablePromptAssetRefs) return
+      if (!quill || !propsRef.current.enablePromptAssetRefs) return false
       const idx = findAssetEmbedIndexByMatch(quill, {
         assetId: item.assetId,
+        assetType: item.assetType,
         imageIndex: item.imageIndex,
         name: item.name
       })
       const refValue = promptAssetItemToRefValue(item)
+      if (idx != null) {
+        const selectionBefore = getEditorSelection()
+        const editorHadFocus =
+          typeof quill.hasFocus === 'function'
+            ? quill.hasFocus()
+            : document.activeElement === quill.root
+        quill.deleteText(idx, 1, 'silent')
+        quill.insertEmbed(idx, 'promptAssetRef', refValue, 'silent')
+        restoreEditorSelection(selectionBefore, {
+          focus: editorHadFocus,
+          scrollIntoView: false
+        })
+        return true
+      }
+      insertPromptEmbedAtCaret('promptAssetRef', refValue, 'silent', false)
+      return true
+    }
+
+    function removePromptAssetRefFromEditor(hint: PromptAssetMatchHint): boolean {
+      const quill = quillRef.current
+      if (!quill || !propsRef.current.enablePromptAssetRefs) return false
+      const idx = findAssetEmbedIndexByMatch(quill, hint)
+      if (idx == null) return false
+      const selectionBefore = getEditorSelection()
+      const editorHadFocus =
+        typeof quill.hasFocus === 'function'
+          ? quill.hasFocus()
+          : document.activeElement === quill.root
+      quill.deleteText(idx, 1, 'silent')
+      restoreEditorSelection(
+        mapSelectionThroughReplace(selectionBefore, idx, 1, 0),
+        { focus: editorHadFocus, scrollIntoView: false }
+      )
+      return true
+    }
+
+    /** 参考图条的一批增删只产生一次受控回写，避免中间 HTML 覆盖后续输入。 */
+    function applyPromptAssetRefChanges(changes: {
+      remove?: PromptAssetMatchHint[]
+      upsert?: PromptAssetItem[]
+    }) {
+      const quill = quillRef.current
+      if (!quill || !propsRef.current.enablePromptAssetRefs) return
+      const before = getEmittedHtml(quill)
       commitControlledEditorMutation(
         syncingFromPropRef,
         () => {
-          if (idx != null) {
-            const selectionBefore = getEditorSelection()
-            const editorHadFocus =
-              typeof quill.hasFocus === 'function'
-                ? quill.hasFocus()
-                : document.activeElement === quill.root
-            quill.deleteText(idx, 1, 'silent')
-            quill.insertEmbed(idx, 'promptAssetRef', refValue, 'silent')
-            restoreEditorSelection(selectionBefore, {
-              focus: editorHadFocus,
-              scrollIntoView: false
-            })
-          } else {
-            insertPromptEmbedAtCaret('promptAssetRef', refValue, 'user')
-          }
+          for (const hint of changes.remove ?? []) removePromptAssetRefFromEditor(hint)
+          for (const item of changes.upsert ?? []) replacePromptAssetRefInEditor(item)
+          return getEmittedHtml(quill)
         },
-        emitHtmlFromEditor
+        (after) => {
+          if (after !== before) emitModelValue(after)
+        }
       )
     }
 
-    function insertPromptAssetRef(item: PromptAssetItem) {
+    function upsertPromptAssetRef(item: PromptAssetItem) {
+      applyPromptAssetRefChanges({ upsert: [item] })
+    }
+
+    function insertPromptAssetRefs(items: PromptAssetItem[]) {
       const quill = quillRef.current
-      if (!quill || !propsRef.current.enablePromptAssetRefs) return
+      if (!quill || !propsRef.current.enablePromptAssetRefs || !items.length) return
+      const before = getEmittedHtml(quill)
       commitControlledEditorMutation(
         syncingFromPropRef,
-        () => insertPromptEmbedAtCaret('promptAssetRef', promptAssetItemToRefValue(item), 'user'),
-        emitHtmlFromEditor
+        () => {
+          for (const item of items) {
+            insertPromptEmbedAtCaret(
+              'promptAssetRef',
+              promptAssetItemToRefValue(item),
+              'silent',
+              false
+            )
+          }
+          return getEmittedHtml(quill)
+        },
+        (after) => {
+          if (after !== before) emitModelValue(after)
+        }
       )
+      restoreEditorSelection(lastSelectionRef.current, { focus: true, scrollIntoView: false })
+    }
+
+    function insertPromptAssetRef(item: PromptAssetItem) {
+      insertPromptAssetRefs([item])
     }
 
     function removePromptAssetRef(assetId: string) {
@@ -738,26 +800,11 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
 
     function removePromptAssetRefByMatch(hint: {
       assetId?: string
+      assetType?: PromptAssetItem['assetType']
       imageIndex?: number
       name?: string
     }) {
-      const quill = quillRef.current
-      if (!quill || !propsRef.current.enablePromptAssetRefs) return
-      const idx = findAssetEmbedIndexByMatch(quill, hint)
-      if (idx == null) return
-      const selectionBefore = getEditorSelection()
-      const editorHadFocus =
-        typeof quill.hasFocus === 'function'
-          ? quill.hasFocus()
-          : document.activeElement === quill.root
-      syncingFromPropRef.current = true
-      quill.deleteText(idx, 1, 'silent')
-      syncingFromPropRef.current = false
-      restoreEditorSelection(
-        mapSelectionThroughReplace(selectionBefore, idx, 1, 0),
-        { focus: editorHadFocus, scrollIntoView: false }
-      )
-      emitHtmlFromEditor()
+      applyPromptAssetRefChanges({ remove: [hint] })
     }
 
     function togglePromptAssetRef(item: PromptAssetItem, selected: boolean) {
@@ -770,39 +817,17 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
       const assets = overrideAssets ?? propsRef.current.promptAssets
       const quill = quillRef.current
       if (!quill || !propsRef.current.enablePromptAssetRefs || !assets.length) return
-      const html = getEmittedHtml(quill)
-      const existing = extractReferencedAssetIdsFromHtml(html)
-      const existingIndexes = extractReferencedImageIndexesFromHtml(html)
-
+      const toUpsert: PromptAssetItem[] = []
       for (const item of assets) {
-        if (
-          existing.has(item.assetId) ||
-          existingIndexes.has(item.imageIndex) ||
-          findAssetEmbedIndexByMatch(quill, { imageIndex: item.imageIndex, name: item.name }) !=
-            null
-        ) {
-          if (!isEmptyPromptAssetUrl(item.url)) {
-            upsertPromptAssetRef(item)
-          }
-          continue
-        }
+        const existingIndex = findAssetEmbedIndexByMatch(quill, {
+          assetId: item.assetId,
+          assetType: item.assetType,
+          imageIndex: item.imageIndex,
+          name: item.name
+        })
+        if (existingIndex == null || !isEmptyPromptAssetUrl(item.url)) toUpsert.push(item)
       }
-
-      const missing = assets.filter(
-        (a) =>
-          !existing.has(a.assetId) &&
-          !existingIndexes.has(a.imageIndex) &&
-          findAssetEmbedIndexByMatch(quill, { imageIndex: a.imageIndex, name: a.name }) == null
-      )
-      if (!missing.length) return
-
-      syncingFromPropRef.current = true
-      for (const item of missing) {
-        insertPromptEmbedAtCaret('promptAssetRef', promptAssetItemToRefValue(item), 'silent')
-      }
-      syncingFromPropRef.current = false
-      const nextHtml = getEmittedHtml(quill)
-      emitModelValue(nextHtml)
+      if (toUpsert.length) applyPromptAssetRefChanges({ upsert: toUpsert })
     }
 
     function getPlainPrompt(): string {
@@ -811,18 +836,134 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
       return storyboardPromptHtmlToPlain(getEmittedHtml(quill))
     }
 
+    function replaceTextSelections(
+      replacements: readonly EditorTextReplacement[]
+    ): 'applied' | 'stale' | 'empty' | 'limit' | 'unavailable' {
+      const quill = quillRef.current
+      if (!quill) return 'unavailable'
+      if (replacements.length === 0) return 'empty'
+      const documentLength = Math.max(0, quill.getLength() - 1)
+      const normalized = replacements
+        .map(({ selection, replacement }) => {
+          const replacementBody = replacement.replace(/\r\n?/g, '\n').trim()
+          const leadingLineBreaks = selection.text.match(/^\n+/)?.[0] ?? ''
+          const trailingLineBreaks = selection.text.match(/\n+$/)?.[0] ?? ''
+          return {
+            selection,
+            replacement: replacementBody
+              ? `${leadingLineBreaks}${replacementBody}${trailingLineBreaks}`
+              : ''
+          }
+        })
+        .sort((left, right) => left.selection.index - right.selection.index)
+      if (normalized.some((item) => !item.replacement)) return 'empty'
+      for (let index = 0; index < normalized.length; index += 1) {
+        const selection = normalized[index].selection
+        const previous = normalized[index - 1]?.selection
+        if (
+          selection.index < 0 ||
+          selection.length <= 0 ||
+          selection.index + selection.length > documentLength ||
+          quill.getText(selection.index, selection.length) !== selection.text ||
+          (previous && previous.index + previous.length > selection.index)
+        ) {
+          return 'stale'
+        }
+      }
+      let nextText = quill.getText(0, documentLength)
+      for (const item of [...normalized].reverse()) {
+        const { selection } = item
+        nextText = `${nextText.slice(0, selection.index)}${item.replacement}${nextText.slice(
+          selection.index + selection.length
+        )}`
+      }
+      const maxLength = propsRef.current.maxLength
+      if (maxLength != null) {
+        const nextLength = propsRef.current.countPureTextOnly
+          ? plainPureTextCharCount(nextText)
+          : nextText.length
+        if (nextLength > maxLength) return 'limit'
+      }
+
+      syncingFromPropRef.current = true
+      try {
+        for (const item of [...normalized].reverse()) {
+          quill.deleteText(item.selection.index, item.selection.length, 'silent')
+          quill.insertText(item.selection.index, item.replacement, 'silent')
+        }
+      } finally {
+        syncingFromPropRef.current = false
+      }
+      const first = normalized[0]
+      placeCaretAt(first.selection.index + first.replacement.length, true)
+      propsRef.current.onTextSelectionChange?.(null)
+      emitHtmlFromEditor()
+      return 'applied'
+    }
+
+    function replaceTextSelection(
+      selection: EditorTextSelection,
+      replacement: string
+    ): 'applied' | 'stale' | 'empty' | 'limit' | 'unavailable' {
+      return replaceTextSelections([{ selection, replacement }])
+    }
+
     function hydratePromptRefEmbeds() {
       const quill = quillRef.current
-      if (!quill) return
-      const cur = getEmittedHtml(quill)
-      const next = rebuildPromptRefHtml(cur)
-      if (!next || next === cur) return
-      const curPlain = storyboardPromptHtmlToPlain(cur)
-      const nextPlain = storyboardPromptHtmlToPlain(next)
-      applyHtml(next)
-      if (curPlain !== nextPlain) {
-        emitHtmlFromEditor()
-      }
+      if (!quill || !propsRef.current.enablePromptAssetRefs) return
+      const before = getEmittedHtml(quill)
+      commitControlledEditorMutation(
+        syncingFromPropRef,
+        () => {
+          for (const item of propsRef.current.promptAssets) {
+            const existingIndex = findAssetEmbedIndexByMatch(quill, {
+              assetId: item.assetId,
+              assetType: item.assetType,
+              imageIndex: item.imageIndex,
+              name: item.name
+            })
+            if (existingIndex != null) {
+              replacePromptAssetRefInEditor(item)
+              continue
+            }
+
+            const apiPlaceholder =
+              item.assetType === 'audio'
+                ? formatAudioApiPlaceholder(item.imageIndex, item.name)
+                : formatAssetApiPlaceholder(item.imageIndex, item.name)
+            const plainRange =
+              findPlainTagQuillRange(quill, apiPlaceholder) ||
+              findPlainTagQuillRange(quill, item.label || item.name)
+            if (!plainRange) continue
+
+            const selectionBefore = getEditorSelection()
+            const editorHadFocus =
+              typeof quill.hasFocus === 'function'
+                ? quill.hasFocus()
+                : document.activeElement === quill.root
+            quill.deleteText(plainRange.index, plainRange.length, 'silent')
+            quill.insertEmbed(
+              plainRange.index,
+              'promptAssetRef',
+              promptAssetItemToRefValue(item),
+              'silent'
+            )
+            restoreEditorSelection(
+              mapSelectionThroughReplace(
+                selectionBefore,
+                plainRange.index,
+                plainRange.length,
+                1
+              ),
+              { focus: editorHadFocus, scrollIntoView: false }
+            )
+          }
+          return getEmittedHtml(quill)
+        },
+        (after) => {
+          if (after !== before) emitModelValue(after)
+        }
+      )
     }
 
     useImperativeHandle(ref, () => ({
@@ -831,13 +972,17 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
         quillRef.current ? getEmittedHtml(quillRef.current) : propsRef.current.value || '',
       getPlainPrompt,
       insertPromptAssetRef,
+      insertPromptAssetRefs,
       upsertPromptAssetRef,
       removePromptAssetRef,
       removePromptAssetRefByMatch,
       togglePromptAssetRef,
+      applyPromptAssetRefChanges,
       syncMissingPromptAssetRefs,
       syncPromptParamRef,
-      hydratePromptRefEmbeds
+      hydratePromptRefEmbeds,
+      replaceTextSelection,
+      replaceTextSelections
     }))
 
     const rootClass = [
@@ -859,12 +1004,19 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
       <div className={rootClass} style={rootStyle}>
         <div ref={(el) => void (hostRef.current = el)} className="rich-text-editor__host" />
         {props.showCount && props.maxLength != null ? (
-          <div
-            className={`rich-text-editor__count${
-              plainLength >= props.maxLength ? ' rich-text-editor__count--limit' : ''
-            }`}
-          >
-            {plainLength}/{props.maxLength}
+          <div className="rich-text-editor__footer">
+            {props.footerHint ? (
+              <div className="rich-text-editor__footer-hint" aria-live="polite">
+                {props.footerHint}
+              </div>
+            ) : null}
+            <div
+              className={`rich-text-editor__count${
+                plainLength >= props.maxLength ? ' rich-text-editor__count--limit' : ''
+              }`}
+            >
+              {plainLength}/{props.maxLength}
+            </div>
           </div>
         ) : null}
         {props.enablePromptAssetRefs ? (

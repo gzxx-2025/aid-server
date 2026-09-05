@@ -246,6 +246,12 @@ public final class FixedJobRegistry
             optional("modelHealthTask.archive", "modelHealthTask.archive(30)", "模型健康统计归档",
                     "0 40 3 * * ?", DAILY_INTERVAL_SECONDS, ScheduleConstants.Status.NORMAL.getValue(),
                     "每日把超过保留天数的模型健康统计导出为本地txt存档后删除，保持统计表体量恒定"),
+            optional("providerBalanceTask.tick", "providerBalanceTask.tick()", "供应商余额监控",
+                    "0/30 * * * * ?", 30, ScheduleConstants.Status.NORMAL.getValue(),
+                    "按已选择供应商检查官方或模拟余额、处理余额不足事件并按配置发送提醒；模块总开关可独立关闭"),
+            optional("seoSubmissionTask.tick", "seoSubmissionTask.tick()", "SEO 页面扫描与百度提交",
+                    "0 20 2,14 * * ?", 43200, ScheduleConstants.Status.NORMAL.getValue(),
+                    "每天 02:20 与 14:20 扫描已登记的公开页面，并把待提交或到期重试 URL 批量提交百度；失败只记录 SEO 台账，不影响内容发布状态"),
             optional("mediaTask.compensate", "mediaTask.compensate()", "媒体补偿轮询(降级备用)",
                     "0 0/5 * * * ?", 300, ScheduleConstants.Status.PAUSE.getValue(),
                     "旧版补偿轮询，仅作为统一调度中心失效时的降级手段，平时保持暂停")

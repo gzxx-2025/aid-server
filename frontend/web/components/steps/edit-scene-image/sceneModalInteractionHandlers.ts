@@ -1,6 +1,5 @@
 import { message } from 'antd'
 import { createClientId } from '~/utils/clientId'
-import { uploadImageToOssWithToast } from '~/utils/ossUpload'
 import type { EditSceneImageModalCtx } from './types'
 import { resolveSettingEditBlockedTooltip } from './settingEditPermission'
 
@@ -16,10 +15,6 @@ export function createSceneModalInteractionHandlers(ctx: EditSceneImageModalCtx)
     currentScene,
     sceneSettingContent,
     showSceneSettingModal,
-    promptText,
-    currentReferenceImageIndex,
-    showImportReferenceModal,
-    referenceImages,
     isSelectingSceneImage,
     selectedSceneImageIndex,
     addingAfterIndex,
@@ -60,39 +55,6 @@ const handleSaveAndUpdateSceneSetting = (content: string) => {
   setTimeout(() => {
     message.success('场景图已生成')
   }, 2000)
-}
-
-// 生成提示词
-const handleGeneratePrompt = () => {
-  message.info('正在生成提示词...')
-  // 模拟生成提示词
-  setTimeout(() => {
-    promptText.set('一个废土风格的场景，有废墟和荒芜的土地，远处有山脉，天空是灰暗的')
-    message.success('提示词生成成功')
-  }, 1000)
-}
-
-// 导入参考图
-const handleImportReferenceImage = (index: number) => {
-  currentReferenceImageIndex.current = index
-  showImportReferenceModal.set(true)
-}
-
-// 处理参考图导入
-const handleReferenceImageImport = async (file: File | string) => {
-  if (typeof file === 'string') {
-    referenceImages.current[currentReferenceImageIndex.current] = { url: file }
-  } else {
-    const url = await uploadImageToOssWithToast(file)
-    if (!url) return
-    referenceImages.current[currentReferenceImageIndex.current] = { url }
-  }
-  message.success('参考图导入成功')
-}
-
-// 移除参考图
-const removeReferenceImage = (index: number) => {
-  referenceImages.current[index] = { url: undefined }
 }
 
 // 获取场景的第一张图片
@@ -202,10 +164,6 @@ const handleCancel = () => {
     handleSettingModalSyncSceneTitle,
     handleSaveSceneSetting,
     handleSaveAndUpdateSceneSetting,
-    handleGeneratePrompt,
-    handleImportReferenceImage,
-    handleReferenceImageImport,
-    removeReferenceImage,
     getFirstSceneImage,
     handleAddSceneImageAfter,
     selectSceneImageFromTab,

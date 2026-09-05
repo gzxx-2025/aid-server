@@ -390,7 +390,7 @@ export function VideoConfigPanel({ ctx }: { ctx: VideoModalCtx }) {
                   savePromptLoading={ctx.isSavingVideoPrompt.value}
                   extraPromptAssets={ctx.resolvedVideoPromptAssets.value}
                   prompt={ctx.imageToVideoPrompt.value}
-                  onPromptChange={(v) => ctx.imageToVideoPrompt.set(v)}
+                  onPromptChange={ctx.handleImageToVideoPromptEditorChange}
                   promptPlaceholder={PROMPT_PLACEHOLDER}
                   isSettingExpanded={ctx.isImageToVideoSettingExpanded.value}
                   onIsSettingExpandedChange={(v) => ctx.isImageToVideoSettingExpanded.set(v)}
@@ -446,7 +446,7 @@ export function VideoConfigPanel({ ctx }: { ctx: VideoModalCtx }) {
                   generatePromptLoading={ctx.showGeneratingMultiParamPromptForScene()}
                   promptBillingRequest={promptQuoteRequest}
                   prompt={ctx.multiParamPrompt.value}
-                  onPromptChange={(v) => ctx.multiParamPrompt.set(v)}
+                  onPromptChange={ctx.handleMultiParamPromptEditorChange}
                   extraPromptAssets={ctx.resolvedMultiParamPromptAssets.value}
                   promptPlaceholder={PROMPT_PLACEHOLDER}
                   sceneImages={ctx.sceneImages.value}
@@ -508,7 +508,7 @@ export function VideoConfigPanel({ ctx }: { ctx: VideoModalCtx }) {
                   showScriptFileHeader={false}
                   showGeneratePromptButton={false}
                   prompt={ctx.edgeVideoPrompt.value}
-                  onPromptChange={(v) => ctx.edgeVideoPrompt.set(v)}
+                  onPromptChange={ctx.handleEdgeVideoPromptEditorChange}
                   promptPlaceholder={PROMPT_PLACEHOLDER}
                   isSettingExpanded={ctx.isEdgeVideoSettingExpanded.value}
                   onIsSettingExpandedChange={(v) => ctx.isEdgeVideoSettingExpanded.set(v)}

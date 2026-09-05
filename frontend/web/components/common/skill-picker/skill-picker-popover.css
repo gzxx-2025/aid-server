@@ -1,0 +1,195 @@
+.skill-picker-trigger {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.skill-picker-trigger img {
+  display: block;
+  width: 24px;
+  height: 24px;
+  opacity: 1;
+}
+
+.skill-picker-trigger:hover,
+.skill-picker-trigger.is-open {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.skill-picker-trigger:hover img,
+.skill-picker-trigger.is-open img {
+  opacity: 1;
+}
+
+.skill-picker-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.skill-picker-popover {
+  filter: none !important;
+}
+
+.skill-picker-popover .ant-popover-container {
+  padding: 0 !important;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  background: #191a1d !important;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.42);
+}
+
+.skill-picker-popover .ant-popover-content {
+  padding: 0 !important;
+}
+
+.skill-picker-popover__panel {
+  display: flex;
+  width: 360px;
+  max-width: min(360px, calc(100vw - 48px));
+  max-height: 360px;
+  flex-direction: column;
+}
+
+.skill-picker-popover__head {
+  flex: 0 0 auto;
+  padding: 14px 16px 8px;
+  color: #c5cad3;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+}
+
+.skill-picker-popover__list {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+  overflow: auto;
+  padding: 0 8px 8px;
+}
+
+.skill-picker-popover__hint {
+  margin: 0;
+  padding: 16px 8px;
+  color: #8e97a5;
+  font-size: 12px;
+  line-height: 18px;
+  text-align: center;
+}
+
+.skill-picker-popover__retry {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin: 0 8px 10px;
+  padding: 14px 12px;
+  border: 0;
+  border-radius: 10px;
+  color: #8e97a5;
+  background: rgba(255, 255, 255, 0.035);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.skill-picker-popover__retry strong {
+  color: #d9dee7;
+  font-weight: 500;
+}
+
+.skill-picker-popover__retry:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.skill-picker-popover__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.skill-picker-popover__item:hover,
+.skill-picker-popover__item.is-active {
+  background: #2a2c31;
+}
+
+.skill-picker-popover__glyph {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  place-items: center;
+  border-radius: 10px;
+  background: #25262b;
+}
+
+.skill-picker-popover__glyph img {
+  display: block;
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+  opacity: 0.92;
+}
+
+.skill-picker-popover__meta {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 1px;
+}
+
+.skill-picker-popover__title {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.skill-picker-popover__title strong {
+  overflow: hidden;
+  color: #f4f6f8;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 500;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.skill-picker-popover__title em {
+  overflow: hidden;
+  color: #8b919c;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.skill-picker-popover__meta small {
+  overflow: hidden;
+  color: #8b919c;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

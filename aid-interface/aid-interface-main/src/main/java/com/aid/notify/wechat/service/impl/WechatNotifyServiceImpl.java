@@ -221,56 +221,6 @@ public class WechatNotifyServiceImpl implements IWechatNotifyService
     }
 
     @Override
-    public void notifyContentAudit(String targetType, Long targetId, String auditEvent, String reason)
-    {
-        try
-        {
-            if (Objects.isNull(targetId) || StrUtil.isBlank(auditEvent))
-            {
-                return;
-            }
-            // 解析内容归属用户与展示名（项目名 / 项目名·第N集）
-            AuditNotifyTarget target = resolveAuditTarget(targetType, targetId);
-            if (Objects.isNull(target) || Objects.isNull(target.userId()))
-            {
-                return;
-            }
-            String bizType = targetType + "_audit";
-            String auditResult;
-            switch (auditEvent)
-            {
-                case AUDIT_EVENT_SUBMITTED -> auditResult = "提交审核";
-                case AUDIT_EVENT_PASSED -> auditResult = "审核通过";
-                case AUDIT_EVENT_REJECTED -> {
-                    log.info("审核驳回推送: targetType={}, targetId={}, reason={}", targetType, targetId, reason);
-                    auditResult = "审核驳回";
-                }
-                case AUDIT_EVENT_PUBLISHED -> auditResult = "发布成功";
-                case AUDIT_EVENT_REVOKED -> {
-                    log.info("审核回撤推送: targetType={}, targetId={}, reason={}", targetType, targetId, reason);
-                    auditResult = "审核回撤";
-                }
-                default -> {
-                    log.info("未知审核推送事件被忽略: targetType={}, targetId={}, event={}",
-                            targetType, targetId, auditEvent);
-                    return;
-                }
-            }
-            Map<String, String> data = new LinkedHashMap<>();
-            data.put("projectName", cutByCodePoint(target.displayName(), WECHAT_FIELD_MAX_LEN));
-            data.put("finishTime", nowText());
-            data.put("auditResult", auditResult);
-            sendTemplate(target.userId(), WechatNotifyConfigServiceImpl.EVENT_AUDIT_RESULT,
-                    bizType, targetId, null, auditRunStatus(auditEvent), data, true);
-        }
-        catch (Exception e)
-        {
-            log.warn("微信审核状态推送被跳过: targetType={}, targetId={}, event={}, err={}",
-                    targetType, targetId, auditEvent, e.getMessage());
-        }
-    }
-
-    @Override
     public void notifyOrderRefund(Long userId, Long orderId, String orderName, String orderNo,
                                   String refundReason, BigDecimal refundAmount)
     {
@@ -346,58 +296,6 @@ public class WechatNotifyServiceImpl implements IWechatNotifyService
     private void sendTaskTemplate(AidExtractTask task, String eventType, String bizStatus, Map<String, String> data)
     {
         sendTemplate(task.getUserId(), eventType, task.getTaskType(), task.getId(), task.getId(), bizStatus, data, true);
-    }
-
-    /** 审核推送目标：归属用户 + 展示名（项目名 / 项目名·第N集） */
-    private record AuditNotifyTarget(Long userId, String displayName) {
-    }
-
-    /**
-     * 解析审核对象的归属用户与展示名。
-     * project → 项目名；episode → 项目名·第N集。查不到返回 null（跳过推送）。
-     */
-    private AuditNotifyTarget resolveAuditTarget(String targetType, Long targetId)
-    {
-        if ("project".equals(targetType))
-        {
-            // 查询字段精简：仅需归属与项目名（新增使用字段时此处必须同步补充）
-            AidComicProject project = comicProjectService.getOne(Wrappers.<AidComicProject>lambdaQuery()
-                    .select(AidComicProject::getId, AidComicProject::getUserId, AidComicProject::getProjectName)
-                    .eq(AidComicProject::getId, targetId)
-                    .eq(AidComicProject::getDelFlag, DEL_FLAG_NORMAL)
-                    .last("limit 1"), false);
-            if (Objects.isNull(project))
-            {
-                return null;
-            }
-            return new AuditNotifyTarget(project.getUserId(), StrUtil.trimToEmpty(project.getProjectName()));
-        }
-        if ("episode".equals(targetType))
-        {
-            // 查询字段精简：仅需归属/项目/集号（新增使用字段时此处必须同步补充）
-            AidComicEpisode episode = comicEpisodeService.getOne(Wrappers.<AidComicEpisode>lambdaQuery()
-                    .select(AidComicEpisode::getId, AidComicEpisode::getUserId,
-                            AidComicEpisode::getProjectId, AidComicEpisode::getEpisodeNo)
-                    .eq(AidComicEpisode::getId, targetId)
-                    .eq(AidComicEpisode::getDelFlag, DEL_FLAG_NORMAL)
-                    .last("limit 1"), false);
-            if (Objects.isNull(episode))
-            {
-                return null;
-            }
-            String projectName = resolveProjectName(episode.getProjectId());
-            String episodeLabel = episode.getEpisodeNo() == null ? "" : "第" + episode.getEpisodeNo() + "集";
-            String displayName = StrUtil.isBlank(projectName) ? episodeLabel
-                    : (StrUtil.isBlank(episodeLabel) ? projectName : projectName + "·" + episodeLabel);
-            return new AuditNotifyTarget(episode.getUserId(), displayName);
-        }
-        return null;
-    }
-
-    /** 审核推送防重状态段：同一对象每次动作独立推送（提审可反复发生，不做跨次去重） */
-    private String auditRunStatus(String auditEvent)
-    {
-        return "AUDIT_" + auditEvent.toUpperCase() + "_" + System.currentTimeMillis();
     }
 
     private void sendTemplate(Long userId, String eventType, String bizType, Long bizId, Long taskId,
@@ -1188,13 +1086,6 @@ public class WechatNotifyServiceImpl implements IWechatNotifyService
             data.put("productName", "示例项目·第1集·分镜视频生成");
             data.put("orderAmount", "￥0.10");
             data.put("failureTime", nowText());
-            return data;
-        }
-        if (WechatNotifyConfigServiceImpl.EVENT_AUDIT_RESULT.equals(eventType))
-        {
-            data.put("projectName", "示例项目·第1集");
-            data.put("finishTime", nowText());
-            data.put("auditResult", "审核通过");
             return data;
         }
         if (WechatNotifyConfigServiceImpl.EVENT_ORDER_REFUND.equals(eventType))

@@ -43,9 +43,7 @@
       .speaker-picker-btn-cancel,
       .speaker-picker-btn-ok,
       .pgc-btn-cancel,
-      .pgc-btn-ok,
-      .publish-case-plaza__btn-cancel,
-      .publish-case-plaza__btn-ok
+      .pgc-btn-ok
     ),
   /* —— 弹窗底部：通用 footer ant-btn（组件内写死 10px）—— */
   html.app-shell-create .import-script-modal .footer-right .ant-btn,

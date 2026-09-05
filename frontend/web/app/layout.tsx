@@ -3,6 +3,7 @@ import { AntdRegistry } from '@ant-design/nextjs-registry'
 import { AntdThemeProvider } from '@/components/app/AntdThemeProvider'
 import { AppBootstrap } from '@/components/app/AppBootstrap'
 import { AppShellOverlay } from '@/components/app/AppShellOverlay'
+import { LoginModalHost } from '@/components/login/LoginModalHost'
 import { RouteGuard } from '@/components/app/RouteGuard'
 import { ViewportScaleEffect } from '@/components/app/ViewportScaleEffect'
 
@@ -12,13 +13,14 @@ import 'antd/dist/reset.css'
 import '@/assets/css/root-font-size.css'
 import '@/assets/css/main.css'
 import '@/assets/css/home-theme.css'
-import '@/assets/css/home-legacy-page.css'
 import '@/assets/css/home-new-page.css'
 import '@/assets/css/home-new-sidebar.css'
 import '@/assets/css/home-new-compact-viewport.css'
 import '@/assets/css/create-flow-compact-viewport.css'
 import '@/assets/css/compact-viewport-btn-radius.css'
 import '@/assets/css/create-steps-ant-overrides.css'
+import '@/assets/css/login-modal.css'
+import '@/assets/css/auth-dark-field.css'
 import '@/assets/css/app-confirm-modal.css'
 import '@/assets/css/viewport-compact-scale-overrides.css'
 import '@/assets/css/viewport-large-scale-overrides.css'
@@ -31,9 +33,36 @@ import '@/assets/css/asset-card-cancel-hint.css'
 import '@/assets/css/empty-image-icon.css'
 import '@/assets/font/font.css'
 
+const baiduSiteVerification = process.env.NEXT_PUBLIC_BAIDU_SITE_VERIFICATION?.trim()
+
 export const metadata: Metadata = {
-  title: 'AI 创作平台',
-  description: '从剧本到成片的全流程创作工具'
+  title: {
+    default: '视觉·AID',
+    template: '%s - 视觉·AID'
+  },
+  description: '从剧本到成片的全流程创作工具',
+  keywords: ['AI 视频', 'AI 创作', '剧本', '分镜', '视频生成'],
+  robots: { index: true, follow: true },
+  openGraph: {
+    title: '视觉·AID',
+    description: '从剧本到成片的全流程创作工具',
+    type: 'website',
+    locale: 'zh_CN'
+  },
+  twitter: {
+    card: 'summary',
+    title: '视觉·AID',
+    description: '从剧本到成片的全流程创作工具'
+  },
+  ...(baiduSiteVerification
+    ? {
+        verification: {
+          other: {
+            'baidu-site-verification': baiduSiteVerification
+          }
+        }
+      }
+    : {})
 }
 
 export const viewport: Viewport = {
@@ -50,6 +79,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <AppBootstrap />
             <ViewportScaleEffect />
             <RouteGuard>{children}</RouteGuard>
+            <LoginModalHost />
             {/* 应用根壳遮罩（原 app.vue）：全局 loading + 跨壳层路由遮罩，仅覆盖不卸载页面子树 */}
             <AppShellOverlay />
           </AntdThemeProvider>

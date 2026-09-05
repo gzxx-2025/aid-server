@@ -27,10 +27,11 @@ public final class TextChatOpenAiPayloadBuilder {
         List<Map<String, Object>> list = new ArrayList<>();
         if (request != null && CollectionUtil.isNotEmpty(request.getMessages())) {
             for (MediaTextGenerateRequest.TextMessageItem item : request.getMessages()) {
-                if (item == null || StringUtils.isBlank(item.getContent())) {
+                if (item == null || StringUtils.isBlank(item.getContent())
+                        && CollectionUtil.isEmpty(item.getParts())) {
                     continue;
                 }
-                list.add(singleMessage(normalizeRole(item.getRole()), item.getContent()));
+                list.add(message(normalizeRole(item.getRole()), item));
             }
         }
         if (request != null && StringUtils.isNotBlank(request.getPrompt())) {
@@ -89,6 +90,52 @@ public final class TextChatOpenAiPayloadBuilder {
         m.put("role", role);
         m.put("content", content);
         return m;
+    }
+
+    private static Map<String, Object> message(String role, MediaTextGenerateRequest.TextMessageItem item) {
+        if (CollectionUtil.isEmpty(item.getParts())) {
+            return singleMessage(role, item.getContent());
+        }
+        List<Map<String, Object>> content = new ArrayList<>();
+        if (StringUtils.isNotBlank(item.getContent())) {
+            content.add(Map.of("type", "text", "text", item.getContent()));
+        }
+        for (MediaTextGenerateRequest.TextContentPart part : item.getParts()) {
+            if (part == null) {
+                continue;
+            }
+            String type = StringUtils.defaultString(part.getType()).trim().toLowerCase();
+            if (Objects.equals("text", type)) {
+                content.add(Map.of("type", "text", "text", part.getText()));
+                continue;
+            }
+            Map<String, Object> source = new LinkedHashMap<>();
+            source.put("url", part.getUrl());
+            if (StringUtils.isNotBlank(part.getDetail())) {
+                source.put("detail", part.getDetail());
+            }
+            if (StringUtils.isNotBlank(part.getMimeType())) {
+                source.put("mime_type", part.getMimeType());
+            }
+            if (part.getFps() != null) {
+                source.put("fps", part.getFps());
+            }
+            String upstreamType = switch (type) {
+                case "image" -> "image_url";
+                case "video" -> "video_url";
+                case "audio" -> "audio_url";
+                case "document" -> "file";
+                default -> type;
+            };
+            Map<String, Object> value = new LinkedHashMap<>();
+            value.put("type", upstreamType);
+            value.put(Objects.equals("file", upstreamType) ? "file_url" : upstreamType, source);
+            content.add(value);
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("role", role);
+        result.put("content", content);
+        return result;
     }
 
     private static String normalizeRole(String role) {

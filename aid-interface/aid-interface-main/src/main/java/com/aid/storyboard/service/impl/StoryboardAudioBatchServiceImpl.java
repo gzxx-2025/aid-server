@@ -1,5 +1,7 @@
 package com.aid.storyboard.service.impl;
 
+import com.aid.common.error.TaskErrorSnapshot;
+import com.aid.common.error.TaskErrorCode;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
@@ -1405,7 +1407,7 @@ public class StoryboardAudioBatchServiceImpl implements IStoryboardAudioBatchSer
             if (StrUtil.length(sanitized) > MinimaxTtsConstants.BATCH_TEXT_MAX_LENGTH) {
                 log.info("批量配音 MiniMax 单条文本超限: storyboardId={}, textLen={}, max={}",
                         storyboard.getId(), StrUtil.length(sanitized), MinimaxTtsConstants.BATCH_TEXT_MAX_LENGTH);
-                throw new ServiceException("文本过长");
+                throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_TOO_LONG, "文本过长，请精简");
             }
         }
     }
@@ -1514,6 +1516,7 @@ public class StoryboardAudioBatchServiceImpl implements IStoryboardAudioBatchSer
                 .in(AidExtractTask::getStatus, TASK_STATUS_PENDING, TASK_STATUS_PROCESSING)
                 .set(AidExtractTask::getStatus, TASK_STATUS_FAILED)
                 .set(AidExtractTask::getErrorMessage, errorMessage)
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage(errorMessage))
                 .set(AidExtractTask::getUpdateTime, DateUtils.getNowDate()));
         if (updated) {
             batchTaskSlotService.releaseForTask(extractTaskService.selectAidExtractTaskById(taskId));
@@ -1538,6 +1541,7 @@ public class StoryboardAudioBatchServiceImpl implements IStoryboardAudioBatchSer
                     .in(AidExtractTask::getStatus, TASK_STATUS_PENDING, TASK_STATUS_PROCESSING)
                     .set(AidExtractTask::getStatus, TASK_STATUS_CANCELLED)
                     .set(AidExtractTask::getErrorMessage, "用户取消")
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage("用户取消"))
                     .set(AidExtractTask::getUpdateTime, DateUtils.getNowDate()));
             AidExtractTask cancelledTask = extractTaskService.selectAidExtractTaskById(taskId);
             if (cancelledTask != null && TASK_STATUS_CANCELLED.equals(cancelledTask.getStatus())) {
@@ -1618,7 +1622,8 @@ public class StoryboardAudioBatchServiceImpl implements IStoryboardAudioBatchSer
             update.set(AidExtractTask::getResultData, json);
             if (!TASK_STATUS_PROCESSING.equals(status)) {
                 update.set(AidExtractTask::getStatus, status);
-                update.set(AidExtractTask::getErrorMessage, errorMessage);
+                update.set(AidExtractTask::getErrorMessage, errorMessage)
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage(errorMessage));
             }
             update.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
             boolean updated = extractTaskService.update(update);

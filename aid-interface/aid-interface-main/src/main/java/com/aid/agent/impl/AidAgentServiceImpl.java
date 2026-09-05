@@ -19,17 +19,25 @@ import com.aid.agent.dto.AgentQueryRequest;
 import com.aid.agent.vo.AgentInfoVO;
 import com.aid.agent.vo.AgentListGroupVO;
 import com.aid.aid.domain.AidAgent;
+import com.aid.aid.domain.AidAiModel;
+import com.aid.aid.domain.AidAiModelFuncConfig;
+import com.aid.aid.domain.AidAiProvider;
 import com.aid.aid.domain.AidComicEpisode;
 import com.aid.aid.domain.AidComicProject;
 import com.aid.aid.mapper.AidAgentMapper;
+import com.aid.aid.service.IAidAiModelFuncConfigService;
+import com.aid.aid.service.IAidAiModelService;
+import com.aid.aid.service.IAidAiProviderService;
 import com.aid.aid.service.IAidComicEpisodeService;
 import com.aid.aid.service.IAidComicProjectService;
 import com.aid.common.utils.DateUtils;
 import com.aid.common.utils.SecurityUtils;
+import com.aid.common.exception.ServiceException;
 import com.aid.projectgenconfig.matrix.IGenAgentMatrixResolver;
 
 import cn.hutool.core.collection.CollectionUtil;
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONUtil;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -47,6 +55,12 @@ public class AidAgentServiceImpl extends ServiceImpl<AidAgentMapper, AidAgent> i
     /** 软删标志：正常 */
     private static final String DEL_FLAG_NORMAL = "0";
 
+    /** 软删标志：已删除 */
+    private static final String DEL_FLAG_DELETED = "2";
+
+    /** 停用状态 */
+    private static final int STATUS_DISABLED = 0;
+
     /** 项目类型：电影（取项目 default_creation_mode；其它=剧集，取剧集 creation_mode） */
     private static final String PROJECT_TYPE_MOVIE = "movie";
 
@@ -62,6 +76,16 @@ public class AidAgentServiceImpl extends ServiceImpl<AidAgentMapper, AidAgent> i
     @Lazy
     @Autowired
     private IAidComicEpisodeService aidComicEpisodeService;
+
+    /** funcCode = bizCategoryCode 是模型池与智能体之间的稳定契约。 */
+    @Autowired
+    private IAidAiModelFuncConfigService functionConfigService;
+
+    @Autowired
+    private IAidAiModelService modelService;
+
+    @Autowired
+    private IAidAiProviderService providerService;
 
     @Override
     public AidAgent getByAgentCode(String agentCode)
@@ -364,12 +388,18 @@ public class AidAgentServiceImpl extends ServiceImpl<AidAgentMapper, AidAgent> i
         {
             agent.setDelFlag(DEL_FLAG_NORMAL);
         }
+        validateAgentDefinition(agent, null);
         return this.save(agent) ? 1 : 0;
     }
 
     @Override
     public int updateAgent(AidAgent agent)
     {
+        if (Objects.isNull(agent) || Objects.isNull(agent.getId()))
+        {
+            throw new ServiceException("智能体ID不能为空");
+        }
+        validateAgentDefinition(agent, agent.getId());
         // 更新：必须填写更新时间和更新者
         agent.setUpdateBy(currentUserName());
         agent.setUpdateTime(DateUtils.getNowDate());
@@ -379,7 +409,125 @@ public class AidAgentServiceImpl extends ServiceImpl<AidAgentMapper, AidAgent> i
     @Override
     public int deleteAgentById(Long id)
     {
-        return this.removeById(id) ? 1 : 0;
+        return this.update(Wrappers.<AidAgent>lambdaUpdate()
+                .eq(AidAgent::getId, id)
+                .eq(AidAgent::getDelFlag, DEL_FLAG_NORMAL)
+                .set(AidAgent::getStatus, STATUS_DISABLED)
+                .set(AidAgent::getDelFlag, DEL_FLAG_DELETED)
+                .set(AidAgent::getUpdateBy, currentUserName())
+                .set(AidAgent::getUpdateTime, DateUtils.getNowDate())) ? 1 : 0;
+    }
+
+    /**
+     * 校验智能体的稳定编码、业务分类与默认模型均命中同一模型池。
+     */
+    private void validateAgentDefinition(AidAgent agent, Long selfId)
+    {
+        if (Objects.isNull(agent))
+        {
+            throw new ServiceException("智能体配置不能为空");
+        }
+        agent.setAgentCode(StrUtil.trim(agent.getAgentCode()));
+        agent.setBizCategoryCode(StrUtil.trim(agent.getBizCategoryCode()));
+        agent.setModelCode(StrUtil.trimToNull(agent.getModelCode()));
+        if (StrUtil.isBlank(agent.getAgentCode()) || StrUtil.isBlank(agent.getBizCategoryCode()))
+        {
+            throw new ServiceException("智能体编码和业务分类不能为空");
+        }
+
+        AidAgent persisted = null;
+        if (Objects.nonNull(selfId))
+        {
+            persisted = this.getOne(Wrappers.<AidAgent>lambdaQuery()
+                    .select(AidAgent::getId, AidAgent::getAgentCode, AidAgent::getBizCategoryCode)
+                    .eq(AidAgent::getId, selfId)
+                    .eq(AidAgent::getDelFlag, DEL_FLAG_NORMAL)
+                    .last("limit 1"), false);
+            if (Objects.isNull(persisted))
+            {
+                throw new ServiceException("智能体不存在");
+            }
+            if (!Objects.equals(persisted.getAgentCode(), agent.getAgentCode()))
+            {
+                throw new ServiceException("智能体编码属于稳定业务标识，创建后不能修改");
+            }
+            if (!Objects.equals(persisted.getBizCategoryCode(), agent.getBizCategoryCode()))
+            {
+                throw new ServiceException("业务分类属于编排契约，创建后不能修改");
+            }
+        }
+
+        AidAgent duplicate = this.getOne(Wrappers.<AidAgent>lambdaQuery()
+                .select(AidAgent::getId)
+                .eq(AidAgent::getAgentCode, agent.getAgentCode())
+                .eq(AidAgent::getDelFlag, DEL_FLAG_NORMAL)
+                .ne(Objects.nonNull(selfId), AidAgent::getId, selfId)
+                .last("limit 1"), false);
+        if (Objects.nonNull(duplicate))
+        {
+            throw new ServiceException("智能体编码已存在");
+        }
+
+        AidAiModelFuncConfig functionConfig = functionConfigService.getOne(
+                Wrappers.<AidAiModelFuncConfig>lambdaQuery()
+                        .select(AidAiModelFuncConfig::getId, AidAiModelFuncConfig::getFuncCode,
+                                AidAiModelFuncConfig::getModelIds, AidAiModelFuncConfig::getStatus)
+                        .eq(AidAiModelFuncConfig::getFuncCode, agent.getBizCategoryCode())
+                        .eq(AidAiModelFuncConfig::getDelFlag, DEL_FLAG_NORMAL)
+                        .last("limit 1"), false);
+        if (Objects.isNull(functionConfig))
+        {
+            throw new ServiceException("业务分类未配置对应模型池");
+        }
+        if (Objects.equals(STATUS_ENABLED, agent.getStatus()) && !Objects.equals("0", functionConfig.getStatus()))
+        {
+            throw new ServiceException("启用智能体前必须先启用对应模型池");
+        }
+        if (StrUtil.isBlank(agent.getModelCode()))
+        {
+            return;
+        }
+
+        AidAiModel model = modelService.getOne(Wrappers.<AidAiModel>lambdaQuery()
+                .select(AidAiModel::getId, AidAiModel::getProviderId,
+                        AidAiModel::getModelCode, AidAiModel::getStatus)
+                .eq(AidAiModel::getModelCode, agent.getModelCode())
+                .eq(AidAiModel::getDelFlag, DEL_FLAG_NORMAL)
+                .last("limit 1"), false);
+        if (Objects.isNull(model))
+        {
+            throw new ServiceException("默认模型不存在或已下线");
+        }
+        List<Long> poolIds;
+        try
+        {
+            poolIds = JSONUtil.toList(functionConfig.getModelIds(), Long.class);
+        }
+        catch (Exception e)
+        {
+            throw new ServiceException("对应模型池的模型ID列表格式不正确");
+        }
+        if (!poolIds.contains(model.getId()))
+        {
+            throw new ServiceException("默认模型不属于当前业务分类的模型池");
+        }
+        if (Objects.equals(STATUS_ENABLED, agent.getStatus()) && !Objects.equals("0", model.getStatus()))
+        {
+            throw new ServiceException("启用智能体前必须先启用默认模型");
+        }
+        if (Objects.equals(STATUS_ENABLED, agent.getStatus()))
+        {
+            AidAiProvider provider = providerService.getOne(Wrappers.<AidAiProvider>lambdaQuery()
+                    .select(AidAiProvider::getId)
+                    .eq(AidAiProvider::getId, model.getProviderId())
+                    .eq(AidAiProvider::getStatus, "0")
+                    .eq(AidAiProvider::getDelFlag, DEL_FLAG_NORMAL)
+                    .last("limit 1"), false);
+            if (Objects.isNull(provider))
+            {
+                throw new ServiceException("启用智能体前必须先启用默认模型所属服务商");
+            }
+        }
     }
 
     @Override

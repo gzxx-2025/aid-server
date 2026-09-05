@@ -58,14 +58,14 @@ public class UserProjectVO {
     /** 默认创作模式(i2v图生视频, multi多参生视频) */
     private String defaultCreationMode;
 
-    /** 状态(0草稿 1制作中 2完成未提交 3审核中 4审核通过 5审核失败) */
+    /** 当前创作步骤（1-7） */
+    private Integer currentStep;
+
+    /** 状态(0草稿 1制作中 2已完成) */
     private Integer status;
 
     /** 状态原因 */
     private String statusReason;
-
-    /** 是否公开 */
-    private String isPublic;
 
     /** 剧集剪辑记录ID（aid_episode_editor.id，仅电影模式项目级成片，episode_id=0），无记录为 null */
     private Long episodeEditorId;
@@ -73,10 +73,6 @@ public class UserProjectVO {
     /** 项目级成片视频地址（仅电影模式，出参自动拼 OSS 域名），未合成为 null；剧集类型项目恒为 null（成片挂在各集上） */
     @MediaUrl
     private String finalVideoUrl;
-
-    /** 待审核新成片地址（仅电影模式，出参自动拼域名）；非空=成片已变更需重新提审（公开侧仍展示 finalVideoUrl 旧片） */
-    @MediaUrl
-    private String pendingVideoUrl;
 
     /** 项目级成片导出状态（仅电影模式）：0=未导出/待重新导出，1=合成中，2=导出成功，3=导出失败；无记录为 null */
     private Integer exportStatus;

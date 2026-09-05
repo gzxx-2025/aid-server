@@ -25,6 +25,8 @@ import com.aid.media.service.ConcurrencyConfigValidator;
 import com.aid.model.service.IAiModelBusinessService;
 import com.aid.common.utils.poi.ExcelUtil;
 import com.aid.common.core.page.TableDataInfo;
+import com.aid.common.utils.SecurityUtils;
+import com.aid.orchestration.IAiOrchestrationService;
 
 /**
  * AI底层模型配置与算力计费Controller
@@ -54,6 +56,10 @@ public class AidAiModelController extends BaseController
      */
     @Autowired
     private IAiModelBusinessService aiModelBusinessService;
+
+    /** 跨模型池、智能体、矩阵和项目配置执行一致的引用校验。 */
+    @Autowired
+    private IAiOrchestrationService orchestrationService;
 
     @PreAuthorize("@ss.hasPermi('aid:aidmodel:list')")
     @GetMapping("/listByFunc")
@@ -179,6 +185,6 @@ public class AidAiModelController extends BaseController
 	@DeleteMapping("/{ids}")
     public AjaxResult remove(@PathVariable Long[] ids)
     {
-        return toAjax(aidAiModelService.deleteAidAiModelByIds(ids));
+        return toAjax(orchestrationService.deleteModelsIfUnreferenced(ids, SecurityUtils.getUsername()));
     }
 }

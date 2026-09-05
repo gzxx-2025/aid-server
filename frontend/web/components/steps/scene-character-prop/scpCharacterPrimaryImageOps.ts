@@ -122,7 +122,6 @@ export function createScpCharacterPrimaryImageOps(ctx: ScpCtx) {
 
     const characterName = ctx.localValue.get().characters[targetIndex]
     message.success(`已为「${characterName}」导入角色图片`)
-    ctx.showImportCharacterImageModal.set(false)
   }
 
   const handleEditCharacterImage = (index: number) => {

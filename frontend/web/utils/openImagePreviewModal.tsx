@@ -1,5 +1,6 @@
 import ImagePreviewViewer from '@/components/common/ImagePreviewViewer'
 import { Modal } from 'antd'
+import { resolveStackedModalZIndex } from '~/utils/stackedModalZIndex'
 
 export interface OpenImagePreviewModalOptions {
   url: string
@@ -19,8 +20,8 @@ export function openImagePreviewModal(options: OpenImagePreviewModalOptions) {
     closable: true,
     mask: { closable: true },
     footer: null,
-    // 高于创作流 / 发布弹窗，避免嵌套 Modal 时预览被挡住
-    zIndex: 1100,
+    // 高于当前已打开的嵌套弹窗（如资产库），避免预览被挡住
+    zIndex: resolveStackedModalZIndex(),
     style: { top: 0, paddingBottom: 0, margin: 0 },
     wrapClassName: 'image-preview-modal-wrap',
     content: (

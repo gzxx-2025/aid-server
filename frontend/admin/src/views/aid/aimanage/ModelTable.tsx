@@ -105,7 +105,7 @@ export default function ModelTable({ provider, list, loading, query, onQueryChan
             </Tooltip>
             <Button type="link" size="small" icon={<EditOutlined />} onClick={() => onEdit(r)}>修改</Button>
             <Button type="link" size="small" icon={<ExperimentOutlined />} loading={testingId === r.id} onClick={() => handleTestModel(r)}>测试</Button>
-            <Button type="link" size="small" danger icon={<DeleteOutlined />} onClick={() => onDelete(r)}>删除</Button>
+            <Button type="link" size="small" danger icon={<DeleteOutlined />} onClick={() => onDelete(r)}>下线</Button>
           </Space>
         );
       }

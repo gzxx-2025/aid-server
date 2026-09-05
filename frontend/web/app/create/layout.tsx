@@ -22,7 +22,6 @@ export default function CreateLayout({ children }: { children: React.ReactNode }
   return (
     <>
       <HtmlShellClass classes="app-shell-create layout-create-flow" />
-      {/* 壳内经 useRouteLike 读 useSearchParams，构建期预渲染需 Suspense 边界（CSR bailout） */}
       <Suspense fallback={null}>
         <CreateFlowShell>{children}</CreateFlowShell>
       </Suspense>

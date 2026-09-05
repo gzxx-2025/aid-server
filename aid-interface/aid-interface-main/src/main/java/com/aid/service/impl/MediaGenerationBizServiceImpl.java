@@ -1,5 +1,7 @@
 package com.aid.service.impl;
 
+import com.aid.common.error.TaskErrorCode;
+import com.aid.common.error.TaskErrorPresentation;
 import com.alibaba.fastjson2.JSON;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -109,6 +111,9 @@ public class MediaGenerationBizServiceImpl implements IMediaGenerationBizService
                 record.getId(), dto.getStoryboardId(), dto.getUserId());
 
         MediaTextGenerateRequest textRequest = new MediaTextGenerateRequest();
+        textRequest.setStream(Boolean.FALSE);
+        textRequest.setReasoningEnabled(Boolean.FALSE);
+        textRequest.setIncludeReasoning(Boolean.FALSE);
         textRequest.setModelName(dto.getModelName());
         textRequest.setPrompt(dto.getPrompt());
         textRequest.setMessages(dto.getMessages());
@@ -488,7 +493,7 @@ public class MediaGenerationBizServiceImpl implements IMediaGenerationBizService
         if (dto.getUserId() == null) { throw new ServiceException("参数不能为空"); }
         if (StringUtils.isEmpty(dto.getPrompt())
                 && (dto.getMessages() == null || dto.getMessages().stream().allMatch(m -> StringUtils.isEmpty(m.getContent())))) {
-            throw new ServiceException("提示词不能为空");
+            throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_EMPTY, "请填写提示词");
         }
         validateUserExists(dto.getUserId());
     }

@@ -1,7 +1,10 @@
 import { buildUserApiAuthHeaders, redirectToLogin, resolveClientApiUrl } from '~/utils/api'
 import { claimTaskStreamConnectSlot } from '~/utils/taskStreamConnectGuard'
 import {
+  advanceTaskEtaProgress,
   parseTaskSseProgressPayload,
+  withTaskSseDisplayTiming,
+  type TaskEtaProgress,
   type TaskSseProgressInput
 } from '~/utils/taskSseProgressText'
 import { isBenignTaskSseDisconnectMessage } from '~/utils/taskSseSilentDisconnect'
@@ -134,23 +137,56 @@ function resolveCancelledMessage(dataRaw: string): string {
  * 事件：`queued` | `progress` | `complete` | `partial_failed` | `error` | `cancelled` | `warning`
  * 未命名 `data` 时 event 视为 `message`，按 progress 兼容处理。
  */
-export function createTaskStream(taskId: number): TaskStreamHandle {
+export function createTaskStream(
+  taskId: number,
+  options?: { initialProgress?: TaskProgressEventData | null }
+): TaskStreamHandle {
   let connected = false
   let closed = false
   let lastProgress: TaskProgressEventData | null = null
   const progressListeners = new Set<(p: TaskProgressEventData) => void>()
+  let etaTicker: ReturnType<typeof setInterval> | null = null
+  let etaAnchor: TaskEtaProgress | null = null
 
   let abortController: AbortController | null = null
   let settled = false
 
-  const setLastProgress = (p: TaskProgressEventData) => {
-    lastProgress = p
-    for (const cb of progressListeners) cb(p)
+  const setLastProgress = (p: TaskProgressEventData, fromEtaTicker = false) => {
+    // 详情接口恢复出的 ETA 是当前任务的计时锚点。SSE 首包可能只有 connected/message，
+    // 不应因此清掉 ETA，否则进度会长期停在服务端最后一次返回的百分比。
+    const nextProgress = !p.eta && lastProgress?.eta ? { ...p, eta: lastProgress.eta } : p
+    lastProgress = nextProgress
+    const displayProgress = withTaskSseDisplayTiming(nextProgress)
+    for (const cb of progressListeners) cb(displayProgress)
+    if (!fromEtaTicker && p.eta) {
+      etaAnchor = p.eta
+    }
+    const etaCompleted =
+      nextProgress.eta?.phase === 'COMPLETED' || nextProgress.eta?.displayProgress === 100
+    if (etaCompleted && etaTicker) {
+      clearInterval(etaTicker)
+      etaTicker = null
+    } else if (!fromEtaTicker && p.eta && !etaTicker) {
+      etaTicker = setInterval(() => {
+        if (closed || !lastProgress?.eta || !etaAnchor) return
+        const eta = advanceTaskEtaProgress(etaAnchor)
+        if (!eta) return
+        setLastProgress({ ...lastProgress, eta }, true)
+      }, 15_000)
+    }
+  }
+
+  if (typeof window !== 'undefined' && options?.initialProgress) {
+    setLastProgress(options.initialProgress)
   }
 
   const close = () => {
     if (closed) return
     closed = true
+    if (etaTicker) {
+      clearInterval(etaTicker)
+      etaTicker = null
+    }
     try {
       abortController?.abort()
     } catch {
@@ -358,10 +394,10 @@ export function createTaskStream(taskId: number): TaskStreamHandle {
   return {
     isConnected: () => connected,
     isClosed: () => closed,
-    getLastProgress: () => lastProgress,
+    getLastProgress: () => (lastProgress ? withTaskSseDisplayTiming(lastProgress) : null),
     subscribeProgress(cb) {
       progressListeners.add(cb)
-      if (lastProgress) cb(lastProgress)
+      if (lastProgress) cb(withTaskSseDisplayTiming(lastProgress))
       return () => {
         progressListeners.delete(cb)
       }

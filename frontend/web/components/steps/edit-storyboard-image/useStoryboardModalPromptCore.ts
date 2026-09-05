@@ -3,6 +3,10 @@
 import { message } from 'antd'
 import { useMemo,useRef } from 'react'
 import {
+createAsyncPromptApplyGuard,
+type AsyncPromptApplyTicket
+} from '~/utils/asyncPromptApplyGuard'
+import {
 matchesModalTaskOverlayKey
 } from '~/composables/useModalTaskScope'
 import { PROMPT_TYPE,usePromptDictionary } from '~/composables/usePromptDictionary'
@@ -32,6 +36,17 @@ import type { EditStoryboardImageModalCtx } from './types'
 import { nextTick } from './useMirrored'
 
 export function useStoryboardModalPromptCore(ctx: EditStoryboardImageModalCtx) {
+  const promptApplyGuardRef = useRef(createAsyncPromptApplyGuard())
+  const promptScopeKey = (storyboardId = ctx.currentStoryboardId()) =>
+    `storyboard-image:${String(storyboardId ?? '')}`
+  const beginStoryboardPromptApply = (storyboardId: number) =>
+    promptApplyGuardRef.current.begin(promptScopeKey(storyboardId))
+  const canApplyStoryboardPrompt = (ticket: AsyncPromptApplyTicket) =>
+    promptApplyGuardRef.current.isCurrent(ticket, promptScopeKey())
+  const handleStoryboardPromptEditorChange = (value: string) => {
+    promptApplyGuardRef.current.markEdited()
+    ctx.storyboardPrompt.set(value)
+  }
   const {
     ensureLoaded: ensurePromptDictLoaded,
     compositionOptions,
@@ -69,9 +84,12 @@ export function useStoryboardModalPromptCore(ctx: EditStoryboardImageModalCtx) {
   const storyboardPromptParamGroups = () => storyboardPromptParamGroupsRef.current
 
   const storyboardPromptAssets = () => {
+    const resolvedImageAssets = ctx.resolvedPromptAssets
+      .get()
+      .filter((asset) => asset.assetType !== 'audio')
     const startIndex =
-      ctx.resolvedPromptAssets.get().length > 0
-        ? Math.max(...ctx.resolvedPromptAssets.get().map((a) => a.imageIndex)) + 1
+      resolvedImageAssets.length > 0
+        ? Math.max(...resolvedImageAssets.map((asset) => asset.imageIndex)) + 1
         : 1
     const local = collectStoryboardPromptAssets(
       ctx.sceneImages.get(),
@@ -110,22 +128,30 @@ export function useStoryboardModalPromptCore(ctx: EditStoryboardImageModalCtx) {
     ctx.selectedTechnique.set(selections[PROMPT_TYPE.exposure_blur] ?? null)
   }
 
-  async function applyStoryboardPromptFromApi(plain: string) {
+  async function applyStoryboardPromptFromApi(
+    plain: string,
+    ticket = beginStoryboardPromptApply(Number(ctx.currentStoryboardId()))
+  ): Promise<boolean> {
+    if (!canApplyStoryboardPrompt(ticket)) return false
     const text = String(plain || '').trim()
     if (!text) {
+      if (!canApplyStoryboardPrompt(ticket)) return false
       ctx.resolvedPromptAssets.set([])
       ctx.storyboardPrompt.set('')
-      return
+      return true
     }
+
+    await ensurePromptDictLoaded()
+    if (!canApplyStoryboardPrompt(ticket)) return false
+    const saveCtx = await resolveStoryScriptSaveContext(ctx.store(), ctx.route())
+    if (!canApplyStoryboardPrompt(ticket)) return false
+    const imageResolve = await resolveStoryboardImageAssetsFromPlain(text, saveCtx)
+    if (!canApplyStoryboardPrompt(ticket)) return false
 
     ctx.storyboardPromptProgrammaticSyncDepth.set(
       ctx.storyboardPromptProgrammaticSyncDepth.get() + 1
     )
     try {
-      await ensurePromptDictLoaded()
-
-      const saveCtx = await resolveStoryScriptSaveContext(ctx.store(), ctx.route())
-      const imageResolve = await resolveStoryboardImageAssetsFromPlain(text, saveCtx)
       ctx.resolvedPromptAssets.set(imageResolve.resolvedAssets)
       if (imageResolve.unresolvedNames.length) {
         message.warning(`部分参考图未匹配：${imageResolve.unresolvedNames.join('、')}`)
@@ -139,6 +165,7 @@ export function useStoryboardModalPromptCore(ctx: EditStoryboardImageModalCtx) {
         })
       )
       await nextTick()
+      return true
     } finally {
       ctx.storyboardPromptProgrammaticSyncDepth.set(
         ctx.storyboardPromptProgrammaticSyncDepth.get() - 1
@@ -182,22 +209,25 @@ export function useStoryboardModalPromptCore(ctx: EditStoryboardImageModalCtx) {
   async function loadCurrentStoryboardPrompt() {
     const id = ctx.currentStoryboardId()
     if (!id) {
+      promptApplyGuardRef.current.invalidate()
       ctx.resolvedPromptAssets.set([])
       ctx.storyboardPrompt.set('')
       return
     }
+    const ticket = beginStoryboardPromptApply(id)
     try {
       const plain = await fetchStoryboardImagePrompt(id)
-      await applyStoryboardPromptFromApi(plain)
+      await applyStoryboardPromptFromApi(plain, ticket)
     } catch {
-      ctx.resolvedPromptAssets.set([])
-      ctx.storyboardPrompt.set('')
+      // 加载失败保留当前输入；旧分镜或用户编辑后的请求结果不得清空编辑器。
     }
   }
 
   return {
     applyParamSelectionsFromPlain,
     applyStoryboardPromptFromApi,
+    beginStoryboardPromptApply,
+    handleStoryboardPromptEditorChange,
     ensurePromptDictLoaded,
     fetchStoryboardImagePrompt,
     fetchStoryboardImagePromptAfterGenerate,

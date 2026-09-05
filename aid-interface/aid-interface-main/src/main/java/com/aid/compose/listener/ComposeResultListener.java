@@ -66,10 +66,10 @@ public class ComposeResultListener {
     /** 剧集剪辑 Mapper（接口2 回写） */
     private final AidEpisodeEditorMapper aidEpisodeEditorMapper;
 
-    /** 项目服务（成片导出成功后项目状态联动为「完成未提交(2)」可提审） */
+    /** 项目服务（成片导出成功后项目状态联动为「已完成(2)」） */
     private final IAidComicProjectService aidComicProjectService;
 
-    /** 剧集服务（成片导出成功后剧集状态联动为「完成未审核(2)」可提审） */
+    /** 剧集服务（成片导出成功后剧集状态联动为「已完成(2)」） */
     private final IAidComicEpisodeService aidComicEpisodeService;
 
     /** 批量业务父任务服务（取消后的迟到合成回写隔离） */
@@ -109,25 +109,15 @@ public class ComposeResultListener {
         }
     }
 
-    /**
-     * 接口2 成功回写（双槽位）：
-     * 内容已进入审核流程（项目/剧集状态=审核中(3)或审核通过(4)）→ 新成片写 pending_video_url 待审槽，
-     * final_video_url 保留旧片继续公开展示，重新过审后由审核通过钩子转正；
-     * 其它状态（草稿/制作中/完成未提交/审核失败）→ 照旧直接写 final_video_url 并清空待审槽。
-     * 两种情况均置 exportStatus=2 + exportProgress=100。
-     *
-     * @param task COMPOSE 任务
-     */
+    /** 接口2成功回写最终成片，并置导出进度为100。 */
     private void writeEpisodeEditor(AidMediaTask task) {
         if (Objects.isNull(task.getCallbackRecordId())) {
             log.warn("COMPOSE 接口2 回写缺少 callbackRecordId, taskId={}", task.getId());
             return;
         }
-        // 查询字段精简：成片槽位、指纹和当前任务令牌用于回调幂等及陈旧任务隔离。
         AidEpisodeEditor editor = aidEpisodeEditorMapper.selectOne(new LambdaQueryWrapper<AidEpisodeEditor>()
                 .select(AidEpisodeEditor::getId, AidEpisodeEditor::getProjectId, AidEpisodeEditor::getEpisodeId,
                         AidEpisodeEditor::getFinalVideoUrl, AidEpisodeEditor::getFinalVideoFingerprint,
-                        AidEpisodeEditor::getPendingVideoUrl, AidEpisodeEditor::getPendingVideoFingerprint,
                         AidEpisodeEditor::getExportStatus, AidEpisodeEditor::getExportTaskId,
                         AidEpisodeEditor::getExportFingerprint)
                 .eq(AidEpisodeEditor::getId, task.getCallbackRecordId())
@@ -142,105 +132,32 @@ public class ComposeResultListener {
                     task.getId(), editor.getId(), editor.getExportTaskId());
             return;
         }
-        Integer contentStatus = resolveContentStatus(editor);
-        String exportFingerprint = editor.getExportFingerprint();
-
         LambdaUpdateWrapper<AidEpisodeEditor> update = new LambdaUpdateWrapper<>();
         update.eq(AidEpisodeEditor::getId, editor.getId());
         update.eq(AidEpisodeEditor::getExportTaskId, String.valueOf(task.getId()));
         update.eq(AidEpisodeEditor::getExportStatus, ComposeConstants.EXPORT_STATUS_COMPOSING);
-        String slot;
-        if (isAuditing(contentStatus)) {
-            // 审核候选提交后不可变：竞态完成的新任务只收口导出状态，不覆盖正在审核的槽位。
-            String auditedFingerprint = StrUtil.isNotBlank(editor.getPendingVideoUrl())
-                    ? editor.getPendingVideoFingerprint() : editor.getFinalVideoFingerprint();
-            update.set(AidEpisodeEditor::getExportFingerprint, auditedFingerprint);
-            slot = "ignored-auditing";
-            log.warn("COMPOSE 审核中候选快照受保护, taskId={}, episodeEditorId={}",
-                    task.getId(), editor.getId());
-        } else if (isAuditPassed(contentStatus)
-                && StrUtil.isNotBlank(editor.getFinalVideoFingerprint())
-                && Objects.equals(exportFingerprint, editor.getFinalVideoFingerprint())) {
-            // 已过审内容相同，不制造待审槽，也不会再次触发审核。
-            update.set(AidEpisodeEditor::getPendingVideoUrl, null);
-            update.set(AidEpisodeEditor::getPendingVideoFingerprint, null);
-            slot = "reused-final";
-        } else if (isAuditPassed(contentStatus)) {
-            update.set(AidEpisodeEditor::getPendingVideoUrl, task.getOssUrl());
-            update.set(AidEpisodeEditor::getPendingVideoFingerprint, exportFingerprint);
-            slot = "pending";
-        } else {
-            update.set(AidEpisodeEditor::getFinalVideoUrl, task.getOssUrl());
-            update.set(AidEpisodeEditor::getFinalVideoFingerprint, exportFingerprint);
-            // 覆盖 final 时清残留待审片，避免陈旧 pending 误触发"待重审"提示
-            update.set(AidEpisodeEditor::getPendingVideoUrl, null);
-            update.set(AidEpisodeEditor::getPendingVideoFingerprint, null);
-            slot = "final";
-        }
+        update.set(AidEpisodeEditor::getFinalVideoUrl, task.getOssUrl());
+        update.set(AidEpisodeEditor::getFinalVideoFingerprint, editor.getExportFingerprint());
         update.set(AidEpisodeEditor::getExportStatus, ComposeConstants.EXPORT_STATUS_SUCCESS);
         update.set(AidEpisodeEditor::getExportProgress, 100);
         update.set(AidEpisodeEditor::getErrorMsg, null);
         update.set(AidEpisodeEditor::getUpdateTime, new Date());
         int updated = aidEpisodeEditorMapper.update(null, update);
         if (updated != 1) {
-            log.warn("COMPOSE 接口2 回写状态已变化, taskId={}, episodeEditorId={}",
-                    task.getId(), editor.getId());
+            log.warn("COMPOSE 接口2 回写状态已变化, taskId={}, episodeEditorId={}", task.getId(), editor.getId());
             return;
         }
-        log.info("COMPOSE 接口2 成片回写完成, taskId={}, episodeEditorId={}, slot={}",
-                task.getId(), task.getCallbackRecordId(), slot);
-        // 成片已生成：项目/剧集状态从草稿/制作中联动为「完成(2)」可提审（条件更新，审核流程中的状态不受影响）
-        markAuditableAfterExport(task.getCallbackRecordId());
+        log.info("COMPOSE 接口2 成片回写完成, taskId={}, episodeEditorId={}", task.getId(), editor.getId());
+        markFinishedAfterExport(task.getCallbackRecordId());
         composeBatchSlotCoordinator.releaseExport(editor.getId(), String.valueOf(task.getId()));
     }
-
     /**
-     * 判断成片对应内容是否已进入审核流程（审核中(3)或审核通过(4)）。
-     * 处于该区间时旧成片可能正在公开展示（公开口径 status∈(3,4) 且 is_public=1），
-     * 新成片必须走待审槽，不允许直接覆盖。
-     *
-     * @param editor 剪辑记录（含归属）
-     * @return true=审核中或已过审
-     */
-    private Integer resolveContentStatus(AidEpisodeEditor editor) {
-        if (Objects.isNull(editor.getProjectId()) || Objects.isNull(editor.getEpisodeId())) {
-            return null;
-        }
-        if (Objects.equals(editor.getEpisodeId(), MOVIE_EPISODE_ID)) {
-            AidComicProject project = aidComicProjectService.getOne(Wrappers.<AidComicProject>lambdaQuery()
-                    .select(AidComicProject::getId, AidComicProject::getStatus)
-                    .eq(AidComicProject::getId, editor.getProjectId())
-                    .eq(AidComicProject::getDelFlag, DEL_FLAG_NORMAL)
-                    .last("LIMIT 1"));
-            return Objects.isNull(project) ? null : project.getStatus();
-        }
-        AidComicEpisode episode = aidComicEpisodeService.getOne(Wrappers.<AidComicEpisode>lambdaQuery()
-                .select(AidComicEpisode::getId, AidComicEpisode::getStatus)
-                .eq(AidComicEpisode::getId, editor.getEpisodeId())
-                .eq(AidComicEpisode::getDelFlag, DEL_FLAG_NORMAL)
-                .last("LIMIT 1"));
-        return Objects.isNull(episode) ? null : episode.getStatus();
-    }
-
-    private boolean isAuditing(Integer contentStatus) {
-        return Objects.equals(contentStatus, ProjectStatusEnum.AUDITING.getValue());
-    }
-
-    private boolean isAuditPassed(Integer contentStatus) {
-        return Objects.equals(contentStatus, ProjectStatusEnum.AUDIT_PASSED.getValue());
-    }
-
-    /**
-     * 成片导出成功后的审核状态联动：
-     * 电影成片（episode_id=0）→ 项目状态 草稿(0)/制作中(1) → 完成未提交(2)；
-     * 剧集成片（episode_id=剧集ID）→ 剧集状态 草稿(0)/制作中(1) → 完成未审核(2)。
-     * 仅从 0/1 推进（条件更新幂等）：审核中(3)/审核通过(4)/审核失败(5) 不在此处变更，
-     * 避免 OSS 持久化事件重复触发时把已进入审核流程的状态拉回。
-     * 状态联动失败仅记录日志，不影响成片回写主链路。
+     * 成片导出成功后将项目或剧集从草稿/制作中推进到已完成。
+     * 条件更新保证回调幂等；状态联动失败仅记录日志，不影响成片回写主链路。
      *
      * @param episodeEditorId 剪辑记录ID
      */
-    private void markAuditableAfterExport(Long episodeEditorId) {
+    private void markFinishedAfterExport(Long episodeEditorId) {
         try {
             // 查询字段精简：状态联动只需归属字段（新增使用字段时此处必须同步补充）
             AidEpisodeEditor editor = aidEpisodeEditorMapper.selectOne(new LambdaQueryWrapper<AidEpisodeEditor>()
@@ -252,29 +169,29 @@ public class ComposeResultListener {
                 return;
             }
             if (Objects.equals(editor.getEpisodeId(), MOVIE_EPISODE_ID)) {
-                // 电影：项目级成片，项目状态推进为「完成未提交(2)」
+                // 电影：项目级成片，项目状态推进为「已完成(2)」
                 boolean updated = aidComicProjectService.update(Wrappers.<AidComicProject>lambdaUpdate()
                         .eq(AidComicProject::getId, editor.getProjectId())
                         .eq(AidComicProject::getDelFlag, DEL_FLAG_NORMAL)
                         .in(AidComicProject::getStatus, ProjectStatusEnum.DRAFT.getValue(),
                                 ProjectStatusEnum.PROCESSING.getValue())
-                        .set(AidComicProject::getStatus, ProjectStatusEnum.FINISHED_UNSUBMITTED.getValue())
+                        .set(AidComicProject::getStatus, ProjectStatusEnum.COMPLETED.getValue())
                         .set(AidComicProject::getUpdateTime, new Date()));
                 if (updated) {
-                    log.info("COMPOSE 成片导出成功，项目状态联动为完成可提审, projectId={}", editor.getProjectId());
+                    log.info("COMPOSE 成片导出成功，项目状态联动为已完成, projectId={}", editor.getProjectId());
                 }
                 return;
             }
-            // 剧集：该集状态推进为「完成未审核(2)」
+            // 剧集：该集状态推进为「已完成(2)」
             boolean updated = aidComicEpisodeService.update(Wrappers.<AidComicEpisode>lambdaUpdate()
                     .eq(AidComicEpisode::getId, editor.getEpisodeId())
                     .eq(AidComicEpisode::getDelFlag, DEL_FLAG_NORMAL)
                     .in(AidComicEpisode::getStatus, EpisodeStatusEnum.DRAFT.getValue(),
                             EpisodeStatusEnum.PROCESSING.getValue())
-                    .set(AidComicEpisode::getStatus, EpisodeStatusEnum.FINISHED_UNAUDITED.getValue())
+                    .set(AidComicEpisode::getStatus, EpisodeStatusEnum.COMPLETED.getValue())
                     .set(AidComicEpisode::getUpdateTime, new Date()));
             if (updated) {
-                log.info("COMPOSE 成片导出成功，剧集状态联动为完成可提审, projectId={}, episodeId={}",
+                log.info("COMPOSE 成片导出成功，剧集状态联动为已完成, projectId={}, episodeId={}",
                         editor.getProjectId(), editor.getEpisodeId());
             }
         } catch (Exception ex) {

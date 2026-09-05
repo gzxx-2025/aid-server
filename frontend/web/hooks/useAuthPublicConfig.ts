@@ -3,6 +3,7 @@ import type { AuthPublicConfigData } from '~/types/business-api'
 import {
   API_CRYPTO_CLIENT_TIME_CACHE_FIELD,
   applyApiCryptoFromPublicConfig,
+  refreshApiCryptoConfig,
   registerApiCryptoConfigRefreshHandler
 } from '~/utils/apiCrypto'
 import { authPublicConfig } from '~/utils/businessApi'
@@ -102,6 +103,12 @@ registerApiCryptoConfigRefreshHandler(async () => {
   const data = await authPublicConfig()
   setAuthPublicConfigData(data)
 })
+
+/** 恢复缓存后刷新公开配置，并与首批受保护请求共用同一次请求。 */
+export async function bootstrapAuthPublicConfig(): Promise<boolean> {
+  hydrateSharedFromCache()
+  return refreshApiCryptoConfig()
+}
 
 type CodeChannel = 'sms' | 'email'
 

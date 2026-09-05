@@ -1,5 +1,6 @@
 package com.aid.storyboard.service.impl;
 
+import com.aid.common.error.TaskErrorCode;
 import cn.hutool.core.collection.CollectionUtil;
 import cn.hutool.core.util.IdUtil;
 import cn.hutool.core.util.StrUtil;
@@ -1760,7 +1761,7 @@ public class StoryboardWorkbenchServiceImpl implements IStoryboardWorkbenchServi
         if (ttsText.length() > TTS_TEXT_MAX_LENGTH) {
             log.info("generateAudio 文本超长: userId={}, modelCode={}, textLen={}, max={}",
                     userId, resolved.modelCode, ttsText.length(), TTS_TEXT_MAX_LENGTH);
-            throw new ServiceException("文本过长");
+            throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_TOO_LONG, "文本过长，请精简");
         }
 
         String requestedEmotion = StrUtil.trimToEmpty(request.getEmotion());
@@ -1779,7 +1780,7 @@ public class StoryboardWorkbenchServiceImpl implements IStoryboardWorkbenchServi
                 log.info("generateAudio MiniMax同步接口文本超长: userId={}, modelCode={}, textLen={}, max={}",
                         userId, resolved.modelCode, ttsText.length(),
                         com.aid.media.constants.MinimaxTtsConstants.SYNC_TEXT_MAX_LENGTH);
-                throw new ServiceException("文本过长");
+                throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_TOO_LONG, "文本过长，请精简");
             }
         }
 

@@ -1,5 +1,6 @@
 package com.aid.rps.service.impl;
 
+import com.aid.common.error.TaskErrorSnapshot;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -492,7 +493,8 @@ public class ExtractBillingServiceImpl implements IExtractBillingService
                 appendNullableEquals(reset, AidExtractTask::getFrozenAmount, oldFrozen);
                 appendNullableEquals(reset, AidExtractTask::getBillingSnapshotJson, oldSnapshotRef);
                 reset.set(AidExtractTask::getStatus, "PENDING");
-                reset.set(AidExtractTask::getErrorMessage, null);
+                reset.set(AidExtractTask::getErrorMessage, null)
+                .set(AidExtractTask::getErrorDetailJson, null);
                 if (taskMutation != null && taskMutation.replaceRemark())
                 {
                     reset.set(AidExtractTask::getRemark, taskMutation.remark());
@@ -936,7 +938,8 @@ public class ExtractBillingServiceImpl implements IExtractBillingService
                     ExtractBillingStatus.FROZEN.name(), ExtractBillingStatus.REFUNDING.name(),
                     ExtractBillingStatus.FAILED.name());
             restoreTask.set(AidExtractTask::getStatus, priorTask.status());
-            restoreTask.set(AidExtractTask::getErrorMessage, priorTask.errorMessage());
+            restoreTask.set(AidExtractTask::getErrorMessage, priorTask.errorMessage())
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage(priorTask.errorMessage()));
             restoreTask.set(AidExtractTask::getRemark, priorTask.remark());
             restoreTask.set(AidExtractTask::getInputSnapshot, priorTask.inputSnapshot());
             restoreTask.set(AidExtractTask::getTotalCount, priorTask.totalCount());
@@ -3573,7 +3576,7 @@ public class ExtractBillingServiceImpl implements IExtractBillingService
                                 AidExtractTask::getEpisodeId, AidExtractTask::getUserId,
                                 AidExtractTask::getTaskType, AidExtractTask::getModelCode,
                                 AidExtractTask::getStatus, AidExtractTask::getDelFlag,
-                                AidExtractTask::getErrorMessage, AidExtractTask::getRemark,
+                                AidExtractTask::getErrorMessage, AidExtractTask::getErrorDetailJson, AidExtractTask::getRemark,
                                 AidExtractTask::getInputSnapshot, AidExtractTask::getTotalCount,
                                 AidExtractTask::getBillingStatus, AidExtractTask::getBillingTraceId,
                                 AidExtractTask::getFrozenAmount, AidExtractTask::getBillingSnapshotJson)

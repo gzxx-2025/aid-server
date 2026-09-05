@@ -1,7 +1,7 @@
 'use client'
 
 import { message } from 'antd'
-import { useEffect,useRef } from 'react'
+import type { AsyncPromptApplyTicket } from '~/utils/asyncPromptApplyGuard'
 import type { ParamSettingsConfirmPayload } from '~/components/steps/StoryboardParamSettingsModal'
 import {
 buildModalTaskOverlayKey
@@ -17,7 +17,6 @@ import {
 collectStoryboardPromptAssets,
 patchEmptyResolvedPromptAssets,
 storyboardPromptHtmlToPlain,
-storyboardPromptPlainToHtml,
 type PromptAssetItem
 } from '~/utils/storyboardPromptAssetRef'
 import {
@@ -26,8 +25,7 @@ resumeStoryboardPromptGenerateTask
 } from '~/utils/storyboardPromptGenerateFlow'
 import { confirmTaskResumeWithBilling } from '~/utils/taskResumeBilling'
 import {
-buildStoryboardPromptParamGroups,
-plainHasImageLabeledParamFields
+buildStoryboardPromptParamGroups
 } from '~/utils/storyboardPromptParamRef'
 import { pruneResolvedPromptAssetsForRemovedImage } from '~/utils/storyboardPromptAssetStripSync'
 import { resolveStoryScriptSaveContext } from '~/utils/storyScriptSaveContext'
@@ -41,7 +39,12 @@ export interface StoryboardModalPromptApi {
   showGeneratingPromptForScene: () => boolean
   ensurePromptDictLoaded: () => Promise<void>
   applyParamSelectionsFromPlain: (plain: string) => void
-  applyStoryboardPromptFromApi: (plain: string) => Promise<void>
+  applyStoryboardPromptFromApi: (
+    plain: string,
+    ticket?: AsyncPromptApplyTicket
+  ) => Promise<boolean>
+  beginStoryboardPromptApply: (storyboardId: number) => AsyncPromptApplyTicket
+  handleStoryboardPromptEditorChange: (value: string) => void
   storyboardBizErr: (e: unknown) => string
   fetchStoryboardImagePrompt: (storyboardId: number) => Promise<string>
   fetchStoryboardImagePromptAfterGenerate: (storyboardId: number) => Promise<string>
@@ -66,7 +69,7 @@ export interface StoryboardModalPromptApi {
 export function useStoryboardModalPrompt(
   ctx: EditStoryboardImageModalCtx
 ): StoryboardModalPromptApi {
-  const { applyParamSelectionsFromPlain, applyStoryboardPromptFromApi, ensurePromptDictLoaded, fetchStoryboardImagePrompt, fetchStoryboardImagePromptAfterGenerate, loadCurrentStoryboardPrompt, resolveImagePromptSubmitFields, showGeneratingPromptForScene, storyboardBizErr, storyboardPromptAssets, storyboardPromptParamGroups, storyboardPromptParamGroupsMemo, storyboardPromptPlainText } = useStoryboardModalPromptCore(ctx)
+  const { applyParamSelectionsFromPlain, applyStoryboardPromptFromApi, beginStoryboardPromptApply, ensurePromptDictLoaded, fetchStoryboardImagePrompt, fetchStoryboardImagePromptAfterGenerate, handleStoryboardPromptEditorChange, loadCurrentStoryboardPrompt, resolveImagePromptSubmitFields, showGeneratingPromptForScene, storyboardBizErr, storyboardPromptAssets, storyboardPromptParamGroups, storyboardPromptPlainText } = useStoryboardModalPromptCore(ctx)
   const handleGeneratePrompt = async () => {
     if (showGeneratingPromptForScene()) return
     const storyboardId = ctx.currentStoryboardId()
@@ -74,6 +77,7 @@ export function useStoryboardModalPrompt(
       message.warning('分镜ID缺失，无法生成提示词')
       return
     }
+    const promptApplyTicket = beginStoryboardPromptApply(storyboardId)
 
     const sceneIdx = ctx.currentSceneIndex.get()
     ctx.promptGenerateTargetKey.set(
@@ -153,7 +157,11 @@ export function useStoryboardModalPrompt(
         return
       }
 
-      await applyStoryboardPromptFromApi(prompt)
+      const applied = await applyStoryboardPromptFromApi(prompt, promptApplyTicket)
+      if (!applied) {
+        message.warning('检测到分镜切换或手动修改，已保留当前提示词')
+        return
+      }
       message.success('提示词生成成功')
     } catch (e: unknown) {
       message.error(storyboardBizErr(e))
@@ -177,6 +185,7 @@ export function useStoryboardModalPrompt(
     const persisted = ctx.store().getStoryboardImagePromptGenTask(storyboardId)
     const taskId = persisted?.taskId ?? null
     if (!taskId) return
+    const promptApplyTicket = beginStoryboardPromptApply(storyboardId)
 
     const gen = advanceGenerationToken(ctx.resumeStoryboardPromptFollowGen)
     const ongoing = await isStoryboardImageTaskOngoing(taskId)
@@ -227,7 +236,7 @@ export function useStoryboardModalPrompt(
 
       if (taskOutcome.ok !== false && sceneIdx === ctx.currentSceneIndex.get()) {
         const prompt = await fetchStoryboardImagePromptAfterGenerate(storyboardId)
-        if (prompt) await applyStoryboardPromptFromApi(prompt)
+        if (prompt) await applyStoryboardPromptFromApi(prompt, promptApplyTicket)
       }
     } catch {
       /* ignore */
@@ -418,35 +427,6 @@ export function useStoryboardModalPrompt(
     ctx.emitUpdate(ctx.currentSceneIndex.get(), { title: t })
   }
 
-  /** 资产 / 参数选项变化时，将描述中的 @ 文本占位同步为可点击引用块 */
-  const promptRefSyncRef = useRef<() => void>(() => {})
-  promptRefSyncRef.current = () => {
-    if (ctx.storyboardPromptProgrammaticSyncDepth.get() > 0) return
-    if (!ctx.storyboardPrompt.get()) return
-    const plain = storyboardPromptHtmlToPlain(ctx.storyboardPrompt.get())
-    if (!plain.includes('@') && !plainHasImageLabeledParamFields(plain)) return
-    const next = storyboardPromptPlainToHtml(
-      plain,
-      storyboardPromptAssets(),
-      storyboardPromptParamGroups(),
-      { enableImageLabeledParams: true }
-    )
-    if (next && next !== ctx.storyboardPrompt.get()) {
-      ctx.storyboardPrompt.set(next)
-    }
-  }
-  useEffect(() => {
-    promptRefSyncRef.current()
-     
-  }, [
-    ctx.resolvedPromptAssets.value,
-    ctx.sceneImages.value,
-    ctx.characterImages.value,
-    ctx.propImages.value,
-    ctx.otherImages.value,
-    storyboardPromptParamGroupsMemo
-  ])
-
   return {
     storyboardPromptAssets,
     storyboardPromptParamGroups,
@@ -455,6 +435,8 @@ export function useStoryboardModalPrompt(
     ensurePromptDictLoaded,
     applyParamSelectionsFromPlain,
     applyStoryboardPromptFromApi,
+    beginStoryboardPromptApply,
+    handleStoryboardPromptEditorChange,
     storyboardBizErr,
     fetchStoryboardImagePrompt,
     fetchStoryboardImagePromptAfterGenerate,

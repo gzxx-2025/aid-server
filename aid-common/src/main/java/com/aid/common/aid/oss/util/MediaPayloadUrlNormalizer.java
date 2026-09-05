@@ -21,6 +21,9 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class MediaPayloadUrlNormalizer
 {
+    /** Redis Fastjson serializer metadata must never be exposed by public payloads. */
+    private static final String SERIALIZER_TYPE_KEY = "@type";
+
     private static final Set<String> MEDIA_URL_KEYS = Set.of(
             "imageUrl", "cardImageUrl", "videoUrl", "audioUrl", "fileUrl",
             "coverUrl", "posterUrl", "thumbnailUrl", "avatarUrl", "resourceUrl",
@@ -52,6 +55,10 @@ public class MediaPayloadUrlNormalizer
             map.forEach((childKey, childValue) ->
             {
                 String childKeyText = String.valueOf(childKey);
+                if (SERIALIZER_TYPE_KEY.equals(childKeyText))
+                {
+                    return;
+                }
                 result.put(childKeyText, normalizeValue(childKeyText, childValue));
             });
             return result;

@@ -36,7 +36,7 @@ public class RpsFormVO {
      * 主图URL（出参拼域名）。
      * 含义为"当前使用中的图片 URL"：优先取同 form 下 is_use=1 的 form_image，
      * 如无在用图则回退到同 form 最新一张 form_image；不存在任何 form_image 时为 null。
-     * 多张同时使用中时本字段仅回首张 is_use=1 的 URL，完整列表见 images。
+     * 场景有多张同时使用中时，本字段仅回首张 is_use=1 的 URL，完整列表见 images。
      */
     @MediaUrl
     private String imageUrl;
@@ -58,7 +58,7 @@ public class RpsFormVO {
 
     /**
      * 当前使用中的图片ID。
-     * 支持多张同时 is_use=1，本字段只回首张命中，完整使用中集合请用 images 列表中 isUse=1 的项过滤。
+     * 场景支持多张同时 is_use=1，本字段只回首张命中；角色、道具同一形态仅有一张主图。
      */
     private Long currentImageId;
 

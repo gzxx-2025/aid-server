@@ -25,8 +25,11 @@ public class MediaTaskResponse {
     // 任务状态：QUEUED/PENDING/PROCESSING/SUCCEEDED/FAILED。
     private String status;
 
-    // 排队位置：仅在 status=QUEUED 时有值，表示前面还有几个任务等待。
+    // 排队位置：仅在 status=QUEUED 时有值，从 1 开始。
     private Integer queuePosition;
+
+    // 预计进度与剩余时间；终态前最高 95%，终态才返回 100%。
+    private TaskEtaVO eta;
 
     // 上游厂商任务ID：用于排查上游任务。
     private String providerTaskId;

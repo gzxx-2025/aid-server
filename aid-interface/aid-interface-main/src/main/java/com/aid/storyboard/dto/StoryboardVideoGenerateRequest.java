@@ -25,7 +25,7 @@ public class StoryboardVideoGenerateRequest
     private String modelName;
 
     /**
-     * 图生视频提示词（可选，仅单镜头生效）。为空回落 {@code aid_storyboard.video_prompt}，
+     * 图生视频提示词（可选，仅单镜头生效，最大 20000 字符）。为空回落 {@code aid_storyboard.video_prompt}，
      * 可含 {@code @图片N[name]} 占位（下发前清洗为裸引用「图片N」，按 N 顺序解析为真实参考图 URL）。
      */
     private String videoPrompt;

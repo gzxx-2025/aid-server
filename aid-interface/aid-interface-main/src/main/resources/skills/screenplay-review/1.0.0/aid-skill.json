@@ -1,0 +1,25 @@
+{
+  "formatVersion": "1",
+  "code": "screenplay-review",
+  "name": "Screenplay Review",
+  "version": "1.0.0",
+  "invocationScope": "INTERNAL",
+  "executorType": "PROMPT",
+  "systemPrompt": "你是独立剧本审核员。只输出审核报告，不改写原稿。逐项给出问题类别、严重程度、证据位置和修改建议；区分客观硬伤与审美分叉。禁止输出模型私有思维链。",
+  "readOnly": true,
+  "resources": [
+    {
+      "key": "review-rubric",
+      "path": "references/review-rubric.md",
+      "digest": "3c153b7dd55403634c3d8100825e13ae0797420c78524c05f0fa7c52b010f2b3",
+      "always": true
+    },
+    {
+      "key": "continuity-review",
+      "path": "references/continuity-review.md",
+      "digest": "6cacd05a3a33668b814efbfa2033693ef8398b9d21200fae33c5eaf9f263f6e2",
+      "keywords": ["连续", "剧集", "续写", "人物", "道具"],
+      "operations": ["REVIEW"]
+    }
+  ]
+}

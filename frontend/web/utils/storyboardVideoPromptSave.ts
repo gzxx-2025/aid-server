@@ -1,58 +1,46 @@
-/** 多参方向手动保存（接口 10.7）：须含 # 主题 / # 运镜 / # 风格 */
+import { EDIT_ASSET_PROMPT_MAX_CHARS } from './htmlPlain'
+
+function validateRequiredVideoPrompt(
+  value: string
+): { ok: true } | { ok: false; message: string } {
+  const text = String(value ?? '')
+  if (!text.trim()) {
+    return { ok: false, message: '提示词不能为空' }
+  }
+  if (text.length > EDIT_ASSET_PROMPT_MAX_CHARS) {
+    return { ok: false, message: '提示词过长' }
+  }
+  return { ok: true }
+}
+
+/** 多参方向提示词：前端仅校验非空与统一长度边界。 */
 export function validateMultiParamVideoPromptPlain(
   plain: string
 ): { ok: true } | { ok: false; message: string } {
-  const text = String(plain ?? '').trim()
-  if (!text) {
-    return { ok: false, message: '提示词不能为空' }
-  }
-  if (text.length > 3024) {
-    return { ok: false, message: '提示词不规范' }
-  }
-  // if (!text.includes('# 主题') || !text.includes('# 运镜') || !text.includes('# 风格')) {
-  //   return { ok: false, message: '提示词不规范' }
-  // }
-  return { ok: true }
+  return validateRequiredVideoPrompt(plain)
 }
 
-/** 图生方向提示词（接口 10.8 产出约 180 字纯字符串，含镜头运动/画面描述等结构化字段） */
+/** 图生方向提示词：格式规则由服务端统一校验。 */
 export function validateImageToVideoPromptPlain(
   plain: string
 ): { ok: true } | { ok: false; message: string } {
-  const text = String(plain ?? '').trim()
-  if (!text) {
-    return { ok: false, message: '提示词不能为空' }
-  }
-  if (text.length > 4000) {
-    return { ok: false, message: '提示词过长' }
-  }
-  if (!text.includes('镜头运动：') || !text.includes('画面描述：')) {
-    return { ok: false, message: '提示词不规范' }
-  }
-  return { ok: true }
+  return validateRequiredVideoPrompt(plain)
 }
 
-/** 宫格方向提示词（接口 video-prompt-grid，写 video_prompt_image；产出含切换镜头/参考分镜图等） */
+/** 宫格方向提示词：格式规则由服务端统一校验。 */
 export function validateGridVideoPromptPlain(
   plain: string
 ): { ok: true } | { ok: false; message: string } {
-  const text = String(plain ?? '').trim()
-  if (!text) {
-    return { ok: false, message: '提示词不能为空' }
-  }
-  if (text.length > 4000) {
-    return { ok: false, message: '提示词过长' }
-  }
-  return { ok: true }
+  return validateRequiredVideoPrompt(plain)
 }
 
-/** 首尾帧方向：videoPrompt 可空（回落 aid_storyboard.video_prompt），非空时校验长度 */
+/** 首尾帧方向：提示词可空，非空时仅校验统一长度边界。 */
 export function validateEdgeVideoPromptPlain(
   plain: string
 ): { ok: true } | { ok: false; message: string } {
-  const text = String(plain ?? '').trim()
-  if (!text) return { ok: true }
-  if (text.length > 3024) {
+  const text = String(plain ?? '')
+  if (!text.trim()) return { ok: true }
+  if (text.length > EDIT_ASSET_PROMPT_MAX_CHARS) {
     return { ok: false, message: '提示词过长' }
   }
   return { ok: true }

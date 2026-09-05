@@ -50,7 +50,7 @@ service.interceptors.request.use(
 
     // 防重复提交
     // 仅拦截"写操作"，放行以 POST 发起的查询类接口（列表/详情/分页/导出等），
-    // 避免审核等以 POST 查询的页面在切换/重查时被误判为"重复提交"。
+    // 避免以 POST 查询的页面在切换或重查时被误判为重复提交。
     const reqUrl = config.url || '';
     const isQueryLike = /\/(list|page|query|detail|export|tree|getInfo|getNames|getKeys|getValue)(\/|\?|$)/i.test(reqUrl);
     if (!isRepeatSubmit && !isQueryLike && (config.method === 'post' || config.method === 'put')) {

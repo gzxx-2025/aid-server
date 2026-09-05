@@ -8,6 +8,7 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import com.fasterxml.jackson.annotation.JsonFormat;
 import com.aid.common.annotation.Excel;
 import lombok.Data;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
 import com.aid.common.core.domain.BaseEntity;
@@ -60,6 +61,10 @@ public class AidExtractTask extends BaseEntity implements Serializable
     /** 错误信息 */
     @Excel(name = "错误信息")
     private String errorMessage;
+
+    /** 任务的安全结构化错误快照。 */
+    @JsonIgnore
+    private String errorDetailJson;
 
     /** 提取资产总数 */
     @Excel(name = "提取资产总数")

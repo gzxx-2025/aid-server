@@ -3,6 +3,7 @@ package com.aid.auth.controller;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.crypto.digest.DigestUtil;
 import com.aid.auth.service.WeChatLoginService;
+import com.aid.providerbalance.service.ProviderBalanceQrService;
 import com.aid.common.aid.wxlogin.core.WxLoginTemplateFactory;
 import com.aid.common.annotation.Anonymous;
 import com.aid.common.core.domain.AjaxResult;
@@ -61,6 +62,9 @@ public class WeChatLoginController {
 
     @Resource
     private WeChatLoginService weChatLoginService;
+
+    @Resource
+    private ProviderBalanceQrService providerBalanceQrService;
 
     /**
      * 手动验证微信签名
@@ -179,27 +183,42 @@ public class WeChatLoginController {
             }
 
             if (Objects.equals(EVENT_SCAN, event) || Objects.equals(EVENT_SUBSCRIBE, event)) {
-                WxMpUser wxMpUser = wxMpService.getUserService().userInfo(openId);
-
                 // 根据场景值前缀区分登录和绑定
-                if (sceneStr != null && sceneStr.startsWith("bind_")) {
-                    // 绑定场景
+                if (sceneStr != null && sceneStr.startsWith("pbal_")) {
+                    // 后台供应商余额提醒人绑定，不创建用户账号，也不进入登录流程。
                     try {
-                        weChatLoginService.handleBindScan(sceneStr, openId, wxMpUser);
+                        WxMpUser wxMpUser = null;
+                        try {
+                            wxMpUser = wxMpService.getUserService().userInfo(openId);
+                        } catch (Exception userInfoError) {
+                            log.warn("余额提醒人微信昵称获取失败，继续使用 OpenID 绑定: sceneStr={}", sceneStr);
+                        }
+                        providerBalanceQrService.handleScan(sceneStr, openId, wxMpUser);
                     } catch (Exception e) {
-                        log.error("处理微信绑定扫码失败: sceneStr={}", sceneStr, e);
-                        weChatLoginService.markBindFailed(sceneStr, "绑定失败");
+                        log.error("处理余额提醒人微信扫码失败: sceneStr={}", sceneStr, e);
+                        providerBalanceQrService.markFailed(sceneStr, "添加微信提醒人失败");
                     }
                 } else {
-                    // 登录场景
-                    try {
-                        weChatLoginService.handleScan(sceneStr, openId, wxMpUser);
-                    } catch (ServiceException e) {
-                        log.info("处理微信登录扫码失败: sceneStr={}, reason={}", sceneStr, e.getMessage());
-                        weChatLoginService.markLoginFailed(sceneStr, e.getMessage());
-                    } catch (Exception e) {
-                        log.error("处理微信登录扫码失败: sceneStr={}", sceneStr, e);
-                        weChatLoginService.markLoginFailed(sceneStr, "登录失败");
+                    WxMpUser wxMpUser = wxMpService.getUserService().userInfo(openId);
+                    if (sceneStr != null && sceneStr.startsWith("bind_")) {
+                    // 绑定场景
+                        try {
+                            weChatLoginService.handleBindScan(sceneStr, openId, wxMpUser);
+                        } catch (Exception e) {
+                            log.error("处理微信绑定扫码失败: sceneStr={}", sceneStr, e);
+                            weChatLoginService.markBindFailed(sceneStr, "绑定失败");
+                        }
+                    } else {
+                        // 登录场景
+                        try {
+                            weChatLoginService.handleScan(sceneStr, openId, wxMpUser);
+                        } catch (ServiceException e) {
+                            log.info("处理微信登录扫码失败: sceneStr={}, reason={}", sceneStr, e.getMessage());
+                            weChatLoginService.markLoginFailed(sceneStr, e.getMessage());
+                        } catch (Exception e) {
+                            log.error("处理微信登录扫码失败: sceneStr={}", sceneStr, e);
+                            weChatLoginService.markLoginFailed(sceneStr, "登录失败");
+                        }
                     }
                 }
             }

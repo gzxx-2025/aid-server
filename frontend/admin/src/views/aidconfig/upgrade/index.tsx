@@ -76,6 +76,7 @@ import { useUpgradeStore } from '@/store/useUpgradeStore';
 import PageHeader from '@/components/PageHeader';
 import StatCard from '@/components/StatCard';
 import './style.less';
+import NginxPanel from './NginxPanel';
 
 const { Paragraph, Text } = Typography;
 
@@ -107,7 +108,7 @@ const TASK_ACTION_TEXT: Record<string, string> = {
 };
 
 const VERSION_TASK_ACTIONS = new Set(['UPGRADE', 'UPDATER_UPGRADE', 'ROLLBACK']);
-const CONFIG_RELOAD_ACTIONS = new Set(['CERT_INSTALL', 'CONFIG_APPLY', 'CONFIG_ROLLBACK']);
+const CONFIG_RELOAD_ACTIONS = new Set(['CERT_INSTALL', 'CONFIG_APPLY', 'CONFIG_ROLLBACK', 'NGINX_APPLY', 'NGINX_ROLLBACK']);
 const HOSTNAME_PATTERN = /^(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)*[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/;
 const portRules = (required: boolean) => [
   { required, message: '请输入端口' },
@@ -2378,6 +2379,12 @@ export default function UpgradeConfigPage() {
                   </Space>
                 ),
                 children: deploymentPanel
+              },
+              {
+                key: 'nginx',
+                label: <Space><CloudServerOutlined />Nginx 网关</Space>,
+                children: <NginxPanel config={deploymentConfig} ready={configProtocolReady} busy={taskBusy}
+                  loading={deploymentLoading} lastTask={lastTask} onSubmitted={beginTaskPolling} onRefresh={loadDeployment} />
               },
               {
                 key: 'assets',

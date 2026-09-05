@@ -114,7 +114,6 @@ export function createScpSceneImageCrudOps(ctx: ScpCtx) {
     })
     ctx.sceneImages.set({ ...ctx.sceneImages.get(), [targetIndex]: nextList })
     message.success(`已为「${ctx.localValue.get().scenes[targetIndex]}」导入场景图片`)
-    ctx.showImportSceneImageModal.set(false)
   }
 
   const getSceneImage = (index: number) => ctx.sceneImages.get()[index]?.[0] ?? null

@@ -8,7 +8,7 @@ matchesCreationLiveGenScope
 import { formatCreationImageProgressText,runEditImageTask } from '~/composables/useEditImageTask'
 import { userAssetRpsFormImageSceneSplit } from '~/utils/businessApi'
 import { resolveDialogueToolbarSourceImages } from '~/utils/formImageEditPrefill'
-import { htmlToPlainText,isHtmlContentEmpty } from '~/utils/htmlPlain'
+import { htmlToPlainText } from '~/utils/htmlPlain'
 import { shouldApplyModalTaskProgressToCanvas } from '~/utils/liveGenScopeIsolation'
 import { createSceneModalCanvasGenerateActions } from './sceneModalCanvasGenerateActions'
 import {
@@ -28,141 +28,9 @@ SceneModalTaskOwner
 export type { SceneModalGenerateApi }
 
 export function useSceneModalGenerate(ctx: EditSceneImageModalCtx): SceneModalGenerateApi {
-  // 开始生图（编辑图片：genMode=edit，必须 ≥1 张参考图）
-  const handleStartGenerate = async () => {
-    if (ctx.showEditGenerateButtonLoading()) return
-    if (isHtmlContentEmpty(ctx.promptText.get())) {
-      message.warning('请输入描述内容')
-      return
-    }
-
-    const promptPlainText = htmlToPlainText(ctx.promptText.get() || '').trim()
-    const refImages = ctx.generateSourceImages.get().map((img) => img.url).filter(Boolean) as string[]
-
-    if (refImages.length === 0) {
-      message.warning('编辑图片需至少上传 1 张参考图')
-      return
-    }
-
-    const currentImgRow = ctx.localSceneImages.get()[ctx.currentImageIndex.get()] as Record<string, unknown> | undefined
-    const formId = resolveSceneModalGenerationFormId(currentImgRow, ctx.activeRpsFormIds())
-    if (formId == null) {
-      message.warning('当前缺少形态信息，无法发起生图')
-      return
-    }
-
-    const modelCode = String(ctx.selectedModel()?.id || '').trim()
-    if (!modelCode) {
-      message.warning('请先选择生图模型')
-      return
-    }
-
-    const sceneIdx = ctx.currentSceneIndex.get()
-    const modalScope = ctx.captureModalScopeSnapshot(sceneIdx)
-    const taskScopeKey = modalScope.editorScopeKey
-    /** 剧集隔离：任务归属启动时作品/集；切集后终态收尾不得写当前集 store、不得 toast */
-    const liveScope = captureCreationLiveGenScope()
-    ctx.ensureGeneratingPlaceholderImage(sceneIdx)
-    const imgIdx = ctx.currentImageIndex.get()
-    ctx.beginCanvasTaskOverlay(sceneIdx, imgIdx, '生图任务提交中...', 'edit-image')
-
-    let submittedTaskId: number | null = null
-    const submitPayload = buildSceneModalGenerateRequest({
-      formId,
-      genMode: 'edit',
-      referenceImages: refImages,
-      prompt: promptPlainText,
-      modelCode,
-      aspectRatio: ctx.generationSettings.get().aspectRatio || '1:1',
-      size: ctx.generationSettings.get().quality?.toUpperCase() || '2K',
-      imageCount: ctx.generationSettings.get().count || 1
-    })
-    const result = await runEditImageTask({
-      ...submitPayload,
-      onSubmitted: ({ taskId }) => {
-        submittedTaskId = taskId
-        ctx.persistSceneModalSseTask(sceneIdx, imgIdx, 'edit-image', taskId, { formId })
-      },
-      onProgress: (p) => {
-        const hit = ctx.store().getSceneModalSseTask(taskScopeKey, liveScope.scopeKey)
-        if (hit && Number(hit.taskId) === Number(submittedTaskId)) {
-          ctx.syncSceneModalSseProgress(hit, p, liveScope.scopeKey)
-        }
-        ctx.applyCanvasProgressIfCurrent({
-          liveGenScopeKey: liveScope.scopeKey,
-          editorScopeKey: taskScopeKey,
-          taskId: submittedTaskId,
-          text: formatCreationImageProgressText(p)
-        })
-        if (
-          p.items?.length &&
-          shouldApplyModalTaskProgressToCanvas({
-            taskLiveGenScopeKey: liveScope.scopeKey,
-            currentLiveGenScopeKey: ctx.currentModalLiveGenScopeKey(),
-            taskEditorScopeKey: taskScopeKey,
-            currentEditorScopeKey: ctx.buildEditorScopeKeyForSceneIndex(ctx.currentSceneIndex.get()),
-            modalOpen: ctx.props().open
-          })
-        ) {
-          void ctx.claimFormImagesForModal(submittedTaskId ?? 0, 'form_edit_chat', { items: p.items }).then(async () => {
-            if (!ctx.isSameModalScope(modalScope)) return
-            const focusId = p.items![p.items!.length - 1]?.imageId ?? null
-            await ctx.initFormImageListOnOpen({ focusImageId: focusId })
-            if (ctx.isSameModalScope(modalScope)) ctx.emitSceneTabUpdate(ctx.buildVisibleImagesForParent())
-          })
-        }
-      }
-    })
-
-    // 关弹窗再进 / 双重 restore / suspend：旧 SSE 被抢占，勿清 Pinia / 勿 toast；释放锁后交给 restore 续跟
-    if (result.ok === false && result.deferred) {
-      if (taskScopeKey) {
-        ctx.handleDeferredSceneModalFollow({
-          sceneIdx,
-          editorScopeKey: taskScopeKey,
-          liveGenScopeKey: liveScope.scopeKey,
-          errorMessage: result.errorMessage
-        })
-      }
-      return
-    }
-
-    const taskOwner: SceneModalTaskOwner = {
-      editorScopeKey: taskScopeKey,
-      taskId: submittedTaskId,
-      liveGenScopeKey: liveScope.scopeKey
-    }
-
-    /** 剧集隔离：已切集则只清任务所属 scope 桶快照，不写当前集 UI/store、不 toast、不回写图片 */
-    if (!matchesCreationLiveGenScope(liveScope)) {
-      ctx.clearSceneModalTaskStateIfOwned(taskOwner)
-      return
-    }
-
-    const canClearTaskUi = ctx.clearSceneModalTaskStateIfOwned(taskOwner, { sceneIdx })
-    if (canClearTaskUi) ctx.endCanvasTaskOverlay(sceneIdx, imgIdx)
-
-    if (result.ok === false) {
-      if (ctx.isSameModalScope(modalScope)) message.error(result.errorMessage || '生图失败')
-      return
-    }
-    await ctx.claimFormImagesForModal(submittedTaskId ?? 0, 'form_edit_chat', { items: result.items })
-    await ctx.refreshAfterEditChatGenerate(result.items, modalScope)
-
-    const successCount = result.items.length
-    const failMsg = result.failCount ? `，${result.failCount} 张失败` : ''
-    if (ctx.isSameModalScope(modalScope)) {
-      message.success(`编辑图片完成，共生成 ${successCount} 张${failMsg}`)
-    }
-
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('create-flow-global-tasks-updated'))
-    }
-  }
-
   /** 「对话作图」Tab：genMode=chat，参考图 0~N 张（0 张为纯文生图） */
   const handleStartDialogueGenerate = async () => {
-    if (ctx.showDialogueGenerateButtonLoading()) return
+    if (ctx.showGenerateFooterButtonLoading()) return
     const instructionText = htmlToPlainText(ctx.dialogueInstructionHtml.get() || '').trim()
     if (!instructionText) {
       message.warning('请输入修改要求')
@@ -384,7 +252,6 @@ export function useSceneModalGenerate(ctx: EditSceneImageModalCtx): SceneModalGe
 
   /** 场景 / 道具 / 形态(form) 等：保存参考图优先，否则沿用当前图单图兜底。 */
   function handleDialogueImage(index: number) {
-    ctx.leftActiveTab.set('dialogue')
     ctx.currentImageIndex.set(index)
     ctx.applyCurrentFormImageEditPrefill()
     const hasSavedReferences = ctx.dialogueSourceImages.get().length > 0
@@ -410,7 +277,6 @@ export function useSceneModalGenerate(ctx: EditSceneImageModalCtx): SceneModalGe
     handleMultiAngleGenerate
   } = createSceneModalCanvasGenerateActions(ctx)
   return {
-    handleStartGenerate,
     handleStartDialogueGenerate,
     showSceneSplitOverlay,
     showSceneSplitToolbarLoading,

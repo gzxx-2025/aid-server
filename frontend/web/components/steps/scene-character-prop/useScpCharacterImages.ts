@@ -117,7 +117,6 @@ export function useScpCharacterImages(ctx: ScpCtx): ScpCharacterImagesApi {
 
     const formName = ctx.characterForms.get()[characterIndex][formIndex].name
     message.success(`已为「${formName}」导入形态图片`)
-    ctx.showImportCharacterFormImageModal.set(false)
   }
 
   const handleEditCharacterFormImage = (characterIndex: number, formIndex: number) => {

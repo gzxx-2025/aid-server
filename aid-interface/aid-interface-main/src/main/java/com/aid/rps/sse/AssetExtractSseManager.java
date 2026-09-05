@@ -1,5 +1,6 @@
 package com.aid.rps.sse;
 
+import com.aid.common.error.TaskErrorSnapshot;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -22,6 +23,8 @@ import com.aid.common.error.ErrorNormalizer;
 import com.aid.common.error.RefundStatusMapper;
 import com.aid.common.error.TaskErrorResult;
 import com.aid.common.utils.DateUtils;
+import com.aid.media.dto.TaskEtaVO;
+import com.aid.media.eta.MediaEtaService;
 
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -54,6 +57,9 @@ public class AssetExtractSseManager
 
     @Resource
     private IAidExtractTaskService extractTaskService;
+
+    @Resource
+    private MediaEtaService mediaEtaService;
 
     /**
      * 注册 SSE 连接（不设置 emitter 回调，清理由调用方在自己的回调中调 {@link #unregister(Long, SseEmitter)}）；同一 taskId 重连时先 complete 旧 emitter。
@@ -552,6 +558,9 @@ public class AssetExtractSseManager
     {
         // 任务行只读一次：终态快照与实时事件共用同一份任务数据，避免并发计费更新导致两处退款口径不一致
         AidExtractTask task = loadTask(taskId);
+        if (Objects.nonNull(task) && TaskErrorSnapshot.read(task.getErrorDetailJson()) != null) {
+            errorResult = TaskErrorSnapshot.fromTask(task);
+        }
         Map<String, Object> payload = assembleErrorEvent(taskId, task, errorResult);
 
         // 写终态快照（跨进程保底），message 用 userMessage
@@ -580,7 +589,7 @@ public class AssetExtractSseManager
     }
 
     /**
-     * 从任务行构建 error 事件：错误码按 error_message 实时归一化，退款字段按实际计费状态派生。
+     * 从任务行构建 error 事件：错误码优先读取终态快照，退款字段按实际计费状态派生。
      * 断线重连补发与实时推送共用同一份组装逻辑，杜绝两个入口字段口径不一致。
      * 历史任务没落错误原因时由归一化器兜底成未知错误码，字段集保持一致。
      *
@@ -594,7 +603,7 @@ public class AssetExtractSseManager
             return new LinkedHashMap<>();
         }
         return assembleErrorEvent(task.getId(), task,
-                ErrorNormalizer.classify(null, task.getModelCode(), -1, task.getErrorMessage()));
+                TaskErrorSnapshot.fromTask(task));
     }
 
     /**
@@ -761,6 +770,19 @@ public class AssetExtractSseManager
         snapshot.putIfAbsent("taskType", task.getTaskType());
         snapshot.putIfAbsent("taskTitle", taskTitle(task.getTaskType()));
         snapshot.putIfAbsent("taskScope", taskScope(task));
+        try
+        {
+            TaskEtaVO eta = mediaEtaService.estimateParentTask(task, snapshot);
+            if (Objects.nonNull(eta))
+            {
+                snapshot.put("eta", eta);
+            }
+        }
+        catch (Exception e)
+        {
+            // ETA 是旁路展示能力，任何统计/缓存异常都不能阻断 SSE 主进度。
+            log.debug("SSE ETA 补充失败: taskId={}, err={}", task.getId(), e.getMessage());
+        }
         if (prefixMessage)
         {
             Object message = snapshot.get("message");

@@ -1,6 +1,10 @@
 import type { SceneModalSseTaskKind } from '~/stores/creation'
 import { isFormCardImageTaskType } from '~/utils/formImageAutoUse'
 
+export function isSinglePrimaryImageType(imageType: unknown): boolean {
+  return imageType === 'character' || imageType === 'prop'
+}
+
 export function mapSourceLabelToRpsType(source?: string): 'upload' | 'official' | 'ai' {
   if (!source) return 'upload'
   if (/自动|对话|生成|\bAI\b|ai/i.test(source)) return 'ai'

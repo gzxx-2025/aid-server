@@ -95,6 +95,23 @@ function sceneLabelLines(label: string): string[] {
   return lines
 }
 
+function configSourceMeta(source?: string): { label: string; className: string; title: string } {
+  if (source === 'project') {
+    return { label: '作品配置', className: 'is-project', title: '已保存为当前作品的个性化配置' }
+  }
+  if (source === 'draft') {
+    return { label: '待保存', className: 'is-draft', title: '当前选择尚未保存' }
+  }
+  if (source === 'none') {
+    return { label: '待配置', className: 'is-empty', title: '当前场景没有可用的智能体或模型' }
+  }
+  return {
+    label: '策略默认',
+    className: 'is-default',
+    title: '来自后台策略矩阵；配置下线时会自动切换到当前可用默认项'
+  }
+}
+
 function emptyRow(): SceneRowDraft {
   return {
     agentCode: '',
@@ -432,6 +449,7 @@ export function ProjectGenConfigModal({
     if (pickedModel) {
       cur.modelCode = pickedModel
     }
+    cur.source = 'draft'
     // 确认选择模型后，清晰度/比例一律回落该模型 capability.defaultSize / defaultAspectRatio
     const next = applyImageParamDefaults(sceneKindFor(sceneCode), cur, {
       forceModelDefaults: Boolean(pickedModel)
@@ -440,12 +458,12 @@ export function ProjectGenConfigModal({
   }
 
   function onResolutionChange(sceneCode: string, v: string) {
-    const cur = { ...rowValue(sceneCode), resolution: String(v || '').trim() }
+    const cur = { ...rowValue(sceneCode), resolution: String(v || '').trim(), source: 'draft' }
     setRows((prev) => ({ ...prev, [sceneCode]: cur }))
   }
 
   function onAspectRatioChange(sceneCode: string, v: string) {
-    const cur = { ...rowValue(sceneCode), aspectRatio: String(v || '').trim() }
+    const cur = { ...rowValue(sceneCode), aspectRatio: String(v || '').trim(), source: 'draft' }
     setRows((prev) => ({ ...prev, [sceneCode]: cur }))
   }
 
@@ -540,6 +558,9 @@ export function ProjectGenConfigModal({
           <p className="pgc-desc">
             为当前作品配置各业务场景的默认智能体与模型。自动提取、批量生成未手动选模型时将使用此处配置（经济/性能模式跟随作品「模型策略」）。
           </p>
+          <div className="pgc-fallback-note">
+            后台停用模型或智能体后，未固定的场景会自动使用当前可用的策略默认项；历史生成结果和计费记录不受影响。
+          </div>
 
           {loading ? (
             <div className="pgc-loading" role="status" aria-live="polite" aria-busy="true">
@@ -583,6 +604,19 @@ export function ProjectGenConfigModal({
                         <div className="pgc-config-head-row">
                           <div className="pgc-config-head">
                             <span className="pgc-config-head__text">智能体/模型</span>
+                            {(() => {
+                              const source = configSourceMeta(
+                                rowValue(String(scene.sceneCode)).source
+                              )
+                              return (
+                                <span
+                                  className={`pgc-config-source ${source.className}`}
+                                  title={source.title}
+                                >
+                                  {source.label}
+                                </span>
+                              )
+                            })()}
                             <span className="pgc-config-head__ico" aria-hidden="true">
                               <img
                                 onClick={() => openAgentPicker(String(scene.sceneCode))}

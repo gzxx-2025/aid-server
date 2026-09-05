@@ -32,7 +32,7 @@ public class StoryboardVideoFromImageGenerateRequest
     private String modelName;
 
     /**
-     * 图生视频提示词（可选）。
+     * 图生视频提示词（可选，最大 20000 字符）。
      * 为空时回落 {@code aid_storyboard.video_prompt_image}；两者皆空抛"请先生成提示词"。
      * 前端传了则本次直接使用，并在建任务前落库到 {@code video_prompt_image}。
      */

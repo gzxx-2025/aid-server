@@ -54,6 +54,7 @@ let rsaPublicKeyB64: string | null = null
 let serverTimeOffsetMs = 0
 let rsaPublicKeyPromise: Promise<CryptoKey> | null = null
 const requestAesKeyMap = new WeakMap<InternalAxiosRequestConfig, CryptoKey>()
+let apiCryptoConfigResolved = false
 let refreshApiCryptoConfigHandler: (() => Promise<void>) | null = null
 let refreshApiCryptoConfigPromise: Promise<boolean> | null = null
 
@@ -111,7 +112,7 @@ export function isApiCryptoEnabled(): boolean {
   return cryptoEnabled && !!rsaPublicKeyB64
 }
 
-/** 注册公开配置刷新器，供请求层在时间戳过期时自动重新校时。 */
+/** 注册公开配置刷新器，供请求层初始化配置或在时间戳过期时重新校时。 */
 export function registerApiCryptoConfigRefreshHandler(handler: () => Promise<void>): void {
   refreshApiCryptoConfigHandler = handler
 }
@@ -130,6 +131,13 @@ export async function refreshApiCryptoConfig(): Promise<boolean> {
   return refreshApiCryptoConfigPromise
 }
 
+/** 首个受保护请求等待公开配置就绪，避免按默认明文抢跑。 */
+export async function ensureApiCryptoConfigReady(): Promise<boolean> {
+  if (refreshApiCryptoConfigPromise) return refreshApiCryptoConfigPromise
+  if (apiCryptoConfigResolved) return true
+  return refreshApiCryptoConfig()
+}
+
 export function getApiCryptoTimestampMs(): number {
   return Date.now() + serverTimeOffsetMs
 }
@@ -143,6 +151,7 @@ export function applyApiCryptoFromPublicConfig(
   cryptoEnabled = enabled
   rsaPublicKeyB64 = enabled ? String(crypto!.publicKey) : null
   rsaPublicKeyPromise = null
+  apiCryptoConfigResolved = true
   if (
     typeof serverTime === 'number' &&
     Number.isFinite(serverTime) &&

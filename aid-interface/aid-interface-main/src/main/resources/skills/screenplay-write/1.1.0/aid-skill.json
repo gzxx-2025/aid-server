@@ -1,0 +1,65 @@
+{
+  "formatVersion": "1",
+  "code": "screenplay-write",
+  "name": "Screenplay Write",
+  "version": "1.1.0",
+  "invocationScope": "INTERNAL",
+  "executorType": "PROMPT",
+  "systemPrompt": "你是AID专业编剧。按动作模式处理电影或剧集：先服从用户明确要求和已接受项目事实，再在内部形成观看承诺、人物当前目标、有效阻力、方向性转向、局部兑现与退出状态，使行动结果迫使下一动作。只写观众可见可听且可表演的事实，严格区分世界真相、人物认知和观众已知；不得为套规则补造关系、证据、资源、权限、精确时间或机关。REWRITE、NORMALIZE和REPAIR必须保护未命中内容，REPAIR只改有正文证据的客观硬伤。输出前静默检查因果、对白策略、连续性、时长容量与格式，不输出思考过程。最终只输出AID规范纯文本：剧集首行为“本集正文”，电影首行为“电影正文”，每场使用“场次 N：地点 内/外 日/夜”，说话人独占一行使用“人物名：”；禁止JSON、Markdown围栏、审核报告、时长和版本元数据。",
+  "actions": ["CREATE", "REWRITE", "CONTINUE", "NORMALIZE", "REPAIR"],
+  "resources": [
+    {
+      "key": "canonical-format",
+      "path": "references/canonical-format.md",
+      "digest": "473329feb9baeb547c9a183c1cd20876e76148d7faad48eb33f05c5c0b507da1",
+      "always": true
+    },
+    {
+      "key": "story-engine",
+      "path": "references/story-engine.md",
+      "digest": "c046615df9247d3f891cb83211cf82d0d37bee40ab0caee245799a50d898aab0",
+      "always": true
+    },
+    {
+      "key": "revision-policy",
+      "path": "references/revision-policy.md",
+      "digest": "1d53396784725360b16bbac2618d2c301f9acd5e4c3e0ed4ebf237d4e9eea90d",
+      "operations": ["REWRITE", "NORMALIZE", "REPAIR"]
+    },
+    {
+      "key": "series-craft",
+      "path": "references/series-craft.md",
+      "digest": "644469ee0ec6e6567192904b6ec4b2b4a26c05f575c19fcc6f048469afa9041c",
+      "keywords": ["项目类型：series", "剧集项目", "前集", "跨集连续", "当前集"]
+    },
+    {
+      "key": "movie-craft",
+      "path": "references/movie-craft.md",
+      "digest": "3e50d9fb6b14178a8eeee7fbeb3bc788579f8feed23b699c782f6eb3431633ba",
+      "keywords": ["项目类型：movie", "电影项目", "长片", "全片"]
+    },
+    {
+      "key": "conditional-mechanisms",
+      "path": "references/conditional-mechanisms.md",
+      "digest": "63099b18f7c63d73420cd459ccc30c88bc851cce087b976c41419ce15aa51c4b",
+      "keywords": ["艰难选择", "二选一", "证据", "物证", "倒计时", "死线", "限时", "次数", "轮次", "呼吸"]
+    },
+    {
+      "key": "dialogue-performance",
+      "path": "references/dialogue-performance.md",
+      "digest": "6b6ec19466401c798d7dedb92d825250657fe16c1d5b39e3509f85bf5f92bc66",
+      "keywords": ["对白", "对话", "台词", "潜台词", "谈判", "审讯", "吵架", "去AI味"]
+    },
+    {
+      "key": "production-craft",
+      "path": "references/production-craft.md",
+      "digest": "43b09b13a39857a4854611e02429103202f2a4258b7b4a457136deca7c5e3ba6",
+      "keywords": ["可拍", "声音", "旁白", "画外音", "画面文字", "转场", "制作"]
+    },
+    {
+      "key": "upstream-attribution",
+      "path": "references/upstream-attribution.md",
+      "digest": "8de35e00f0316d1f2977ad86ad6822329a778de3e36bedff0ea34d3e4825f6c0"
+    }
+  ]
+}

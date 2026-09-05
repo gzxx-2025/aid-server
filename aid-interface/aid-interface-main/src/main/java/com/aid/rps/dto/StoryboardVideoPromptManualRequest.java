@@ -16,8 +16,8 @@ public class StoryboardVideoPromptManualRequest
     @NotNull(message = "分镜ID不能为空")
     private Long storyboardId;
 
-    /** 用户手动填写的视频提示词（须含镜头运动/画面描述，长度 1~1024） */
+    /** 用户手动填写的视频提示词（须符合当前创作模式格式，长度 1~20000）。 */
     @NotNull(message = "提示词不能为空")
-    @Size(min = 1, max = 1024, message = "提示词不规范")
+    @Size(min = 1, max = 20_000, message = "提示词不规范")
     private String videoPrompt;
 }

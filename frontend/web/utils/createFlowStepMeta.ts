@@ -49,7 +49,7 @@ export const CREATION_FLOW_STEPS: CreationFlowStepMeta[] = [
     key: 'preview',
     title: '成品预览',
     description: '预览成片并导出发布',
-    guide: '完整播放检查节奏与画面，导出完整视频后可发布至案例广场或保存本地'
+    guide: '完整播放检查节奏与画面，确认无误后可导出完整视频或分段素材'
   }
 ]
 

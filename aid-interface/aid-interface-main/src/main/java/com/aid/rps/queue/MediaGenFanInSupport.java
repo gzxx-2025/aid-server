@@ -1,5 +1,15 @@
 package com.aid.rps.queue;
 
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.aid.common.utils.DateUtils;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.aid.aid.service.IAidExtractTaskService;
+import com.aid.aid.domain.AidExtractTask;
+import com.aid.common.error.TaskErrorSnapshot;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -80,6 +90,9 @@ public class MediaGenFanInSupport
 
     @Resource
     private IAidMediaTaskService mediaTaskService;
+
+    @Resource
+    private IAidExtractTaskService extractTaskService;
 
     @Resource
     private ApplicationEventPublisher eventPublisher;
@@ -277,6 +290,121 @@ public class MediaGenFanInSupport
         incrFail(taskId);
     }
 
+    /** 调用方持有父任务提交锁；无媒体子任务的失败也持久化到本轮父任务结果。 */
+    public void incrFail(Long taskId, Long storyboardId, int take, String executionTraceId, Throwable cause) {
+        AidExtractTask parent = extractTaskService.selectAidExtractTaskById(taskId);
+        if (Objects.isNull(parent) || !Objects.equals(executionTraceId, parent.getBillingTraceId())) {
+            throw new BatchTaskExecutionRejectedException();
+        }
+        TaskErrorResult error = ErrorNormalizer.normalize(String.valueOf(taskId), null, parent.getModelCode(), cause);
+        try {
+            ObjectNode result = StrUtil.isBlank(parent.getResultData()) ? OBJECT_MAPPER.createObjectNode()
+                    : (ObjectNode) OBJECT_MAPPER.readTree(parent.getResultData());
+            int runNo = currentRunNo(parent);
+            ArrayNode failures = OBJECT_MAPPER.createArrayNode();
+            for (JsonNode item : result.path("failedItems")) {
+                if (item.path("runNo").asInt(0) != runNo) { continue; }
+                if (item.path("storyboardId").asLong() == storyboardId && item.path("take").asInt() == take) {
+                    return; // 同一执行周期同一槽位已记录，不能重复增加失败数。
+                }
+                failures.add(item);
+            }
+            Map<String, Object> failure = failureItem(storyboardId, take, null, error);
+            failure.put("runNo", runNo);
+            failures.add(OBJECT_MAPPER.valueToTree(failure));
+            result.set("failedItems", failures);
+            boolean updated = extractTaskService.update(Wrappers.<AidExtractTask>lambdaUpdate()
+                    .eq(AidExtractTask::getId, taskId)
+                    .eq(AidExtractTask::getBillingTraceId, executionTraceId)
+                    .in(AidExtractTask::getStatus, "PENDING", "PROCESSING")
+                    .set(AidExtractTask::getResultData, result.toString())
+                    .set(AidExtractTask::getUpdateTime, DateUtils.getNowDate())
+                    .set(AidExtractTask::getUpdateBy, "system"));
+            if (!updated) {
+                throw new BatchTaskExecutionRejectedException();
+            }
+        } catch (BatchTaskExecutionRejectedException rejected) {
+            throw rejected;
+        } catch (Exception ex) {
+            throw new IllegalStateException("任务失败明细保存失败", ex);
+        }
+        recordFirstFailureMessage(taskId, error.getUserMessage());
+        // 本地提交失败按持久化槽位计数，不叠加进媒体事件计数；重启重放仍是同一项。
+    }
+
+    /** 汇总本轮提交失败与各逻辑槽位最新媒体任务的安全原因。 */
+    public List<Map<String, Object>> resolveFailureItems(AidExtractTask parent, String taskType) {
+        Map<String, Map<String, Object>> items = new LinkedHashMap<>();
+        try {
+            if (StrUtil.isNotBlank(parent.getResultData())) {
+                for (JsonNode item : OBJECT_MAPPER.readTree(parent.getResultData()).path("failedItems")) {
+                    if (item.path("runNo").asInt(0) != currentRunNo(parent)) { continue; }
+                    TaskErrorResult error = TaskErrorSnapshot.read(item.toString());
+                    if (Objects.isNull(error)) {
+                        error = ErrorNormalizer.classifyByMessage(item.path("errorMessage").asText());
+                    }
+                    Long storyboardId = item.path("storyboardId").asLong();
+                    int take = item.path("take").asInt();
+                    Long mediaTaskId = item.hasNonNull("mediaTaskId") ? item.path("mediaTaskId").asLong() : null;
+                    items.put(storyboardId + ":" + take, failureItem(storyboardId, take, mediaTaskId, error));
+                }
+            }
+            JsonNode snapshot = OBJECT_MAPPER.readTree(parent.getInputSnapshot());
+            JsonNode shots = snapshot.path("allShots");
+            if (!shots.isArray()) { shots = snapshot.path("shots"); }
+            long lower = Math.multiplyExact(parent.getId(), BIZ_SEQ_PARENT_FACTOR);
+            List<AidMediaTask> tasks = mediaTaskService.list(Wrappers.<AidMediaTask>lambdaQuery()
+                    .select(AidMediaTask::getId, AidMediaTask::getBizTaskId, AidMediaTask::getStatus,
+                            AidMediaTask::getModelName, AidMediaTask::getErrorMessage, AidMediaTask::getErrorDetailJson)
+                    .ge(AidMediaTask::getBizTaskId, lower)
+                    .lt(AidMediaTask::getBizTaskId, Math.addExact(lower, BIZ_SEQ_PARENT_FACTOR))
+                    .eq(AidMediaTask::getBizTaskType, taskType)
+                    .orderByDesc(AidMediaTask::getId));
+            Set<Long> seen = new HashSet<>();
+            for (AidMediaTask task : tasks) {
+                if (!seen.add(task.getBizTaskId())) { continue; }
+                long offset = task.getBizTaskId() - lower;
+                int ordinal = (int) (offset / 1000L);
+                int take = (int) (offset % 1000L) + 1;
+                if (!shots.isArray() || ordinal < 0 || ordinal >= shots.size()) { continue; }
+                Long storyboardId = shots.path(ordinal).path("storyboardId").asLong();
+                String key = storyboardId + ":" + take;
+                if ("FAILED".equals(task.getStatus())) {
+                    // 本轮提交已失败但还未创建新媒体任务时，以本轮原因优先。
+                    items.putIfAbsent(key, failureItem(storyboardId, take, task.getId(), TaskErrorSnapshot.fromTask(task)));
+                }
+            }
+            for (Map<String, Object> item : items.values()) { item.put("runNo", currentRunNo(parent)); }
+            return new ArrayList<>(items.values());
+        } catch (Exception ex) {
+            log.error("批量任务失败明细读取异常, taskId={}", parent.getId(), ex);
+            throw new IllegalStateException("任务失败明细读取失败", ex);
+        }
+    }
+
+    private int currentRunNo(AidExtractTask parent) {
+        try {
+            return StrUtil.isBlank(parent.getInputSnapshot()) ? 0
+                    : OBJECT_MAPPER.readTree(parent.getInputSnapshot()).path("runNo").asInt(0);
+        } catch (Exception ex) {
+            throw new IllegalStateException("任务执行快照无效", ex);
+        }
+    }
+
+    private Map<String, Object> failureItem(Long storyboardId, int take, Long mediaTaskId, TaskErrorResult error) {
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("storyboardId", storyboardId);
+        item.put("take", take);
+        item.put("mediaTaskId", mediaTaskId);
+        item.put("errorCode", error.getErrorCode());
+        item.put("errorType", error.getErrorType());
+        item.put("errorSource", error.getErrorSource());
+        item.put("errorMessage", error.getUserMessage());
+        item.put("userMessage", error.getUserMessage());
+        item.put("retryable", error.isRetryable());
+        return item;
+    }
+
     private void recordFirstFailureMessage(Long taskId, String errorMessage)
     {
         if (Objects.isNull(taskId) || StrUtil.isBlank(errorMessage)) { return; }
@@ -337,12 +465,27 @@ public class MediaGenFanInSupport
         try
         {
             Object v = redisCache.redisTemplate.opsForValue().get(REDIS_FAIL_PREFIX + taskId);
-            return Objects.isNull(v) ? 0 : Integer.parseInt(String.valueOf(v));
+            return (Objects.isNull(v) ? 0 : Integer.parseInt(String.valueOf(v))) + submissionFailureCount(taskId);
         }
         catch (Exception e)
         {
-            log.warn("媒体扇入失败计数读取异常(按0): taskId={}", taskId, e);
-            return 0;
+            log.warn("媒体扇入失败计数读取异常: taskId={}", taskId, e);
+            return submissionFailureCount(taskId);
+        }
+    }
+
+    private int submissionFailureCount(Long taskId) {
+        AidExtractTask task = extractTaskService.selectAidExtractTaskById(taskId);
+        if (Objects.isNull(task) || StrUtil.isBlank(task.getResultData())) { return 0; }
+        try {
+            int count = 0;
+            for (JsonNode item : OBJECT_MAPPER.readTree(task.getResultData()).path("failedItems")) {
+                if (!item.hasNonNull("mediaTaskId") && item.path("take").asInt() > 0
+                        && item.path("runNo").asInt(0) == currentRunNo(task)) { count++; }
+            }
+            return count;
+        } catch (Exception ex) {
+            throw new IllegalStateException("任务失败计数读取失败", ex);
         }
     }
 
@@ -356,6 +499,18 @@ public class MediaGenFanInSupport
         {
             return TaskErrorResult.of(TaskErrorCode.AI_GENERATION_FAILED, "子任务全部失败");
         }
+        AidExtractTask parent = extractTaskService.selectAidExtractTaskById(parentTaskId);
+        if (Objects.nonNull(parent)) {
+            TaskErrorResult representative = null;
+            for (Map<String, Object> item : resolveFailureItems(parent, taskType)) {
+                TaskErrorResult candidate = TaskErrorSnapshot.read(toFailureJson(item));
+                if (Objects.isNull(representative)
+                        || TaskErrorPresentation.specificity(candidate) > TaskErrorPresentation.specificity(representative)) {
+                    representative = candidate;
+                }
+            }
+            if (Objects.nonNull(representative)) { return representative; }
+        }
         TaskErrorResult firstFallback = null;
         try
         {
@@ -364,7 +519,7 @@ public class MediaGenFanInSupport
             LambdaQueryWrapper<AidMediaTask> wrapper = new LambdaQueryWrapper<>();
             // 查询字段精简：错误归类只读取模型、错误信息和排序字段。
             wrapper.select(AidMediaTask::getId, AidMediaTask::getModelName,
-                    AidMediaTask::getErrorMessage, AidMediaTask::getUpdateTime);
+                    AidMediaTask::getErrorMessage, AidMediaTask::getErrorDetailJson, AidMediaTask::getUpdateTime);
             wrapper.ge(AidMediaTask::getBizTaskId, lo);
             wrapper.lt(AidMediaTask::getBizTaskId, hi);
             if (StrUtil.isNotBlank(taskType))
@@ -381,8 +536,8 @@ public class MediaGenFanInSupport
             for (AidMediaTask failedTask : failedTasks)
             {
                 String modelCode = StrUtil.blankToDefault(failedTask.getModelName(), fallbackModelCode);
-                TaskErrorResult result = ErrorNormalizer.classify(
-                        null, modelCode, -1, failedTask.getErrorMessage());
+                TaskErrorResult result = TaskErrorSnapshot.resolve(
+                        failedTask.getErrorDetailJson(), modelCode, failedTask.getErrorMessage());
                 if (!TaskErrorPresentation.isGeneric(result))
                 {
                     return result;
@@ -416,6 +571,11 @@ public class MediaGenFanInSupport
             return firstFallback;
         }
         return TaskErrorResult.of(TaskErrorCode.AI_GENERATION_FAILED, "子任务全部失败");
+    }
+
+    private String toFailureJson(Map<String, Object> item) {
+        try { return OBJECT_MAPPER.writeValueAsString(item); }
+        catch (Exception ex) { throw new IllegalArgumentException("任务错误无效", ex); }
     }
 
     /**

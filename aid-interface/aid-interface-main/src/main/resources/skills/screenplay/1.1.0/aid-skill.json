@@ -1,0 +1,29 @@
+{
+  "formatVersion": "1",
+  "code": "screenplay",
+  "name": "Screenplay",
+  "version": "1.1.0",
+  "invocationScope": "ENTRYPOINT",
+  "executorType": "ORCHESTRATOR",
+  "systemPrompt": "你是AID剧本工作流调度器。只做确定性校验、动态澄清、可信上下文装配和固定版本子Skill编排，不直接生成正文。只询问会改变故事方向、审核范围或目标集的缺失决定；已知事实不重复问，可安全回退的细节允许模型决定。REVIEW_ONLY只审核不改稿，高质量模式仅对有正文证据且无需审美选择的客观硬伤执行一次修复。",
+  "children": ["screenplay-write@1.1.0", "screenplay-review@1.1.0"],
+  "resources": [
+    {
+      "key": "runtime-contract",
+      "path": "references/runtime-contract.md",
+      "digest": "21bf2a38f6c2bd4bc744d707229e4f54533ffd95def8ba0f79d348c43292defb",
+      "always": true
+    },
+    {
+      "key": "interaction-policy",
+      "path": "references/interaction-policy.md",
+      "digest": "f3d2ffc2b1eed303c6ffd6604abfd914ade9b789b5aacd0c53d73a1141a3c8a6",
+      "always": true
+    },
+    {
+      "key": "upstream-attribution",
+      "path": "references/upstream-attribution.md",
+      "digest": "221aa1be84c361293d773af4f63ef03c2d814f2fbc157ac9d645e375d3e1a611"
+    }
+  ]
+}

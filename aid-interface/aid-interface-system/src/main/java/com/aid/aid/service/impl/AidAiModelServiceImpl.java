@@ -50,6 +50,12 @@ public class AidAiModelServiceImpl extends ServiceImpl<AidAiModelMapper, AidAiMo
     /** 状态：正常（启用） */
     private static final String STATUS_NORMAL = "0";
 
+    /** 删除标志：已删除 */
+    private static final String DEL_FLAG_DELETED = "1";
+
+    /** 状态：停用 */
+    private static final String STATUS_DISABLED = "1";
+
     @Autowired
     private AidAiModelMapper aidAiModelMapper;
 
@@ -70,7 +76,10 @@ public class AidAiModelServiceImpl extends ServiceImpl<AidAiModelMapper, AidAiMo
     @Override
     public AidAiModel selectAidAiModelById(Long id)
     {
-        AidAiModel model = this.getById(id);
+        AidAiModel model = this.getOne(Wrappers.<AidAiModel>lambdaQuery()
+                .eq(AidAiModel::getId, id)
+                .eq(AidAiModel::getDelFlag, DEL_FLAG_NORMAL)
+                .last("limit 1"), false);
         if (Objects.nonNull(model)) {
             // 详情同样带上派生的输入要求标签，供后台编辑弹窗展示
             model.setInputRequirement(ModelInputRequirementResolver.resolve(
@@ -90,6 +99,7 @@ public class AidAiModelServiceImpl extends ServiceImpl<AidAiModelMapper, AidAiMo
     public List<AidAiModel> selectAidAiModelList(AidAiModel aidAiModel)
     {
         LambdaQueryWrapper<AidAiModel> wrapper = Wrappers.lambdaQuery();
+        wrapper.eq(AidAiModel::getDelFlag, DEL_FLAG_NORMAL);
         // 按服务商ID过滤
         if (aidAiModel.getProviderId() != null) {
             wrapper.eq(AidAiModel::getProviderId, aidAiModel.getProviderId());
@@ -232,7 +242,13 @@ public class AidAiModelServiceImpl extends ServiceImpl<AidAiModelMapper, AidAiMo
     public int deleteAidAiModelByIds(Long[] ids)
     {
         validateModelNotReferenced(Arrays.asList(ids));
-        return this.removeByIds(Arrays.asList(ids)) ? 1 : 0;
+        return this.update(Wrappers.<AidAiModel>lambdaUpdate()
+                .in(AidAiModel::getId, Arrays.asList(ids))
+                .eq(AidAiModel::getDelFlag, DEL_FLAG_NORMAL)
+                .set(AidAiModel::getStatus, STATUS_DISABLED)
+                .set(AidAiModel::getDelFlag, DEL_FLAG_DELETED)
+                .set(AidAiModel::getUpdateBy, currentUsername())
+                .set(AidAiModel::getUpdateTime, DateUtils.getNowDate())) ? 1 : 0;
     }
 
     /**
@@ -245,7 +261,13 @@ public class AidAiModelServiceImpl extends ServiceImpl<AidAiModelMapper, AidAiMo
     public int deleteAidAiModelById(Long id)
     {
         validateModelNotReferenced(Arrays.asList(id));
-        return this.removeById(id) ? 1 : 0;
+        return this.update(Wrappers.<AidAiModel>lambdaUpdate()
+                .eq(AidAiModel::getId, id)
+                .eq(AidAiModel::getDelFlag, DEL_FLAG_NORMAL)
+                .set(AidAiModel::getStatus, STATUS_DISABLED)
+                .set(AidAiModel::getDelFlag, DEL_FLAG_DELETED)
+                .set(AidAiModel::getUpdateBy, currentUsername())
+                .set(AidAiModel::getUpdateTime, DateUtils.getNowDate())) ? 1 : 0;
     }
 
     /**

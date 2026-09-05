@@ -128,6 +128,9 @@ func (r *Runner) validateRenderedConfiguration(state *config.DeploymentState, ra
 
 func (r *Runner) restartWithDeploymentConfiguration(state *config.DeploymentState) error {
 	if state.Mode == sysctl.ManagerDocker {
+		if err := r.refreshManagedNginx(state); err != nil {
+			return err
+		}
 		if err := prepareDockerServices(state); err != nil {
 			return err
 		}

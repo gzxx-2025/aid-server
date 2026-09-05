@@ -18,13 +18,11 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import java.util.LinkedHashSet;
 import java.util.Set;
 import com.aid.aid.domain.AidComicEpisode;
-import com.aid.aid.domain.AidComicAuditRecord;
 import com.aid.aid.domain.AidComicProject;
 import com.aid.aid.domain.AidEpisodeEditor;
 import com.aid.aid.domain.AidExtractTask;
 import com.aid.aid.domain.AidRolePropScene;
 import com.aid.aid.domain.AidUserComicAsset;
-import com.aid.aid.service.IAidComicAuditRecordService;
 import com.aid.aid.service.IAidComicEpisodeService;
 import com.aid.aid.service.IAidComicProjectService;
 import com.aid.aid.service.IAidEpisodeEditorService;
@@ -39,8 +37,6 @@ import com.aid.common.utils.DateUtils;
 import com.aid.common.utils.StringUtils;
 import com.aid.compose.ComposeConstants;
 import com.aid.enums.AspectRatioEnum;
-import com.aid.enums.AuditActionEnum;
-import com.aid.enums.AuditTargetTypeEnum;
 import com.aid.enums.CreationModeEnum;
 import com.aid.enums.EpisodeStatusEnum;
 import com.aid.enums.GenModeEnum;
@@ -48,7 +44,6 @@ import com.aid.enums.ProjectStatusEnum;
 import com.aid.enums.ProjectTypeEnum;
 import com.aid.enums.ScriptTypeEnum;
 import com.aid.project.dto.UserProjectCreateRequest;
-import com.aid.project.dto.UserProjectPublishRequest;
 import com.aid.project.dto.UserProjectQueryRequest;
 import com.aid.project.dto.UserProjectUpdateRequest;
 import com.aid.project.service.IUserProjectBusinessService;
@@ -71,12 +66,6 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
 {
     /** 删除标志：正常（未删除） */
     private static final String DEL_FLAG_NORMAL = "0";
-
-    /** 是否公开：是 */
-    private static final String IS_PUBLIC_YES = "1";
-
-    /** 是否公开：否 */
-    private static final String IS_PUBLIC_NO = "0";
 
     /** 电影成片在 aid_episode_editor 中的剧集ID标识 */
     private static final Long MOVIE_EPISODE_ID = 0L;
@@ -102,9 +91,6 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
 
     @Autowired
     private IAidEpisodeEditorService aidEpisodeEditorService;
-
-    @Autowired
-    private IAidComicAuditRecordService aidComicAuditRecordService;
 
     @Autowired
     private IProjectGenConfigService projectGenConfigService;
@@ -133,18 +119,6 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
     @Autowired
     private MediaUrlResolver mediaUrlResolver;
 
-    /** 项目内容修改守卫：公开期间禁止修改内容，须先关闭公开 */
-    @Autowired
-    private com.aid.project.service.IProjectContentGuardService projectContentGuardService;
-
-    /** 微信公众号推送：提交审核/发布状态变更通知（内部吞异常，不影响主流程） */
-    @Autowired
-    private com.aid.notify.wechat.service.IWechatNotifyService wechatNotifyService;
-
-    /** 发布权限校验：总开关/用户级权限/白名单 */
-    @Autowired
-    private com.aid.publish.service.IPublishPermissionService publishPermissionService;
-
     /**
      * 查询用户的项目列表（带软删除过滤）
      *
@@ -159,15 +133,13 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
         // 查询字段精简：C端列表禁止读取隐藏风格快照；新增展示字段时必须同步补充。
         wrapper.select(AidComicProject::getId, AidComicProject::getUserId,
                 AidComicProject::getProjectName, AidComicProject::getProjectDesc,
-                AidComicProject::getPendingProjectName, AidComicProject::getPendingProjectDesc,
                 AidComicProject::getProjectType, AidComicProject::getCoverUrl,
-                AidComicProject::getPendingCoverUrl, AidComicProject::getAspectRatio,
+                AidComicProject::getAspectRatio,
                 AidComicProject::getScriptType, AidComicProject::getVideoStyleType,
                 AidComicProject::getVideoStyleValue, AidComicProject::getStyleSource,
                 AidComicProject::getStyleAssetId, AidComicProject::getDefaultGenMode,
                 AidComicProject::getDefaultCreationMode, AidComicProject::getCurrentStep,
                 AidComicProject::getStatus, AidComicProject::getStatusReason,
-                AidComicProject::getIsPublic, AidComicProject::getPublishTime,
                 AidComicProject::getCreateTime, AidComicProject::getUpdateTime);
         // 只查询当前用户的项目
         wrapper.eq(AidComicProject::getUserId, userId);
@@ -206,15 +178,13 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
         // 查询字段精简：C端详情不读取隐藏风格快照，避免内部模板进入序列化上下文。
         wrapper.select(AidComicProject::getId, AidComicProject::getUserId,
                 AidComicProject::getProjectName, AidComicProject::getProjectDesc,
-                AidComicProject::getPendingProjectName, AidComicProject::getPendingProjectDesc,
                 AidComicProject::getProjectType, AidComicProject::getCoverUrl,
-                AidComicProject::getPendingCoverUrl, AidComicProject::getAspectRatio,
+                AidComicProject::getAspectRatio,
                 AidComicProject::getScriptType, AidComicProject::getVideoStyleType,
                 AidComicProject::getVideoStyleValue, AidComicProject::getStyleSource,
                 AidComicProject::getStyleAssetId, AidComicProject::getDefaultGenMode,
                 AidComicProject::getDefaultCreationMode, AidComicProject::getCurrentStep,
                 AidComicProject::getStatus, AidComicProject::getStatusReason,
-                AidComicProject::getIsPublic, AidComicProject::getPublishTime,
                 AidComicProject::getCreateTime, AidComicProject::getUpdateTime);
         wrapper.eq(AidComicProject::getId, id);
         wrapper.eq(AidComicProject::getUserId, userId);
@@ -396,8 +366,6 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
         project.setCurrentStep(isMovie ? 1 : -1);
         // 默认状态为草稿
         project.setStatus(0);
-        // 默认不公开
-        project.setIsPublic("0");
         // 未删除
         project.setDelFlag("0");
         project.setCreateTime(DateUtils.getNowDate());
@@ -421,11 +389,6 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
         AidComicProject project = this.selectUserProjectByIdForUpdate(request.getId(), userId);
         if (project == null) {
             throw new RuntimeException("项目不存在或无权限操作");
-        }
-        // 审核快照提交后必须保持不可变，避免审核员查看期间候选内容被并发替换。
-        if (Objects.equals(project.getStatus(), ProjectStatusEnum.AUDITING.getValue())) {
-            log.info("修改项目失败，内容审核中: projectId={}", project.getId());
-            throw new ServiceException("内容审核中");
         }
         boolean styleSelectorTouched = request.getStyleSource() != null || request.getStyleAssetId() != null;
         boolean legacyStyleTouched = request.getVideoStyleType() != null || request.getVideoStyleValue() != null;
@@ -462,13 +425,6 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
                 || !Objects.equals(candidateStyleAssetId, project.getStyleAssetId())
                 || !Objects.equals(resolvedStyle.hiddenPromptJson(), project.getHiddenStylePromptJson()))));
 
-        // 公开锁：公开期间展示信息（名称/介绍/封面）随时可改，内容参数字段仍锁定
-        boolean touchingContentFields = request.getAspectRatio() != null || request.getScriptType() != null
-                || changingStyle
-                || request.getDefaultGenMode() != null || request.getDefaultCreationMode() != null;
-        if (touchingContentFields) {
-            projectContentGuardService.assertProjectEditable(project);
-        }
         // 剧集记录只是导入剧本后的内容容器，不能作为项目配置锁；真实下游数据分别由资产锁和分镜锁保护。
         validateEnumFields(null, request.getAspectRatio(), request.getScriptType(),
                 request.getDefaultGenMode(), request.getDefaultCreationMode());
@@ -484,12 +440,9 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
             throw new ServiceException("分镜已生成，无法修改");
         }
         Integer beforeStatus = project.getStatus();
-        // 已有过审版本时，公开展示字段写入待审槽；线上字段在审核通过前保持不变。
-        String candidateProjectName = effectiveProjectName(project);
-        String candidateProjectDesc = effectiveProjectDesc(project);
-        String candidateCoverUrl = effectiveProjectCoverUrl(project);
-        boolean metadataTouched = StringUtils.isNotEmpty(request.getProjectName())
-                || request.getProjectDesc() != null || request.getCoverUrl() != null;
+        String candidateProjectName = project.getProjectName();
+        String candidateProjectDesc = project.getProjectDesc();
+        String candidateCoverUrl = project.getCoverUrl();
         if (StringUtils.isNotEmpty(request.getProjectName())) {
             candidateProjectName = request.getProjectName().trim();
         }
@@ -502,34 +455,15 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
             candidateCoverUrl = StrUtil.isBlank(request.getCoverUrl())
                     ? request.getCoverUrl() : mediaUrlResolver.toRelativePath(request.getCoverUrl());
         }
-        boolean metadataChanged = (StringUtils.isNotEmpty(request.getProjectName())
-                && !Objects.equals(candidateProjectName, effectiveProjectName(project)))
-                || (request.getProjectDesc() != null
-                && !Objects.equals(candidateProjectDesc, effectiveProjectDesc(project)))
-                || (request.getCoverUrl() != null
-                && !Objects.equals(candidateCoverUrl, effectiveProjectCoverUrl(project)));
-        boolean reviewMetadata = hasApprovedProjectRevision(project) && metadataTouched && metadataChanged;
-        boolean submittedForReview = reviewMetadata
-                && !Objects.equals(beforeStatus, ProjectStatusEnum.AUDITING.getValue());
-        if (reviewMetadata) {
-            assertRequiredProjectMetadata(candidateProjectDesc, candidateCoverUrl, project.getId());
-            // 保存完整待审快照，避免只改一个字段时审核通过后丢失另一个线上字段。
-            project.setPendingProjectName(candidateProjectName);
-            project.setPendingProjectDesc(candidateProjectDesc);
-            project.setPendingCoverUrl(candidateCoverUrl);
-            project.setStatus(ProjectStatusEnum.AUDITING.getValue());
-            project.setStatusReason(null);
-        }
-
         // 更新字段
         boolean needClearGenConfig = false; // 创作模式跨组切换时置 true，保存成功后清空项目级生成配置
-        if (!reviewMetadata && StringUtils.isNotEmpty(request.getProjectName())) {
+        if (StringUtils.isNotEmpty(request.getProjectName())) {
             project.setProjectName(candidateProjectName);
         }
-        if (!reviewMetadata && request.getProjectDesc() != null) {
+        if (request.getProjectDesc() != null) {
             project.setProjectDesc(candidateProjectDesc);
         }
-        if (!reviewMetadata && request.getCoverUrl() != null) {
+        if (request.getCoverUrl() != null) {
             project.setCoverUrl(candidateCoverUrl);
         }
         if (request.getAspectRatio() != null) {
@@ -587,21 +521,10 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
             updateWrapper.set(AidComicProject::getStyleSource, null);
             updateWrapper.set(AidComicProject::getStyleAssetId, null);
         }
-        if (reviewMetadata) {
-            // 实体更新默认忽略 null，需显式清空上一次驳回原因。
-            updateWrapper.set(AidComicProject::getStatusReason, null);
-        }
         boolean updated = aidComicProjectService.update(project, updateWrapper);
         if (!updated) {
             log.info("修改项目失败，状态已变化: projectId={}, beforeStatus={}", project.getId(), beforeStatus);
             throw new ServiceException("状态已变化");
-        }
-        if (submittedForReview) {
-            aidComicAuditRecordService.saveAuditRecord(AuditTargetTypeEnum.PROJECT.getValue(), project.getId(),
-                    userId, AuditActionEnum.SUBMIT.getValue(), beforeStatus,
-                    ProjectStatusEnum.AUDITING.getValue(), null, String.valueOf(userId));
-            wechatNotifyService.notifyContentAudit(AuditTargetTypeEnum.PROJECT.getValue(), project.getId(),
-                    com.aid.notify.wechat.service.IWechatNotifyService.AUDIT_EVENT_SUBMITTED, null);
         }
         // 创作模式跨组切换且保存成功：清空该项目生成配置，使各场景回落矩阵默认（组内切换不清空）
         if (needClearGenConfig) {
@@ -654,60 +577,6 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
         }
     }
 
-    /** 是否已有审核通过的线上基线，后续公开元数据只能写入待审槽。 */
-    private boolean hasApprovedProjectRevision(AidComicProject project)
-    {
-        return Objects.equals(project.getStatus(), ProjectStatusEnum.AUDIT_PASSED.getValue())
-                || Objects.equals(project.getIsPublic(), IS_PUBLIC_YES)
-                || hasPendingProjectMetadata(project);
-    }
-
-    /** 是否存在待审核的项目公开元数据快照。 */
-    private boolean hasPendingProjectMetadata(AidComicProject project)
-    {
-        return StrUtil.isNotBlank(project.getPendingProjectName())
-                || StrUtil.isNotBlank(project.getPendingProjectDesc())
-                || StrUtil.isNotBlank(project.getPendingCoverUrl());
-    }
-
-    /** 用户侧展示当前候选名称；公开侧仍直接读取已过审 project_name。 */
-    private String effectiveProjectName(AidComicProject project)
-    {
-        return StrUtil.isNotBlank(project.getPendingProjectName())
-                ? project.getPendingProjectName() : project.getProjectName();
-    }
-
-    /** 用户侧与审核侧使用的候选描述。 */
-    private String effectiveProjectDesc(AidComicProject project)
-    {
-        return StrUtil.isNotBlank(project.getPendingProjectDesc())
-                ? project.getPendingProjectDesc() : project.getProjectDesc();
-    }
-
-    /** 用户侧与审核侧使用的候选封面。 */
-    private String effectiveProjectCoverUrl(AidComicProject project)
-    {
-        return StrUtil.isNotBlank(project.getPendingCoverUrl())
-                ? project.getPendingCoverUrl() : project.getCoverUrl();
-    }
-
-    /** 发布审核必填项统一校验。 */
-    private void assertRequiredProjectMetadata(String projectDesc, String coverUrl, Long projectId)
-    {
-        if (StrUtil.isBlank(projectDesc)) {
-            log.info("提交项目审核失败，项目描述缺失: projectId={}", projectId);
-            throw new ServiceException("请填写项目描述");
-        }
-        if (StrUtil.isBlank(coverUrl)) {
-            log.info("提交项目审核失败，项目封面缺失: projectId={}", projectId);
-            throw new ServiceException("请上传封面图");
-        }
-        if (!mediaUrlResolver.isSiteImageUrl(coverUrl)) {
-            log.info("提交项目审核失败，项目封面地址无效: projectId={}, coverUrl={}", projectId, coverUrl);
-            throw new ServiceException("封面图地址无效");
-        }
-    }
-
     /**
      * 用户删除项目（硬删除，带归属校验）。
      *
@@ -727,307 +596,6 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
         // 级联硬删除项目及其全部子数据 + 清理 OSS（先删文件、再删库）
         projectCascadeDeleteService.deleteProjectCascade(id, userId);
         return 1;
-    }
-
-    /**
-     * 用户提交项目审核（带归属校验）
-     * 状态机：除「审核中(3)」「审核通过(4)」外的状态均可提交（成片导出成功后状态自动变为「完成未提交(2)」即可提审）
-     * → 置为「审核中(3)」并清空状态原因，同时写入一条「提交审核」流水。
-     *
-     * @param id 项目ID
-     * @param userId 用户ID
-     * @return 提交审核后的项目
-     */
-    @Override
-    @Transactional(rollbackFor = Exception.class)
-    public AidComicProject submitAudit(Long id, Long userId)
-    {
-        // 查询并校验归属
-        AidComicProject project = this.selectUserProjectById(id, userId);
-        if (project == null) {
-            log.info("提交项目审核失败，项目不存在或无权限: projectId={}, userId={}", id, userId);
-            throw new ServiceException("项目不存在");
-        }
-        Integer beforeStatus = project.getStatus();
-        // 校验当前状态是否允许提交审核
-        if (Objects.equals(beforeStatus, ProjectStatusEnum.AUDITING.getValue())) {
-            throw new ServiceException("内容审核中");
-        }
-        if (Objects.equals(beforeStatus, ProjectStatusEnum.AUDIT_PASSED.getValue())
-                && !hasPendingExportVideo(project) && !hasPendingProjectMetadata(project)) {
-            // 已过审且没有待审新片或待审元数据时，无重审必要。
-            throw new ServiceException("已通过审核");
-        }
-        // 内容前置校验：电影必须已有成品视频；剧集必须至少有一集审核通过
-        checkProjectSubmitContent(project);
-        // 每次审核都校验本次候选版本的封面和描述，避免重审绕过发布必填项。
-        assertRequiredProjectMetadata(effectiveProjectDesc(project), effectiveProjectCoverUrl(project), id);
-        // 首次发布会在审核通过时自动完成，提审前同时校验发布权限。
-        if (!Objects.equals(IS_PUBLIC_YES, project.getIsPublic())) {
-            publishPermissionService.assertCanPublish(userId);
-        }
-        // 置为审核中并清空上次状态原因
-        Integer afterStatus = ProjectStatusEnum.AUDITING.getValue();
-        LambdaUpdateWrapper<AidComicProject> updateWrapper = Wrappers.lambdaUpdate();
-        updateWrapper.eq(AidComicProject::getId, id);
-        updateWrapper.eq(AidComicProject::getUserId, userId);
-        updateWrapper.eq(AidComicProject::getStatus, beforeStatus);
-        updateWrapper.set(AidComicProject::getStatus, afterStatus);
-        updateWrapper.set(AidComicProject::getStatusReason, null);
-        updateWrapper.set(AidComicProject::getUpdateTime, DateUtils.getNowDate());
-        boolean updated = aidComicProjectService.update(updateWrapper);
-        if (!updated) {
-            log.info("提交项目审核状态已变化: projectId={}, beforeStatus={}", id, beforeStatus);
-            throw new ServiceException("状态已变化");
-        }
-        // 写入审核流水（提交审核），操作人记为用户ID
-        aidComicAuditRecordService.saveAuditRecord(AuditTargetTypeEnum.PROJECT.getValue(), id, userId,
-                AuditActionEnum.SUBMIT.getValue(), beforeStatus, afterStatus, null, String.valueOf(userId));
-        // 微信公众号推送：提交审核（推送服务内部吞异常，不影响提审主流程）
-        wechatNotifyService.notifyContentAudit(AuditTargetTypeEnum.PROJECT.getValue(), id,
-                com.aid.notify.wechat.service.IWechatNotifyService.AUDIT_EVENT_SUBMITTED, null);
-        // 回填最新状态返回
-        project.setStatus(afterStatus);
-        project.setStatusReason(null);
-        return project;
-    }
-
-    /**
-     * 用户重新公开项目或更新公开展示信息。
-     * 项目审核通过时已自动公开，本方法用于重新公开用户主动关闭的项目。
-     *
-     * @param request 发布信息（项目ID、项目描述、封面图）
-     * @param userId 用户ID
-     * @return 公开后的项目
-     */
-    @Override
-    @Transactional(rollbackFor = Exception.class)
-    public AidComicProject publishProject(UserProjectPublishRequest request, Long userId)
-    {
-        Long id = request.getId();
-        // 查询并校验归属
-        AidComicProject project = this.selectUserProjectById(id, userId);
-        if (project == null) {
-            log.info("公开项目失败，项目不存在或无权限: projectId={}, userId={}", id, userId);
-            throw new ServiceException("项目不存在");
-        }
-        // 公开前提：必须审核通过
-        if (!Objects.equals(project.getStatus(), ProjectStatusEnum.AUDIT_PASSED.getValue())) {
-            log.info("公开项目失败，项目未审核通过: projectId={}, status={}", id, project.getStatus());
-            throw new ServiceException("请先通过审核");
-        }
-        // Service 层再次兜底校验，防止绕过 Controller 参数校验直接调用发布逻辑
-        if (StrUtil.isBlank(request.getProjectDesc())) {
-            log.info("公开项目失败，项目描述缺失: projectId={}", id);
-            throw new ServiceException("请填写项目描述");
-        }
-        if (StrUtil.isBlank(request.getCoverUrl())) {
-            log.info("公开项目失败，项目封面图缺失: projectId={}", id);
-            throw new ServiceException("请上传封面图");
-        }
-        if (!mediaUrlResolver.isSiteImageUrl(request.getCoverUrl())) {
-            log.info("公开项目失败，项目封面图地址无效: projectId={}, coverUrl={}", id, request.getCoverUrl());
-            throw new ServiceException("封面图地址无效");
-        }
-        // 封面只保存上传后的对象存储路径，并沿用项目封面不得复用风格图的规则
-        assertCoverNotStyleAsset(request.getCoverUrl(), userId);
-        String projectDesc = request.getProjectDesc().trim();
-        String coverUrl = mediaUrlResolver.toRelativePath(request.getCoverUrl());
-        boolean alreadyPublished = Objects.equals(IS_PUBLIC_YES, project.getIsPublic());
-        // 发布权限校验：用户显式禁发 > 白名单豁免 > 发布总开关
-        if (!alreadyPublished) {
-            publishPermissionService.assertCanPublish(userId);
-        }
-        // 已过审作品的公开元数据发生变化时自动进入重审，线上版本继续使用已过审字段。
-        boolean metadataChanged = !Objects.equals(projectDesc, project.getProjectDesc())
-                || !Objects.equals(coverUrl, project.getCoverUrl());
-        if (metadataChanged) {
-            Date now = DateUtils.getNowDate();
-            LambdaUpdateWrapper<AidComicProject> reviewUpdate = Wrappers.lambdaUpdate();
-            reviewUpdate.eq(AidComicProject::getId, id);
-            reviewUpdate.eq(AidComicProject::getUserId, userId);
-            reviewUpdate.eq(AidComicProject::getStatus, ProjectStatusEnum.AUDIT_PASSED.getValue());
-            reviewUpdate.set(AidComicProject::getPendingProjectName, effectiveProjectName(project));
-            reviewUpdate.set(AidComicProject::getPendingProjectDesc, projectDesc);
-            reviewUpdate.set(AidComicProject::getPendingCoverUrl, coverUrl);
-            reviewUpdate.set(AidComicProject::getStatus, ProjectStatusEnum.AUDITING.getValue());
-            reviewUpdate.set(AidComicProject::getStatusReason, null);
-            reviewUpdate.set(AidComicProject::getUpdateTime, now);
-            reviewUpdate.set(AidComicProject::getUpdateBy, String.valueOf(userId));
-            boolean updated = aidComicProjectService.update(reviewUpdate);
-            if (!updated) {
-                log.info("公开信息重审失败，状态已变化: projectId={}", id);
-                throw new ServiceException("状态已变化");
-            }
-            aidComicAuditRecordService.saveAuditRecord(AuditTargetTypeEnum.PROJECT.getValue(), id, userId,
-                    AuditActionEnum.SUBMIT.getValue(), ProjectStatusEnum.AUDIT_PASSED.getValue(),
-                    ProjectStatusEnum.AUDITING.getValue(), null, String.valueOf(userId));
-            wechatNotifyService.notifyContentAudit(AuditTargetTypeEnum.PROJECT.getValue(), id,
-                    com.aid.notify.wechat.service.IWechatNotifyService.AUDIT_EVENT_SUBMITTED, null);
-            project.setPendingProjectName(effectiveProjectName(project));
-            project.setPendingProjectDesc(projectDesc);
-            project.setPendingCoverUrl(coverUrl);
-            project.setStatus(ProjectStatusEnum.AUDITING.getValue());
-            project.setStatusReason(null);
-            project.setUpdateTime(now);
-            return project;
-        }
-
-        // 元数据未变化时执行首次公开或重新公开。
-        Date now = DateUtils.getNowDate();
-        LambdaUpdateWrapper<AidComicProject> updateWrapper = Wrappers.lambdaUpdate();
-        updateWrapper.eq(AidComicProject::getId, id);
-        updateWrapper.eq(AidComicProject::getUserId, userId);
-        updateWrapper.set(AidComicProject::getProjectDesc, projectDesc);
-        updateWrapper.set(AidComicProject::getCoverUrl, coverUrl);
-        if (!alreadyPublished) {
-            updateWrapper.set(AidComicProject::getIsPublic, IS_PUBLIC_YES);
-            updateWrapper.set(AidComicProject::getPublishTime, now);
-        }
-        updateWrapper.set(AidComicProject::getUpdateTime, now);
-        updateWrapper.set(AidComicProject::getUpdateBy, String.valueOf(userId));
-        aidComicProjectService.update(updateWrapper);
-        if (!alreadyPublished) {
-            // 微信公众号推送：发布成功（推送服务内部吞异常，不影响发布主流程）
-            wechatNotifyService.notifyContentAudit(AuditTargetTypeEnum.PROJECT.getValue(), id,
-                    com.aid.notify.wechat.service.IWechatNotifyService.AUDIT_EVENT_PUBLISHED, null);
-        }
-        // 回填返回
-        project.setIsPublic(IS_PUBLIC_YES);
-        project.setProjectDesc(projectDesc);
-        project.setCoverUrl(coverUrl);
-        project.setUpdateTime(now);
-        if (!alreadyPublished) {
-            project.setPublishTime(now);
-        }
-        return project;
-    }
-
-    /**
-     * 用户关闭项目公开（带归属校验）
-     * is_public 置回 0，项目从公开列表下架，内容恢复可修改；审核状态（status）保持不变，
-     * 可直接再次公开（status 仍为 4）；重新导出的新成片进入待审槽，重新过审后转正。
-     * 未公开时幂等返回。
-     *
-     * @param id 项目ID
-     * @param userId 用户ID
-     * @return 关闭公开后的项目
-     */
-    @Override
-    @Transactional(rollbackFor = Exception.class)
-    public AidComicProject unpublishProject(Long id, Long userId)
-    {
-        // 查询并校验归属
-        AidComicProject project = this.selectUserProjectById(id, userId);
-        if (project == null) {
-            log.info("关闭项目公开失败，项目不存在或无权限: projectId={}, userId={}", id, userId);
-            throw new ServiceException("项目不存在");
-        }
-        // 未公开则幂等返回
-        if (!Objects.equals(IS_PUBLIC_YES, project.getIsPublic())) {
-            return project;
-        }
-        // 置回未公开
-        LambdaUpdateWrapper<AidComicProject> updateWrapper = Wrappers.lambdaUpdate();
-        updateWrapper.eq(AidComicProject::getId, id);
-        updateWrapper.eq(AidComicProject::getUserId, userId);
-        updateWrapper.set(AidComicProject::getIsPublic, IS_PUBLIC_NO);
-        updateWrapper.set(AidComicProject::getUpdateTime, DateUtils.getNowDate());
-        updateWrapper.set(AidComicProject::getUpdateBy, String.valueOf(userId));
-        aidComicProjectService.update(updateWrapper);
-        // 回填返回
-        project.setIsPublic(IS_PUBLIC_NO);
-        return project;
-    }
-
-    /**
-     * 判断电影项目是否存在待审核新成片（重新导出产生，pending_video_url 非空）。
-     * 仅电影类型有项目级成片；剧集类型项目的成片挂在各集上，项目层面恒返回 false。
-     *
-     * @param project 项目实体
-     * @return true=有待审新片，允许已过审状态重新提审
-     */
-    private boolean hasPendingExportVideo(AidComicProject project)
-    {
-        if (!Objects.equals(ProjectTypeEnum.MOVIE.getValue(), project.getProjectType())) {
-            return false;
-        }
-        // 查询字段精简：待审地址与双槽指纹共同判定是否确有新候选版本。
-        AidEpisodeEditor editor = aidEpisodeEditorService.getOne(Wrappers.<AidEpisodeEditor>lambdaQuery()
-                .select(AidEpisodeEditor::getId, AidEpisodeEditor::getPendingVideoUrl,
-                        AidEpisodeEditor::getFinalVideoFingerprint,
-                        AidEpisodeEditor::getPendingVideoFingerprint)
-                .eq(AidEpisodeEditor::getProjectId, project.getId())
-                .eq(AidEpisodeEditor::getEpisodeId, MOVIE_EPISODE_ID)
-                .eq(AidEpisodeEditor::getDelFlag, DEL_FLAG_NORMAL)
-                .orderByDesc(AidEpisodeEditor::getId)
-                .last("LIMIT 1"));
-        return Objects.nonNull(editor) && StringUtils.isNotEmpty(editor.getPendingVideoUrl())
-                && !(StrUtil.isNotBlank(editor.getFinalVideoFingerprint())
-                && Objects.equals(editor.getFinalVideoFingerprint(), editor.getPendingVideoFingerprint()));
-    }
-
-    /**
-     * 提交项目审核的内容前置校验
-     * 电影类型：项目必须已有成品视频（aid_episode_editor.final_video_url 非空，episode_id=0），否则报 请先合成视频
-     * 剧集类型：项目下必须至少有一集审核通过（episode.status=4），否则报 无过审剧集
-     *
-     * @param project 项目实体
-     */
-    private void checkProjectSubmitContent(AidComicProject project)
-    {
-        // 电影：直接校验项目级成品视频（episode_id=0）；通过即可进入审核，审核通过后公开。
-        // 并发建档可能产生多行，取最新一条（与受理侧 selectLatestEditor 口径一致）
-        if (Objects.equals(ProjectTypeEnum.MOVIE.getValue(), project.getProjectType())) {
-            AidEpisodeEditor editor = aidEpisodeEditorService.getOne(Wrappers.<AidEpisodeEditor>lambdaQuery()
-                    .eq(AidEpisodeEditor::getProjectId, project.getId())
-                    .eq(AidEpisodeEditor::getEpisodeId, MOVIE_EPISODE_ID)
-                    .eq(AidEpisodeEditor::getDelFlag, DEL_FLAG_NORMAL)
-                    .orderByDesc(AidEpisodeEditor::getId)
-                    .last("LIMIT 1"));
-            if (Objects.nonNull(editor)
-                    && Objects.equals(editor.getExportStatus(), ComposeConstants.EXPORT_STATUS_COMPOSING)) {
-                log.info("提交项目审核失败，电影正在合成: projectId={}", project.getId());
-                throw new ServiceException("视频合成中");
-            }
-            if (Objects.isNull(editor) || StringUtils.isEmpty(editor.getFinalVideoUrl())) {
-                log.info("提交项目审核失败，电影缺成品视频: projectId={}", project.getId());
-                throw new ServiceException("请先合成视频");
-            }
-            return;
-        }
-        // 剧集：至少存在一个已过审版本；单集重审中的线上旧版本同样有效。
-        if (!hasApprovedEpisodeForProject(project.getId())) {
-            log.info("提交项目审核失败，无审核通过的分集: projectId={}", project.getId());
-            throw new ServiceException("暂无过审剧集");
-        }
-    }
-
-    /**
-     * 判断项目下是否存在已过审单集版本。状态 4 直接成立；状态 3 需有历史 PASS 流水，
-     * 从而兼容单集正在进行成片或元数据重审、线上旧版本仍有效的场景。
-     */
-    private boolean hasApprovedEpisodeForProject(Long projectId)
-    {
-        // 查询字段精简：仅需剧集主键与状态（新增使用字段时此处必须同步补充）。
-        List<AidComicEpisode> episodes = aidComicEpisodeService.list(Wrappers.<AidComicEpisode>lambdaQuery()
-                .select(AidComicEpisode::getId, AidComicEpisode::getStatus)
-                .eq(AidComicEpisode::getProjectId, projectId)
-                .in(AidComicEpisode::getStatus, EpisodeStatusEnum.AUDITING.getValue(),
-                        EpisodeStatusEnum.AUDIT_PASSED.getValue())
-                .eq(AidComicEpisode::getDelFlag, DEL_FLAG_NORMAL));
-        if (CollectionUtil.isEmpty(episodes)) {
-            return false;
-        }
-        if (episodes.stream().anyMatch(episode ->
-                Objects.equals(episode.getStatus(), EpisodeStatusEnum.AUDIT_PASSED.getValue()))) {
-            return true;
-        }
-        List<Long> auditingIds = episodes.stream().map(AidComicEpisode::getId).toList();
-        return aidComicAuditRecordService.count(Wrappers.<AidComicAuditRecord>lambdaQuery()
-                .eq(AidComicAuditRecord::getTargetType, AuditTargetTypeEnum.EPISODE.getValue())
-                .in(AidComicAuditRecord::getTargetId, auditingIds)
-                .eq(AidComicAuditRecord::getAction, AuditActionEnum.PASS.getValue())) > 0;
     }
 
     @Override
@@ -1051,11 +619,11 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
         Long userId = projects.get(0).getUserId();
         Map<Long, AidEpisodeEditor> editorMap = new HashMap<>();
         if (!movieProjectIds.isEmpty()) {
-            // 查询字段精简：成片展示只需 id/项目/成片地址/待审片/导出状态（新增 VO 字段时此处必须同步补充）
+            // 查询字段精简：成片展示只需 id/项目/成片地址/导出状态（新增 VO 字段时此处必须同步补充）
             // 按 id 升序遍历后写覆盖，同一项目多条剪辑记录时保留最新一条
             for (AidEpisodeEditor editor : aidEpisodeEditorService.list(Wrappers.<AidEpisodeEditor>lambdaQuery()
                     .select(AidEpisodeEditor::getId, AidEpisodeEditor::getProjectId,
-                            AidEpisodeEditor::getFinalVideoUrl, AidEpisodeEditor::getPendingVideoUrl,
+                            AidEpisodeEditor::getFinalVideoUrl,
                             AidEpisodeEditor::getExportStatus)
                     .eq(Objects.nonNull(userId), AidEpisodeEditor::getUserId, userId)
                     .in(AidEpisodeEditor::getProjectId, movieProjectIds)
@@ -1179,11 +747,10 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
     {
         UserProjectVO.UserProjectVOBuilder builder = UserProjectVO.builder()
                 .id(project.getId())
-                // 创作者看到待审候选版本；公开查询服务仍读取已过审线上字段。
-                .projectName(effectiveProjectName(project))
-                .projectDesc(effectiveProjectDesc(project))
+                .projectName(project.getProjectName())
+                .projectDesc(project.getProjectDesc())
                 .projectType(project.getProjectType())
-                .coverUrl(effectiveProjectCoverUrl(project))
+                .coverUrl(project.getCoverUrl())
                 .aspectRatio(project.getAspectRatio())
                 .scriptType(project.getScriptType())
                 .videoStyleType(project.getVideoStyleType())
@@ -1193,16 +760,15 @@ public class UserProjectBusinessServiceImpl implements IUserProjectBusinessServi
                 .styleLocked(styleLocked)
                 .defaultGenMode(project.getDefaultGenMode())
                 .defaultCreationMode(project.getDefaultCreationMode())
+                .currentStep(project.getCurrentStep())
                 .status(project.getStatus())
                 .statusReason(project.getStatusReason())
-                .isPublic(project.getIsPublic())
                 .episodeCount(episodeCount)
                 .createTime(project.getCreateTime())
                 .updateTime(project.getUpdateTime());
         if (editor != null) {
             builder.episodeEditorId(editor.getId())
                     .finalVideoUrl(editor.getFinalVideoUrl())
-                    .pendingVideoUrl(editor.getPendingVideoUrl())
                     .exportStatus(editor.getExportStatus());
         }
         return builder.build();

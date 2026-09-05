@@ -1,4 +1,5 @@
 import type { RefObject } from 'react'
+import type { AsyncPromptApplyTicket } from '~/utils/asyncPromptApplyGuard'
 import type { HorizontalScrollTabBarHandle } from '~/components/common/HorizontalScrollTabBar'
 import type { ModelOption } from '~/components/steps/ModelSelectDropdown'
 import type { ParamSettingsConfirmPayload } from '~/components/steps/StoryboardParamSettingsModal'
@@ -352,8 +353,22 @@ export interface VideoModalPromptApi {
   showGeneratingVideoPromptForScene: () => boolean
   showGeneratingMultiParamPromptForScene: () => boolean
   isStoryboardVideoPromptGeneratingForScene: (sceneIdx?: number) => boolean
-  applyVideoPromptFromApi: (plain: string) => Promise<void>
-  applyMultiParamPromptFromApi: (plain: string) => Promise<void>
+  applyVideoPromptFromApi: (
+    plain: string,
+    ticket?: AsyncPromptApplyTicket
+  ) => Promise<boolean>
+  applyMultiParamPromptFromApi: (
+    plain: string,
+    ticket?: AsyncPromptApplyTicket
+  ) => Promise<boolean>
+  beginVideoPromptApply: (
+    channel: 'imageToVideo' | 'multiParam',
+    storyboardId: number
+  ) => AsyncPromptApplyTicket
+  invalidateVideoPromptApply: (channel: 'imageToVideo' | 'multiParam') => void
+  handleImageToVideoPromptEditorChange: (value: string) => void
+  handleMultiParamPromptEditorChange: (value: string) => void
+  handleEdgeVideoPromptEditorChange: (value: string) => void
   loadStoryboardVideoPromptForScene: () => Promise<void>
   loadStoryboardMultiVideoPromptForScene: () => Promise<void>
   loadStoryboardEdgeVideoPromptForScene: () => void

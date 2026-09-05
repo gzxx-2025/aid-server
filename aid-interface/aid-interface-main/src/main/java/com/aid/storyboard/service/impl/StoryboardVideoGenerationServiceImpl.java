@@ -1,5 +1,7 @@
 package com.aid.storyboard.service.impl;
 
+import com.aid.media.util.MediaTaskPayloadSanitizer;
+import com.aid.common.error.TaskErrorSnapshot;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -188,8 +190,8 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
             GenTypeEnum.I2V.getValue(), GenTypeEnum.MULTI.getValue(), GenTypeEnum.EDGE.getValue(),
             GenTypeEnum.UPLOAD_VIDEO.getValue());
 
-    /** 提示词最大长度（视频提示词以 800 字节为常见上限，此处给出业务侧软上限） */
-    private static final int MAX_PROMPT_LENGTH = 4000;
+    /** 视频提示词业务侧最大长度。 */
+    private static final int MAX_PROMPT_LENGTH = 20_000;
 
     /** 用户补充文本最大长度（超出截断） */
     private static final int MAX_USER_INPUT_LENGTH = 500;
@@ -954,7 +956,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         if (StrUtil.isNotBlank(request.getVideoPrompt()) && request.getVideoPrompt().length() > MAX_PROMPT_LENGTH)
         {
             log.error("分镜图生视频(图生方向)提示词过长: len={}", request.getVideoPrompt().length());
-            throw new ServiceException("提示词过长");
+            throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_TOO_LONG, "提示词过长，请精简");
         }
         if (StrUtil.isNotBlank(request.getUserInputText()) && request.getUserInputText().length() > MAX_USER_INPUT_LENGTH)
         {
@@ -1014,7 +1016,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
                 && request.getVideoPrompt().length() > MAX_PROMPT_LENGTH)
         {
             log.error("分镜图生视频提示词过长: len={}", request.getVideoPrompt().length());
-            throw new ServiceException("提示词过长");
+            throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_TOO_LONG, "提示词过长，请精简");
         }
         if (StrUtil.isNotBlank(request.getUserInputText())
                 && request.getUserInputText().length() > MAX_USER_INPUT_LENGTH)
@@ -1048,7 +1050,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         if (StrUtil.isNotBlank(request.getVideoPrompt()) && request.getVideoPrompt().length() > MAX_PROMPT_LENGTH)
         {
             log.error("分镜宫格生视频提示词过长: len={}", request.getVideoPrompt().length());
-            throw new ServiceException("提示词过长");
+            throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_TOO_LONG, "提示词过长，请精简");
         }
         if (StrUtil.isNotBlank(request.getUserInputText()) && request.getUserInputText().length() > MAX_USER_INPUT_LENGTH)
         {
@@ -1082,7 +1084,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         if (StrUtil.isNotBlank(request.getVideoPrompt()) && request.getVideoPrompt().length() > MAX_PROMPT_LENGTH)
         {
             log.error("分镜首尾帧生视频提示词过长: len={}", request.getVideoPrompt().length());
-            throw new ServiceException("提示词过长");
+            throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_TOO_LONG, "提示词过长，请精简");
         }
         if (StrUtil.isNotBlank(request.getUserInputText()) && request.getUserInputText().length() > MAX_USER_INPUT_LENGTH)
         {
@@ -2101,7 +2103,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         if (StrUtil.length(finalPrompt) > MAX_PROMPT_LENGTH)
         {
             log.info("多参图生视频最终提示词过长: storyboardId={}, len={}", sb.getId(), StrUtil.length(finalPrompt));
-            throw new ServiceException("提示词过长");
+            throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_TOO_LONG, "提示词过长，请精简");
         }
         return new PreparedShot(sb, finalPrompt, videoPrompt, plan.getReferenceImageUrls(),
                 plan.getFirstFrameImageUrl(), overridePrompt, takeCount, null, null, null, null, null,
@@ -2168,7 +2170,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         if (videoPrompt.length() > MAX_PROMPT_LENGTH)
         {
             log.info("图生视频提示词过长(含库回落): storyboardId={}, len={}", sb.getId(), videoPrompt.length());
-            throw new ServiceException("提示词过长");
+            throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_TOO_LONG, "提示词过长，请精简");
         }
         if (!useFrontPrompt)
         {
@@ -2208,7 +2210,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         if (StrUtil.length(finalPrompt) > MAX_PROMPT_LENGTH)
         {
             log.info("图生视频最终提示词过长: storyboardId={}, len={}", sb.getId(), StrUtil.length(finalPrompt));
-            throw new ServiceException("提示词过长");
+            throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_TOO_LONG, "提示词过长，请精简");
         }
         return new PreparedShot(sb, finalPrompt, videoPrompt, plan.getReferenceImageUrls(),
                 plan.getFirstFrameImageUrl(), useFrontPrompt ? request.getVideoPrompt() : null, takeCount,
@@ -2338,7 +2340,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         if (StrUtil.length(finalPrompt) > MAX_PROMPT_LENGTH)
         {
             log.info("首尾帧生视频最终提示词过长: storyboardId={}, len={}", sb.getId(), StrUtil.length(finalPrompt));
-            throw new ServiceException("提示词过长");
+            throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_TOO_LONG, "提示词过长，请精简");
         }
         return new PreparedShot(sb, finalPrompt, videoPrompt, new ArrayList<>(),
                 plan.getFirstFrameImageUrl(), overridePrompt, takeCount, lastUrl,
@@ -3086,8 +3088,9 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
                     {
                         log.error("分镜批量出片单条提交失败: taskId={}, storyboardId={}, take={}, err={}",
                                 taskId, shot.storyboard.getId(), slot + 1, perItemEx.getMessage());
+                        int takeNumber = slot + 1;
                         batchParentSubmissionGuard.executeManagedBusinessCommit(taskId, dispatchToken, () -> {
-                            fanInSupport.incrFail(taskId, perItemEx.getMessage());
+                            fanInSupport.incrFail(taskId, shot.storyboard.getId(), takeNumber, dispatchToken, perItemEx);
                             return null;
                         });
                     }
@@ -3102,7 +3105,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
 
             if (cancelledMid || assetExtractService.isTaskCancelled(taskId))
             {
-                if (cancelVideoBatchAtCheckpoint(taskId))
+                if (cancelVideoBatchAtCheckpointSerialized(taskId))
                 {
                     releaseBatchLocksAndSlots(batch, dispatchToken);
                 }
@@ -3186,6 +3189,20 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         catch (Exception e)
         {
             log.error("分镜批量出片取消收尾失败，保留PROCESSING等待租约回收: taskId={}", taskId, e);
+            return false;
+        }
+    }
+
+    private boolean cancelVideoBatchAtCheckpointSerialized(Long taskId)
+    {
+        try
+        {
+            return batchParentSubmissionGuard.execute(taskId,
+                    () -> cancelVideoBatchAtCheckpoint(taskId));
+        }
+        catch (Exception e)
+        {
+            log.error("分镜批量出片取消串行收口失败: taskId={}", taskId, e);
             return false;
         }
     }
@@ -3848,7 +3865,8 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
             toPending.set(AidExtractTask::getTotalCount, seedSuccessCount + newSubtasks);
             toPending.set(AidExtractTask::getInputSnapshot, newSnapJson);
             // 清空上一轮可能残留的 errorMessage（如队列回滚写入的"续生提交失败" / 崩溃回收的"超时未完成"），避免成功后详情仍带旧错误
-            toPending.set(AidExtractTask::getErrorMessage, null);
+            toPending.set(AidExtractTask::getErrorMessage, null)
+                .set(AidExtractTask::getErrorDetailJson, null);
             toPending.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
             int casRows;
             try
@@ -4002,6 +4020,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
                 job.durationSeconds, job.generateAudio, Map.of(OPT_KEY_CTX, ctx));
         videoRequest.setBizTaskType(BIZ_TASK_TYPE);
         videoRequest.setBizTaskId(bizSeq);
+        videoRequest.setParentTaskId(job.taskId);
 
         return batchParentSubmissionGuard.executeManagedTask(job.taskId, dispatchToken,
                 () -> mediaGenerationService.generateVideo(videoRequest));
@@ -4609,7 +4628,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
             {
                 TaskErrorResult errorResult =
                         fanInSupport.resolveRepresentativeFailure(taskId, BIZ_TASK_TYPE, task.getModelCode());
-                if (updateTaskFailed(taskId, errorResult))
+                if (updateTaskFailed(taskId, errorResult, resultJson))
                 {
                     sseManager.sendError(taskId, errorResult);
                 }
@@ -4674,6 +4693,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         map.put("totalSubtasks", total);
         map.put("successCount", successCount);
         map.put("failCount", failCount);
+        map.put("failedItems", fanInSupport.resolveFailureItems(task, BIZ_TASK_TYPE));
         map.put("recordIds", recordIds);
         map.put("items", items);
         map.put("shots", shots);
@@ -4965,7 +4985,8 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         update.set(AidExtractTask::getStatus, newStatus);
         if (StrUtil.isNotBlank(errorMessage))
         {
-            update.set(AidExtractTask::getErrorMessage, errorMessage);
+            update.set(AidExtractTask::getErrorMessage, errorMessage)
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage(errorMessage));
         }
         update.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
         int rows = extractTaskService.getBaseMapper().update(null, update);
@@ -4980,7 +5001,8 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         update.set(AidExtractTask::getStatus, TASK_STATUS_SUCCEEDED);
         update.set(AidExtractTask::getTotalCount, totalCount);
         // 成功终态清空 errorMessage，避免续生回滚等写入的旧错误残留
-        update.set(AidExtractTask::getErrorMessage, null);
+        update.set(AidExtractTask::getErrorMessage, null)
+                .set(AidExtractTask::getErrorDetailJson, null);
         if (StrUtil.isNotBlank(resultJson))
         {
             update.set(AidExtractTask::getResultData, resultJson);
@@ -5006,7 +5028,8 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         update.set(AidExtractTask::getStatus, TASK_STATUS_PARTIAL_FAILED);
         update.set(AidExtractTask::getTotalCount, totalCount);
         // 清空旧 errorMessage（失败明细在 resultData.failedItems），避免续生回滚写入的旧文案残留
-        update.set(AidExtractTask::getErrorMessage, null);
+        update.set(AidExtractTask::getErrorMessage, null)
+                .set(AidExtractTask::getErrorDetailJson, null);
         if (StrUtil.isNotBlank(resultJson))
         {
             update.set(AidExtractTask::getResultData, resultJson);
@@ -5051,12 +5074,24 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
 
     private boolean updateTaskFailed(Long taskId, String errorMessage)
     {
-        String safeMsg = StrUtil.isNotBlank(errorMessage) ? errorMessage : "生成失败";
+        return updateTaskFailed(taskId, ErrorNormalizer.normalizeByMessage(errorMessage));
+    }
+
+    private boolean updateTaskFailed(Long taskId, TaskErrorResult errorResult)
+    {
+        return updateTaskFailed(taskId, errorResult, null);
+    }
+
+    private boolean updateTaskFailed(Long taskId, TaskErrorResult errorResult, String resultJson)
+    {
+        String safeMsg = StrUtil.blankToDefault(errorResult.getRawMessage(), errorResult.getUserMessage());
         LambdaUpdateWrapper<AidExtractTask> update = Wrappers.lambdaUpdate();
         update.eq(AidExtractTask::getId, taskId);
         update.in(AidExtractTask::getStatus, TASK_STATUS_PENDING, TASK_STATUS_PROCESSING);
         update.set(AidExtractTask::getStatus, TASK_STATUS_FAILED);
-        update.set(AidExtractTask::getErrorMessage, StrUtil.sub(safeMsg, 0, 255));
+        update.set(AidExtractTask::getErrorMessage, StrUtil.sub(MediaTaskPayloadSanitizer.sanitizeForStorage(safeMsg), 0, 255))
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.write(errorResult));
+        if (StrUtil.isNotBlank(resultJson)) { update.set(AidExtractTask::getResultData, resultJson); }
         update.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
         int rows = extractTaskService.getBaseMapper().update(null, update);
         if (rows == 0)
@@ -5069,20 +5104,14 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         return true;
     }
 
-    private boolean updateTaskFailed(Long taskId, TaskErrorResult errorResult)
-    {
-        String dbMessage = Objects.nonNull(errorResult.getRawMessage())
-                ? errorResult.getRawMessage() : errorResult.getUserMessage();
-        return updateTaskFailed(taskId, dbMessage);
-    }
-
     private boolean updateTaskCancelled(Long taskId)
     {
         LambdaUpdateWrapper<AidExtractTask> update = Wrappers.lambdaUpdate();
         update.eq(AidExtractTask::getId, taskId);
         update.in(AidExtractTask::getStatus, TASK_STATUS_PENDING, TASK_STATUS_PROCESSING);
         update.set(AidExtractTask::getStatus, TASK_STATUS_CANCELLED);
-        update.set(AidExtractTask::getErrorMessage, "用户取消");
+        update.set(AidExtractTask::getErrorMessage, "用户取消")
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage("用户取消"));
         update.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
         int rows = extractTaskService.getBaseMapper().update(null, update);
         if (rows == 0)
@@ -5100,7 +5129,8 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         update.eq(AidExtractTask::getId, taskId);
         update.in(AidExtractTask::getStatus, TASK_STATUS_PENDING, TASK_STATUS_PROCESSING);
         update.set(AidExtractTask::getStatus, TASK_STATUS_CANCELLED);
-        update.set(AidExtractTask::getErrorMessage, "用户取消");
+        update.set(AidExtractTask::getErrorMessage, "用户取消")
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage("用户取消"));
         if (StrUtil.isNotBlank(resultJson))
         {
             update.set(AidExtractTask::getResultData, resultJson);

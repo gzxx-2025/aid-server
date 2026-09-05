@@ -1,6 +1,7 @@
 import { createContext } from 'react'
 import type { ExtractModalScope } from '~/components/steps/ExtractAgentModal'
 import type { GlobalSettingData,StoryboardPanel } from '~/types'
+import type { StoryScriptFlushResult } from '~/utils/storyScriptPersistence'
 /** 创作流程内「项目配置」页 / 弹窗状态与保存 */
 export interface CreateFlowGlobalSettingContext {
   confirmLoading: boolean
@@ -29,7 +30,6 @@ export interface CreateFlowGlobalSettingContext {
 export interface PreviewExportBridge {
   exportFullVideo: () => Promise<{
     videoUrl: string
-    needReaudit?: boolean
     episodeEditorId?: number
   } | null>
   exportSegments: () => Promise<void>
@@ -60,6 +60,8 @@ export interface CreateFlowShellContext {
   registerPreviewExportBridge: (bridge: PreviewExportBridge | null) => void
   /** 完整导出成功通知（含刷新恢复场景）：壳层自动保存成片至本地 */
   notifyPreviewExportSuccess: (videoUrl: string) => void
+  registerStoryScriptFlush?: (flush: (() => Promise<StoryScriptFlushResult>) | null) => void
+  embeddedEpisodeId?: number | null
 }
 
 /** 原 provide/inject（createFlowShellKey）的 React Context 版本；壳层 Provider 挂载后子步骤页 useContext 读取 */

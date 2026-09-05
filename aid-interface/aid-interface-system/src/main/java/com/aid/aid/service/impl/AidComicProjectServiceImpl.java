@@ -11,8 +11,6 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.aid.aid.mapper.AidComicProjectMapper;
 import com.aid.aid.domain.AidComicProject;
-import com.aid.aid.domain.vo.AidPublicProjectVo;
-import com.aid.aid.domain.vo.AidPublishItemVo;
 import com.aid.aid.service.IAidComicProjectService;
 import com.aid.aid.util.HiddenStylePromptJsonUtils;
 import com.aid.common.exception.ServiceException;
@@ -55,14 +53,12 @@ public class AidComicProjectServiceImpl extends ServiceImpl<AidComicProjectMappe
         // 查询字段精简：后台列表不加载隐藏快照，详情接口按主键读取完整记录。
         wrapper.select(AidComicProject::getId, AidComicProject::getUserId,
                 AidComicProject::getProjectName, AidComicProject::getProjectDesc,
-                AidComicProject::getPendingProjectName, AidComicProject::getPendingProjectDesc,
                 AidComicProject::getProjectType, AidComicProject::getCoverUrl,
-                AidComicProject::getPendingCoverUrl, AidComicProject::getAspectRatio,
+                AidComicProject::getAspectRatio,
                 AidComicProject::getScriptType, AidComicProject::getVideoStyleType,
                 AidComicProject::getVideoStyleValue, AidComicProject::getDefaultGenMode,
                 AidComicProject::getDefaultCreationMode, AidComicProject::getCurrentStep,
                 AidComicProject::getStatus, AidComicProject::getStatusReason,
-                AidComicProject::getIsPublic, AidComicProject::getPublishTime,
                 AidComicProject::getDelFlag, AidComicProject::getCreateTime,
                 AidComicProject::getCreateBy, AidComicProject::getUpdateTime,
                 AidComicProject::getUpdateBy, AidComicProject::getRemark);
@@ -107,10 +103,6 @@ public class AidComicProjectServiceImpl extends ServiceImpl<AidComicProjectMappe
             if (aidComicProject.getStatus() != null)
             {
                 wrapper.eq(AidComicProject::getStatus, aidComicProject.getStatus());
-            }
-            if (StrUtil.isNotBlank(aidComicProject.getIsPublic()))
-            {
-                wrapper.eq(AidComicProject::getIsPublic, aidComicProject.getIsPublic());
             }
         }
         wrapper.orderByDesc(AidComicProject::getId);
@@ -194,32 +186,4 @@ public class AidComicProjectServiceImpl extends ServiceImpl<AidComicProjectMappe
         }
     }
 
-    /**
-     * 后台发布管理列表（联表作者信息，SQL 见 AidComicProjectMapper.xml）
-     *
-     * @param publishState 发布状态筛选（approved=过审未发布 published=已发布，可空）
-     * @param projectName  作品名称模糊搜索（可空）
-     * @param projectType  作品类型筛选（可空）
-     * @param keyword      作者关键字（昵称/邮箱/手机号，可空）
-     * @return 发布管理列表
-     */
-    @Override
-    public List<AidPublishItemVo> selectPublishItemVoList(String publishState, String projectName,
-                                                          String projectType, String keyword)
-    {
-        return aidComicProjectMapper.selectPublishItemVoList(publishState, projectName, projectType, keyword);
-    }
-
-    /**
-     * C端公开广场列表（联表作者昵称，SQL 见 AidComicProjectMapper.xml）
-     *
-     * @param projectName 作品名称模糊搜索（可空）
-     * @param projectType 作品类型筛选（movie/series，可空）
-     * @return 公开广场项目列表
-     */
-    @Override
-    public List<AidPublicProjectVo> selectPublicProjectVoList(String projectName, String projectType)
-    {
-        return aidComicProjectMapper.selectPublicProjectVoList(projectName, projectType);
-    }
 }

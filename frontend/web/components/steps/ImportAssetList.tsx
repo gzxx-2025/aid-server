@@ -15,6 +15,7 @@ import type { AssetCenterCategoryTreeVO, AssetCenterDetailVO } from '~/types/bus
 import { scriptApiTextToEditorHtml } from '~/utils/htmlPlain'
 import { sanitizeDisplayHtml } from '~/utils/safeDisplayHtml'
 import { useStackedModalZIndex } from '~/hooks/useStackedModalZIndex'
+import { ImportAssetVideoThumb } from './ImportAssetVideoThumb'
 import {
   isAcceptedImportAsset,
   isVisibleImportAsset,
@@ -524,6 +525,39 @@ export function ImportAssetList({
                     <span className="asset-time">{formatTime(asset.updatedAt)}</span>
                   )}
                 </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : displayMode === 'video' ? (
+        <div className="assets-grid assets-grid--image">
+          {assets.map((asset) => (
+            <div
+              key={asset.id}
+              className={`asset-card asset-card--image${isAssetSelected(asset) ? ' asset-card--selected' : ''}`}
+              onClick={() => selectAsset(asset)}
+            >
+              <div className="asset-thumbnail aspect-video min-h-[100px] items-stretch justify-stretch">
+                {asset.url ? (
+                  <ImportAssetVideoThumb src={asset.url} title={asset.name} />
+                ) : (
+                  <VideoCameraOutlined className="asset-icon asset-icon--center" />
+                )}
+                {asset.featured && <span className="featured-badge">精选</span>}
+                <img
+                  className="asset-card-select"
+                  src={isAssetSelected(asset) ? dialogSelectSelIcon : dialogSelectNorIcon}
+                  alt=""
+                  role="checkbox"
+                  aria-checked={isAssetSelected(asset)}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    selectAsset(asset)
+                  }}
+                />
+              </div>
+              <div className="asset-info asset-info--image">
+                <div className="asset-name">{asset.name}</div>
               </div>
             </div>
           ))}

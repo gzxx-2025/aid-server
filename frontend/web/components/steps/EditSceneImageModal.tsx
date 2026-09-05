@@ -34,7 +34,6 @@ import { EllipsisTooltip } from '~/components/common/EllipsisTooltip'
 import { BillingQuoteConfirm } from '~/components/common/BillingQuoteConfirm'
 import { BillingQuoteHint } from '~/components/common/BillingQuoteHint'
 import { ModelBillingRules } from '~/components/common/ModelBillingRules'
-import { RichTextEditor } from '~/components/common/RichTextEditor'
 import { useBillingQuote } from '~/hooks/useBillingQuote'
 import { SceneSettingModal } from './SceneSettingModal'
 import { resolveSettingEditBlockedTooltip } from './edit-scene-image/settingEditPermission'
@@ -42,13 +41,8 @@ import {
   buildSceneModalGenerateRequest,
   resolveSceneModalGenerationFormId
 } from './edit-scene-image/sceneModalGenerateRequest'
-import { ImportReferenceImageModal } from './ImportReferenceImageModal'
 import { ImportScriptModal } from './ImportScriptModal'
 import { DialogueDrawPanel } from './DialogueDrawPanel'
-import { GenerateSourceImagesStrip } from './GenerateSourceImagesStrip'
-import { ModelSelectDropdown } from './ModelSelectDropdown'
-import { PromptScriptFileHeader } from './PromptScriptFileHeader'
-import { GenerateModelConfigBlock } from './GenerateModelConfigBlock'
 import { UpscaleModelPopover } from './UpscaleModelPopover'
 import { SettingCardImagePopover } from './SettingCardImagePopover'
 import { SelectSceneImageModal } from './SelectSceneImageModal'
@@ -143,10 +137,7 @@ export function EditSceneImageModal(props: EditSceneImageModalProps) {
   const autoRegenerateSubmitting = autoRegenerateSubmittingScopeKeys.includes(
     currentAutoRegenerateScopeKey
   )
-  const leftActiveTab = c.leftActiveTab.value
-  const selectedGenerateModel = c.selectedModel()
   const selectedDialogueModel = c.selectedDialogueModel()
-  const selectedGenerateModelCode = String(selectedGenerateModel?.id || '').trim()
   const selectedDialogueModelCode = String(selectedDialogueModel?.id || '').trim()
   const currentImageFormId = Number(
     (currentImg as { rpsFormId?: unknown } | null)?.rpsFormId ?? NaN
@@ -157,44 +148,6 @@ export function EditSceneImageModal(props: EditSceneImageModalProps) {
   )
   const quoteRequest = useMemo<BillingQuoteRequest | null>(() => {
     if (!props.open) return null
-    if (leftActiveTab === 'generate') {
-      const prompt = htmlToPlainText(c.promptText.value || '').trim()
-      const modelCode = selectedGenerateModelCode
-      const referenceImages = c.generateSourceImages.value
-        .map((image) => String(image.url || '').trim())
-        .filter(Boolean)
-      if (!modelCode) return null
-      const settings = c.generationSettings.value
-      const aspectRatio = String(settings.aspectRatio || '').trim() || '1:1'
-      const size = String(settings.quality || '').trim().toUpperCase() || '2K'
-      const imageCount = Math.max(1, Math.min(4, Number(settings.count) || 1))
-      if (resolvedCurrentFormId != null && prompt && referenceImages.length > 0) {
-        const payload = buildSceneModalGenerateRequest({
-          formId: resolvedCurrentFormId,
-          genMode: 'edit',
-          referenceImages,
-          prompt,
-          modelCode,
-          aspectRatio,
-          size,
-          imageCount
-        })
-        return { quoteType: 'FORM_EDIT_CHAT_IMAGE', payload: { ...payload } }
-      }
-      return {
-        quoteType: 'MEDIA_IMAGE_PRICING',
-        payload: {
-          modelCode,
-          generateMode: 'IMAGE_EDIT',
-          size,
-          resolution: size,
-          aspectRatio,
-          imageCount,
-          expectedImageCount: imageCount,
-          referenceImageCount: Math.max(1, referenceImages.length)
-        }
-      }
-    }
     const prompt = htmlToPlainText(c.dialogueInstructionHtml.value || '').trim()
     const modelCode = selectedDialogueModelCode
     if (!modelCode) return null
@@ -235,18 +188,12 @@ export function EditSceneImageModal(props: EditSceneImageModalProps) {
     c.dialogueInstructionHtml.value,
     c.dialogueSettings.value,
     c.dialogueSourceImages.value,
-    c.generateSourceImages.value,
-    c.generationSettings.value,
-    c.promptText.value,
-    currentSceneIndex,
-    leftActiveTab,
     props.open,
     resolvedCurrentFormId,
-    selectedDialogueModelCode,
-    selectedGenerateModelCode
+    selectedDialogueModelCode
   ])
   const generationQuote = useBillingQuote(quoteRequest)
-  const quoteModel = leftActiveTab === 'generate' ? selectedGenerateModel : selectedDialogueModel
+  const quoteModel = selectedDialogueModel
   const quoteModelSelected = Boolean(quoteModel?.id)
   const quoteIdleText = quoteModelSelected && !quoteRequest ? '正在准备预计费用…' : ''
   // 外层槽位状态还承载设定卡等任务；重新生成只认 form_image，避免跨按钮 loading 污染。
@@ -783,125 +730,42 @@ export function EditSceneImageModal(props: EditSceneImageModalProps) {
 
                 <aside className="stage-config-panel">
                   <div className="config-tabs">
-                    <button
-                      className={`config-tab${c.leftActiveTab.value === 'generate' ? ' active' : ''}`}
-                      onClick={() => c.leftActiveTab.set('generate')}
-                    >
-                      {c.generateTabLabel()}
-                    </button>
-                    <button
-                      className={`config-tab${c.leftActiveTab.value === 'dialogue' ? ' active' : ''}`}
-                      onClick={() => c.leftActiveTab.set('dialogue')}
-                    >
+                    <button type="button" className="config-tab active">
                       对话作图
                     </button>
                   </div>
                   <div className="scene-config-below-tabs">
                     <div className="scene-config-scroll create-modal-config-scroll">
                       <div className="config-body create-modal-config-body">
-                        {c.leftActiveTab.value === 'generate' ? (
-                          <div className="create-modal-tab-panel">
-                            <div className="create-modal-tab-chrome">
-                              <PromptScriptFileHeader
-                                iconType="scene"
-                                theme="scene-modal"
-                                fileName={c.currentScene().name}
-                                showReferenceButton={false}
-                                showGeneratePromptButton={false}
-                                settingClickBlockedTooltip={settingEditBlockedTooltip || undefined}
-                                onClickFile={c.handleOpenSceneSetting}
-                              />
-                              <GenerateSourceImagesStrip
-                                images={c.generateSourceImages.value}
-                                showAdder={c.generateSourceImages.value.length < FORM_IMAGE_REFERENCE_LIMIT}
-                                showAdderText={!c.generateSourceImages.value.length}
-                                adderText="导入参考图"
-                                onRemove={(i) =>
-                                  c.generateSourceImages.set(
-                                    c.generateSourceImages.get().filter((_, idx) => idx !== i)
-                                  )
-                                }
-                                onOpenAdder={() => c.showGenerateImportModal.set(true)}
-                              />
-                            </div>
-                            <div className="create-modal-prompt-shell">
-                              <RichTextEditor
-                                value={c.promptText.value}
-                                onChange={(v) => c.promptText.set(v)}
-                                maxLength={3000}
-                                placeholder="描述希望对参考图做的编辑，如：改成风衣造型、保留城市夜景背景"
-                                className="prompt-input"
-                              />
-                            </div>
-                            <GenerateModelConfigBlock
-                              aspectRatio={c.activeAspectRatio()}
-                              onAspectRatioChange={c.setActiveAspectRatio}
-                              count={c.activeCount()}
-                              onCountChange={c.setActiveCount}
-                              quality={c.activeQuality()}
-                              onQualityChange={c.setActiveQuality}
-                              aspectRatioOptions={
-                                c.leftActiveTab.value === 'generate'
-                                  ? c.editAspectRatioSelectOptions
-                                  : c.dialogueAspectRatioSelectOptions
-                              }
-                              countOptions={
-                                c.leftActiveTab.value === 'generate'
-                                  ? c.editCountSelectOptions
-                                  : c.dialogueCountSelectOptions
-                              }
-                              qualityOptions={
-                                c.leftActiveTab.value === 'generate'
-                                  ? c.editQualitySelectOptions
-                                  : c.dialogueQualitySelectOptions
-                              }
-                              selectClass="setting-select"
-                              density="scene"
-                              showQuality3k={true}
-                              showAction={false}
-                              modelSlot={
-                                <ModelSelectDropdown
-                                  value={c.selectedModel()}
-                                  options={c.modelOptions}
-                                  expanded={c.modelDropdownExpanded.value}
-                                  onToggle={() => c.modelDropdownExpanded.set(!c.modelDropdownExpanded.get())}
-                                  onClose={() => c.modelDropdownExpanded.set(false)}
-                                  onSelect={(model) => c.handleSelectModel(model)}
-                                />
-                              }
-                            />
-                          </div>
-                        ) : (
-                          <DialogueDrawPanel
-                            sourceType="asset"
-                            maxSourceCount={FORM_IMAGE_REFERENCE_LIMIT}
-                            sourceImages={c.dialogueSourceImages.value}
-                            instructionHtml={c.dialogueInstructionHtml.value}
-                            modelValue={c.selectedDialogueModel()}
-                            modelOptions={c.dialogueModelOptions}
-                            modelExpanded={c.dialogueModelDropdownExpanded.value}
-                            aspectRatio={c.dialogueSettings.value.aspectRatio}
-                            count={c.dialogueSettings.value.count}
-                            quality={c.dialogueSettings.value.quality}
-                            aspectRatioOptions={c.dialogueAspectRatioSelectOptions}
-                            countOptions={c.dialogueCountSelectOptions}
-                            qualityOptions={c.dialogueQualitySelectOptions}
-                            onOpenSourcePicker={() => c.showDialogueImportModal.set(true)}
-                            onRemoveSourceImage={c.removeDialogueSourceImage}
-                            onInstructionHtmlChange={(v) => c.dialogueInstructionHtml.set(v)}
-                            onModelExpandedChange={(v) => c.dialogueModelDropdownExpanded.set(v)}
-                            onSelectModel={c.handleSelectDialogueModel}
-                            onAspectRatioChange={(v) =>
-                              c.dialogueSettings.set({ ...c.dialogueSettings.get(), aspectRatio: v })
-                            }
-                            onCountChange={(v) =>
-                              c.dialogueSettings.set({ ...c.dialogueSettings.get(), count: v })
-                            }
-                            onQualityChange={(v) =>
-                              c.dialogueSettings.set({ ...c.dialogueSettings.get(), quality: v })
-                            }
-                          />
-                        )}
+                        <DialogueDrawPanel
+                          sourceType="asset"
+                          maxSourceCount={FORM_IMAGE_REFERENCE_LIMIT}
+                          sourceImages={c.dialogueSourceImages.value}
+                          instructionHtml={c.dialogueInstructionHtml.value}
+                          modelValue={c.selectedDialogueModel()}
+                          modelOptions={c.dialogueModelOptions}
+                          modelExpanded={c.dialogueModelDropdownExpanded.value}
+                          aspectRatio={c.dialogueSettings.value.aspectRatio}
+                          count={c.dialogueSettings.value.count}
+                          quality={c.dialogueSettings.value.quality}
+                          aspectRatioOptions={c.dialogueAspectRatioSelectOptions}
+                          countOptions={c.dialogueCountSelectOptions}
+                          qualityOptions={c.dialogueQualitySelectOptions}
+                          onOpenSourcePicker={() => c.showDialogueImportModal.set(true)}
+                          onRemoveSourceImage={c.removeDialogueSourceImage}
+                          onInstructionHtmlChange={(v) => c.dialogueInstructionHtml.set(v)}
+                          onModelExpandedChange={(v) => c.dialogueModelDropdownExpanded.set(v)}
+                          onSelectModel={c.handleSelectDialogueModel}
+                          onAspectRatioChange={(v) =>
+                            c.dialogueSettings.set({ ...c.dialogueSettings.get(), aspectRatio: v })
+                          }
+                          onCountChange={(v) =>
+                            c.dialogueSettings.set({ ...c.dialogueSettings.get(), count: v })
+                          }
+                          onQualityChange={(v) =>
+                            c.dialogueSettings.set({ ...c.dialogueSettings.get(), quality: v })
+                          }
+                        />
                       </div>
                     </div>
                     <div className="scene-config-footer">
@@ -926,11 +790,7 @@ export function EditSceneImageModal(props: EditSceneImageModalProps) {
                         className="generate-btn"
                         loading={c.showGenerateFooterButtonLoading()}
                         disabled={c.showGenerateFooterButtonLoading()}
-                        onClick={() =>
-                          c.leftActiveTab.value === 'generate'
-                            ? void c.handleStartGenerate()
-                            : void c.handleStartDialogueGenerate()
-                        }
+                        onClick={() => void c.handleStartDialogueGenerate()}
                         icon={<img src={starWhiteIcon} alt="" />}
                       >
                         开始生图
@@ -965,13 +825,6 @@ export function EditSceneImageModal(props: EditSceneImageModalProps) {
         onSaveAndUpdate={c.handleSaveAndUpdateSceneSetting}
       />
 
-      {/* 导入参考图弹窗 */}
-      <ImportReferenceImageModal
-        open={c.showImportReferenceModal.value}
-        onOpenChange={(v) => c.showImportReferenceModal.set(v)}
-        onImport={(file) => void c.handleReferenceImageImport(file)}
-      />
-
       {/* 资源库导入弹窗 */}
       <ImportScriptModal
         open={c.showAssetLibraryModal.value}
@@ -989,15 +842,6 @@ export function EditSceneImageModal(props: EditSceneImageModalProps) {
         title="选择参考画面"
         onSelectMultiple={c.handleDialogueImportMultiple}
       />
-      <SelectSceneImageModal
-        open={c.showGenerateImportModal.value}
-        onOpenChange={(v) => c.showGenerateImportModal.set(v)}
-        scenes={c.scenesForImportModal()}
-        editingSceneIndex={c.currentSceneIndex.value}
-        multiple
-        title="导入参考图"
-        onSelectMultiple={c.handleGenerateImportMultiple}
-      />
       <MultiAngleCameraModal
         open={c.showMultiAngleModal.value}
         onOpenChange={(v) => c.showMultiAngleModal.set(v)}
@@ -1012,7 +856,7 @@ export function EditSceneImageModal(props: EditSceneImageModalProps) {
             ? {
                 kind: 'form',
                 formId: resolvedCurrentFormId,
-                aspectRatio: c.generationSettings.value.aspectRatio || '1:1'
+                aspectRatio: c.dialogueSettings.value.aspectRatio || '1:1'
               }
             : undefined
         }

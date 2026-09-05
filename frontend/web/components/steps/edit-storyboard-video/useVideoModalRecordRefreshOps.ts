@@ -16,12 +16,6 @@ resolveStoryboardVideoSourceLabel
 import { resolveStoryScriptSaveContext } from '~/utils/storyScriptSaveContext'
 import type { VideoModalCtx } from './types'
 
-/** 对齐 Vue nextTick */
-function nextTick(fn: () => void) {
-  setTimeout(fn, 0)
-}
-
-
 export function useVideoModalRecordRefreshOps(ctx: VideoModalCtx) {
   function mapRecordRowToImageItem(r: StoryboardRecordRow): any {
     const url = (r.fileUrl || '').trim()
@@ -132,10 +126,8 @@ export function useVideoModalRecordRefreshOps(ctx: VideoModalCtx) {
         if (sceneIdx !== ctx.currentSceneIndex.get()) return
         if (options?.focusLatest && mapped.length > 0) {
           const latestIdx = mapped.length - 1
-          if (ctx.selectedVideoIdx.get() !== latestIdx) {
-            ctx.selectedVideoIdx.set(latestIdx)
-            ctx.scrollVideoCanvasToIndex(sceneIdx, latestIdx)
-          }
+          ctx.selectedVideoIdx.set(latestIdx)
+          ctx.scrollVideoCanvasToIndex(sceneIdx, latestIdx)
         }
         return
       }

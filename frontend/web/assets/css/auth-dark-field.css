@@ -1,0 +1,145 @@
+/**
+ * 认证暗色输入（登录弹窗 / 找回密码共用）
+ * 仅覆盖 antd 深层；布局与间距写在组件 className 上。
+ * 必须排在 create-steps-ant-overrides 之后。
+ */
+
+.auth-dark-field-wrap {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  height: 48px;
+  /* 水平内边距统一在 wrap：ghost/solid 一致，避免 antd padding 被高优先级清零后贴边 */
+  padding: 0 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color 0.2s ease;
+}
+
+.auth-dark-field-wrap--ghost {
+  border: 1px solid #ffffff14;
+  background: rgba(18, 18, 18, 0.1);
+}
+
+.auth-dark-field-wrap--ghost:hover,
+.auth-dark-field-wrap--ghost:focus-within {
+  border-color: #ffffff;
+}
+
+.auth-dark-field-wrap--solid {
+  border: 0;
+  background: #121212;
+}
+
+html.app-shell-create .auth-dark-field-wrap .ant-input,
+html.app-shell-create .auth-dark-field-wrap .ant-input-affix-wrapper,
+html.app-shell-create .auth-dark-field-wrap .ant-input-outlined,
+html.app-shell-create .auth-dark-field-wrap .ant-input-borderless,
+html.app-shell-create .auth-dark-field-wrap .ant-input-affix-wrapper .ant-input,
+html.app-shell-create .auth-dark-field-wrap .ant-input-affix-wrapper input,
+html body .auth-dark-field-wrap .ant-input,
+html body .auth-dark-field-wrap .ant-input-affix-wrapper,
+html body .auth-dark-field-wrap .ant-input-outlined,
+html body .auth-dark-field-wrap .ant-input-borderless,
+html body .auth-dark-field-wrap .ant-input-affix-wrapper .ant-input,
+html body .auth-dark-field-wrap .ant-input-affix-wrapper input {
+  width: 100% !important;
+  height: 100% !important;
+  padding-inline: 0 !important;
+  color: #fff !important;
+  caret-color: #fff !important;
+  background: transparent !important;
+  border: 0 !important;
+  border-color: transparent !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  outline: none !important;
+  cursor: pointer !important;
+}
+
+html.app-shell-create .auth-dark-field-wrap .ant-input:hover,
+html.app-shell-create .auth-dark-field-wrap .ant-input:focus,
+html.app-shell-create .auth-dark-field-wrap .ant-input:focus-visible,
+html.app-shell-create .auth-dark-field-wrap .ant-input-focused,
+html.app-shell-create .auth-dark-field-wrap .ant-input-affix-wrapper:hover,
+html.app-shell-create .auth-dark-field-wrap .ant-input-affix-wrapper:focus,
+html.app-shell-create .auth-dark-field-wrap .ant-input-affix-wrapper:focus-visible,
+html.app-shell-create .auth-dark-field-wrap .ant-input-affix-wrapper-focused,
+html body .auth-dark-field-wrap .ant-input:hover,
+html body .auth-dark-field-wrap .ant-input:focus,
+html body .auth-dark-field-wrap .ant-input:focus-visible,
+html body .auth-dark-field-wrap .ant-input-focused,
+html body .auth-dark-field-wrap .ant-input-affix-wrapper:hover,
+html body .auth-dark-field-wrap .ant-input-affix-wrapper:focus,
+html body .auth-dark-field-wrap .ant-input-affix-wrapper:focus-visible,
+html body .auth-dark-field-wrap .ant-input-affix-wrapper-focused,
+html body .auth-dark-field-wrap .ant-input-affix-wrapper .ant-input:focus,
+html body .auth-dark-field-wrap .ant-input-affix-wrapper input:focus {
+  border: 0 !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+.auth-dark-field-wrap .ant-input::placeholder,
+.auth-dark-field-wrap .ant-input-affix-wrapper input::placeholder {
+  color: var(--home-muted, #8e97a5) !important;
+}
+
+.auth-dark-field-wrap .ant-input-affix-wrapper {
+  display: flex !important;
+  align-items: center;
+  width: 100%;
+}
+
+.auth-dark-field-wrap .ant-input-suffix {
+  margin-inline-start: 8px;
+  color: var(--home-muted, #8e97a5);
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+.auth-dark-field-wrap .ant-input-suffix .anticon:hover {
+  color: #fff;
+}
+
+/**
+ * 认证主按钮（登录白底 / 找回密码渐变共用）
+ * 圆角必须用 !important，与登录弹窗一致，避免被全局 button / rem 覆盖。
+ */
+html body button.auth-dark-submit {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 48px;
+  width: 100%;
+  border: 0 !important;
+  border-radius: 8px !important;
+  font-size: 18px !important;
+  font-weight: 500;
+  line-height: 24px;
+  cursor: pointer;
+}
+
+html body button.auth-dark-submit--light {
+  background: #fff !important;
+  color: #121212 !important;
+}
+
+html body button.auth-dark-submit--grad {
+  background: var(--home-grad-btn, linear-gradient(90deg, #0e59fa 0%, #00abd8 100%)) !important;
+  color: #fff !important;
+}
+
+html body button.auth-dark-submit:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+html body button.auth-dark-submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}

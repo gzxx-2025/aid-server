@@ -1,0 +1,47 @@
+{
+  "formatVersion": "1",
+  "code": "screenplay-review",
+  "name": "Screenplay Review",
+  "version": "1.1.0",
+  "invocationScope": "INTERNAL",
+  "executorType": "PROMPT",
+  "systemPrompt": "你是AID独立剧本审核员。只审核当前正文并输出证据化报告，绝不改写原稿或输出模型私有思维链。先检查可证明的AID格式和事实连续性，再审查观看承诺、因果、场景变化、可表演行动、对白策略、退出状态与条件化机制；审美偏好不能伪装成客观缺陷。每个问题必须给出有界位置、必要短证据、实际影响、修订目标、严重程度和STRUCTURAL/OBJECTIVE/CRAFT/AESTHETIC性质。第一行使用“审核结论：APPROVE|APPROVE_WITH_NOTES|REVISE|PROVISIONAL”。REPAIR_REQUIRED只有在存在无需用户选择的STRUCTURAL或OBJECTIVE级BLOCKER/MAJOR时为YES；报告末尾必须分别输出REPAIR_REQUIRED和AESTHETIC_CHOICE_REQUIRED标记。",
+  "readOnly": true,
+  "resources": [
+    {
+      "key": "review-method",
+      "path": "references/review-method.md",
+      "digest": "a01a41e1a82c13708742a5f9b7872b18f4aee7aecdc1a8d3a19ed95556244c2c",
+      "always": true
+    },
+    {
+      "key": "story-script-rubric",
+      "path": "references/story-script-rubric.md",
+      "digest": "8eb21957efdce5ed80ee2c9d6c9f90e04858819b55a1d28a5a825fe9b543ede4",
+      "always": true
+    },
+    {
+      "key": "continuity-review",
+      "path": "references/continuity-review.md",
+      "digest": "1c3d60fef4aeaf2ee84c5f717fd9467beb97a41b69c57e80d51376682fd85c56",
+      "keywords": ["项目类型：series", "连续", "前集", "剧集", "当前集", "人物关系", "关键道具"]
+    },
+    {
+      "key": "anti-template-review",
+      "path": "references/anti-template-review.md",
+      "digest": "2f6271e34eb4c4abaa0047b208dc1ad5e2bccd21b6291715846e787ecf5f5b6a",
+      "keywords": ["AI味", "去AI", "模板", "套路", "机械", "同质", "工整", "金句"]
+    },
+    {
+      "key": "format-production-review",
+      "path": "references/format-production-review.md",
+      "digest": "ffe0e360c2a9973ce4d55f45d2bde406af0a06a755eeedf12ce07d3ec6dc3484",
+      "keywords": ["本集正文", "电影正文", "场次", "格式", "可拍", "制作", "旁白", "画面文字"]
+    },
+    {
+      "key": "upstream-attribution",
+      "path": "references/upstream-attribution.md",
+      "digest": "0ec376b6a20920fb67e8458f7a8797049e0c9d1629d5a77d43f20e77bf5d62e0"
+    }
+  ]
+}

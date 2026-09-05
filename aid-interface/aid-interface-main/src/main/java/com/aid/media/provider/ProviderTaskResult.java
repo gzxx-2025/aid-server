@@ -1,6 +1,8 @@
 package com.aid.media.provider;
 
 import lombok.Builder;
+import com.aid.common.error.TaskErrorResult;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Data;
 
 import java.util.List;
@@ -17,6 +19,10 @@ public class ProviderTaskResult {
 
     // 错误信息（失败时返回）。
     private String errorMessage;
+
+    /** 适配器已识别的安全任务错误，终态收口优先沿用。 */
+    @JsonIgnore
+    private TaskErrorResult taskError;
 
     // 厂商终态失败原文，仅供统一终态收口记录错误样本，禁止直接展示或写入任务错误字段。
     private String rawErrorMessage;

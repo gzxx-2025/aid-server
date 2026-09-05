@@ -133,32 +133,6 @@ html[data-viewport-above-design='1'][data-viewport-wide-tier='beyond'] .batch-ge
   }
 }
 
-html[data-viewport-above-design='1'] .publish-case-plaza-modal-wrap .ant-modal,
-html[data-viewport-os-scale] .publish-case-plaza-modal-wrap .ant-modal {
-  width: min(680px, calc(100vw - 32px)) !important;
-  max-width: min(680px, calc(100vw - 32px)) !important;
-}
-
-html[data-viewport-above-design='1'] .publish-case-plaza-modal-wrap .ant-modal-footer,
-html[data-viewport-os-scale] .publish-case-plaza-modal-wrap .ant-modal-footer {
-  display: flex !important;
-  flex-direction: row !important;
-  flex-wrap: nowrap !important;
-  justify-content: flex-end !important;
-  align-items: center !important;
-  gap: 8px !important;
-  text-align: end !important;
-}
-
-html[data-viewport-above-design='1'] .publish-case-plaza-modal-wrap .ant-modal-footer .ant-btn,
-html[data-viewport-os-scale] .publish-case-plaza-modal-wrap .ant-modal-footer .ant-btn {
-  display: inline-flex !important;
-  width: auto !important;
-  min-width: 88px !important;
-  flex: 0 0 auto !important;
-  margin: 0 !important;
-}
-
 html[data-viewport-above-design='1'] .agent-picker-wrap .ant-modal-body,
 html[data-viewport-above-design='1'] .project-gen-config-modal-wrap .ant-modal-body {
   max-height: calc(var(--vps-comp-vh, var(--viewport-compensated-vh, 100vh)) - 48px) !important;

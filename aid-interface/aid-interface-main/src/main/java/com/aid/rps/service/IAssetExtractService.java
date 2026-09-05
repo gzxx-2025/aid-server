@@ -104,9 +104,9 @@ public interface IAssetExtractService
     void releaseBatchFormLocks(Long taskId, String taskType, String dispatchToken);
 
     /**
-     * 批量角色设定卡生成（父任务模式；白底图作参考图生成设定卡，第二阶段）。
+     * 批量角色设定卡生成（父任务模式；已有角色图作为参考图）。
      *
-     * @param imageIds    白底图实例ID列表（aid_role_prop_scene_form_image.id）
+     * @param imageIds    角色源图实例ID列表（aid_role_prop_scene_form_image.id）
      * @param userId      当前用户ID
      * @param agentCode   智能体编码（必填，biz_category_code=main_character_card_image）
      * @param modelCode   可选，用户指定的图片模型；为空走 3 级兜底

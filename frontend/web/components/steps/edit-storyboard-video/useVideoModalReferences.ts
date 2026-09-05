@@ -44,9 +44,14 @@ export function useVideoModalReferences(ctx: VideoModalCtx): void {
       return
     }
     const list = images.map(mapMultiParamReferenceImportItem)
+    const grouped = new Map<'scene' | 'character' | 'prop' | 'other', any[]>()
+    for (const item of list) {
+      const type = inferMultiParamAssetType(item)
+      grouped.set(type, [...(grouped.get(type) ?? []), item])
+    }
     if (ctx.getActiveStoryboardPanel()?.isParamSettingsOpen?.()) {
-      for (const item of list) {
-        ctx.getActiveStoryboardPanel()?.applyParamDraftAssets(inferMultiParamAssetType(item), [item])
+      for (const [type, assets] of grouped) {
+        ctx.getActiveStoryboardPanel()?.applyParamDraftAssets(type, assets)
       }
       message.success(
         audios.length
@@ -55,8 +60,8 @@ export function useVideoModalReferences(ctx: VideoModalCtx): void {
       )
       return
     }
-    for (const item of list) {
-      appendMultiParamAssetImages(inferMultiParamAssetType(item), [item])
+    for (const [type, assets] of grouped) {
+      appendMultiParamAssetImages(type, assets)
     }
     message.success(
       audios.length

@@ -6,6 +6,7 @@ import {
   normalizeScriptTypeValue,
   resolveProjectCreationMode
 } from '~/utils/globalSettingEnums'
+import { createInitialCreationState } from '~/stores/creation/state'
 
 type CreationStore = ReturnType<typeof useCreationStore>
 
@@ -99,9 +100,18 @@ export function buildGlobalSettingFromProjectDetail(
 export function applyProjectDetailToCreationStore(
   store: CreationStore,
   detail: UserProjectRow,
-  projectId: number
+  projectId: number,
+  options?: {
+    explicitSeriesEpisodeId?: number | null
+    preservePreviousProjectStyle?: boolean
+  }
 ) {
-  const currentSetting = store.formData.globalSetting
+  const currentSetting = options?.preservePreviousProjectStyle === false
+    ? {
+        ...createInitialCreationState().formData.globalSetting,
+        myStyles: store.formData.globalSetting.myStyles ?? []
+      }
+    : store.formData.globalSetting
   const nextSetting = buildGlobalSettingFromProjectDetail(detail, currentSetting)
 
   store.setWorkTitle(detail.projectName || '未命名作品')
@@ -109,12 +119,15 @@ export function applyProjectDetailToCreationStore(
   store.setCurrentProjectType(detail.projectType)
   store.setCurrentProjectContext({
     projectId,
-    episodeId: detail.projectType === 'movie' ? 0 : null
+    episodeId: detail.projectType === 'movie'
+      ? 0
+      : (Number(options?.explicitSeriesEpisodeId) > 0
+          ? Number(options?.explicitSeriesEpisodeId)
+          : null)
   })
   store.setCurrentMediaContext({
     projectStatus: detail.status ?? null,
     projectStatusReason: detail.statusReason ?? null,
-    projectIsPublic: detail.isPublic ?? null,
     episodeStatus: detail.projectType === 'movie' ? detail.status ?? null : null,
     episodeStatusReason: detail.projectType === 'movie' ? detail.statusReason ?? null : null,
     episodeEditorId: detail.projectType === 'movie' ? detail.episodeEditorId ?? null : null,
@@ -157,6 +170,8 @@ export async function hydrateCreationStoreFromProjectDetail(
     force?: boolean
     /** await 期间上下文可能已切换（快速切作品）：返回 false 则丢弃本次结果，不写 store */
     shouldApply?: () => boolean
+    explicitSeriesEpisodeId?: number | null
+    preservePreviousProjectStyle?: boolean
   }
 ): Promise<UserProjectRow | null> {
   const pid = Number(projectId)
@@ -167,7 +182,7 @@ export async function hydrateCreationStoreFromProjectDetail(
   if (options?.shouldApply && !options.shouldApply()) {
     return null
   }
-  applyProjectDetailToCreationStore(store, detail, pid)
+  applyProjectDetailToCreationStore(store, detail, pid, options)
   return detail
 }
 

@@ -6,12 +6,15 @@ import com.aid.common.error.rule.AidErrorLogService;
 import com.aid.common.error.rule.ErrorRuleCache;
 import com.aid.common.error.rule.ErrorRuleEngine;
 import com.aid.common.exception.ServiceException;
+import com.aid.providerbalance.service.ProviderBalanceService;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 
 /**
@@ -28,6 +31,7 @@ public class ErrorNormalizer {
     private final ErrorRuleEngine errorRuleEngine;
     private final AidErrorLogService errorLogService;
     private final ErrorProviderResolver errorProviderResolver;
+    private final ObjectProvider<ProviderBalanceService> providerBalanceServiceProvider;
 
     /** 静态门面：方便业务在 static 上下文调用。Spring 启动后由 {@link #init()} 注入。 */
     private static ErrorNormalizer INSTANCE;
@@ -42,24 +46,44 @@ public class ErrorNormalizer {
      * 业务调用方很多，保持原签名兼容。
      */
     public static TaskErrorResult normalize(Throwable ex) {
+        return normalize(null, null, null, ex);
+    }
+
+    public static TaskErrorResult normalize(String taskId, String providerCode, String modelCode, Throwable ex) {
         if (Objects.isNull(ex)) {
             return TaskErrorResult.of(TaskErrorCode.UNKNOWN);
         }
-        if (ex instanceof InterruptedException) {
-            return TaskErrorResult.of(TaskErrorCode.TASK_INTERRUPTED, ex.getMessage());
-        }
         ServiceException balanceException = findUserBalanceException(ex);
         if (Objects.nonNull(balanceException)) {
-            TaskErrorCode code = TaskErrorCode.valueOf(balanceException.getDetailMessage());
-            return TaskErrorResult.of(code,
+            return TaskErrorResult.of(TaskErrorCode.valueOf(balanceException.getDetailMessage()),
                     balanceException.getMessage());
         }
-        if (ex instanceof ServiceException serviceException) {
-            String rawMessage = StrUtil.blankToDefault(
-                    serviceException.getDetailMessage(), serviceException.getMessage());
-            return normalizeByMessage(rawMessage);
+        Throwable current = ex;
+        String selectedMessage = ex.getMessage();
+        TaskErrorResult selected = null;
+        for (int depth = 0; Objects.nonNull(current) && depth < 10; depth++) {
+            if (current instanceof InterruptedException) {
+                return TaskErrorResult.of(TaskErrorCode.TASK_INTERRUPTED, current.getMessage());
+            }
+            String message = current.getMessage();
+            if (current instanceof ServiceException serviceException) {
+                TaskErrorResult explicit = TaskErrorSnapshot.read(serviceException.getTaskErrorJson());
+                if (Objects.nonNull(explicit)) {
+                    explicit.setRawMessage(StrUtil.blankToDefault(
+                            serviceException.getDetailMessage(), serviceException.getMessage()));
+                    return explicit;
+                }
+                message = StrUtil.blankToDefault(serviceException.getDetailMessage(), message);
+            }
+            TaskErrorResult candidate = classify(providerCode, modelCode, -1, message);
+            if (Objects.isNull(selected) || TaskErrorPresentation.isGeneric(selected)
+                    || TaskErrorPresentation.specificity(candidate) > TaskErrorPresentation.specificity(selected)) {
+                selected = candidate;
+                selectedMessage = message;
+            }
+            current = current.getCause();
         }
-        return normalizeByMessage(ex.getMessage());
+        return normalize(taskId, providerCode, modelCode, -1, selectedMessage);
     }
 
     /**
@@ -134,6 +158,7 @@ public class ErrorNormalizer {
                                         int httpStatus, String rawMessage, boolean recordSample) {
         String effectiveProviderCode = StrUtil.blankToDefault(
                 providerCode, errorProviderResolver.resolve(modelCode));
+        TaskErrorResult fallbackResult = classifyFallback(rawMessage);
         List<AidProviderErrorRule> rules = errorRuleCache.findEffective(effectiveProviderCode, modelCode);
         for (AidProviderErrorRule rule : rules) {
             if (errorRuleEngine.matches(rule, httpStatus, rawMessage)) {
@@ -144,6 +169,10 @@ public class ErrorNormalizer {
                     continue;
                 }
                 TaskErrorResult result = TaskErrorResult.of(code, rawMessage);
+                // 宽泛 HTTP/通用失败规则不能覆盖已明确识别的输入错误。
+                if (TaskErrorPresentation.specificity(fallbackResult) > TaskErrorPresentation.specificity(result)) {
+                    continue;
+                }
                 // 供应商运营与技术故障统一使用系统安全文案，禁止数据库规则重新暴露余额、密钥、账号或网关细节。
                 if (StrUtil.isNotBlank(rule.getUserMessage()) && !usesProtectedUserMessage(code)) {
                     result.setUserMessage(rule.getUserMessage());
@@ -152,16 +181,18 @@ public class ErrorNormalizer {
                     // 异步记录命中样本，便于命中统计与运营观察
                     errorLogService.recordHit(effectiveProviderCode, modelCode, taskId,
                             httpStatus, rawMessage, rule.getId(), code.name());
+                    notifyProviderBalanceIfNeeded(code, effectiveProviderCode, modelCode, taskId);
                 }
                 return result;
             }
         }
-        TaskErrorResult fallbackResult = classifyFallback(rawMessage);
         if (recordSample) {
             log.info("[ErrorNormalizer] 未识别错误样本, providerCode={}, messageLen={}",
                     effectiveProviderCode, rawMessage.length());
             errorLogService.recordMiss(effectiveProviderCode, modelCode, taskId,
                     httpStatus, rawMessage, fallbackResult.getErrorCode());
+            notifyProviderBalanceIfNeeded(parseErrorCode(fallbackResult.getErrorCode()),
+                    effectiveProviderCode, modelCode, taskId);
         }
         return fallbackResult;
     }
@@ -171,7 +202,30 @@ public class ErrorNormalizer {
      * 只放跨厂商、语义明确的样本，厂商差异仍由 aid_provider_error_rule 管理。
      */
     static TaskErrorResult classifyFallback(String rawMessage) {
-        String lower = StrUtil.nullToEmpty(rawMessage).toLowerCase();
+        String lower = StrUtil.nullToEmpty(rawMessage).toLowerCase(Locale.ROOT);
+        if (containsAny(lower, "提示词过长", "提示词太长", "提示词长度超", "prompt too long",
+                "prompt is too long", "prompt length exceeds", "prompt exceeds")) {
+            return withUserMessage(TaskErrorCode.USER_INPUT_TOO_LONG, rawMessage, "提示词过长，请精简");
+        }
+        if (containsAny(lower, "context_length_exceeded", "context window exceeded", "maximum context length",
+                "exceeds token limit", "input context is too long", "outofcontexterror",
+                "range of input length", "total message token length", "single round file-content exceeds",
+                "too long to be processed", "输入内容过长", "生成内容过长", "内容过长，请精简",
+                "文本过长", "上下文过长", "超出上下文")) {
+            return TaskErrorResult.of(TaskErrorCode.USER_INPUT_TOO_LONG, rawMessage);
+        }
+        if (containsAny(lower, "提示词不合规", "提示词违规", "提示词审核未通过", "提示词未通过",
+                "提示词包含敏感", "文本审核未通过")) {
+            return withUserMessage(TaskErrorCode.UPSTREAM_CONTENT_FILTERED, rawMessage,
+                    "提示词审核未通过，请修改");
+        }
+        if (containsAny(lower, "参考图不合规", "参考图违规", "参考图审核未通过", "参考图未通过")) {
+            return withUserMessage(TaskErrorCode.UPSTREAM_CONTENT_FILTERED, rawMessage,
+                    "参考图审核未通过，请更换");
+        }
+        if (containsAny(lower, "提示词为空", "输入内容为空", "文本不能为空", "prompt is required", "empty prompt")) {
+            return TaskErrorResult.of(TaskErrorCode.USER_INPUT_EMPTY, rawMessage);
+        }
         if (containsAny(lower, "inputimagesensit", "contain real person", "contains real person",
                 "may contain real person", "参考图可能包含真人")) {
             return TaskErrorResult.of(TaskErrorCode.REAL_PERSON_RESTRICTED, rawMessage);
@@ -201,7 +255,7 @@ public class ErrorNormalizer {
         }
         if (containsAny(lower, "content_policy_violation", "unable to generate this content",
                 "blocked by safety", "blocked by the content safety policy", "sensitive content", "captcha",
-                "内容未通过审核", "内容未通过安全校验",
+                "内容未通过审核", "内容未通过安全校验", "内容不合规", "内容违规", "内容审核未通过",
                 "验证码图片")) {
             return TaskErrorResult.of(TaskErrorCode.UPSTREAM_CONTENT_FILTERED, rawMessage);
         }
@@ -214,11 +268,15 @@ public class ErrorNormalizer {
                 "freetieronly", "free allocated quota")) {
             return TaskErrorResult.of(TaskErrorCode.PROVIDER_FREE_TIER_EXHAUSTED, rawMessage);
         }
-        if (containsAny(lower, "insufficient credits", "quota exhausted", "quota exceeded", "insufficient balance",
+        if (containsAny(lower, "insufficient credits", "insufficient balance",
                 "balance insufficient", "account balance is insufficient",
-                "credit balance is insufficient", "reached the set inference limit", "safe experience mode",
+                "credit balance is insufficient",
                 "模型服务额度不足", "模型余额不足", "上游账户余额不足", "供应商余额不足")
                 || Objects.equals(lower.trim(), "余额不足")) {
+            return TaskErrorResult.of(TaskErrorCode.PROVIDER_BALANCE_INSUFFICIENT, rawMessage);
+        }
+        if (containsAny(lower, "quota exhausted", "quota exceeded", "reached the set inference limit",
+                "safe experience mode")) {
             return TaskErrorResult.of(TaskErrorCode.PROVIDER_QUOTA_EXHAUSTED, rawMessage);
         }
         if (containsAny(lower, "invalid api key", "incorrect api key", "api key not valid",
@@ -346,6 +404,7 @@ public class ErrorNormalizer {
             case MERCHANT_QUOTA_EXHAUSTED,
                     PROVIDER_FREE_TIER_EXHAUSTED,
                     PROVIDER_QUOTA_EXHAUSTED,
+                    PROVIDER_BALANCE_INSUFFICIENT,
                     UPSTREAM_AUTH_INVALID,
                     UPSTREAM_SERVICE_NOT_OPEN,
                     MODEL_ACCOUNT_UNAVAILABLE,
@@ -367,6 +426,21 @@ public class ErrorNormalizer {
             return TaskErrorCode.valueOf(name.trim());
         } catch (IllegalArgumentException e) {
             return null;
+        }
+    }
+
+    /** 旁路通知失败不得改变原始错误归一化结果。 */
+    private void notifyProviderBalanceIfNeeded(TaskErrorCode code, String providerCode,
+                                               String modelCode, String taskId) {
+        if (code != TaskErrorCode.PROVIDER_BALANCE_INSUFFICIENT || StrUtil.isBlank(providerCode)) {
+            return;
+        }
+        try {
+            ProviderBalanceService service = providerBalanceServiceProvider.getIfAvailable();
+            if (service != null) service.handleBalanceError(providerCode, modelCode, taskId);
+        } catch (Exception ex) {
+            log.error("[ErrorNormalizer] 供应商余额提醒旁路处理失败, providerCode={}, taskId={}",
+                    providerCode, taskId, ex);
         }
     }
 }

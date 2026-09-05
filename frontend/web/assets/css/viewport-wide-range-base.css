@@ -67,7 +67,7 @@ html[data-viewport-above-design='1'].layout-home-new .home-new-sub-page {
   padding: var(--vps-wide-page-pad-y) var(--vps-wide-page-pad-x) 32px;
 }
 
-/* 首页案例广场 */
+/* 首页内容 */
 html[data-viewport-above-design='1'].layout-home-new .home-new-index .works-grid {
   grid-template-columns: repeat(var(--vps-wide-gallery-cols, 5), minmax(0, 1fr));
   gap: var(--vps-wide-grid-gap);
@@ -122,42 +122,9 @@ html[data-viewport-above-design='1'].layout-home-new .billing-page__inner {
   min-width: 0;
 }
 
-/* ========================================================================== */
-/* 3. 旧版首页 layout-home-shell / home-legacy-page                           */
-/* ========================================================================== */
-html[data-viewport-above-design='1'].layout-home-shell .home-legacy-page .works-grid {
-  grid-template-columns: repeat(var(--vps-wide-gallery-cols, 5), minmax(0, 1fr));
-  gap: var(--vps-wide-grid-gap);
-}
-
 html[data-viewport-above-design='1'].layout-home-shell .home-theme-page {
   min-width: 0;
   overflow-x: hidden;
-}
-
-/* ========================================================================== */
-/* 4. 案例详情 case-detail-shell                                               */
-/* ========================================================================== */
-html[data-viewport-above-design='1'].case-detail-shell .case-detail-root {
-  min-height: var(--vps-comp-dvh, calc(100dvh / var(--viewport-scale-factor, 1))) !important;
-  overflow: hidden;
-}
-
-html[data-viewport-above-design='1'].case-detail-shell .case-detail-page {
-  height: var(--vps-comp-dvh, calc(100dvh / var(--viewport-scale-factor, 1))) !important;
-  max-height: var(--vps-comp-dvh, calc(100dvh / var(--viewport-scale-factor, 1))) !important;
-  overflow: hidden;
-}
-
-html[data-viewport-above-design='1'].case-detail-shell .case-detail-main {
-  min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-}
-
-html[data-viewport-above-design='1'][data-viewport-wide-tier='uhd'].case-detail-shell .case-detail-main,
-html[data-viewport-above-design='1'][data-viewport-wide-tier='beyond'].case-detail-shell .case-detail-main {
-  padding: 28px 24px 28px 16px;
 }
 
 /* ========================================================================== */

@@ -40,7 +40,7 @@ describe('React update-loop guards', () => {
   it('depends on the stable bridge callback and ignores scroll while the menu is closed', () => {
     expect(previewSource).toContain('const registerPreviewExportBridge = shell?.registerPreviewExportBridge')
     expect(previewSource).toContain(
-      '[registerPreviewExportBridge, S.exporting.value, S.segmentsDownloading.value]'
+      '[ctx, registerPreviewExportBridge, S.exporting.value, S.segmentsDownloading.value]'
     )
     expect(sidebarSource).toContain('if (!showUserMenuCardRef.current) return')
     expect(sidebarSource).toContain('retainFloatingPosition(current, nextStyle)')

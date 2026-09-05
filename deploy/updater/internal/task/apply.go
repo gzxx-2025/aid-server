@@ -521,6 +521,13 @@ func (r *Runner) refreshDeploymentAssets(packageRoot string) (bool, error) {
 		return false, nil
 	}
 	targetDir := filepath.Dir(targetBuilder)
+	// Validate the complete template set before overwriting any installed driver.
+	if config.SupportsManagedNginx(filepath.Join(sourceDir, "aid.sh")) || dirExists(filepath.Join(sourceDir, "nginx")) {
+		for _, name := range []string{"render.sh", "bootstrap.sh", "docker-start.sh", "public.conf.template", "admin.conf.template"} {
+			info, err := os.Lstat(filepath.Join(sourceDir, "nginx", name))
+			if err != nil || !info.Mode().IsRegular() { return false, fmt.Errorf("升级包缺少有效Nginx模板: %s", name) }
+		}
+	}
 	if err := os.MkdirAll(targetDir, 0o700); err != nil {
 		return false, err
 	}
@@ -544,6 +551,29 @@ func (r *Runner) refreshDeploymentAssets(packageRoot string) (bool, error) {
 		}
 	}
 	sourceDocker := filepath.Join(sourceDir, "docker")
+	// Managed templates are source-controlled; runtime values remain under config/.
+	for _, name := range []string{"render.sh", "bootstrap.sh", "docker-start.sh", "public.conf.template", "admin.conf.template"} {
+		// Older release packages have no managed templates; retain compatibility.
+		if !dirExists(filepath.Join(sourceDir, "nginx")) {
+			break
+		}
+		source := filepath.Join(sourceDir, "nginx", name)
+		if !fileExists(source) {
+			return false, fmt.Errorf("升级包缺少Nginx受管模板: %s", name)
+		}
+		target := filepath.Join(targetDir, "nginx", name)
+		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+			return false, err
+		}
+		if err := backup.CopyFile(source, target); err != nil {
+			return false, err
+		}
+		if strings.HasSuffix(name, ".sh") {
+			if err := os.Chmod(target, 0755); err != nil {
+				return false, err
+			}
+		}
+	}
 	if !dirExists(sourceDocker) {
 		return true, nil
 	}
@@ -587,6 +617,9 @@ func (r *Runner) reconcileDockerApplicationServices() error {
 	state, err := r.cfg.ReadDeploymentState()
 	if err != nil {
 		return fmt.Errorf("读取Docker部署配置失败: %w", err)
+	}
+	if err := r.refreshManagedNginx(state); err != nil {
+		return err
 	}
 	services := []string{"aid-server", "aid-web", "nginx"}
 	if deploymentProfileEnabled(state.Values["COMPOSE_PROFILES"], "https") {

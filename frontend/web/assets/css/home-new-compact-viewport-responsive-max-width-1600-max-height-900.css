@@ -56,7 +56,7 @@
     --hn-c-card-cover-max: 142px;
     --hn-c-card-row-min: 220px;
     --hn-c-cover-btn: 28px;
-    /* 首页案例广场卡片封面（小分辨率压缩高度，大屏默认 16/9） */
+    /* 首页内容卡片封面（小分辨率压缩高度，大屏默认 16/9） */
     --home-gallery-cover-ratio: 16 / 10;
     --hn-c-gallery-body-pad: 8px 10px 9px;
     --hn-c-gallery-title-mb: 6px;

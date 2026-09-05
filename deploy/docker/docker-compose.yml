@@ -248,15 +248,23 @@ services:
       com.aid.managed: "true"
       com.aid.data_root: "${DATA_ROOT:-/data/aid}"
     restart: unless-stopped
+    environment:
+      NGINX_BACKEND_ORIGIN: ${NGINX_BACKEND_ORIGIN:-http://aid-server:8080}
+      NGINX_MAX_BODY_MB: ${NGINX_MAX_BODY_MB:-1024}
+      NGINX_READ_TIMEOUT_SECONDS: ${NGINX_READ_TIMEOUT_SECONDS:-300}
+      NGINX_CONNECT_TIMEOUT_SECONDS: ${NGINX_CONNECT_TIMEOUT_SECONDS:-10}
+      NGINX_EXTRA_DIRECTIVES: ${NGINX_EXTRA_DIRECTIVES:-}
     logging: *default-logging
     ports:
       # 80 = C端用户端；宿主机默认 8089 映射到容器内 8090 后台管理端
       - "${HTTP_PORT:-80}:80"
       - "${ADMIN_PORT:-8089}:8090"
     volumes:
-      # 宿主机：/data/aid/installer/deploy/docker/nginx/aid.conf
-      # 容器内：/etc/nginx/conf.d/default.conf（只读）
-      - ./nginx/aid.conf:/etc/nginx/conf.d/default.conf:ro
+      # 模板只读挂载；独立受管目录允许升级器原子替换文件后被容器立即读取。
+      - ./nginx:/etc/nginx/aid-sites:ro
+      - ../nginx:/opt/aid-nginx:ro
+      - ${DATA_ROOT:-/data/aid}/config/nginx-managed:/etc/nginx/aid-managed
+      - ../nginx/docker-start.sh:/docker-entrypoint.d/15-aid-managed.sh:ro
       - ${DATA_ROOT:-/data/aid}/app/admin-dist:/usr/share/nginx/aid/admin-dist:ro
     healthcheck:
       # /healthz 由站点配置提供，仅反映 Nginx 自身存活（后端/用户端状态看各自容器）
@@ -283,11 +291,20 @@ services:
     environment:
       HTTPS_PUBLIC_DOMAIN: ${HTTPS_PUBLIC_DOMAIN:-www.example.com}
       HTTPS_ADMIN_DOMAIN: ${HTTPS_ADMIN_DOMAIN:-admin.example.com}
+      NGINX_BACKEND_ORIGIN: ${NGINX_BACKEND_ORIGIN:-http://aid-server:8080}
+      NGINX_MAX_BODY_MB: ${NGINX_MAX_BODY_MB:-1024}
+      NGINX_READ_TIMEOUT_SECONDS: ${NGINX_READ_TIMEOUT_SECONDS:-300}
+      NGINX_CONNECT_TIMEOUT_SECONDS: ${NGINX_CONNECT_TIMEOUT_SECONDS:-10}
+      NGINX_EXTRA_DIRECTIVES: ${NGINX_EXTRA_DIRECTIVES:-}
+      NGINX_HTTPS_ENTRY: 'true'
     ports:
       - "${HTTPS_PORT:-443}:443"
     volumes:
       # HTTPS模板同样由 Compose 显式挂载，宿主机位于 installer/deploy/docker/nginx。
-      - ./nginx/aid-https.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./nginx:/etc/nginx/aid-sites:ro
+      - ../nginx:/opt/aid-nginx:ro
+      - ${DATA_ROOT:-/data/aid}/config/nginx-managed:/etc/nginx/aid-managed
+      - ../nginx/docker-start.sh:/docker-entrypoint.d/15-aid-managed.sh:ro
       - ${HTTPS_CERT_PATH:-/data/aid/config/ssl/fullchain.pem}:/etc/nginx/ssl/fullchain.pem:ro
       - ${HTTPS_KEY_PATH:-/data/aid/config/ssl/privkey.pem}:/etc/nginx/ssl/privkey.pem:ro
       - ${DATA_ROOT:-/data/aid}/app/admin-dist:/usr/share/nginx/aid/admin-dist:ro
