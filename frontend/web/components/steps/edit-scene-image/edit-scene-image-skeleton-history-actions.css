@@ -3,34 +3,34 @@
 
 .skeleton-history-actions {
   margin-top: auto;
-  padding-top: 8px;
+  padding-top: calc(8px * var(--create-editor-scale, 1));
   display: grid;
-  gap: 6px;
+  gap: calc(6px * var(--create-editor-scale, 1));
 }
 
 .skeleton-btn {
   width: 100%;
-  height: 28px;
-  border-radius: 8px;
+  height: calc(28px * var(--create-editor-scale, 1));
+  border-radius: calc(8px * var(--create-editor-scale, 1));
 }
 
 .skeleton-canvas-panel {
   display: flex;
   flex-direction: column;
-  padding: 14px;
+  padding: calc(14px * var(--create-editor-scale, 1));
   background: rgba(25, 26, 29, 1);
 }
 
 .skeleton-canvas-toolbar {
-  width: 492px;
+  width: calc(492px * var(--create-editor-scale, 1));
   max-width: 100%;
-  margin: 0 auto 10px;
-  padding: 6px 8px;
-  border-radius: 8px;
-  border: 1px solid rgba(128, 154, 188, 0.22);
+  margin: 0 auto calc(10px * var(--create-editor-scale, 1));
+  padding: calc(6px * var(--create-editor-scale, 1)) calc(8px * var(--create-editor-scale, 1));
+  border-radius: calc(8px * var(--create-editor-scale, 1));
+  border: calc(1px * var(--create-editor-scale, 1)) solid rgba(128, 154, 188, 0.22);
   background: rgba(17, 22, 33, 0.75);
   display: flex;
-  gap: 4px;
+  gap: calc(4px * var(--create-editor-scale, 1));
   box-sizing: border-box;
 }
 
@@ -38,69 +38,69 @@
   flex: 1 1 0;
   min-width: 0;
   width: auto;
-  height: 26px;
-  border-radius: 6px;
+  height: calc(26px * var(--create-editor-scale, 1));
+  border-radius: calc(6px * var(--create-editor-scale, 1));
 }
 
 .skeleton-chip {
-  width: 78px;
-  height: 26px;
-  border-radius: 6px;
+  width: calc(78px * var(--create-editor-scale, 1));
+  height: calc(26px * var(--create-editor-scale, 1));
+  border-radius: calc(6px * var(--create-editor-scale, 1));
 }
 
 .skeleton-canvas-main {
   flex: 1;
   min-height: 0;
-  border-radius: 12px;
-  border: 1px solid rgba(128, 154, 188, 0.24);
+  border-radius: calc(12px * var(--create-editor-scale, 1));
+  border: calc(1px * var(--create-editor-scale, 1)) solid rgba(128, 154, 188, 0.24);
 }
 
 .skeleton-config-panel {
   display: flex;
   flex-direction: column;
-  padding: 12px;
-  gap: 10px;
+  padding: calc(12px * var(--create-editor-scale, 1));
+  gap: calc(10px * var(--create-editor-scale, 1));
 }
 
 .skeleton-config-tabs {
   display: flex;
-  gap: 6px;
-  padding: 3px;
+  gap: calc(6px * var(--create-editor-scale, 1));
+  padding: calc(3px * var(--create-editor-scale, 1));
   background: rgba(255, 255, 255, 0.04);
-  border-radius: 8px;
+  border-radius: calc(8px * var(--create-editor-scale, 1));
 }
 
 .skeleton-tab {
   flex: 1;
-  height: 32px;
-  border-radius: 6px;
+  height: calc(32px * var(--create-editor-scale, 1));
+  border-radius: calc(6px * var(--create-editor-scale, 1));
 }
 
 .skeleton-file-row {
-  height: 42px;
-  border-radius: 10px;
+  height: calc(42px * var(--create-editor-scale, 1));
+  border-radius: calc(10px * var(--create-editor-scale, 1));
 }
 
 .skeleton-textarea {
-  height: 332px;
-  border-radius: 10px;
+  height: calc(332px * var(--create-editor-scale, 1));
+  border-radius: calc(10px * var(--create-editor-scale, 1));
 }
 
 .skeleton-select-row {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
+  gap: calc(8px * var(--create-editor-scale, 1));
 }
 
 .skeleton-select {
-  height: 36px;
-  border-radius: 8px;
+  height: calc(36px * var(--create-editor-scale, 1));
+  border-radius: calc(8px * var(--create-editor-scale, 1));
 }
 
 .skeleton-primary-btn {
   margin-top: auto;
-  height: 40px;
-  border-radius: 10px;
+  height: calc(40px * var(--create-editor-scale, 1));
+  border-radius: calc(10px * var(--create-editor-scale, 1));
 }
 
 .skeleton-panel-title,

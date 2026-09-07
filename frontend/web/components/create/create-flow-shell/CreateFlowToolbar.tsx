@@ -7,7 +7,7 @@
 
 import { lazy, Suspense, type CSSProperties, type RefObject } from 'react'
 import { Button, Dropdown, Input, Tooltip } from 'antd'
-import { LeftOutlined } from '@ant-design/icons'
+import { DeploymentUnitOutlined, LeftOutlined } from '@ant-design/icons'
 import { useCreationStore } from '~/stores/creation'
 import type { BillingQuoteRequest, UserTaskRow } from '~/types/business-api'
 
@@ -30,6 +30,7 @@ export interface CreateFlowToolbarProps {
   seriesProjectConfigChecking: boolean
   onSeriesProjectConfigClick: () => void
   activeProjectId: number | null
+  onOpenFlowCanvas: () => void
   onGlobalTaskStop: (task: UserTaskRow) => void
   onGlobalTaskRestart: (task: UserTaskRow) => void
   resolveGlobalTaskRestartBillingRequest: (
@@ -127,6 +128,11 @@ export function CreateFlowToolbar(props: CreateFlowToolbarProps) {
           <span className="toolbar-series-episode-count">共{props.seriesEpisodeCountLabel}集</span>
         </div>
         <div className="toolbar-right">
+          {props.activeProjectId ? (
+            <Button size="large" className="toolbar-btn-draft" icon={<DeploymentUnitOutlined />} aria-label="流程画布" onClick={props.onOpenFlowCanvas}>
+              <div className="text-gradient">流程画布</div>
+            </Button>
+          ) : null}
           <Button
             size="large"
             className="toolbar-btn-draft"
@@ -150,6 +156,11 @@ export function CreateFlowToolbar(props: CreateFlowToolbarProps) {
         <WorkTitleInput {...titleInputProps} />
       </div>
       <div className="toolbar-right">
+        {props.activeProjectId ? (
+          <Button size="large" className="toolbar-btn-draft" icon={<DeploymentUnitOutlined />} aria-label="流程画布" onClick={props.onOpenFlowCanvas}>
+            <div className="text-gradient">流程画布</div>
+          </Button>
+        ) : null}
         <Suspense fallback={null}>
           <GlobalGenerateTaskPopover
             projectId={props.activeProjectId}

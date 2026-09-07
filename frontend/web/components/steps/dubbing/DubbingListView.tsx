@@ -140,13 +140,13 @@ export function DubbingListView({
               </div>
               {/* 主体区：高度与分镜脚本/分镜视频列表行一致；遮罩铺满本区域（不含顶部标题与操作按钮） */}
               <div className="dubbing-list-body-shell">
-                <div className="dubbing-list-body dubbing-list-body--compact">
-                  <div className="dubbing-video-block">
+                <div className="storyboard-list-body dubbing-list-body dubbing-list-body--compact">
+                  <div className="storyboard-block dubbing-video-block">
                     <div className="storyboard-block-title">
                       音画同步：
                     </div>
                     <div
-                      className={`dubbing-video-area dubbing-video-area--list${
+                      className={`storyboard-list-media dubbing-video-area dubbing-video-area--list${
                         hasVideoForIndex(index) ? ' has-video' : ''
                       }${isDubbingBatchGenerating(index) ? ' is-generating' : ''}`}
                     >
@@ -182,7 +182,7 @@ export function DubbingListView({
                       )}
                     </div>
                   </div>
-                  <div className="dubbing-info-block dubbing-info-block--list">
+                  <div className="storyboard-block dubbing-info-block dubbing-info-block--list">
                     <div className="storyboard-block-title">台词：</div>
                     {isDubbingBatchGenerating(index) ? (
                       <div className="dubbing-skeleton">

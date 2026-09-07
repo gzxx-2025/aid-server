@@ -177,6 +177,7 @@ export interface ScpBaseCtx {
    * 避免刷新后先闪「完整卡片（自动生成/导入）」再切到「待生成形态」小卡片。
    */
   step3AssetBootstrapReady: Mirrored<boolean>
+  manualAssetAdding: Mirrored<boolean>
   /** 待生成形态小卡片上：按资产 ID 防止重复点击 */
   pendingFormGenBusy: Mirrored<Record<number, boolean>>
   /** 顶栏「批量生成形态」提交中 */

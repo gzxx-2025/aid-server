@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
+import { useCreateEditorPortalStyle } from '~/components/common/CreateEditorViewport'
+import { readCreateEditorElementScale } from '~/utils/createEditorViewport'
 import { DownOutlined, UpOutlined, CheckCircleFilled } from '@ant-design/icons'
 import { ModelFreeBadge } from '~/components/common/ModelFreeBadge'
 import { ModelBillingRules } from '~/components/common/ModelBillingRules'
@@ -38,6 +40,7 @@ function nextFrame(cb: () => void) {
 export function ModelSelectDropdown({ value, options, expanded, onToggle, onSelect, onClose }: Props) {
   const hasSelectedModel = Boolean(String(value.id || '').trim())
 
+  const editorPortalStyle = useCreateEditorPortalStyle()
   const rootRef = useRef<HTMLDivElement | null>(null)
   const triggerRef = useRef<HTMLDivElement | null>(null)
   const optionsListRef = useRef<HTMLDivElement | null>(null)
@@ -59,6 +62,7 @@ export function ModelSelectDropdown({ value, options, expanded, onToggle, onSele
   const transitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const optionsListStyle: CSSProperties = {
+    ...editorPortalStyle,
     ...(panelFixedStyle as CSSProperties),
     maxHeight: `${menuMaxHeightPx}px`
   }
@@ -67,15 +71,16 @@ export function ModelSelectDropdown({ value, options, expanded, onToggle, onSele
     if (!expandedRef.current || !triggerRef.current) return
 
     const rect = triggerRef.current.getBoundingClientRect()
-    const gap = 8
+    const scale = readCreateEditorElementScale(triggerRef.current)
+    const gap = 8 * scale
     const spaceBelow = window.innerHeight - rect.bottom - gap
     const spaceAbove = rect.top - gap
 
     // 下方空间足够则向下；否则若上方更宽裕则向上；否则选空间更大的一侧
     let upward = false
-    if (spaceBelow >= ESTIMATED_MENU_MIN) {
+    if (spaceBelow >= ESTIMATED_MENU_MIN * scale) {
       upward = false
-    } else if (spaceAbove >= ESTIMATED_MENU_MIN) {
+    } else if (spaceAbove >= ESTIMATED_MENU_MIN * scale) {
       upward = true
     } else {
       upward = spaceAbove > spaceBelow
@@ -83,10 +88,10 @@ export function ModelSelectDropdown({ value, options, expanded, onToggle, onSele
 
     setOpenUpward(upward)
     const avail = upward ? spaceAbove : spaceBelow
-    setMenuMaxHeightPx(Math.max(120, Math.min(500, Math.floor(avail))))
+    setMenuMaxHeightPx(Math.max(0, Math.min(500 * scale, Math.floor(avail))))
 
-    const minW = 360
-    const widthPx = Math.min(Math.max(rect.width, minW), Math.min(520, window.innerWidth - 24))
+    const minW = 360 * scale
+    const widthPx = Math.min(Math.max(rect.width, minW), Math.min(520 * scale, window.innerWidth - 24))
     let leftPx = rect.left
     leftPx = Math.max(12, Math.min(leftPx, window.innerWidth - widthPx - 12))
 

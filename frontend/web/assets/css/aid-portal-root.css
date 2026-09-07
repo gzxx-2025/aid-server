@@ -1,0 +1,10 @@
+/* 全站 Portal 容器：自身不挡点击，仅内部浮层/弹窗可交互 */
+#aid-portal-root {
+  position: relative;
+  z-index: 5000;
+  pointer-events: none;
+}
+
+#aid-portal-root > * {
+  pointer-events: auto;
+}

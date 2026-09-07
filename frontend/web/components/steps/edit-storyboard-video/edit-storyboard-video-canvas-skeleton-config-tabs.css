@@ -4,39 +4,39 @@
 .edit-storyboard-video-modal .skeleton-config-tabs {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 6px;
+  gap: calc(6px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-video-modal .skeleton-tab {
-  height: 32px;
-  border-radius: 8px;
+  height: calc(32px * var(--create-editor-scale, 1));
+  border-radius: calc(8px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-video-modal .skeleton-file-row {
-  height: 52px;
-  border-radius: 10px;
+  height: calc(52px * var(--create-editor-scale, 1));
+  border-radius: calc(10px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-video-modal .skeleton-textarea {
-  height: 140px;
-  border-radius: 10px;
+  height: calc(140px * var(--create-editor-scale, 1));
+  border-radius: calc(10px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-video-modal .skeleton-select-row {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  gap: calc(8px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-video-modal .skeleton-select {
-  height: 44px;
-  border-radius: 10px;
+  height: calc(44px * var(--create-editor-scale, 1));
+  border-radius: calc(10px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-video-modal .skeleton-primary-btn {
   margin-top: auto;
-  height: 42px;
-  border-radius: 10px;
+  height: calc(42px * var(--create-editor-scale, 1));
+  border-radius: calc(10px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-video-modal .skeleton-panel-title,
@@ -65,19 +65,19 @@
 
 .edit-storyboard-video-modal .view-switcher {
   display: flex;
-  gap: 0.5rem;
+  gap: calc(0.5rem * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-video-modal .view-btn {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 1rem;
-  border: 1px solid rgba(120, 140, 170, 0.28);
+  gap: calc(0.5rem * var(--create-editor-scale, 1));
+  padding: calc(0.5rem * var(--create-editor-scale, 1)) calc(1rem * var(--create-editor-scale, 1));
+  border: calc(1px * var(--create-editor-scale, 1)) solid rgba(120, 140, 170, 0.28);
   background: rgba(18, 24, 36, 0.85);
   border-radius: var(--radius-md);
   cursor: pointer;
-  font-size: 0.875rem;
+  font-size: calc(0.875rem * var(--create-editor-scale, 1));
   color: rgba(188, 205, 228, 0.85);
   transition: all 0.2s ease;
 }
@@ -92,33 +92,33 @@
   background: rgba(74, 231, 253, 0.12);
   color: #4ae7fd;
   font-weight: 600;
-  box-shadow: 0 0 0 2px rgba(74, 231, 253, 0.12);
+  box-shadow: 0 0 0 calc(2px * var(--create-editor-scale, 1)) rgba(74, 231, 253, 0.12);
 }
 
 .edit-storyboard-video-modal .view-btn-icon {
-  font-size: 1rem;
+  font-size: calc(1rem * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-video-modal .videos-list {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: calc(1rem * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-video-modal .videos-list-card {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(calc(220px * var(--create-editor-scale, 1)), 1fr));
+  gap: calc(1rem * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-video-modal .video-card,
 .edit-storyboard-dubbing-modal .video-card {
-  border: 1px solid var(--gray-200);
+  border: calc(1px * var(--create-editor-scale, 1)) solid var(--gray-200);
   border-radius: var(--radius-md);
-  padding: 0.75rem;
+  padding: calc(0.75rem * var(--create-editor-scale, 1));
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: calc(0.5rem * var(--create-editor-scale, 1));
   background: var(--create-surface-panel);
   transition:
     border-color 0.2s ease,
@@ -126,19 +126,19 @@
 }
 
 .edit-storyboard-video-modal .video-card-view {
-  max-width: 320px;
+  max-width: calc(320px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-video-modal .video-card-header {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  font-size: 0.75rem;
+  gap: calc(0.5rem * var(--create-editor-scale, 1));
+  font-size: calc(0.75rem * var(--create-editor-scale, 1));
   color: var(--gray-500);
 }
 
 .edit-storyboard-video-modal .video-source {
-  padding: 0.125rem 0.5rem;
+  padding: calc(0.125rem * var(--create-editor-scale, 1)) calc(0.5rem * var(--create-editor-scale, 1));
   background: rgba(6, 10, 18, 0.55);
   border-radius: var(--radius-sm);
   color: var(--gray-600);
@@ -155,7 +155,7 @@
    * 小分辨率不再额外压矮（旧 42vh/360px 导致中间预览过小、四周空洞过大）；
    * 上限仍 560，与 1920 观感对齐；矮屏用更高 vh 吃满中间列可用高度。
    */
-  --video-preview-max-h: clamp(240px, 68vh, 560px);
+  --video-preview-max-h: clamp(calc(240px * var(--create-editor-scale, 1)), 68vh, calc(560px * var(--create-editor-scale, 1)));
   position: relative;
   width: min(100%, calc(var(--video-preview-max-h) * 16 / 9));
   max-width: 100%;
@@ -165,13 +165,6 @@
   background: rgba(6, 10, 18, 0.55);
   aspect-ratio: 16 / 9;
   height: auto;
-}
-
-@media (min-height: 1100px) {
-  .edit-storyboard-video-modal .video-preview-wrap,
-  .edit-storyboard-dubbing-modal .video-preview-wrap {
-    --video-preview-max-h: clamp(280px, 72vh, 720px);
-  }
 }
 
 .edit-storyboard-video-modal .video-card-view .video-preview-wrap {
@@ -196,11 +189,11 @@
 .edit-storyboard-video-modal .video-top-actions,
 .edit-storyboard-dubbing-modal .video-top-actions {
   position: absolute;
-  top: 0.5rem;
-  right: 0.5rem;
+  top: calc(0.5rem * var(--create-editor-scale, 1));
+  right: calc(0.5rem * var(--create-editor-scale, 1));
   z-index: 4;
   display: flex;
-  gap: 0.25rem;
+  gap: calc(0.25rem * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-video-modal .video-action-btn,
@@ -218,7 +211,7 @@
 .edit-storyboard-video-modal .btn-set-storyboard-done,
 .edit-storyboard-dubbing-modal .btn-set-storyboard-done {
   flex-shrink: 0;
-  font-size: 14px;
+  font-size: calc(14px * var(--create-editor-scale, 1));
   color: #52c41a !important;
   background: rgba(82, 196, 26, 0.12) !important;
   border-color: rgba(82, 196, 26, 0.4) !important;

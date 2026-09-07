@@ -12,6 +12,7 @@ type CSSProperties
 } from 'react'
 import { createPortal } from 'react-dom'
 import './OpenSourcePanel.css'
+import { getAidPortalRoot } from '~/utils/portalRoot'
 
 /** 浮层面板对外句柄：暴露浮层根节点，供触发方做 document click 关闭判定 */
 export interface FloatingPanelHandle {
@@ -100,6 +101,8 @@ const OpenSourcePanel = forwardRef<FloatingPanelHandle, OpenSourcePanelProps>(
     }, [])
 
     if (!rendered || typeof document === 'undefined') return null
+    const portalRoot = getAidPortalRoot()
+    if (!portalRoot) return null
 
     return createPortal(
       <div
@@ -161,7 +164,7 @@ const OpenSourcePanel = forwardRef<FloatingPanelHandle, OpenSourcePanelProps>(
           </div>
         ) : null}
       </div>,
-      document.body
+      portalRoot
     )
   }
 )

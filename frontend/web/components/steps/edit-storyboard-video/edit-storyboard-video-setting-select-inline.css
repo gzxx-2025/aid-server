@@ -13,11 +13,11 @@ html.app-shell-create .edit-storyboard-video-modal .setting-select-inline.ant-se
 
 html.app-shell-create .edit-storyboard-video-modal .setting-select-inline .ant-select-selector,
 .edit-storyboard-video-modal .setting-select-inline .ant-select-selector {
-  height: 44px !important;
-  border-radius: 8px !important;
+  height: calc(44px * var(--create-editor-scale, 1)) !important;
+  border-radius: calc(8px * var(--create-editor-scale, 1)) !important;
   background: #0a0d12 !important;
   background-color: #0a0d12 !important;
-  border: 1px solid rgba(78, 94, 122, 0.42) !important;
+  border: calc(1px * var(--create-editor-scale, 1)) solid rgba(78, 94, 122, 0.42) !important;
   border-color: rgba(78, 94, 122, 0.42) !important;
   box-shadow: none !important;
   display: flex !important;
@@ -44,8 +44,8 @@ html.app-shell-create .edit-storyboard-video-modal .setting-select-inline.ant-se
 }
 
 .edit-storyboard-video-modal .setting-select-inline .ant-select-selection-item {
-  line-height: 42px !important;
-  font-size: 13px;
+  line-height: calc(42px * var(--create-editor-scale, 1)) !important;
+  font-size: calc(13px * var(--create-editor-scale, 1));
   color: #d7e8ff !important;
   overflow: hidden !important;
   text-overflow: ellipsis !important;
@@ -81,7 +81,7 @@ html.app-shell-create .edit-storyboard-video-modal .setting-select-inline.ant-se
 .edit-storyboard-video-modal .setting-duration-select-wrap .ant-select-arrow {
   position: static !important;
   transform: none !important;
-  margin-inline-start: 4px !important;
+  margin-inline-start: calc(4px * var(--create-editor-scale, 1)) !important;
   flex-shrink: 0 !important;
 }
 
@@ -92,9 +92,9 @@ html.app-shell-create .edit-storyboard-video-modal .setting-select-inline.ant-se
 }
 
 .edit-storyboard-video-modal .generate-btn {
-  margin-top: 0.5rem;
+  margin-top: calc(0.5rem * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-video-modal .mr-1 {
-  margin-right: 0.25rem;
+  margin-right: calc(0.25rem * var(--create-editor-scale, 1));
 }

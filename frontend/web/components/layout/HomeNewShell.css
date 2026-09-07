@@ -52,8 +52,12 @@
   min-height: 100%;
 }
 
-/* 原 Vue <Transition name="home-route" mode="out-in">：React 下按 pathname 重挂载 + 进场动画（时长/缓动照抄） */
-.home-main-route {
+/*
+ * 原 Vue <Transition name="home-route" mode="out-in">：App Router 已负责换页，
+ * 勿再对容器 key=pathname 强制重挂载（会与 body Portal 卸载竞态，二次导航易 removeChild 报错）。
+ * 进场动画挂在页面根节点上即可。
+ */
+.home-main-route > * {
   animation:
     home-route-enter-fade 0.26s ease,
     home-route-enter-move 0.3s cubic-bezier(0.22, 1, 0.36, 1);
@@ -78,7 +82,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .home-main-route {
+  .home-main-route > * {
     animation: none;
   }
 }

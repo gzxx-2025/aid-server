@@ -226,11 +226,9 @@ export function HomeNewShell({ children }: { children: ReactNode }) {
               {/*
                 原 Vue 版此处用 Suspense 规避 layout Transition + NuxtPage 叠层导致页面 onMounted
                 执行两次（首页 / 我的作品列表接口打成双份，Nuxt #32371 同类问题）。
-                React 无该问题；过渡改为按 pathname 重挂载 + CSS 进场动画（参数照抄）。
+                React 无该问题；过渡改为页面子树自然换页 + CSS 进场动画（参数照抄）。
               */}
-              <div key={pathname} className="home-main-route">
-                {children}
-              </div>
+              <div className="home-main-route">{children}</div>
             </div>
           </main>
         </div>

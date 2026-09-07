@@ -38,6 +38,8 @@ import { isDubbingFlowStepGenerating, isStoryboardScriptFlowStepGenerating, isSt
 import { isStep3FlowStepGenerating } from '~/utils/step3LiveGenRestore'
 import type { CreationStep } from '~/types'
 import { useRouter } from 'next/navigation'
+import { buildStudioFlowCanvasHref } from '~/utils/studio/studioFlowNavigation'
+import { parseStudioEpisodeId } from '~/utils/studio/studioFlowEntry'
 import { CreateFlowToolbar } from './create-flow-shell/CreateFlowToolbar'
 import { CreateFlowStepStrip } from './create-flow-shell/CreateFlowStepStrip'
 import { CreateFlowShellOverlays } from './create-flow-shell/CreateFlowShellOverlays'
@@ -191,6 +193,21 @@ export function CreateFlowShell({ children }: { children: ReactNode }) {
   }, [activeProjectId])
 
   const flowExport = useCreateFlowExport()
+
+  const openFlowCanvas = useCallback(() => {
+    const projectId = activeProjectIdRef.current
+    if (!projectId) {
+      message.warning('请先保存作品后再进入流程画布')
+      return
+    }
+    const state = useCreationStore.getState()
+    const rawEpisode = routeRef.current.query.episodeId
+    const routeEpisode = parseStudioEpisodeId(String(Array.isArray(rawEpisode) ? rawEpisode[0] ?? '' : rawEpisode ?? ''))
+    const episodeId = state.currentProjectType === 'movie'
+      ? 0
+      : routeEpisode ?? (state.currentProjectId === projectId ? state.currentEpisodeId : null)
+    router.push(buildStudioFlowCanvasHref({ projectId, episodeId, from: 'steps' }))
+  }, [router])
 
   const openProjectGenConfig = useCallback(() => {
     if (!activeProjectIdRef.current) {
@@ -640,6 +657,7 @@ export function CreateFlowShell({ children }: { children: ReactNode }) {
             seriesProjectConfigChecking={seriesProjectConfigChecking}
             onSeriesProjectConfigClick={() => void onSeriesProjectConfigClick()}
             activeProjectId={activeProjectId}
+            onOpenFlowCanvas={openFlowCanvas}
             onGlobalTaskStop={(task) => void globalTasks.handleGlobalTaskStop(task)}
             onGlobalTaskRestart={(task) => void globalTasks.handleGlobalTaskRestart(task)}
             resolveGlobalTaskRestartBillingRequest={

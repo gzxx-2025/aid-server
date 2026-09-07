@@ -10,17 +10,17 @@
 
 .left-tabs {
   display: flex;
-  border-bottom: 1px solid var(--gray-200);
+  border-bottom: calc(1px * var(--create-editor-scale, 1)) solid var(--gray-200);
   flex-shrink: 0;
 }
 
 .left-tab {
   flex: 1;
-  padding: 1rem;
+  padding: calc(1rem * var(--create-editor-scale, 1));
   border: none;
   background: transparent;
   cursor: pointer;
-  border-bottom: 2px solid transparent;
+  border-bottom: calc(2px * var(--create-editor-scale, 1)) solid transparent;
   transition: all 0.2s ease;
 }
 
@@ -31,31 +31,31 @@
 }
 
 .generate-content {
-  padding: 1.5rem;
+  padding: calc(1.5rem * var(--create-editor-scale, 1));
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: calc(1.5rem * var(--create-editor-scale, 1));
   flex: 1;
   min-height: 0;
   overflow-y: auto;
 }
 .scene-file-info {
-  height: 28px;
+  height: calc(28px * var(--create-editor-scale, 1));
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 0 8px;
+  gap: calc(4px * var(--create-editor-scale, 1));
+  padding: 0 calc(8px * var(--create-editor-scale, 1));
   cursor: pointer;
   background: rgba(17, 22, 33, 1);
   width: fit-content;
   max-width: 100%;
   align-self: flex-start;
-  border-radius: 6px;
+  border-radius: calc(6px * var(--create-editor-scale, 1));
   box-sizing: border-box;
 }
 
 .file-icon {
-  font-size: 1.5rem;
+  font-size: calc(1.5rem * var(--create-editor-scale, 1));
   color: var(--accent-600);
 }
 
@@ -71,7 +71,7 @@
 
 .reference-image-item {
   aspect-ratio: 1;
-  border: 2px dashed var(--create-border-dashed);
+  border: calc(2px * var(--create-editor-scale, 1)) dashed var(--create-border-dashed);
   border-radius: var(--radius-md);
   display: flex;
   align-items: center;
@@ -81,7 +81,7 @@
   overflow: hidden;
   background: var(--create-surface-canvas);
   width: 24%;
-  height: 56px;
+  height: calc(56px * var(--create-editor-scale, 1));
 }
 
 .reference-image-item img {
@@ -91,16 +91,16 @@
 }
 
 .add-icon {
-  font-size: 2rem;
+  font-size: calc(2rem * var(--create-editor-scale, 1));
   color: var(--gray-400);
 }
 
 .remove-ref {
   position: absolute;
-  top: 0.5rem;
-  right: 0.5rem;
-  width: 24px;
-  height: 24px;
+  top: calc(0.5rem * var(--create-editor-scale, 1));
+  right: calc(0.5rem * var(--create-editor-scale, 1));
+  width: calc(24px * var(--create-editor-scale, 1));
+  height: calc(24px * var(--create-editor-scale, 1));
   background: rgba(0, 0, 0, 0.6);
   color: white;
   border-radius: 50%;
@@ -121,12 +121,12 @@
 
 .char-count {
   position: absolute;
-  bottom: 0.5rem;
-  right: 0.5rem;
-  font-size: 0.75rem;
+  bottom: calc(0.5rem * var(--create-editor-scale, 1));
+  right: calc(0.5rem * var(--create-editor-scale, 1));
+  font-size: calc(0.75rem * var(--create-editor-scale, 1));
   color: var(--gray-500);
   background: var(--create-surface-panel);
-  padding: 0 0.5rem;
+  padding: 0 calc(0.5rem * var(--create-editor-scale, 1));
 }
 
 
@@ -141,7 +141,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: calc(10px * var(--create-editor-scale, 1));
 }
 
 /* 右侧面板（4/6宽度） */
@@ -159,22 +159,22 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 1rem 1.5rem;
-  border-bottom: 1px solid var(--gray-200);
+  padding: calc(1rem * var(--create-editor-scale, 1)) calc(1.5rem * var(--create-editor-scale, 1));
+  border-bottom: calc(1px * var(--create-editor-scale, 1)) solid var(--gray-200);
   flex-shrink: 0;
 }
 
 .view-switcher {
   display: flex;
-  gap: 0.5rem;
+  gap: calc(0.5rem * var(--create-editor-scale, 1));
 }
 
 .view-btn {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 1rem;
-  border: 1px solid var(--gray-200);
+  gap: calc(0.5rem * var(--create-editor-scale, 1));
+  padding: calc(0.5rem * var(--create-editor-scale, 1)) calc(1rem * var(--create-editor-scale, 1));
+  border: calc(1px * var(--create-editor-scale, 1)) solid var(--gray-200);
   background: var(--create-surface-panel);
   border-radius: var(--radius-md);
   cursor: pointer;
@@ -182,7 +182,7 @@
 }
 
 .view-btn-icon {
-  font-size: 1rem;
+  font-size: calc(1rem * var(--create-editor-scale, 1));
 }
 
 .view-btn.active {
@@ -193,7 +193,7 @@
 
 .right-actions {
   display: flex;
-  gap: 0.75rem;
+  gap: calc(0.75rem * var(--create-editor-scale, 1));
 }
 
 .right-content {
@@ -203,11 +203,11 @@
 }
 
 .navigation-panel {
-  width: 120px;
-  border-right: 1px solid var(--gray-200);
-  padding: 1rem;
+  width: calc(120px * var(--create-editor-scale, 1));
+  border-right: calc(1px * var(--create-editor-scale, 1)) solid var(--gray-200);
+  padding: calc(1rem * var(--create-editor-scale, 1));
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: calc(1rem * var(--create-editor-scale, 1));
 }

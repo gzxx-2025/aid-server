@@ -12,7 +12,7 @@
 
 .edit-storyboard-image-modal .skeleton-stage-layout {
   display: grid;
-  grid-template-columns: 144px minmax(0, 1fr) 398px;
+  grid-template-columns: calc(144px * var(--create-editor-scale, 1)) minmax(0, 1fr) calc(398px * var(--create-editor-scale, 1));
   height: 100%;
   min-height: 0;
   background: #0b0f17;
@@ -21,7 +21,7 @@
 .edit-storyboard-image-modal .skeleton-history-panel,
 .edit-storyboard-image-modal .skeleton-canvas-panel,
 .edit-storyboard-image-modal .skeleton-config-panel {
-  border: 1px solid rgba(128, 154, 188, 0.24);
+  border: calc(1px * var(--create-editor-scale, 1)) solid rgba(128, 154, 188, 0.24);
   background: rgb(25, 26, 29);
   min-width: 0;
   min-height: 0;
@@ -30,59 +30,59 @@
 .edit-storyboard-image-modal .skeleton-history-panel {
   display: flex;
   flex-direction: column;
-  padding: 10px 7px;
+  padding: calc(10px * var(--create-editor-scale, 1)) calc(7px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-image-modal .skeleton-panel-title {
-  width: 64px;
-  height: 12px;
-  border-radius: 6px;
-  margin-bottom: 10px;
+  width: calc(64px * var(--create-editor-scale, 1));
+  height: calc(12px * var(--create-editor-scale, 1));
+  border-radius: calc(6px * var(--create-editor-scale, 1));
+  margin-bottom: calc(10px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-image-modal .skeleton-history-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: calc(8px * var(--create-editor-scale, 1));
   flex: 1;
 }
 
 .edit-storyboard-image-modal .skeleton-history-item {
   width: 100%;
-  height: 60px;
-  border-radius: 8px;
+  height: calc(60px * var(--create-editor-scale, 1));
+  border-radius: calc(8px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-image-modal .skeleton-history-actions {
   margin-top: auto;
-  padding-top: 8px;
+  padding-top: calc(8px * var(--create-editor-scale, 1));
   display: grid;
-  gap: 6px;
+  gap: calc(6px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-image-modal .skeleton-btn {
   width: 100%;
-  height: 28px;
-  border-radius: 8px;
+  height: calc(28px * var(--create-editor-scale, 1));
+  border-radius: calc(8px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-image-modal .skeleton-canvas-panel {
   display: flex;
   flex-direction: column;
-  padding: 14px;
+  padding: calc(14px * var(--create-editor-scale, 1));
   background: rgb(25, 26, 29);
 }
 
 .edit-storyboard-image-modal .skeleton-canvas-toolbar {
-  width: 492px;
+  width: calc(492px * var(--create-editor-scale, 1));
   max-width: 100%;
-  margin: 0 auto 10px;
-  padding: 6px 8px;
-  border-radius: 8px;
-  border: 1px solid rgba(128, 154, 188, 0.22);
+  margin: 0 auto calc(10px * var(--create-editor-scale, 1));
+  padding: calc(6px * var(--create-editor-scale, 1)) calc(8px * var(--create-editor-scale, 1));
+  border-radius: calc(8px * var(--create-editor-scale, 1));
+  border: calc(1px * var(--create-editor-scale, 1)) solid rgba(128, 154, 188, 0.22);
   background: rgba(17, 22, 33, 0.75);
   display: flex;
-  gap: 4px;
+  gap: calc(4px * var(--create-editor-scale, 1));
   box-sizing: border-box;
 }
 
@@ -90,63 +90,63 @@
   flex: 1 1 0;
   min-width: 0;
   width: auto;
-  height: 26px;
-  border-radius: 6px;
+  height: calc(26px * var(--create-editor-scale, 1));
+  border-radius: calc(6px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-image-modal .skeleton-canvas-main {
   flex: 1;
   min-height: 0;
-  border-radius: 12px;
-  border: 1px solid rgba(128, 154, 188, 0.24);
+  border-radius: calc(12px * var(--create-editor-scale, 1));
+  border: calc(1px * var(--create-editor-scale, 1)) solid rgba(128, 154, 188, 0.24);
 }
 
 .edit-storyboard-image-modal .skeleton-config-panel {
   display: flex;
   flex-direction: column;
-  padding: 12px;
-  gap: 10px;
+  padding: calc(12px * var(--create-editor-scale, 1));
+  gap: calc(10px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-image-modal .skeleton-config-tabs {
   display: flex;
-  gap: 6px;
-  padding: 3px;
+  gap: calc(6px * var(--create-editor-scale, 1));
+  padding: calc(3px * var(--create-editor-scale, 1));
   background: rgba(255, 255, 255, 0.04);
-  border-radius: 8px;
+  border-radius: calc(8px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-image-modal .skeleton-tab {
   flex: 1;
-  height: 32px;
-  border-radius: 6px;
+  height: calc(32px * var(--create-editor-scale, 1));
+  border-radius: calc(6px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-image-modal .skeleton-file-row {
-  height: 42px;
-  border-radius: 10px;
+  height: calc(42px * var(--create-editor-scale, 1));
+  border-radius: calc(10px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-image-modal .skeleton-textarea {
-  height: 200px;
-  border-radius: 10px;
+  height: calc(200px * var(--create-editor-scale, 1));
+  border-radius: calc(10px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-image-modal .skeleton-select-row {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
+  gap: calc(8px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-image-modal .skeleton-select {
-  height: 36px;
-  border-radius: 8px;
+  height: calc(36px * var(--create-editor-scale, 1));
+  border-radius: calc(8px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-image-modal .skeleton-primary-btn {
   margin-top: auto;
-  height: 40px;
-  border-radius: 10px;
+  height: calc(40px * var(--create-editor-scale, 1));
+  border-radius: calc(10px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-image-modal .skeleton-panel-title,
@@ -174,24 +174,24 @@
 }
 .edit-storyboard-image-modal .view-switcher {
   display: flex;
-  gap: 0.5rem;
+  gap: calc(0.5rem * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-image-modal .view-btn {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 1rem;
-  border: 1px solid rgba(120, 140, 170, 0.28);
+  gap: calc(0.5rem * var(--create-editor-scale, 1));
+  padding: calc(0.5rem * var(--create-editor-scale, 1)) calc(1rem * var(--create-editor-scale, 1));
+  border: calc(1px * var(--create-editor-scale, 1)) solid rgba(120, 140, 170, 0.28);
   background: rgba(8, 12, 20, 0.85);
   color: rgba(225, 239, 255, 0.88);
-  border-radius: 8px;
+  border-radius: calc(8px * var(--create-editor-scale, 1));
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
 .edit-storyboard-image-modal .view-btn-icon {
-  font-size: 1rem;
+  font-size: calc(1rem * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-image-modal .view-btn.active {
@@ -202,18 +202,18 @@
 
 .edit-storyboard-image-modal .right-actions {
   display: flex;
-  gap: 0.75rem;
+  gap: calc(0.75rem * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-image-modal .right-actions .ant-btn {
-  height: 36px;
-  border-radius: 8px;
-  font-size: 13px;
+  height: calc(36px * var(--create-editor-scale, 1));
+  border-radius: calc(8px * var(--create-editor-scale, 1));
+  font-size: calc(13px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-image-modal .right-actions .ant-btn-default {
   background: rgba(8, 12, 20, 0.9) !important;
-  border: 1px solid rgba(78, 94, 122, 0.42) !important;
+  border: calc(1px * var(--create-editor-scale, 1)) solid rgba(78, 94, 122, 0.42) !important;
   color: rgba(225, 239, 255, 0.9) !important;
 }
 
@@ -225,5 +225,5 @@
 .edit-storyboard-image-modal .right-actions .ant-btn-primary {
   background: linear-gradient(270deg, #2a6cfb 0%, #4ae7fd 100%) !important;
   border: none !important;
-  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
+  box-shadow: 0 calc(4px * var(--create-editor-scale, 1)) calc(14px * var(--create-editor-scale, 1)) rgba(37, 99, 235, 0.35);
 }

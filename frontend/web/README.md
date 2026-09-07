@@ -52,3 +52,14 @@ npm run build
 - `assets/`、`public/`：主题样式和静态资源
 
 SSE 与后台任务必须通过统一 task stream/follow/restore 体系接入；页面和弹窗不得各自创建平行轮询或独立任务状态机。
+
+### 流程画布
+
+从「我的作品」左上角的「流程画布」选择作品，或从创作流程顶部进入。电影使用作品级流程，电视剧集需选择具体分集。
+
+- `app/create/studio/`：作品与分集路由入口。
+- `components/studio/`、`hooks/studio/`：画布、节点编辑面板及现有创作流程的交互编排。
+- `utils/studio/`：业务实体到节点/连线的映射、路由和布局持久化。
+- `stores/studioUi.ts`、`types/studio.ts`：画布界面状态与类型。
+
+业务内容继续通过现有创作接口保存；节点位置与画布视图按作品、分集分别保存在当前浏览器。

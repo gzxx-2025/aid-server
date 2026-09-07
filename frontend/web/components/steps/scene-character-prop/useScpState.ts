@@ -89,6 +89,7 @@ export function useScpState() {
    * 避免刷新后先闪「完整卡片（自动生成/导入）」再切到「待生成形态」小卡片。
    */
   const step3AssetBootstrapReady = useMirrored(false)
+  const manualAssetAdding = useMirrored(false)
 
   /** 待生成形态小卡片上：按资产 ID 防止重复点击 */
   const pendingFormGenBusy = useMirrored<Record<number, boolean>>({})
@@ -281,6 +282,7 @@ export function useScpState() {
     tabAssetLoading,
     lastStep3VisualScopeKey,
     step3AssetBootstrapReady,
+    manualAssetAdding,
     pendingFormGenBusy,
     batchFormGenerateSubmitting,
     batchDeleteSubmitting,

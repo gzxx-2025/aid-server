@@ -3,7 +3,7 @@
 
 .edit-storyboard-image-modal .storyboard-stage-canvas .canvas-empty {
   color: rgba(225, 239, 255, 0.55);
-  font-size: 14px;
+  font-size: calc(14px * var(--create-editor-scale, 1));
   height: 100%;
   display: flex;
   justify-content: center;
@@ -12,23 +12,23 @@
 
 .edit-storyboard-image-modal .storyboard-stage-canvas .canvas-generating {
   flex-direction: column;
-  gap: 12px;
+  gap: calc(12px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-image-modal .storyboard-stage-canvas .canvas-generating__text {
   margin: 0;
   color: rgba(225, 239, 255, 0.72);
-  font-size: 14px;
+  font-size: calc(14px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-image-modal .storyboard-canvas-meta {
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 0.75rem;
+  gap: calc(0.75rem * var(--create-editor-scale, 1));
   margin: 0 auto;
   padding: 0;
-  width: 492px;
+  width: calc(492px * var(--create-editor-scale, 1));
   max-width: 100%;
   box-sizing: border-box;
   min-width: 0;
@@ -38,10 +38,10 @@
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
-  gap: 0.5rem 0.75rem;
+  gap: calc(0.5rem * var(--create-editor-scale, 1)) calc(0.75rem * var(--create-editor-scale, 1));
   min-width: 0;
   flex: 1;
-  font-size: 12px;
+  font-size: calc(12px * var(--create-editor-scale, 1));
   overflow: hidden;
 }
 
@@ -81,7 +81,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.5rem;
+  gap: calc(0.5rem * var(--create-editor-scale, 1));
   flex-wrap: wrap;
   width: 100%;
 }
@@ -89,15 +89,15 @@
 .edit-storyboard-image-modal .storyboard-toolbar-actions {
   display: flex;
   align-items: center;
-  gap: 0.25rem;
+  gap: calc(0.25rem * var(--create-editor-scale, 1));
   flex-wrap: wrap;
 }
 
 .edit-storyboard-image-modal .toolbar-aux-btn {
   color: rgba(225, 239, 255, 0.88) !important;
-  font-size: 12px;
-  height: 28px;
-  padding: 0 8px;
+  font-size: calc(12px * var(--create-editor-scale, 1));
+  height: calc(28px * var(--create-editor-scale, 1));
+  padding: 0 calc(8px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-image-modal .toolbar-aux-btn:hover {
@@ -115,16 +115,16 @@
   min-width: 0;
   min-height: 0;
   height: 100%;
-  padding: 12px 12px 12px;
+  padding: calc(12px * var(--create-editor-scale, 1)) calc(12px * var(--create-editor-scale, 1)) calc(12px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-image-modal .config-tabs {
   display: flex;
   width: 70%;
   justify-content: center;
-  border-radius: 8px;
+  border-radius: calc(8px * var(--create-editor-scale, 1));
   background: rgb(35, 67, 74);
-  margin-bottom: 18px;
+  margin-bottom: calc(18px * var(--create-editor-scale, 1));
   margin-left: auto;
   margin-right: auto;
   flex-shrink: 0;
@@ -132,13 +132,13 @@
 
 .edit-storyboard-image-modal .config-tab {
   flex: 1;
-  height: 32px;
+  height: calc(32px * var(--create-editor-scale, 1));
   border: 0;
-  border-radius: 6px;
+  border-radius: calc(6px * var(--create-editor-scale, 1));
   background: transparent;
   color: rgba(225, 239, 255, 0.7);
-  font-size: 14px;
-  line-height: 20px;
+  font-size: calc(14px * var(--create-editor-scale, 1));
+  line-height: calc(20px * var(--create-editor-scale, 1));
   cursor: pointer;
 }
 
@@ -152,29 +152,29 @@
   display: flex;
   width: 100%;
   justify-content: center;
-  gap: 4px;
-  border-radius: 8px;
+  gap: calc(4px * var(--create-editor-scale, 1));
+  border-radius: calc(8px * var(--create-editor-scale, 1));
   background: rgb(35, 67, 74);
-  margin-bottom: 12px;
+  margin-bottom: calc(12px * var(--create-editor-scale, 1));
   flex-shrink: 0;
 }
 
 .edit-storyboard-image-modal .config-tabs--three .config-tab {
   flex: 1;
   min-width: 0;
-  height: 32px;
+  height: calc(32px * var(--create-editor-scale, 1));
   border: 0;
-  border-radius: 6px;
+  border-radius: calc(6px * var(--create-editor-scale, 1));
   background: transparent;
   color: rgba(225, 239, 255, 0.7);
-  font-size: 14px;
+  font-size: calc(14px * var(--create-editor-scale, 1));
   line-height: 1.2;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 0 4px;
+  gap: calc(4px * var(--create-editor-scale, 1));
+  padding: 0 calc(4px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-image-modal .config-tabs--three .config-tab.active {
@@ -184,7 +184,7 @@
 }
 
 .edit-storyboard-image-modal .config-tab-icon {
-  font-size: 12px;
+  font-size: calc(12px * var(--create-editor-scale, 1));
   flex-shrink: 0;
 }
 
@@ -203,7 +203,7 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  padding-right: 4px;
+  padding-right: calc(4px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-image-modal .storyboard-config-scroll::-webkit-scrollbar {
@@ -212,12 +212,12 @@
 
 .edit-storyboard-image-modal .storyboard-config-scroll::-webkit-scrollbar-thumb {
   background: rgba(120, 140, 170, 0.55);
-  border-radius: 4px;
+  border-radius: calc(4px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-image-modal .storyboard-config-footer {
   flex-shrink: 0;
-  padding: 10px 2px 4px;
-  border-top: 1px solid rgba(128, 154, 188, 0.2);
+  padding: calc(10px * var(--create-editor-scale, 1)) calc(2px * var(--create-editor-scale, 1)) calc(4px * var(--create-editor-scale, 1));
+  border-top: calc(1px * var(--create-editor-scale, 1)) solid rgba(128, 154, 188, 0.2);
   background: rgb(25, 26, 29);
 }

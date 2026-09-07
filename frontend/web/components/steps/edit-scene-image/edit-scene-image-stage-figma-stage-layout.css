@@ -3,7 +3,7 @@
 /* Figma 三栏弹窗布局重构 */
 .figma-stage-layout {
   display: grid;
-  grid-template-columns: 144px minmax(0, 1fr) 398px;
+  grid-template-columns: calc(144px * var(--create-editor-scale, 1)) minmax(0, 1fr) calc(398px * var(--create-editor-scale, 1));
   grid-template-rows: minmax(0, 1fr);
   height: 100%;
   min-height: 0;
@@ -16,14 +16,14 @@
 
 .stage-history-panel,
 .stage-config-panel {
-  border: 1px solid rgba(128, 154, 188, 0.26);
+  border: calc(1px * var(--create-editor-scale, 1)) solid rgba(128, 154, 188, 0.26);
   background: rgba(25, 26, 29, 1);
 }
 
 .stage-history-panel {
   display: flex;
   flex-direction: column;
-  padding: 10px 7px;
+  padding: calc(10px * var(--create-editor-scale, 1)) calc(7px * var(--create-editor-scale, 1));
   height: 100%;
   min-height: 0;
   overflow: visible;
@@ -34,8 +34,8 @@
    前缀还原原 scoped 隔离：四个全屏编辑弹窗均带该 wrap 类不受影响，
    防止泄漏到 SceneSettingModal / MultiAngleCameraModal / 剧本历史抽屉等外部同名类。 */
 .edit-scene-image-modal .panel-title {
-  margin: 0 0 10px;
-  font-size: 12px;
+  margin: 0 0 calc(10px * var(--create-editor-scale, 1));
+  font-size: calc(12px * var(--create-editor-scale, 1));
   color: rgba(225, 239, 255, 0.7);
   flex-shrink: 0;
 }
@@ -43,23 +43,23 @@
 .edit-scene-image-modal .history-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: calc(8px * var(--create-editor-scale, 1));
   overflow-y: auto;
   overflow-x: visible;
   min-height: 0;
   flex: 1;
   /* 与 EditStoryboardVideoModal 一致：20px 左右 padding 会在 144px 栏宽下撑出横向滚动条 */
-  padding: 0 12px 10px;
+  padding: 0 calc(12px * var(--create-editor-scale, 1)) calc(10px * var(--create-editor-scale, 1));
   scrollbar-gutter: stable;
 }
 
 .edit-scene-image-modal .history-item {
-  width: 88px;
-  height: 88px;
-  flex: 0 0 88px;
+  width: calc(88px * var(--create-editor-scale, 1));
+  height: calc(88px * var(--create-editor-scale, 1));
+  flex: 0 0 calc(88px * var(--create-editor-scale, 1));
   padding: 0;
-  border-radius: 8px;
-  border: 2px solid rgba(120, 140, 170, 0.3);
+  border-radius: calc(8px * var(--create-editor-scale, 1));
+  border: calc(2px * var(--create-editor-scale, 1)) solid rgba(120, 140, 170, 0.3);
   overflow: hidden;
   background: rgba(18, 24, 36, 0.92);
   cursor: pointer;
@@ -68,7 +68,7 @@
 
 .edit-scene-image-modal .history-item.active {
   border-color: rgba(74, 231, 253, 1);
-  box-shadow: 0 0 0 2px rgba(74, 231, 253, 0.18);
+  box-shadow: 0 0 0 calc(2px * var(--create-editor-scale, 1)) rgba(74, 231, 253, 0.18);
 }
 
 .history-item__task-mask {
@@ -79,7 +79,7 @@
   align-items: center;
   justify-content: center;
   background: rgba(10, 14, 22, 0.78);
-  backdrop-filter: blur(2px);
+  backdrop-filter: blur(calc(2px * var(--create-editor-scale, 1)));
 }
 
 .history-item--generating {
@@ -94,22 +94,22 @@
   align-items: center;
   justify-content: center;
   background: rgba(10, 14, 22, 0.82);
-  backdrop-filter: blur(3px);
+  backdrop-filter: blur(calc(3px * var(--create-editor-scale, 1)));
 }
 
 .history-generating-mask__icon {
-  font-size: 16px;
+  font-size: calc(16px * var(--create-editor-scale, 1));
   color: #4ae7fd;
 }
 
 .history-delete-icon {
   position: absolute;
-  top: 4px;
-  right: 4px;
+  top: calc(4px * var(--create-editor-scale, 1));
+  right: calc(4px * var(--create-editor-scale, 1));
   z-index: 5;
-  width: 18px;
-  height: 18px;
-  border-radius: 999px;
+  width: calc(18px * var(--create-editor-scale, 1));
+  height: calc(18px * var(--create-editor-scale, 1));
+  border-radius: calc(999px * var(--create-editor-scale, 1));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -117,8 +117,8 @@
 }
 
 .history-delete-icon img {
-  width: 30px !important;
-  height: 30px !important;
+  width: calc(30px * var(--create-editor-scale, 1)) !important;
+  height: calc(30px * var(--create-editor-scale, 1)) !important;
   max-width: none !important;
   max-height: none !important;
   display: block;
@@ -143,14 +143,14 @@
   align-items: center;
   justify-content: center;
   color: rgba(225, 239, 255, 0.55);
-  font-size: 12px;
+  font-size: calc(12px * var(--create-editor-scale, 1));
 }
 
 .stage-history-panel .history-actions {
   margin-top: auto;
-  padding: 0 0.25rem;
+  padding: 0 calc(0.25rem * var(--create-editor-scale, 1));
   display: grid;
-  gap: 0.375rem;
+  gap: calc(0.375rem * var(--create-editor-scale, 1));
   flex-shrink: 0;
   background: rgba(25, 26, 29, 1);
 }
@@ -158,22 +158,22 @@
 .stage-history-panel .history-actions .ant-btn {
   width: 100%;
   min-width: 0;
-  height: 1.75rem;
-  padding: 0 0.375rem;
-  font-size: 0.75rem;
+  height: calc(1.75rem * var(--create-editor-scale, 1));
+  padding: 0 calc(0.375rem * var(--create-editor-scale, 1));
+  font-size: calc(0.75rem * var(--create-editor-scale, 1));
   line-height: 1;
   overflow: visible;
-  border: 1px dashed rgba(74, 231, 253, 0.3);
+  border: calc(1px * var(--create-editor-scale, 1)) dashed rgba(74, 231, 253, 0.3);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.125rem;
+  gap: calc(0.125rem * var(--create-editor-scale, 1));
 }
 
 .stage-history-panel .history-actions .ant-btn > .ant-btn-icon {
   flex-shrink: 0;
-  width: 14px;
-  height: 14px;
+  width: calc(14px * var(--create-editor-scale, 1));
+  height: calc(14px * var(--create-editor-scale, 1));
   margin-inline-end: 0 !important;
   display: inline-flex;
   align-items: center;
@@ -186,14 +186,14 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-size: calc(14px * var(--create-editor-scale, 1));
   line-height: 1;
 }
 
 .stage-history-panel .history-actions .ant-btn .anticon svg {
   display: block;
-  width: 14px;
-  height: 14px;
+  width: calc(14px * var(--create-editor-scale, 1));
+  height: calc(14px * var(--create-editor-scale, 1));
 }
 
 .stage-history-panel .history-actions .ant-btn > span:not(.ant-btn-icon) {
@@ -212,22 +212,22 @@
 
 .stage-canvas-panel {
   min-width: 0;
-  border: 1px solid rgba(128, 154, 188, 0.22);
+  border: calc(1px * var(--create-editor-scale, 1)) solid rgba(128, 154, 188, 0.22);
   background:
-    radial-gradient(circle at 1px 1px, rgba(74, 231, 253, 0.1) 1px, transparent 0),
+    radial-gradient(circle at calc(1px * var(--create-editor-scale, 1)) calc(1px * var(--create-editor-scale, 1)), rgba(74, 231, 253, 0.1) calc(1px * var(--create-editor-scale, 1)), transparent 0),
     #07090d;
-  background-size: 14px 14px, auto;
-  padding: 14px;
+  background-size: calc(14px * var(--create-editor-scale, 1)) calc(14px * var(--create-editor-scale, 1)), auto;
+  padding: calc(14px * var(--create-editor-scale, 1));
   display: flex;
   flex-direction: column;
 }
 
 .canvas-content-stack {
-  width: 562px;
+  width: calc(562px * var(--create-editor-scale, 1));
   max-width: 100%;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-top: 56px;
+  gap: calc(8px * var(--create-editor-scale, 1));
+  margin-top: calc(56px * var(--create-editor-scale, 1));
 }

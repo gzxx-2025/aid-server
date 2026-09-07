@@ -1,7 +1,7 @@
 'use client'
 
-import { SearchOutlined } from '@ant-design/icons'
-import { message, Modal } from 'antd'
+import { DeploymentUnitOutlined, SearchOutlined } from '@ant-design/icons'
+import { Button, Dropdown, message, Modal } from 'antd'
 import { useRouter,useSearchParams } from 'next/navigation'
 import type { SyntheticEvent } from 'react'
 import { useCallback,useEffect,useMemo,useRef,useState } from 'react'
@@ -21,6 +21,7 @@ userProjectList
 import { buildOpenProjectFlowQuery,resolveCreateFlowEntryPath } from '~/utils/createFlowProjectContext'
 import { CREATE_FLOW_STEP_ORDER,CREATE_SERIES_EPISODE_LIST_PATH } from '~/utils/createFlowRoutes'
 import { emptyImageIconUrl } from '~/utils/emptyImageIcon'
+import { buildStudioFlowCanvasHref } from '~/utils/studio/studioFlowNavigation'
 import {
   buildWorksPageHref,
   resolveWorksPageTab,
@@ -431,6 +432,27 @@ export function WorksLibraryPanel({ onOpenCreate }: WorksLibraryPanelProps) {
       <div className="page-content works-library-figma__inner">
         <header className="works-lib-header">
           <h1 className="works-lib-header__title">我的作品</h1>
+          <Dropdown
+            trigger={['click']}
+            placement="bottomLeft"
+            menu={{
+              style: { maxHeight: 'min(420px, 65vh)', overflowY: 'auto', maxWidth: 'min(360px, 85vw)' },
+              items: filteredWorks.length
+                ? filteredWorks.map((work) => ({ key: work.id, label: work.title }))
+                : [{ key: 'empty', label: '暂无作品，请先新建作品', disabled: true }],
+              onClick: ({ key }) => {
+                const work = filteredWorks.find((item) => item.id === key)
+                if (!work) return
+                router.push(buildStudioFlowCanvasHref({
+                  projectId: Number(work.id),
+                  episodeId: work.category === 'film' ? 0 : null,
+                  from: 'works'
+                }))
+              }
+            }}
+          >
+            <Button icon={<DeploymentUnitOutlined />} aria-label="流程画布" title="选择作品，进入流程画布">流程画布</Button>
+          </Dropdown>
         </header>
 
         {/* <section class="works-lib-stats" aria-label="作品统计">

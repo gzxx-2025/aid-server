@@ -206,6 +206,7 @@
   flex-shrink: 0;
 }
 
+.storyboard-step .storyboard-list-body .storyboard-list-media,
 .storyboard-step .storyboard-list-body .storyboard-block-card,
 .storyboard-step .storyboard-list-body .storyboard-reference-card,
 .storyboard-step .storyboard-list-body .storyboard-script-tip,

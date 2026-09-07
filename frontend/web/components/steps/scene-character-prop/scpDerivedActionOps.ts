@@ -87,11 +87,16 @@ export function createScpDerivedActionOps(ctx: ScpCtx, view: ScpDerivedViewOps) 
     blurScpAutoExtractButton(event)
   }
 
-  const handleEmptyAssetAddClick = () => {
+  const handleEmptyAssetAddClick = async () => {
     if (view.topbarAddDisabled()) return
-    if (ctx.activeTab.get() === 'scene') ctx.addScene()
-    else if (ctx.activeTab.get() === 'character') ctx.addCharacter()
-    else ctx.addProp()
+    ctx.manualAssetAdding.set(true)
+    try {
+      if (ctx.activeTab.get() === 'scene') await ctx.addScene()
+      else if (ctx.activeTab.get() === 'character') await ctx.addCharacter()
+      else await ctx.addProp()
+    } finally {
+      ctx.manualAssetAdding.set(false)
+    }
   }
 
   function handleBatchFormGenerateClick() {

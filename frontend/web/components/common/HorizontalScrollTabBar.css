@@ -3,7 +3,7 @@
   align-items: center;
   flex: 1;
   min-width: 0;
-  gap: 4px;
+  gap: calc(4px * var(--create-editor-scale, 1));
 }
 
 .h-scroll-tab-bar__viewport {
@@ -36,11 +36,11 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: calc(28px * var(--create-editor-scale, 1));
+  height: calc(28px * var(--create-editor-scale, 1));
   padding: 0;
   border: none;
-  border-radius: 6px;
+  border-radius: calc(6px * var(--create-editor-scale, 1));
   color: #d9e6f2;
   background: rgba(74, 231, 253, 0.12);
   cursor: pointer;
@@ -56,5 +56,5 @@
 
 .h-scroll-tab-bar__suffix {
   flex-shrink: 0;
-  margin-left: 8px;
+  margin-left: calc(8px * var(--create-editor-scale, 1));
 }

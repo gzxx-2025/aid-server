@@ -5,8 +5,8 @@
 .edit-storyboard-video-modal .edge-frame-strip {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 10px 4px;
+  gap: calc(10px * var(--create-editor-scale, 1));
+  padding: calc(8px * var(--create-editor-scale, 1)) calc(10px * var(--create-editor-scale, 1)) calc(4px * var(--create-editor-scale, 1));
   flex-shrink: 0;
 }
 
@@ -15,11 +15,11 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: calc(6px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-video-modal .edge-frame-label {
-  font-size: 12px;
+  font-size: calc(12px * var(--create-editor-scale, 1));
   color: rgba(188, 205, 228, 0.75);
   line-height: 1;
 }
@@ -28,8 +28,8 @@
   position: relative;
   width: 100%;
   aspect-ratio: 16 / 10;
-  border: 1px dashed rgba(120, 140, 170, 0.45);
-  border-radius: 8px;
+  border: calc(1px * var(--create-editor-scale, 1)) dashed rgba(120, 140, 170, 0.45);
+  border-radius: calc(8px * var(--create-editor-scale, 1));
   background: rgba(12, 18, 28, 0.55);
   overflow: hidden;
   cursor: pointer;
@@ -56,17 +56,17 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: calc(6px * var(--create-editor-scale, 1));
   color: rgba(188, 205, 228, 0.65);
-  font-size: 12px;
+  font-size: calc(12px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-video-modal .edge-frame-remove {
   position: absolute;
-  top: 4px;
-  right: 4px;
-  width: 20px;
-  height: 20px;
+  top: calc(4px * var(--create-editor-scale, 1));
+  right: calc(4px * var(--create-editor-scale, 1));
+  width: calc(20px * var(--create-editor-scale, 1));
+  height: calc(20px * var(--create-editor-scale, 1));
   border: 0;
   border-radius: 50%;
   background: rgba(255, 77, 79, 0.95);
@@ -75,7 +75,7 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  font-size: 10px;
+  font-size: calc(10px * var(--create-editor-scale, 1));
   line-height: 1;
   opacity: 0;
   transform: scale(0.9);
@@ -94,10 +94,10 @@
   position: relative;
   z-index: 2;
   flex-shrink: 0;
-  width: 32px;
-  height: 32px;
-  border: 1px solid rgba(74, 231, 253, 0.35);
-  border-radius: 8px;
+  width: calc(32px * var(--create-editor-scale, 1));
+  height: calc(32px * var(--create-editor-scale, 1));
+  border: calc(1px * var(--create-editor-scale, 1)) solid rgba(74, 231, 253, 0.35);
+  border-radius: calc(8px * var(--create-editor-scale, 1));
   background: rgba(74, 231, 253, 0.08);
   color: #4ae7fd;
   display: flex;
@@ -118,14 +118,14 @@
   align-items: center;
   justify-content: center;
   color: var(--gray-500);
-  font-size: 0.9rem;
+  font-size: calc(0.9rem * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-video-modal .panel-skeleton {
   flex: 1;
   overflow: auto;
-  padding: 1rem 1.25rem;
-  min-height: 200px;
+  padding: calc(1rem * var(--create-editor-scale, 1)) calc(1.25rem * var(--create-editor-scale, 1));
+  min-height: calc(200px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-video-modal .panel-skeleton .ant-skeleton-content .ant-skeleton-title,
@@ -143,7 +143,7 @@
 
 .edit-storyboard-video-modal .skeleton-stage-layout {
   display: grid;
-  grid-template-columns: 144px minmax(0, 1fr) 398px;
+  grid-template-columns: calc(144px * var(--create-editor-scale, 1)) minmax(0, 1fr) calc(398px * var(--create-editor-scale, 1));
   gap: 0;
   width: 100%;
   height: 100%;
@@ -152,7 +152,7 @@
 .edit-storyboard-video-modal .skeleton-history-panel,
 .edit-storyboard-video-modal .skeleton-canvas-panel,
 .edit-storyboard-video-modal .skeleton-config-panel {
-  border: 1px solid rgba(128, 154, 188, 0.26);
+  border: calc(1px * var(--create-editor-scale, 1)) solid rgba(128, 154, 188, 0.26);
   background: rgba(25, 26, 29, 1);
   min-height: 0;
 }
@@ -160,71 +160,71 @@
 .edit-storyboard-video-modal .skeleton-history-panel {
   display: flex;
   flex-direction: column;
-  padding: 10px 7px;
+  padding: calc(10px * var(--create-editor-scale, 1)) calc(7px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-video-modal .skeleton-panel-title {
-  height: 14px;
-  border-radius: 4px;
-  margin: 0 4px 10px;
+  height: calc(14px * var(--create-editor-scale, 1));
+  border-radius: calc(4px * var(--create-editor-scale, 1));
+  margin: 0 calc(4px * var(--create-editor-scale, 1)) calc(10px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-video-modal .skeleton-history-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: calc(8px * var(--create-editor-scale, 1));
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  padding: 0 12px;
+  padding: 0 calc(12px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-video-modal .skeleton-history-item {
-  width: 88px;
-  height: 88px;
-  border-radius: 8px;
+  width: calc(88px * var(--create-editor-scale, 1));
+  height: calc(88px * var(--create-editor-scale, 1));
+  border-radius: calc(8px * var(--create-editor-scale, 1));
   flex-shrink: 0;
 }
 
 .edit-storyboard-video-modal .skeleton-history-actions {
   margin-top: auto;
-  padding: 0 4px;
+  padding: 0 calc(4px * var(--create-editor-scale, 1));
   display: grid;
-  gap: 6px;
+  gap: calc(6px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-video-modal .skeleton-btn {
-  height: 32px;
-  border-radius: 6px;
+  height: calc(32px * var(--create-editor-scale, 1));
+  border-radius: calc(6px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-video-modal .skeleton-canvas-panel {
-  padding: 14px;
+  padding: calc(14px * var(--create-editor-scale, 1));
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: calc(12px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-video-modal .skeleton-canvas-toolbar {
   display: grid;
-  grid-template-columns: repeat(5, minmax(60px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(5, minmax(calc(60px * var(--create-editor-scale, 1)), 1fr));
+  gap: calc(8px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-video-modal .skeleton-chip {
-  height: 28px;
-  border-radius: 7px;
+  height: calc(28px * var(--create-editor-scale, 1));
+  border-radius: calc(7px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-video-modal .skeleton-canvas-main {
   flex: 1;
-  min-height: 280px;
-  border-radius: 12px;
+  min-height: calc(280px * var(--create-editor-scale, 1));
+  border-radius: calc(12px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-video-modal .skeleton-config-panel {
-  padding: 12px;
+  padding: calc(12px * var(--create-editor-scale, 1));
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: calc(10px * var(--create-editor-scale, 1));
 }

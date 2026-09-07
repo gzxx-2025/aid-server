@@ -3,64 +3,64 @@
 
 .edit-storyboard-dubbing-modal .skeleton-canvas-toolbar {
   display: grid;
-  grid-template-columns: repeat(5, minmax(60px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(5, minmax(calc(60px * var(--create-editor-scale, 1)), 1fr));
+  gap: calc(8px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-dubbing-modal .skeleton-chip {
-  height: 28px;
-  border-radius: 7px;
+  height: calc(28px * var(--create-editor-scale, 1));
+  border-radius: calc(7px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-dubbing-modal .skeleton-canvas-main {
   flex: 1;
-  min-height: 280px;
-  border-radius: 12px;
+  min-height: calc(280px * var(--create-editor-scale, 1));
+  border-radius: calc(12px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-dubbing-modal .skeleton-config-panel {
-  padding: 12px;
+  padding: calc(12px * var(--create-editor-scale, 1));
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: calc(10px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-dubbing-modal .skeleton-config-tabs {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 6px;
+  gap: calc(6px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-dubbing-modal .skeleton-tab {
-  height: 32px;
-  border-radius: 8px;
+  height: calc(32px * var(--create-editor-scale, 1));
+  border-radius: calc(8px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-dubbing-modal .skeleton-file-row {
-  height: 52px;
-  border-radius: 10px;
+  height: calc(52px * var(--create-editor-scale, 1));
+  border-radius: calc(10px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-dubbing-modal .skeleton-textarea {
-  height: 140px;
-  border-radius: 10px;
+  height: calc(140px * var(--create-editor-scale, 1));
+  border-radius: calc(10px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-dubbing-modal .skeleton-select-row {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  gap: calc(8px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-dubbing-modal .skeleton-select {
-  height: 44px;
-  border-radius: 10px;
+  height: calc(44px * var(--create-editor-scale, 1));
+  border-radius: calc(10px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-dubbing-modal .skeleton-primary-btn {
   margin-top: auto;
-  height: 42px;
-  border-radius: 10px;
+  height: calc(42px * var(--create-editor-scale, 1));
+  border-radius: calc(10px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-dubbing-modal .skeleton-panel-title,

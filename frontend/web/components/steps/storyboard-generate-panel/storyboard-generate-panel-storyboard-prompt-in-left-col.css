@@ -7,7 +7,7 @@
   display: flex;
   flex-direction: column;
   margin-top: 0;
-  border: 1px solid var(--gray-200);
+  border: calc(1px * var(--create-editor-scale, 1)) solid var(--gray-200);
   border-radius: var(--radius-lg);
   overflow: hidden;
 }
@@ -34,9 +34,9 @@
 /* 展开后描述区变矮，避免与上方抢高导致素材区出滚动条 */
 .storyboard-generate-panel .storyboard-top-expanded .storyboard-prompt-in-left-col .ql-container {
   flex: 0 0 auto !important;
-  height: var(--storyboard-prompt-expanded-height, 88px) !important;
-  min-height: var(--storyboard-prompt-expanded-height, 88px) !important;
-  max-height: var(--storyboard-prompt-expanded-height, 88px) !important;
+  height: var(--storyboard-prompt-expanded-height, calc(88px * var(--create-editor-scale, 1))) !important;
+  min-height: var(--storyboard-prompt-expanded-height, calc(88px * var(--create-editor-scale, 1))) !important;
+  max-height: var(--storyboard-prompt-expanded-height, calc(88px * var(--create-editor-scale, 1))) !important;
   overflow-y: auto;
 }
 
@@ -52,7 +52,7 @@
   width: 100%;
   flex-shrink: 0;
   margin-top: 0;
-  border: 1px solid var(--gray-200);
+  border: calc(1px * var(--create-editor-scale, 1)) solid var(--gray-200);
   border-radius: var(--radius-lg);
   overflow: hidden;
 }
@@ -60,9 +60,9 @@
 .storyboard-generate-panel .storyboard-prompt-full .ql-container {
   border: none;
   resize: none;
-  height: var(--storyboard-prompt-collapsed-height, 97px) !important;
-  min-height: var(--storyboard-prompt-collapsed-height, 97px) !important;
-  max-height: var(--storyboard-prompt-collapsed-height, 97px) !important;
+  height: var(--storyboard-prompt-collapsed-height, calc(97px * var(--create-editor-scale, 1))) !important;
+  min-height: var(--storyboard-prompt-collapsed-height, calc(97px * var(--create-editor-scale, 1))) !important;
+  max-height: var(--storyboard-prompt-collapsed-height, calc(97px * var(--create-editor-scale, 1))) !important;
   overflow-y: auto;
 }
 
@@ -78,12 +78,12 @@
 
 .storyboard-generate-panel .storyboard-prompt {
   border-radius: var(--radius-lg);
-  border: 1px solid var(--gray-200);
+  border: calc(1px * var(--create-editor-scale, 1)) solid var(--gray-200);
   background: var(--create-surface-panel);
-  padding: var(--storyboard-panel-padding-y, 6px) var(--storyboard-panel-padding-x, 6px);
+  padding: var(--storyboard-panel-padding-y, calc(6px * var(--create-editor-scale, 1))) var(--storyboard-panel-padding-x, calc(6px * var(--create-editor-scale, 1)));
   display: flex;
   flex-direction: column;
-  gap: var(--storyboard-block-gap, 10px);
+  gap: var(--storyboard-block-gap, calc(10px * var(--create-editor-scale, 1)));
 }
 
 .storyboard-generate-panel .storyboard-prompt .ql-editor {
@@ -131,7 +131,7 @@
 .storyboard-generate-panel .storyboard-prompt .ql-editor blockquote {
   margin: 0.25em 0;
   padding-left: 0.75em;
-  border-left: 2px solid rgba(74, 231, 253, 0.45);
+  border-left: calc(2px * var(--create-editor-scale, 1)) solid rgba(74, 231, 253, 0.45);
   color: rgba(255, 255, 255, 0.85);
 }
 
@@ -143,16 +143,16 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.5rem;
-  padding: 0.3rem var(--storyboard-panel-padding-x, 0.75rem);
-  font-size: 0.8rem;
+  gap: calc(0.5rem * var(--create-editor-scale, 1));
+  padding: calc(0.3rem * var(--create-editor-scale, 1)) var(--storyboard-panel-padding-x, calc(0.75rem * var(--create-editor-scale, 1)));
+  font-size: calc(0.8rem * var(--create-editor-scale, 1));
   color: var(--gray-500);
 }
 
 .storyboard-generate-panel .prompt-actions {
   display: flex;
   align-items: center;
-  gap: 0.25rem;
+  gap: calc(0.25rem * var(--create-editor-scale, 1));
 }
 
 .storyboard-generate-panel .prompt-actions .ant-btn,
@@ -175,12 +175,12 @@
 }
 
 .storyboard-generate-panel .setting-panel {
-  padding: var(--storyboard-panel-padding-y, 6px) var(--storyboard-panel-padding-x, 8px);
-  border: 1px solid var(--gray-200);
+  padding: var(--storyboard-panel-padding-y, calc(6px * var(--create-editor-scale, 1))) var(--storyboard-panel-padding-x, calc(8px * var(--create-editor-scale, 1)));
+  border: calc(1px * var(--create-editor-scale, 1)) solid var(--gray-200);
   border-radius: var(--radius-lg);
   display: flex;
   flex-direction: column;
-  gap: var(--storyboard-block-gap, 12px);
+  gap: var(--storyboard-block-gap, calc(12px * var(--create-editor-scale, 1)));
   min-height: 0;
   min-width: 0;
   height: 100%;
@@ -211,12 +211,12 @@
   display: flex;
   justify-content: center;
   align-items: center;
-  padding: 4px 0;
+  padding: calc(4px * var(--create-editor-scale, 1)) 0;
   color: var(--gray-600);
   cursor: pointer;
   flex-shrink: 0;
-  border: 1px solid rgba(74, 231, 253, 0.3);
-  border-radius: 8px;
+  border: calc(1px * var(--create-editor-scale, 1)) solid rgba(74, 231, 253, 0.3);
+  border-radius: calc(8px * var(--create-editor-scale, 1));
 }
 
 .storyboard-generate-panel .setting-chevron {
@@ -230,7 +230,7 @@
 .storyboard-generate-panel .setting-body {
   display: flex;
   flex-direction: column;
-  gap: var(--storyboard-field-gap, 12px);
+  gap: var(--storyboard-field-gap, calc(12px * var(--create-editor-scale, 1)));
   min-height: 0;
   /* Firefox：细滚动条 */
   scrollbar-width: thin;
@@ -240,13 +240,13 @@
 .storyboard-generate-panel .setting-body .setting-field {
   display: flex;
   flex-direction: column;
-  gap: var(--storyboard-block-gap, 6px);
+  gap: var(--storyboard-block-gap, calc(6px * var(--create-editor-scale, 1)));
 }
 
 .storyboard-generate-panel .setting-body .setting-field .setting-title {
   color: rgba(142, 151, 165, 1) !important;
   font-weight: 600;
-  font-size: 0.85rem;
+  font-size: calc(0.85rem * var(--create-editor-scale, 1));
 }
 
 /* WebKit：收窄滚动条占位宽度（默认约 15px 过宽） */

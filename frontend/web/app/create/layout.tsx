@@ -19,6 +19,14 @@ export default function CreateLayout({ children }: { children: React.ReactNode }
   if (normalized === '/create') {
     return <>{children}</>
   }
+  if (normalized === '/create/studio') {
+    return (
+      <>
+        <HtmlShellClass classes="app-shell-create layout-create-flow app-shell-studio" />
+        <Suspense fallback={null}>{children}</Suspense>
+      </>
+    )
+  }
   return (
     <>
       <HtmlShellClass classes="app-shell-create layout-create-flow" />

@@ -99,7 +99,7 @@ class ErrorNormalizerFallbackTest
                 new RuntimeException("链式出片提交失败", billingException));
 
         assertEquals(TaskErrorCode.USER_PREHOLD_BALANCE_NOT_ENOUGH.name(), result.getErrorCode());
-        assertEquals("预扣余额不足，充值后可继续生成", result.getUserMessage());
+        assertEquals("账户余额不足", result.getUserMessage());
     }
 
     @Test

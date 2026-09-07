@@ -1,5 +1,7 @@
 'use client'
 
+import { CreateEditorViewport } from '~/components/common/CreateEditorViewport'
+
 /**
  * 编辑分镜图弹窗（原 aid-pc/components/steps/EditStoryboardImageModal.vue，5029 行拆分迁移）。
  *
@@ -252,7 +254,7 @@ export function EditStoryboardImageModal(props: EditStoryboardImageModalProps) {
       className="edit-scene-image-modal edit-storyboard-image-modal"
       onCancel={ctx.handleCancel}
     >
-      <div className="edit-scene-image-container">
+      <CreateEditorViewport className="edit-scene-image-container">
         {/* 头部：返回按钮和场景切换 */}
         <div className="modal-header">
           <Button
@@ -811,7 +813,7 @@ export function EditStoryboardImageModal(props: EditStoryboardImageModalProps) {
             )}
           </div>
         </div>
-      </div>
+      </CreateEditorViewport>
 
       {/* 资源库导入弹窗（主内容区添加分镜图） */}
       <ImportScriptModal

@@ -55,19 +55,19 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 10px;
+  padding: calc(4px * var(--create-editor-scale, 1)) calc(10px * var(--create-editor-scale, 1));
   background: rgba(25, 26, 29, 1);
-  border-bottom: 1px solid rgba(128, 154, 188, 0.26);
+  border-bottom: calc(1px * var(--create-editor-scale, 1)) solid rgba(128, 154, 188, 0.26);
   flex-shrink: 0;
 }
 
 .edit-storyboard-video-modal .back-btn {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: calc(0.5rem * var(--create-editor-scale, 1));
   font-weight: 600;
   color: rgba(225, 239, 255, 0.9) !important;
-  font-size: 14px;
+  font-size: calc(14px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-video-modal .back-btn:hover {
@@ -78,23 +78,23 @@
 .edit-storyboard-video-modal .scene-switcher {
   flex: 1;
   min-width: 0;
-  padding: 0.25rem 0;
+  padding: calc(0.25rem * var(--create-editor-scale, 1)) 0;
 }
 
 .edit-storyboard-video-modal .scene-switcher-track {
-  gap: 0.5rem;
+  gap: calc(0.5rem * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-video-modal .scene-image-tab {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 6px;
-  width: 172px;
-  min-width: 172px;
-  max-width: 172px;
-  border: 1px solid transparent;
-  border-radius: 8px;
+  gap: calc(6px * var(--create-editor-scale, 1));
+  width: calc(172px * var(--create-editor-scale, 1));
+  min-width: calc(172px * var(--create-editor-scale, 1));
+  max-width: calc(172px * var(--create-editor-scale, 1));
+  border: calc(1px * var(--create-editor-scale, 1)) solid transparent;
+  border-radius: calc(8px * var(--create-editor-scale, 1));
   background: transparent;
   cursor: pointer;
   transition:
@@ -116,7 +116,7 @@
 
 .edit-storyboard-video-modal .scene-image-thumbnail {
   width: 100%;
-  height: 54px;
+  height: calc(54px * var(--create-editor-scale, 1));
   border-radius: var(--radius-sm);
   overflow: hidden;
   background: rgba(6, 10, 18, 0.55);
@@ -152,7 +152,7 @@
   align-items: center;
   justify-content: center;
   color: var(--gray-400);
-  font-size: 1.25rem;
+  font-size: calc(1.25rem * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-video-modal .thumbnail-loading-wrap {
@@ -166,18 +166,18 @@
 }
 
 .edit-storyboard-video-modal .thumbnail-loading-icon {
-  font-size: 1.25rem;
+  font-size: calc(1.25rem * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-video-modal .scene-label {
-  font-size: 12px;
+  font-size: calc(12px * var(--create-editor-scale, 1));
   color: var(--gray-700);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 100%;
   text-align: center;
-  padding: 0 10px 0;
+  padding: 0 calc(10px * var(--create-editor-scale, 1)) 0;
 }
 
 .edit-storyboard-video-modal .scene-image-tab.active .scene-label {
@@ -196,7 +196,7 @@
 /* 与 EditStoryboardImageModal 一致：左 144 | 中 自适应 | 右 398 */
 .edit-storyboard-video-modal .figma-stage-layout.video-stage-layout {
   display: grid;
-  grid-template-columns: 144px minmax(0, 1fr) 398px;
+  grid-template-columns: calc(144px * var(--create-editor-scale, 1)) minmax(0, 1fr) calc(398px * var(--create-editor-scale, 1));
   grid-template-rows: minmax(0, 1fr);
   height: 100%;
   min-height: 0;
@@ -207,7 +207,7 @@
 /* 窄屏略收右侧配置列，把宽度让给中间预览 */
 @media (max-width: 1440px) {
   .edit-storyboard-video-modal .figma-stage-layout.video-stage-layout {
-    grid-template-columns: 128px minmax(0, 1fr) 340px;
+    grid-template-columns: calc(128px * var(--create-editor-scale, 1)) minmax(0, 1fr) calc(340px * var(--create-editor-scale, 1));
   }
 }
 
@@ -217,14 +217,14 @@
 
 .edit-storyboard-video-modal .stage-history-panel,
 .edit-storyboard-video-modal .stage-config-panel.video-stage-config {
-  border: 1px solid rgba(128, 154, 188, 0.26);
+  border: calc(1px * var(--create-editor-scale, 1)) solid rgba(128, 154, 188, 0.26);
   background: rgba(25, 26, 29, 1);
 }
 
 .edit-storyboard-video-modal .stage-history-panel {
   display: flex;
   flex-direction: column;
-  padding: 10px 7px;
+  padding: calc(10px * var(--create-editor-scale, 1)) calc(7px * var(--create-editor-scale, 1));
   height: 100%;
   min-height: 0;
   overflow: visible;

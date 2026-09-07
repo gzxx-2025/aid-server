@@ -897,7 +897,8 @@ public class MediaGenerationServiceImpl implements IMediaGenerationService, Medi
             if (canRun) {
                 releaseConcurrencyAfterCompletion(task);
             }
-            safeNotifyTextSink(task.getId(), "failed", () -> sink.onFailed("系统繁忙"));
+            String userMessage = TaskErrorPresentation.fromThrowable(prepareError, "系统繁忙").getMessage();
+            safeNotifyTextSink(task.getId(), "failed", () -> sink.onFailed(userMessage));
             return;
         }
 

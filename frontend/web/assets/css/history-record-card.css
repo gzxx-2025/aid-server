@@ -1,21 +1,21 @@
 /* 生成记录列表卡片：主图/主视频选中态 + 悬停设为主图按钮 */
 .history-record-wrap {
   position: relative;
-  width: 88px;
-  flex: 0 0 88px;
+  width: calc(88px * var(--create-editor-scale, 1));
+  flex: 0 0 calc(88px * var(--create-editor-scale, 1));
 }
 
 .history-item--main {
   border-color: rgba(74, 231, 253, 1) !important;
-  box-shadow: 0 0 0 2px rgba(74, 231, 253, 0.18);
+  box-shadow: 0 0 0 calc(2px * var(--create-editor-scale, 1)) rgba(74, 231, 253, 0.18);
 }
 
 .history-main-toggle {
   position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 24px;
-  height: 24px;
+  top: calc(2px * var(--create-editor-scale, 1));
+  left: calc(2px * var(--create-editor-scale, 1));
+  width: calc(24px * var(--create-editor-scale, 1));
+  height: calc(24px * var(--create-editor-scale, 1));
   z-index: 8;
   display: flex;
   align-items: center;
@@ -39,13 +39,13 @@
 }
 
 .history-set-main-btn {
-  padding: 6px 10px;
-  font-size: 12px;
+  padding: calc(6px * var(--create-editor-scale, 1)) calc(10px * var(--create-editor-scale, 1));
+  font-size: calc(12px * var(--create-editor-scale, 1));
   line-height: 1.25;
   color: rgba(255, 255, 255, 0.95);
   white-space: nowrap;
-  border-radius: 8px;
-  border: 1px solid rgba(74, 231, 253, 0.3);
+  border-radius: calc(8px * var(--create-editor-scale, 1));
+  border: calc(1px * var(--create-editor-scale, 1)) solid rgba(74, 231, 253, 0.3);
   background: rgba(74, 231, 253, 0.3);
   cursor: pointer;
   transition:
@@ -80,8 +80,8 @@
  * 各编辑弹窗生成记录共用此尺寸，避免只修场景弹窗、其它弹窗继续偏小。
  */
 .history-item .history-delete-icon img {
-  width: 30px !important;
-  height: 30px !important;
+  width: calc(30px * var(--create-editor-scale, 1)) !important;
+  height: calc(30px * var(--create-editor-scale, 1)) !important;
   max-width: none !important;
   max-height: none !important;
   display: block;
@@ -105,7 +105,7 @@
 .history-set-main-btn-fade-enter-from,
 .history-set-main-btn-fade-leave-to {
   opacity: 0;
-  transform: translate(-6px, -50%);
+  transform: translate(calc(-6px * var(--create-editor-scale, 1)), -50%);
 }
 
 @media (prefers-reduced-motion: reduce) {

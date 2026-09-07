@@ -1,5 +1,7 @@
 'use client'
 
+import { CreateEditorViewport } from '~/components/common/CreateEditorViewport'
+
 /**
  * 编辑场景图/形态图弹窗（原 aid-pc/components/steps/EditSceneImageModal.vue，5665 行）。
  *
@@ -279,7 +281,7 @@ export function EditSceneImageModal(props: EditSceneImageModalProps) {
       className="edit-scene-image-modal"
       onCancel={c.handleCancel}
     >
-      <div className="edit-scene-image-container">
+      <CreateEditorViewport className="edit-scene-image-container">
         {/* 头部：返回按钮和场景切换 */}
         <div className="modal-header">
           <Button type="text" className="back-btn" icon={<ArrowLeftOutlined />} onClick={c.handleCancel}>
@@ -802,7 +804,7 @@ export function EditSceneImageModal(props: EditSceneImageModalProps) {
             )}
           </div>
         </div>
-      </div>
+      </CreateEditorViewport>
 
       {/* 场景设定编辑弹窗 */}
       <SceneSettingModal

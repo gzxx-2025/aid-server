@@ -13,6 +13,7 @@ import com.aid.aid.service.IAidComicEpisodeService;
 import com.aid.aid.service.IAidComicProjectService;
 import com.aid.aid.service.IAidComicScriptService;
 import com.aid.aid.service.IAidRolePropSceneService;
+import com.aid.common.error.TaskErrorPresentation;
 import com.aid.common.exception.ServiceException;
 import com.aid.billing.util.TextTokenEstimator;
 import com.aid.media.dto.MediaTextGenerateRequest;
@@ -803,7 +804,7 @@ public class SkillInvocationServiceImpl implements ISkillInvocationService {
 
                 @Override
                 public void onFailed(String message) {
-                    failRun(run.getId(), "理解请求失败", operator);
+                    failRun(run.getId(), skillFailureMessage(message, "理解请求失败"), operator);
                 }
             };
             withRunLifecycleLock(run.getId(), () -> {
@@ -817,7 +818,7 @@ public class SkillInvocationServiceImpl implements ISkillInvocationService {
         } catch (RuntimeException error) {
             log.error("Skill意图步骤启动失败, runId={}, stepId={}, errorType={}", run.getId(),
                     executionStep.getId(), error.getClass().getSimpleName(), error);
-            failRun(run.getId(), "理解请求失败", operator);
+            failRun(run.getId(), skillFailureMessage(error, "理解请求失败"), operator);
         }
     }
 
@@ -983,7 +984,7 @@ public class SkillInvocationServiceImpl implements ISkillInvocationService {
                         completeRun(run, findOriginalScreenplayTaskId(run.getId()),
                                 findLatestTaskId(run.getId(), REVIEW), operator, "RAW_FALLBACK");
                     } else {
-                        failRun(run.getId(), "生成失败", operator);
+                        failRun(run.getId(), skillFailureMessage(message, "生成失败"), operator);
                     }
                 }
             };
@@ -1005,7 +1006,7 @@ public class SkillInvocationServiceImpl implements ISkillInvocationService {
                 completeRun(run, findOriginalScreenplayTaskId(run.getId()),
                         findLatestTaskId(run.getId(), REVIEW), operator, "RAW_FALLBACK");
             } else {
-                failRun(run.getId(), "步骤启动失败", operator);
+                failRun(run.getId(), skillFailureMessage(error, "步骤启动失败"), operator);
             }
         }
     }
@@ -1199,7 +1200,8 @@ public class SkillInvocationServiceImpl implements ISkillInvocationService {
                     completeRun(run, findOriginalScreenplayTaskId(run.getId()),
                             findLatestTaskId(run.getId(), REVIEW), operator, "RAW_FALLBACK");
                 } else {
-                    failRun(run.getId(), INTENT.equals(step.getStepKey()) ? "理解请求失败" : "生成失败", operator);
+                    String fallback = INTENT.equals(step.getStepKey()) ? "理解请求失败" : "生成失败";
+                    failRun(run.getId(), skillFailureMessage(task.getErrorMessage(), fallback), operator);
                 }
             } else if (MediaTaskStatus.CANCELLED.name().equals(task.getStatus())) {
                 if ("format-repair".equals(step.getStepKey())) {
@@ -1377,6 +1379,17 @@ public class SkillInvocationServiceImpl implements ISkillInvocationService {
             });
             publishTerminalAfterCommit(runId, terminal);
         });
+    }
+
+    private String skillFailureMessage(String message, String fallback) {
+        if (Objects.equals("账户余额不足", message)) {
+            return message;
+        }
+        return TaskErrorPresentation.toUserMessage(message, fallback);
+    }
+
+    private String skillFailureMessage(Throwable error, String fallback) {
+        return TaskErrorPresentation.fromThrowable(error, fallback).getMessage();
     }
 
     private void advanceAfterIntent(AidSkillRun run, AidSkillRunStep step, Long mediaTaskId,

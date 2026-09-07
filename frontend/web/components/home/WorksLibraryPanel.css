@@ -6,6 +6,14 @@
 
 /* 封面区尺寸与占位样式见 assets/css/home-theme.css */
 
+.works-library-figma .works-lib-header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
 .works-library-figma .works-lib-card:hover .works-lib-card__cover-img.is-loaded {
   transform: scale(1.04);
 }

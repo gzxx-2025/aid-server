@@ -104,7 +104,7 @@ class TaskErrorPresentationTest
 
         ServiceException presented = TaskErrorPresentation.fromThrowable(source, "生成失败");
 
-        assertEquals("预扣余额不足", presented.getMessage());
+        assertEquals("账户余额不足", presented.getMessage());
         assertEquals(TaskErrorCode.USER_PREHOLD_BALANCE_NOT_ENOUGH.name(), presented.getDetailMessage());
     }
 }

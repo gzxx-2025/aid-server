@@ -2,7 +2,7 @@
 
 .edit-storyboard-dubbing-modal .dubbing-gen-card-actions .btn-set-lipsync {
   background: none !important;
-  border: 1px solid rgba(74, 231, 253, 0.3) !important;
+  border: calc(1px * var(--create-editor-scale, 1)) solid rgba(74, 231, 253, 0.3) !important;
   color: rgba(225, 239, 255, 0.92) !important;
   flex-shrink: 0;
 }
@@ -16,7 +16,7 @@
 
 .edit-storyboard-dubbing-modal .btn-set-lipsync-done {
   background: rgba(74, 231, 253, 0.12) !important;
-  border: 1px solid rgba(74, 231, 253, 0.55) !important;
+  border: calc(1px * var(--create-editor-scale, 1)) solid rgba(74, 231, 253, 0.55) !important;
   color: rgba(225, 239, 255, 0.95) !important;
   flex-shrink: 0;
 }
@@ -41,27 +41,27 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  min-height: 220px;
-  gap: 1rem;
+  min-height: calc(220px * var(--create-editor-scale, 1));
+  gap: calc(1rem * var(--create-editor-scale, 1));
   color: #fff;
 }
 
 .edit-storyboard-dubbing-modal .dubbing-gen-loading-text {
   margin: 0;
-  font-size: 0.95rem;
+  font-size: calc(0.95rem * var(--create-editor-scale, 1));
   color: rgba(255, 255, 255, 0.85);
 }
 
 .edit-storyboard-dubbing-modal .dubbing-gen-footer-hint {
   margin: 0;
-  font-size: 0.82rem;
+  font-size: calc(0.82rem * var(--create-editor-scale, 1));
   color: var(--home-muted, #8e97a5);
   line-height: 1.5;
 }
 
 .edit-storyboard-dubbing-modal .images-container {
   display: flex;
-  min-height: min(52vh, 420px);
+  min-height: min(52vh, calc(420px * var(--create-editor-scale, 1)));
   align-items: stretch;
 }
 
@@ -71,27 +71,27 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 1rem;
-  padding: 2rem;
+  gap: calc(1rem * var(--create-editor-scale, 1));
+  padding: calc(2rem * var(--create-editor-scale, 1));
   border-radius: var(--radius-md);
-  border: 1px dashed var(--create-border-dashed, rgba(74, 168, 188, 0.38));
+  border: calc(1px * var(--create-editor-scale, 1)) dashed var(--create-border-dashed, rgba(74, 168, 188, 0.38));
   background: var(--create-surface-canvas, rgba(30, 40, 58, 0.9));
   color: var(--home-muted, #8e97a5);
   text-align: center;
 }
 
 .edit-storyboard-dubbing-modal .dubbing-video-placeholder-main .anticon {
-  font-size: 2.5rem;
+  font-size: calc(2.5rem * var(--create-editor-scale, 1));
   color: var(--accent-400, #38bdf8);
   opacity: 0.85;
 }
 
 .edit-storyboard-dubbing-modal .dubbing-video-placeholder-main p {
   margin: 0;
-  font-size: 0.9rem;
+  font-size: calc(0.9rem * var(--create-editor-scale, 1));
   color: var(--home-text, #e6edf3);
   line-height: 1.5;
-  max-width: 22rem;
+  max-width: calc(22rem * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-dubbing-modal .dubbing-stage-config .ql-editor.ql-blank::before {

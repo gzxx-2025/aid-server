@@ -1,5 +1,7 @@
 'use client'
 
+import { CreateEditorViewport } from '~/components/common/CreateEditorViewport'
+
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { Button, Modal, message } from 'antd'
 import {
@@ -547,7 +549,7 @@ export function EditStoryboardDubbingModal({
       className="edit-scene-image-modal"
       onCancel={handleCancel}
     >
-      <div className="edit-scene-image-container">
+      <CreateEditorViewport className="edit-scene-image-container">
         <div className="modal-header">
           <Button type="text" className="back-btn" icon={<ArrowLeftOutlined />} onClick={handleCancel}>
             <span>返回</span>
@@ -753,7 +755,7 @@ export function EditStoryboardDubbingModal({
             </div>
           )}
         </div>
-      </div>
+      </CreateEditorViewport>
 
       <VoiceTimbrePickerModal
         open={S.voicePickerOpen.value}

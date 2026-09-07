@@ -18,6 +18,7 @@ type CSSProperties
 import { createPortal } from 'react-dom'
 import groupAvtorUrl from '~/assets/img/home/Group-avtor.svg'
 import type { FloatingPanelHandle } from '~/components/common/OpenSourcePanel'
+import { getAidPortalRoot } from '~/utils/portalRoot'
 import { useAuthPublicConfig } from '~/composables/useAuthPublicConfig'
 import { useWechatNotifyPreference } from '~/composables/useWechatNotifyPreference'
 import { useUserStore } from '~/stores/user'
@@ -154,6 +155,8 @@ const UserMenuDropdown = forwardRef<FloatingPanelHandle, UserMenuDropdownProps>(
     })()
 
     if (!rendered || typeof document === 'undefined') return null
+    const portalRoot = getAidPortalRoot()
+    if (!portalRoot) return null
 
     return createPortal(
       <div
@@ -241,7 +244,7 @@ const UserMenuDropdown = forwardRef<FloatingPanelHandle, UserMenuDropdownProps>(
           </button>
         </div>
       </div>,
-      document.body
+      portalRoot
     )
   }
 )

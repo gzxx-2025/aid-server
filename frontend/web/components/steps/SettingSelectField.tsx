@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
+import { useCreateEditorPortalStyle } from '~/components/common/CreateEditorViewport'
+import { readCreateEditorElementScale } from '~/utils/createEditorViewport'
 import { RightOutlined } from '@ant-design/icons'
 import { ShimmerImage } from '~/components/common/ShimmerImage'
 import { toLayoutPx } from '~/utils/viewportZoom'
@@ -46,6 +48,7 @@ export function SettingSelectField({
   onModelValueChange,
   onOpenChange
 }: Props) {
+  const editorPortalStyle = useCreateEditorPortalStyle()
   const rootRef = useRef<HTMLDivElement | null>(null)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   const panelRef = useRef<HTMLDivElement | null>(null)
@@ -64,7 +67,7 @@ export function SettingSelectField({
   const renderedRef = useRef(false)
   const transitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const panelStyle = panelFixedStyle as CSSProperties
+  const panelStyle: CSSProperties = { ...panelFixedStyle, ...editorPortalStyle }
 
   const triggerLabel = !options.length ? '暂无数据' : modelValue ? modelValue.value : placeholder
 
@@ -72,12 +75,14 @@ export function SettingSelectField({
     if (!openRef.current || !triggerRef.current) return
 
     const rect = triggerRef.current.getBoundingClientRect()
-    const panelW = Math.min(PANEL_WIDTH, window.innerWidth - 24)
-    const panelH = Math.min(PANEL_HEIGHT, window.innerHeight * 0.85)
+    const scale = readCreateEditorElementScale(triggerRef.current)
+    const gap = GAP * scale
+    const panelW = Math.min(PANEL_WIDTH * scale, window.innerWidth - 24)
+    const panelH = Math.min(PANEL_HEIGHT * scale, window.innerHeight * 0.85)
 
-    let leftPx = rect.right + GAP
+    let leftPx = rect.right + gap
     if (leftPx + panelW > window.innerWidth - 12) {
-      leftPx = rect.left - panelW - GAP
+      leftPx = rect.left - panelW - gap
     }
     leftPx = Math.max(12, Math.min(leftPx, window.innerWidth - panelW - 12))
 

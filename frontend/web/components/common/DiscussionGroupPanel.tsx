@@ -10,6 +10,7 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import type { FloatingPanelHandle } from '~/components/common/OpenSourcePanel'
+import { getAidPortalRoot } from '~/utils/portalRoot'
 import './DiscussionGroupPanel.css'
 
 export type { FloatingPanelHandle }
@@ -87,6 +88,8 @@ const DiscussionGroupPanel = forwardRef<FloatingPanelHandle, DiscussionGroupPane
     }, [])
 
     if (!rendered || typeof document === 'undefined') return null
+    const portalRoot = getAidPortalRoot()
+    if (!portalRoot) return null
 
     return createPortal(
       <div
@@ -107,7 +110,7 @@ const DiscussionGroupPanel = forwardRef<FloatingPanelHandle, DiscussionGroupPane
           <p className="discussion-group-panel__hint">扫码加入交流群</p>
         </div>
       </div>,
-      document.body
+      portalRoot
     )
   }
 )

@@ -5,12 +5,12 @@
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
-  width: 492px;
+  width: calc(492px * var(--create-editor-scale, 1));
   max-width: 100%;
   margin: 0 auto;
-  gap: 4px;
-  padding: 6px 8px;
-  border-radius: 8px;
+  gap: calc(4px * var(--create-editor-scale, 1));
+  padding: calc(6px * var(--create-editor-scale, 1)) calc(8px * var(--create-editor-scale, 1));
+  border-radius: calc(8px * var(--create-editor-scale, 1));
   background: rgba(17, 22, 33, 1);
   box-sizing: border-box;
 }
@@ -58,16 +58,16 @@
   flex: 1;
   width: 100%;
   min-width: 0;
-  height: 36px;
-  padding: 0 4px;
-  border-radius: 8px;
-  font-size: 0.75rem;
+  height: calc(36px * var(--create-editor-scale, 1));
+  padding: 0 calc(4px * var(--create-editor-scale, 1));
+  border-radius: calc(8px * var(--create-editor-scale, 1));
+  font-size: calc(0.75rem * var(--create-editor-scale, 1));
   color: rgba(142, 151, 165, 1);
   display: inline-flex;
   flex-direction: row;
   align-items: center;
   justify-content: center;
-  gap: 2px;
+  gap: calc(2px * var(--create-editor-scale, 1));
   transition: background 0.2s linear, color 0.2s linear;
 }
 
@@ -96,10 +96,10 @@
 }
 
 .canvas-toolbar .ant-btn .toolbar-tab-icon {
-  width: 14px;
-  height: 14px;
-  max-width: 14px;
-  max-height: 14px;
+  width: calc(14px * var(--create-editor-scale, 1));
+  height: calc(14px * var(--create-editor-scale, 1));
+  max-width: calc(14px * var(--create-editor-scale, 1));
+  max-height: calc(14px * var(--create-editor-scale, 1));
   object-fit: contain;
   display: block;
   flex-shrink: 0;
@@ -130,10 +130,10 @@
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 0.75rem;
+  gap: calc(0.75rem * var(--create-editor-scale, 1));
   margin: 0 auto;
   padding: 0;
-  width: 492px;
+  width: calc(492px * var(--create-editor-scale, 1));
   max-width: 100%;
   box-sizing: border-box;
   min-width: 0;
@@ -143,10 +143,10 @@
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
-  gap: 0.5rem 0.75rem;
+  gap: calc(0.5rem * var(--create-editor-scale, 1)) calc(0.75rem * var(--create-editor-scale, 1));
   min-width: 0;
   flex: 1;
-  font-size: 12px;
+  font-size: calc(12px * var(--create-editor-scale, 1));
   overflow: hidden;
 }
 
@@ -170,12 +170,12 @@
 
 .canvas-preview {
   margin: auto;
-  width: 492px;
+  width: calc(492px * var(--create-editor-scale, 1));
   max-width: 100%;
-  height: 278px;
+  height: calc(278px * var(--create-editor-scale, 1));
   flex: 0 0 auto;
-  border-radius: 12px;
-  border: 1px solid rgba(128, 154, 188, 0.34);
+  border-radius: calc(12px * var(--create-editor-scale, 1));
+  border: calc(1px * var(--create-editor-scale, 1)) solid rgba(128, 154, 188, 0.34);
   background: rgba(8, 12, 20, 0.94);
   display: flex;
   align-items: center;
@@ -186,7 +186,7 @@
 
 .canvas-preview.is-selected {
   border-color: #4ae7fd;
-  box-shadow: 0 0 0 2px rgba(74, 231, 253, 0.2), 0 10px 24px rgba(4, 11, 23, 0.55);
+  box-shadow: 0 0 0 calc(2px * var(--create-editor-scale, 1)) rgba(74, 231, 253, 0.2), 0 calc(10px * var(--create-editor-scale, 1)) calc(24px * var(--create-editor-scale, 1)) rgba(4, 11, 23, 0.55);
 }
 
 .canvas-image-frame {
@@ -207,32 +207,32 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 14px;
-  padding: 16px;
+  gap: calc(14px * var(--create-editor-scale, 1));
+  padding: calc(16px * var(--create-editor-scale, 1));
   text-align: center;
   background: rgba(10, 14, 22, 0.85);
-  backdrop-filter: blur(5px);
+  backdrop-filter: blur(calc(5px * var(--create-editor-scale, 1)));
 }
 
 .canvas-upscale-mask--failed {
-  gap: 12px;
+  gap: calc(12px * var(--create-editor-scale, 1));
 }
 
 .canvas-upscale-mask__icon {
-  font-size: 32px;
+  font-size: calc(32px * var(--create-editor-scale, 1));
   color: #4ae7fd;
 }
 
 .canvas-upscale-mask__text {
   margin: 0;
-  font-size: 13px;
+  font-size: calc(13px * var(--create-editor-scale, 1));
   color: rgba(225, 239, 255, 0.88);
   max-width: 90%;
 }
 
 .canvas-upscale-mask__err {
   margin: 0;
-  font-size: 13px;
+  font-size: calc(13px * var(--create-editor-scale, 1));
   color: #ff9db4;
   max-width: 92%;
   line-height: 1.45;

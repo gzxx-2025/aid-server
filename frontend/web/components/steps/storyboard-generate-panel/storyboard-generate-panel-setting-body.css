@@ -1,7 +1,7 @@
 /* Tailwind/PostCSS component styles for storyboard-generate-panel. */
 
 .storyboard-generate-panel .setting-body::-webkit-scrollbar {
-  width: 4px;
+  width: calc(4px * var(--create-editor-scale, 1));
 }
 
 .storyboard-generate-panel .setting-body::-webkit-scrollbar-track {
@@ -10,7 +10,7 @@
 
 .storyboard-generate-panel .setting-body::-webkit-scrollbar-thumb {
   background: rgba(120, 140, 170, 0.35);
-  border-radius: 3px;
+  border-radius: calc(3px * var(--create-editor-scale, 1));
 }
 
 .storyboard-generate-panel .setting-body::-webkit-scrollbar-thumb:hover {
@@ -28,24 +28,24 @@
 
 .storyboard-generate-panel .setting-actions {
   position: absolute;
-  right: 0.35rem;
-  bottom: 0.25rem;
+  right: calc(0.35rem * var(--create-editor-scale, 1));
+  bottom: calc(0.25rem * var(--create-editor-scale, 1));
   display: flex;
-  gap: 0.25rem;
+  gap: calc(0.25rem * var(--create-editor-scale, 1));
 }
 
 /* 768～900 常见高度：再压窄双栏，减轻纵向占用 */
 @media (max-height: 820px) {
   .storyboard-generate-panel .storyboard-top {
-    grid-template-columns: 156px minmax(0, 1fr);
+    grid-template-columns: calc(156px * var(--create-editor-scale, 1)) minmax(0, 1fr);
   }
 
   .storyboard-generate-panel .storyboard-top-expanded {
-    grid-template-columns: 156px minmax(0, 1fr);
+    grid-template-columns: calc(156px * var(--create-editor-scale, 1)) minmax(0, 1fr);
   }
 
   .storyboard-generate-panel .setting-header {
-    padding: 2px 0;
+    padding: calc(2px * var(--create-editor-scale, 1)) 0;
   }
 }
 
@@ -104,25 +104,25 @@
 .storyboard-generate-panel .prompt-footer-right {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: calc(10px * var(--create-editor-scale, 1));
 }
 
 .storyboard-generate-panel .param-settings-btn {
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border-radius: 8px;
+  gap: calc(4px * var(--create-editor-scale, 1));
+  padding: calc(2px * var(--create-editor-scale, 1)) calc(8px * var(--create-editor-scale, 1));
+  border-radius: calc(8px * var(--create-editor-scale, 1));
   background: transparent;
-  border: 1px solid rgba(74, 231, 253, 0.3);
-  font-size: 12px;
+  border: calc(1px * var(--create-editor-scale, 1)) solid rgba(74, 231, 253, 0.3);
+  font-size: calc(12px * var(--create-editor-scale, 1));
   cursor: pointer;
   transition: background 0.15s ease;
 }
 
 .storyboard-generate-panel .param-settings-icon {
-  width: 14px;
-  height: 14px;
+  width: calc(14px * var(--create-editor-scale, 1));
+  height: calc(14px * var(--create-editor-scale, 1));
   object-fit: contain;
 }

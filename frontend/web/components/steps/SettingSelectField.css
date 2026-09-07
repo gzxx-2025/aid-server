@@ -1,15 +1,15 @@
-/* 原 SettingSelectField.vue <style scoped>：类名与声明原样保留（setting-select-* 前缀已具名，无需额外作用域） */
+/* 原 SettingSelectField.vue \3c style scoped>：类名与声明原样保留（setting-select-* 前缀已具名，无需额外作用域） */
 .setting-select {
   width: 100%;
-  height: 36px;
-  border-radius: 8px;
+  height: calc(36px * var(--create-editor-scale, 1));
+  border-radius: calc(8px * var(--create-editor-scale, 1));
   border: none;
   background: #121212;
   color: var(--gray-700);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 0.75rem;
+  padding: 0 calc(0.75rem * var(--create-editor-scale, 1));
   cursor: pointer;
   transition:
     border-color 0.2s,
@@ -33,7 +33,7 @@
 
 .setting-select.active {
   border-color: var(--accent-500);
-  box-shadow: 0 0 0 2px var(--accent-100);
+  box-shadow: 0 0 0 calc(2px * var(--create-editor-scale, 1)) var(--accent-100);
 }
 
 .setting-select-panel {
@@ -43,22 +43,22 @@
   min-height: 0;
   overflow: hidden;
   background: rgba(6, 10, 18, 0.55);
-  padding: 0.75rem 1rem;
+  padding: calc(0.75rem * var(--create-editor-scale, 1)) calc(1rem * var(--create-editor-scale, 1));
   box-sizing: border-box;
 }
 
 .setting-select-panel-title {
-  font-size: 0.9375rem;
+  font-size: calc(0.9375rem * var(--create-editor-scale, 1));
   font-weight: 600;
   color: var(--gray-50);
-  margin-bottom: 0.75rem;
+  margin-bottom: calc(0.75rem * var(--create-editor-scale, 1));
   flex-shrink: 0;
 }
 
 .setting-select-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 0.5rem;
+  gap: calc(0.5rem * var(--create-editor-scale, 1));
   overflow-y: auto;
   flex: 1;
   min-height: 0;
@@ -70,14 +70,14 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.25rem;
-  padding: 0.35rem 0.5rem;
+  gap: calc(0.25rem * var(--create-editor-scale, 1));
+  padding: calc(0.35rem * var(--create-editor-scale, 1)) calc(0.5rem * var(--create-editor-scale, 1));
   align-self: start;
   width: 100%;
   box-sizing: border-box;
   background: rgba(12, 16, 24, 0.85);
   border-radius: var(--radius-md);
-  border: 1px solid var(--gray-200);
+  border: calc(1px * var(--create-editor-scale, 1)) solid var(--gray-200);
   cursor: pointer;
   transition:
     border-color 0.2s,
@@ -90,12 +90,12 @@
 
 .setting-select-option.is-selected {
   border-color: rgba(74, 231, 253, 0.55);
-  box-shadow: 0 0 0 1px rgba(74, 231, 253, 0.25);
+  box-shadow: 0 0 0 calc(1px * var(--create-editor-scale, 1)) rgba(74, 231, 253, 0.25);
 }
 
 .setting-select-option-thumb {
   width: 100%;
-  height: 92px;
+  height: calc(92px * var(--create-editor-scale, 1));
   flex-shrink: 0;
   border-radius: var(--radius-sm);
   background: rgba(6, 10, 18, 0.55);
@@ -103,7 +103,7 @@
   align-items: center;
   justify-content: center;
   color: var(--gray-500);
-  font-size: 1rem;
+  font-size: calc(1rem * var(--create-editor-scale, 1));
   overflow: hidden;
   position: relative;
 }
@@ -122,18 +122,18 @@
 }
 
 .option-icon-none {
-  font-size: 1.25rem;
+  font-size: calc(1.25rem * var(--create-editor-scale, 1));
   color: var(--gray-400);
 }
 
 .option-icon-placeholder {
-  font-size: 1rem;
+  font-size: calc(1rem * var(--create-editor-scale, 1));
   font-weight: 600;
   color: var(--gray-400);
 }
 
 .setting-select-option-label {
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--create-editor-scale, 1));
   color: var(--gray-50);
   text-align: center;
   line-height: 1.2;
@@ -142,10 +142,10 @@
 /* 弹层 Teleport 到 body，低分辨率 zoom 补偿见 viewport-compact-scale-overrides.css */
 .setting-select-panel-fixed {
   box-sizing: border-box;
-  border-radius: var(--radius-md, 8px);
+  border-radius: var(--radius-md, calc(8px * var(--create-editor-scale, 1)));
   background: rgba(19, 23, 34, 0.98);
-  border: 1px solid rgba(74, 231, 253, 0.22);
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
+  border: calc(1px * var(--create-editor-scale, 1)) solid rgba(74, 231, 253, 0.22);
+  box-shadow: 0 calc(12px * var(--create-editor-scale, 1)) calc(36px * var(--create-editor-scale, 1)) rgba(0, 0, 0, 0.45);
   overflow: hidden;
 }
 

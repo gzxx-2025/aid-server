@@ -78,6 +78,7 @@ export function CreateFirstStepModal({
       open={open}
       footer={null}
       closable={false}
+      destroyOnHidden
       width={1100}
       wrapClassName="create-flow-modal create-first-step-wrap"
       className="create-first-step-modal"

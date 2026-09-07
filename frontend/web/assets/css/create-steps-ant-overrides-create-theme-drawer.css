@@ -111,7 +111,7 @@ html.app-shell-create .create-modal-tab-panel {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: calc(10px * var(--create-editor-scale, 1));
   overflow: hidden;
 }
 
@@ -126,7 +126,7 @@ html.app-shell-create .create-modal-prompt-shell {
   flex-direction: column;
   overflow: hidden;
   border: none;
-  border-radius: 10px;
+  border-radius: calc(10px * var(--create-editor-scale, 1));
   background: #121212 !important;
 }
 
@@ -165,8 +165,8 @@ html.app-shell-create .create-modal-prompt-shell .ql-editor {
   resize: none !important;
   overflow: visible !important;
   color: #d7e8ff;
-  font-size: 13px;
-  line-height: 22px;
+  font-size: calc(13px * var(--create-editor-scale, 1));
+  line-height: calc(22px * var(--create-editor-scale, 1));
   background: #121212 !important;
   background-color: #121212 !important;
   border: none !important;
@@ -185,9 +185,9 @@ html.app-shell-create .create-modal-prompt-shell .ql-editor *:not(.scp-prompt-as
 html.app-shell-create .create-modal-prompt-shell .ql-editor .scp-prompt-asset-ref,
 html.app-shell-create .create-modal-prompt-shell .ql-editor .scp-prompt-param-ref {
   display: inline-block !important;
-  margin: 0 2px !important;
-  padding: 2px 8px !important;
-  border-radius: 4px !important;
+  margin: 0 calc(2px * var(--create-editor-scale, 1)) !important;
+  padding: calc(2px * var(--create-editor-scale, 1)) calc(8px * var(--create-editor-scale, 1)) !important;
+  border-radius: calc(4px * var(--create-editor-scale, 1)) !important;
   line-height: 1.5 !important;
   white-space: nowrap !important;
   vertical-align: baseline !important;

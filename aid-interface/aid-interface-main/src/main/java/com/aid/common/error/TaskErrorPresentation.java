@@ -103,8 +103,7 @@ public final class TaskErrorPresentation
     {
         String message = switch (StrUtil.blankToDefault(result.getErrorCode(), ""))
         {
-            case "USER_PREHOLD_BALANCE_NOT_ENOUGH" -> "预扣余额不足";
-            case "USER_BALANCE_NOT_ENOUGH" -> "余额不足";
+            case "USER_PREHOLD_BALANCE_NOT_ENOUGH", "USER_BALANCE_NOT_ENOUGH" -> "账户余额不足";
             case "USER_INPUT_INVALID" -> "生成设置有误，请调整";
             case "USER_CONTENT_VIOLATION" -> "内容需调整后重试";
             case "USER_FILE_FORMAT_INVALID" -> "文件格式不支持";

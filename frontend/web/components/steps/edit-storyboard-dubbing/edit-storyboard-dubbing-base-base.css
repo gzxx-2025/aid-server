@@ -50,19 +50,19 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 10px;
+  padding: calc(4px * var(--create-editor-scale, 1)) calc(10px * var(--create-editor-scale, 1));
   background: rgba(25, 26, 29, 1);
-  border-bottom: 1px solid rgba(128, 154, 188, 0.26);
+  border-bottom: calc(1px * var(--create-editor-scale, 1)) solid rgba(128, 154, 188, 0.26);
   flex-shrink: 0;
 }
 
 .edit-storyboard-dubbing-modal .back-btn {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: calc(0.5rem * var(--create-editor-scale, 1));
   font-weight: 600;
   color: rgba(225, 239, 255, 0.9) !important;
-  font-size: 14px;
+  font-size: calc(14px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-dubbing-modal .back-btn:hover {
@@ -72,11 +72,11 @@
 
 .edit-storyboard-dubbing-modal .scene-switcher {
   display: flex;
-  gap: 0.5rem;
+  gap: calc(0.5rem * var(--create-editor-scale, 1));
   flex: 1;
   min-width: 0;
   overflow-x: auto;
-  padding: 0.25rem 0;
+  padding: calc(0.25rem * var(--create-editor-scale, 1)) 0;
   justify-content: center;
 }
 
@@ -85,13 +85,13 @@
 }
 
 .edit-storyboard-dubbing-modal .scene-switcher-inner {
-  gap: 0.5rem;
-  padding: 0.25rem 0;
+  gap: calc(0.5rem * var(--create-editor-scale, 1));
+  padding: calc(0.25rem * var(--create-editor-scale, 1)) 0;
 }
 
 .edit-storyboard-dubbing-modal .scene-image-tab--dubbing {
-  min-width: 92px;
-  max-width: 120px;
+  min-width: calc(92px * var(--create-editor-scale, 1));
+  max-width: calc(120px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-dubbing-modal .scene-label--dubbing {
@@ -103,7 +103,7 @@
   overflow: hidden;
   text-align: center;
   line-height: 1.2;
-  font-size: 0.7rem;
+  font-size: calc(0.7rem * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-dubbing-modal .main-content-wrapper {
@@ -117,7 +117,7 @@
 /* 与 EditStoryboardImageModal 一致：左 144 | 中 自适应 | 右 398 */
 .edit-storyboard-dubbing-modal .figma-stage-layout.dubbing-stage-layout {
   display: grid;
-  grid-template-columns: 144px minmax(0, 1fr) 398px;
+  grid-template-columns: calc(144px * var(--create-editor-scale, 1)) minmax(0, 1fr) calc(398px * var(--create-editor-scale, 1));
   grid-template-rows: minmax(0, 1fr);
   height: 100%;
   min-height: 0;
@@ -128,7 +128,7 @@
 /* 窄屏略收左右列，把宽度让给中间预览 */
 @media (max-width: 1440px) {
   .edit-storyboard-dubbing-modal .figma-stage-layout.dubbing-stage-layout {
-    grid-template-columns: 128px minmax(0, 1fr) 340px;
+    grid-template-columns: calc(128px * var(--create-editor-scale, 1)) minmax(0, 1fr) calc(340px * var(--create-editor-scale, 1));
   }
 }
 
@@ -140,7 +140,7 @@
   flex: 1;
   overflow: auto;
   padding: 0;
-  min-height: 200px;
+  min-height: calc(200px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-dubbing-modal .right-panel-skeleton {
@@ -150,7 +150,7 @@
 
 .edit-storyboard-dubbing-modal .skeleton-stage-layout {
   display: grid;
-  grid-template-columns: 144px minmax(0, 1fr) 398px;
+  grid-template-columns: calc(144px * var(--create-editor-scale, 1)) minmax(0, 1fr) calc(398px * var(--create-editor-scale, 1));
   gap: 0;
   width: 100%;
   height: 100%;
@@ -159,7 +159,7 @@
 .edit-storyboard-dubbing-modal .skeleton-history-panel,
 .edit-storyboard-dubbing-modal .skeleton-canvas-panel,
 .edit-storyboard-dubbing-modal .skeleton-config-panel {
-  border: 1px solid rgba(128, 154, 188, 0.26);
+  border: calc(1px * var(--create-editor-scale, 1)) solid rgba(128, 154, 188, 0.26);
   background: rgba(25, 26, 29, 1);
   min-height: 0;
 }
@@ -167,47 +167,47 @@
 .edit-storyboard-dubbing-modal .skeleton-history-panel {
   display: flex;
   flex-direction: column;
-  padding: 10px 7px;
+  padding: calc(10px * var(--create-editor-scale, 1)) calc(7px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-dubbing-modal .skeleton-panel-title {
-  height: 14px;
-  border-radius: 4px;
-  margin: 0 4px 10px;
+  height: calc(14px * var(--create-editor-scale, 1));
+  border-radius: calc(4px * var(--create-editor-scale, 1));
+  margin: 0 calc(4px * var(--create-editor-scale, 1)) calc(10px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-dubbing-modal .skeleton-history-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: calc(8px * var(--create-editor-scale, 1));
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  padding: 0 12px;
+  padding: 0 calc(12px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-dubbing-modal .skeleton-history-item {
-  width: 88px;
-  height: 88px;
-  border-radius: 8px;
+  width: calc(88px * var(--create-editor-scale, 1));
+  height: calc(88px * var(--create-editor-scale, 1));
+  border-radius: calc(8px * var(--create-editor-scale, 1));
   flex-shrink: 0;
 }
 
 .edit-storyboard-dubbing-modal .skeleton-history-actions {
   margin-top: auto;
-  padding: 0 4px;
+  padding: 0 calc(4px * var(--create-editor-scale, 1));
   display: grid;
-  gap: 6px;
+  gap: calc(6px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-dubbing-modal .skeleton-btn {
-  height: 32px;
-  border-radius: 6px;
+  height: calc(32px * var(--create-editor-scale, 1));
+  border-radius: calc(6px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-dubbing-modal .skeleton-canvas-panel {
-  padding: 14px;
+  padding: calc(14px * var(--create-editor-scale, 1));
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: calc(12px * var(--create-editor-scale, 1));
 }

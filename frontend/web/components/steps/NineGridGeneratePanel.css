@@ -1,36 +1,36 @@
-/* 原 NineGridGeneratePanel.vue <style scoped>：类名与声明原样保留，统一以 .nine-grid-generate-panel 作用域前缀替代 scoped */
+/* 原 NineGridGeneratePanel.vue \3c style scoped>：类名与声明原样保留，统一以 .nine-grid-generate-panel 作用域前缀替代 scoped */
 .nine-grid-generate-panel {
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: calc(14px * var(--create-editor-scale, 1));
 }
 
 .nine-grid-generate-panel .nine-grid-section {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: calc(8px * var(--create-editor-scale, 1));
 }
 
 .nine-grid-generate-panel .nine-grid-section__head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: calc(8px * var(--create-editor-scale, 1));
 }
 
 .nine-grid-generate-panel .nine-grid-section__label {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 13px;
+  gap: calc(8px * var(--create-editor-scale, 1));
+  font-size: calc(13px * var(--create-editor-scale, 1));
   font-weight: 600;
   color: rgba(225, 239, 255, 0.92);
 }
 
 .nine-grid-generate-panel .nine-grid-dot {
-  width: 6px;
-  height: 6px;
+  width: calc(6px * var(--create-editor-scale, 1));
+  height: calc(6px * var(--create-editor-scale, 1));
   border-radius: 50%;
   background: #4ae7fd;
   flex-shrink: 0;
@@ -38,7 +38,7 @@
 
 .nine-grid-generate-panel .nine-grid-hint {
   margin: 0;
-  font-size: 12px;
+  font-size: calc(12px * var(--create-editor-scale, 1));
   color: rgba(188, 205, 228, 0.55);
   line-height: 1.45;
 }
@@ -47,10 +47,10 @@
   border: 0;
   background: transparent;
   color: rgba(74, 231, 253, 0.85);
-  font-size: 12px;
+  font-size: calc(12px * var(--create-editor-scale, 1));
   cursor: pointer;
-  padding: 2px 6px;
-  border-radius: 6px;
+  padding: calc(2px * var(--create-editor-scale, 1)) calc(6px * var(--create-editor-scale, 1));
+  border-radius: calc(6px * var(--create-editor-scale, 1));
   transition: color 0.2s ease, background 0.2s ease;
 }
 
@@ -60,11 +60,11 @@
 }
 
 .nine-grid-generate-panel .nine-grid-reference {
-  border: 1px solid rgba(128, 154, 188, 0.22);
-  border-radius: 12px;
+  border: calc(1px * var(--create-editor-scale, 1)) solid rgba(128, 154, 188, 0.22);
+  border-radius: calc(12px * var(--create-editor-scale, 1));
   background: rgba(17, 22, 33, 0.75);
   overflow: hidden;
-  min-height: 88px;
+  min-height: calc(88px * var(--create-editor-scale, 1));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -72,7 +72,7 @@
 
 .nine-grid-generate-panel .nine-grid-reference__img {
   width: 100%;
-  max-height: 120px;
+  max-height: calc(120px * var(--create-editor-scale, 1));
   object-fit: contain;
   display: block;
 }
@@ -81,30 +81,30 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  padding: 20px;
+  gap: calc(8px * var(--create-editor-scale, 1));
+  padding: calc(20px * var(--create-editor-scale, 1));
   color: rgba(188, 205, 228, 0.45);
-  font-size: 12px;
+  font-size: calc(12px * var(--create-editor-scale, 1));
 }
 
 .nine-grid-generate-panel .nine-grid-reference__empty .anticon {
-  font-size: 24px;
+  font-size: calc(24px * var(--create-editor-scale, 1));
 }
 
 .nine-grid-generate-panel .nine-grid-cells {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 10px;
+  gap: calc(10px * var(--create-editor-scale, 1));
 }
 
 .nine-grid-generate-panel .nine-grid-cell {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: calc(4px * var(--create-editor-scale, 1));
 }
 
 .nine-grid-generate-panel .nine-grid-cell__label {
-  font-size: 12px;
+  font-size: calc(12px * var(--create-editor-scale, 1));
   color: rgba(74, 231, 253, 0.9);
   font-weight: 500;
 }
@@ -113,10 +113,10 @@
 .nine-grid-generate-panel .nine-grid-cell__input textarea,
 .nine-grid-generate-panel textarea.nine-grid-cell__input {
   background: rgba(8, 12, 20, 0.9) !important;
-  border: 1px solid rgba(78, 94, 122, 0.42) !important;
-  border-radius: 8px !important;
+  border: calc(1px * var(--create-editor-scale, 1)) solid rgba(78, 94, 122, 0.42) !important;
+  border-radius: calc(8px * var(--create-editor-scale, 1)) !important;
   color: rgba(225, 239, 255, 0.92) !important;
-  font-size: 12px;
+  font-size: calc(12px * var(--create-editor-scale, 1));
   resize: none;
 }
 
@@ -133,7 +133,7 @@
 }
 
 .nine-grid-generate-panel .generate-model-config-block {
-  margin-top: 4px;
+  margin-top: calc(4px * var(--create-editor-scale, 1));
 }
 
 .nine-grid-generate-panel .generate-settings-params .setting-item:nth-child(2),

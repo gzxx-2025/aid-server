@@ -1,19 +1,19 @@
 .model-billing-rules {
   display: grid;
-  gap: 4px;
+  gap: calc(4px * var(--create-editor-scale, 1));
   width: 100%;
   min-width: 0;
-  margin-top: 6px;
+  margin-top: calc(6px * var(--create-editor-scale, 1));
 }
 
 .model-billing-rules__row {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 10px;
+  gap: calc(10px * var(--create-editor-scale, 1));
   min-width: 0;
-  font-size: 11px;
-  line-height: 16px;
+  font-size: calc(11px * var(--create-editor-scale, 1));
+  line-height: calc(16px * var(--create-editor-scale, 1));
 }
 
 .model-billing-rules__condition {
@@ -33,6 +33,6 @@
 
 .model-billing-rules__more {
   color: rgba(142, 151, 165, 0.84);
-  font-size: 11px;
-  line-height: 15px;
+  font-size: calc(11px * var(--create-editor-scale, 1));
+  line-height: calc(15px * var(--create-editor-scale, 1));
 }

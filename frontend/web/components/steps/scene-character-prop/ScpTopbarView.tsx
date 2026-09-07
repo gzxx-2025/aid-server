@@ -80,6 +80,7 @@ export function ScpTopbarView({ ctx }: { ctx: ScpCtx }) {
         <Button
           className="scp-topbar-add-btn"
           disabled={ctx.topbarAddDisabled()}
+          loading={ctx.manualAssetAdding.value}
           onClick={ctx.handleEmptyAssetAddClick}
           icon={
             <span className="scp-topbar-add-btn__ico-wrap">

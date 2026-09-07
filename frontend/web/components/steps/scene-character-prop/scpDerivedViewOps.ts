@@ -107,13 +107,11 @@ export function createScpDerivedViewOps(ctx: ScpCtx) {
     return '点击此按钮，为您智能提取道具'
   }
 
-  /** 自动生成/同步进行中，或当前 Tab 尚无提取结果时不可手动添加 */
+  /** 素材为空也可手动添加；同步、提取或本次添加尚未完成时等待，避免覆盖或重复创建。 */
   const topbarAddDisabled = () => {
     if (isExtracting() || ctx.store().isExtractingAssets) return true
     if (!ctx.step3AssetBootstrapReady.get()) return true
-    if (ctx.activeTab.get() === 'scene') return ctx.localValue.get().scenes.length === 0
-    if (ctx.activeTab.get() === 'character') return ctx.localValue.get().characters.length === 0
-    return ctx.localValue.get().props.length === 0
+    return ctx.tabAssetLoading.get()[ctx.activeTab.get()] || ctx.manualAssetAdding.get()
   }
 
   /** 当前 Tab 下「待生成形态」小卡片 */

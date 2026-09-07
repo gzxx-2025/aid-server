@@ -1,4 +1,4 @@
-/* 原 SettingCardImagePopover.vue <style scoped>：类名与声明原样保留（setting-card-* 前缀已具名，无需额外作用域） */
+/* 原 SettingCardImagePopover.vue \3c style scoped>：类名与声明原样保留（setting-card-* 前缀已具名，无需额外作用域） */
 .setting-card-popover-root {
   display: inline-flex;
   vertical-align: middle;
@@ -15,24 +15,24 @@
 .setting-card-panel {
   display: flex;
   flex-direction: column;
-  padding: 8px 10px;
-  border-radius: 12px;
+  padding: calc(8px * var(--create-editor-scale, 1)) calc(10px * var(--create-editor-scale, 1));
+  border-radius: calc(12px * var(--create-editor-scale, 1));
   background: rgba(19, 23, 34, 0.98);
-  border: 1px solid rgba(74, 231, 253, 0.22);
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
+  border: calc(1px * var(--create-editor-scale, 1)) solid rgba(74, 231, 253, 0.22);
+  box-shadow: 0 calc(12px * var(--create-editor-scale, 1)) calc(36px * var(--create-editor-scale, 1)) rgba(0, 0, 0, 0.45);
   box-sizing: border-box;
-  max-height: min(420px, 62vh);
+  max-height: min(calc(420px * var(--create-editor-scale, 1)), 62vh);
   overflow: hidden;
 }
 
 .setting-card-panel.is-open-down {
-  border-top-left-radius: 10px;
-  border-top-right-radius: 10px;
+  border-top-left-radius: calc(10px * var(--create-editor-scale, 1));
+  border-top-right-radius: calc(10px * var(--create-editor-scale, 1));
 }
 
 .setting-card-panel.is-open-up {
-  border-bottom-left-radius: 10px;
-  border-bottom-right-radius: 10px;
+  border-bottom-left-radius: calc(10px * var(--create-editor-scale, 1));
+  border-bottom-right-radius: calc(10px * var(--create-editor-scale, 1));
 }
 
 .setting-card-alert {
@@ -46,26 +46,26 @@
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
-  margin: 0 -2px;
-  padding: 0 2px 2px;
+  margin: 0 calc(-2px * var(--create-editor-scale, 1));
+  padding: 0 calc(2px * var(--create-editor-scale, 1)) calc(2px * var(--create-editor-scale, 1));
   scrollbar-width: thin;
   scrollbar-color: rgba(120, 140, 170, 0.4) transparent;
 }
 
 .setting-card-scroll::-webkit-scrollbar {
-  width: 4px;
+  width: calc(4px * var(--create-editor-scale, 1));
 }
 
 .setting-card-scroll::-webkit-scrollbar-thumb {
   background: rgba(120, 140, 170, 0.35);
-  border-radius: 4px;
+  border-radius: calc(4px * var(--create-editor-scale, 1));
 }
 
 .setting-card-section-label {
   flex-shrink: 0;
-  margin: 6px 0 4px;
-  padding: 0 2px;
-  font-size: 12px;
+  margin: calc(6px * var(--create-editor-scale, 1)) 0 calc(4px * var(--create-editor-scale, 1));
+  padding: 0 calc(2px * var(--create-editor-scale, 1));
+  font-size: calc(12px * var(--create-editor-scale, 1));
   font-weight: 600;
   color: #8e97a5;
 }
@@ -77,12 +77,12 @@
 .setting-card-list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: calc(2px * var(--create-editor-scale, 1));
 }
 
 .setting-card-empty {
-  padding: 12px 8px;
-  font-size: 13px;
+  padding: calc(12px * var(--create-editor-scale, 1)) calc(8px * var(--create-editor-scale, 1));
+  font-size: calc(13px * var(--create-editor-scale, 1));
   color: #8e97a5;
   text-align: center;
 }
@@ -90,12 +90,12 @@
 .setting-card-item {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
+  gap: calc(10px * var(--create-editor-scale, 1));
   width: 100%;
-  padding: 8px;
+  padding: calc(8px * var(--create-editor-scale, 1));
   margin: 0;
   border: none;
-  border-radius: 8px;
+  border-radius: calc(8px * var(--create-editor-scale, 1));
   background: transparent;
   cursor: pointer;
   text-align: left;
@@ -116,9 +116,9 @@
 .setting-card-thumb {
   position: relative;
   flex-shrink: 0;
-  width: 44px;
-  height: 44px;
-  border-radius: 8px;
+  width: calc(44px * var(--create-editor-scale, 1));
+  height: calc(44px * var(--create-editor-scale, 1));
+  border-radius: calc(8px * var(--create-editor-scale, 1));
   overflow: hidden;
   display: flex;
   align-items: center;
@@ -160,8 +160,8 @@
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 4px 8px;
-  font-size: 14px;
+  gap: calc(4px * var(--create-editor-scale, 1)) calc(8px * var(--create-editor-scale, 1));
+  font-size: calc(14px * var(--create-editor-scale, 1));
   font-weight: 600;
   line-height: 1.35;
 }
@@ -171,14 +171,14 @@
 }
 
 .setting-card-tag {
-  font-size: 12px;
+  font-size: calc(12px * var(--create-editor-scale, 1));
   font-weight: 500;
   color: #a8b4c8;
 }
 
 .setting-card-desc {
-  margin: 4px 0 0;
-  font-size: 12px;
+  margin: calc(4px * var(--create-editor-scale, 1)) 0 0;
+  font-size: calc(12px * var(--create-editor-scale, 1));
   line-height: 1.4;
   color: #8e97a5;
 }
@@ -191,10 +191,10 @@
 .setting-card-fade-enter-from,
 .setting-card-fade-leave-to {
   opacity: 0;
-  transform: translateY(4px);
+  transform: translateY(calc(4px * var(--create-editor-scale, 1)));
 }
 
 .setting-card-panel.is-open-up.setting-card-fade-enter-from,
 .setting-card-panel.is-open-up.setting-card-fade-leave-to {
-  transform: translateY(-4px);
+  transform: translateY(calc(-4px * var(--create-editor-scale, 1)));
 }

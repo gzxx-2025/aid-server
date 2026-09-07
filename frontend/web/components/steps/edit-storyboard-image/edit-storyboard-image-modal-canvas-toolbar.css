@@ -28,13 +28,13 @@
   flex: 1;
   width: 100%;
   min-width: 0;
-  height: 36px;
-  padding: 0 4px;
+  height: calc(36px * var(--create-editor-scale, 1));
+  padding: 0 calc(4px * var(--create-editor-scale, 1));
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 2px;
-  border-radius: 8px;
+  gap: calc(2px * var(--create-editor-scale, 1));
+  border-radius: calc(8px * var(--create-editor-scale, 1));
   transition: background 0.2s linear, color 0.2s linear;
 }
 
@@ -53,15 +53,15 @@
   flex: 1;
   width: 100%;
   min-width: 0;
-  height: 36px;
-  padding: 0 4px;
-  border-radius: 8px;
-  font-size: 0.75rem;
+  height: calc(36px * var(--create-editor-scale, 1));
+  padding: 0 calc(4px * var(--create-editor-scale, 1));
+  border-radius: calc(8px * var(--create-editor-scale, 1));
+  font-size: calc(0.75rem * var(--create-editor-scale, 1));
   color: rgb(142, 151, 165);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 2px;
+  gap: calc(2px * var(--create-editor-scale, 1));
   transition: background 0.2s linear, color 0.2s linear;
 }
 
@@ -86,8 +86,8 @@
 }
 
 .edit-storyboard-image-modal .storyboard-stage-canvas .canvas-toolbar .ant-btn .toolbar-tab-icon {
-  width: 14px;
-  height: 14px;
+  width: calc(14px * var(--create-editor-scale, 1));
+  height: calc(14px * var(--create-editor-scale, 1));
   display: block;
   flex-shrink: 0;
 }
@@ -114,12 +114,12 @@
 /* 与 EditSceneImageModal .canvas-preview 同尺寸（492×278） */
 .edit-storyboard-image-modal .storyboard-stage-canvas .canvas-preview {
   margin: auto;
-  width: 492px;
+  width: calc(492px * var(--create-editor-scale, 1));
   max-width: 100%;
-  height: 278px;
+  height: calc(278px * var(--create-editor-scale, 1));
   flex: 0 0 auto;
-  border-radius: 12px;
-  border: 1px solid rgba(128, 154, 188, 0.34);
+  border-radius: calc(12px * var(--create-editor-scale, 1));
+  border: calc(1px * var(--create-editor-scale, 1)) solid rgba(128, 154, 188, 0.34);
   background: rgba(8, 12, 20, 0.94);
   display: flex;
   align-items: center;
@@ -130,7 +130,7 @@
 
 .edit-storyboard-image-modal .storyboard-stage-canvas .canvas-preview.is-selected {
   border-color: #4ae7fd;
-  box-shadow: 0 0 0 2px rgba(74, 231, 253, 0.2), 0 10px 24px rgba(4, 11, 23, 0.55);
+  box-shadow: 0 0 0 calc(2px * var(--create-editor-scale, 1)) rgba(74, 231, 253, 0.2), 0 calc(10px * var(--create-editor-scale, 1)) calc(24px * var(--create-editor-scale, 1)) rgba(4, 11, 23, 0.55);
 }
 
 .edit-storyboard-image-modal .storyboard-stage-canvas .canvas-image-frame {
@@ -151,32 +151,32 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 14px;
-  padding: 16px;
+  gap: calc(14px * var(--create-editor-scale, 1));
+  padding: calc(16px * var(--create-editor-scale, 1));
   text-align: center;
   background: rgba(10, 14, 22, 0.85);
-  backdrop-filter: blur(5px);
+  backdrop-filter: blur(calc(5px * var(--create-editor-scale, 1)));
 }
 
 .edit-storyboard-image-modal .storyboard-stage-canvas .canvas-upscale-mask--failed {
-  gap: 12px;
+  gap: calc(12px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-image-modal .storyboard-stage-canvas .canvas-upscale-mask__icon {
-  font-size: 32px;
+  font-size: calc(32px * var(--create-editor-scale, 1));
   color: #4ae7fd;
 }
 
 .edit-storyboard-image-modal .storyboard-stage-canvas .canvas-upscale-mask__text {
   margin: 0;
-  font-size: 13px;
+  font-size: calc(13px * var(--create-editor-scale, 1));
   color: rgba(225, 239, 255, 0.88);
   max-width: 90%;
 }
 
 .edit-storyboard-image-modal .storyboard-stage-canvas .canvas-upscale-mask__err {
   margin: 0;
-  font-size: 13px;
+  font-size: calc(13px * var(--create-editor-scale, 1));
   color: #ff9db4;
   max-width: 92%;
   line-height: 1.45;
@@ -186,12 +186,12 @@
   width: 100%;
   height: 100%;
   min-height: 0;
-  padding: 6px;
+  padding: calc(6px * var(--create-editor-scale, 1));
   box-sizing: border-box;
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   grid-template-rows: repeat(2, 1fr);
-  gap: 6px;
+  gap: calc(6px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-image-modal .storyboard-stage-canvas .canvas-image-frame .four-grid-images--canvas .grid-image-item {
@@ -200,7 +200,7 @@
   min-height: 0;
   aspect-ratio: unset;
   overflow: hidden;
-  border-radius: 6px;
+  border-radius: calc(6px * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-image-modal .canvas-shimmer-image,

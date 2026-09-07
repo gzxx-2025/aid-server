@@ -9,8 +9,8 @@
 .edit-storyboard-image-modal .storyboard-left {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
-  padding: 1rem;
+  gap: calc(1rem * var(--create-editor-scale, 1));
+  padding: calc(1rem * var(--create-editor-scale, 1));
   overflow: hidden;
   min-height: 0;
 }
@@ -64,18 +64,18 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 10px;
+  padding: calc(4px * var(--create-editor-scale, 1)) calc(10px * var(--create-editor-scale, 1));
   background: rgb(25, 26, 29);
-  border-bottom: 1px solid rgba(128, 154, 188, 0.26);
+  border-bottom: calc(1px * var(--create-editor-scale, 1)) solid rgba(128, 154, 188, 0.26);
   flex-shrink: 0;
 }
 
 .edit-storyboard-image-modal .back-btn {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: calc(0.5rem * var(--create-editor-scale, 1));
   color: rgba(225, 239, 255, 0.9) !important;
-  font-size: 14px;
+  font-size: calc(14px * var(--create-editor-scale, 1));
 }
 .edit-storyboard-image-modal .back-btn:hover {
   color: #4ae7fd !important;
@@ -85,12 +85,12 @@
 .edit-storyboard-image-modal .scene-switcher {
   flex: 1;
   min-width: 0;
-  padding: 0.25rem 0;
+  padding: calc(0.25rem * var(--create-editor-scale, 1)) 0;
 }
 
 .edit-storyboard-image-modal .scene-switcher-track {
-  gap: 0.5rem;
-  padding: 0 6px 2px;
+  gap: calc(0.5rem * var(--create-editor-scale, 1));
+  padding: 0 calc(6px * var(--create-editor-scale, 1)) calc(2px * var(--create-editor-scale, 1));
 }
 
 /* 场景 tab缩略图：未选中无边框/背景；选中整卡青色描边 */
@@ -98,16 +98,16 @@
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 6px;
-  width: 172px;
-  min-width: 172px;
-  max-width: 172px;
-  border: 1px solid transparent;
-  border-radius: 8px;
+  gap: calc(6px * var(--create-editor-scale, 1));
+  width: calc(172px * var(--create-editor-scale, 1));
+  min-width: calc(172px * var(--create-editor-scale, 1));
+  max-width: calc(172px * var(--create-editor-scale, 1));
+  border: calc(1px * var(--create-editor-scale, 1)) solid transparent;
+  border-radius: calc(8px * var(--create-editor-scale, 1));
   background: transparent;
   cursor: pointer;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
-  min-width: 80px;
+  min-width: calc(80px * var(--create-editor-scale, 1));
   box-shadow: none;
 }
 
@@ -125,7 +125,7 @@
 .edit-storyboard-image-modal .scene-image-thumbnail {
   position: relative;
   width: 100%;
-  height: 54px;
+  height: calc(54px * var(--create-editor-scale, 1));
   border-radius: var(--radius-sm);
   overflow: hidden;
   background: rgba(6, 10, 18, 0.55);
@@ -154,18 +154,18 @@
   align-items: center;
   justify-content: center;
   color: var(--gray-400);
-  font-size: 1.25rem;
+  font-size: calc(1.25rem * var(--create-editor-scale, 1));
 }
 
 .edit-storyboard-image-modal .scene-label {
-  font-size: 12px;
+  font-size: calc(12px * var(--create-editor-scale, 1));
   color: var(--gray-700);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 100%;
   text-align: center;
-  padding: 0 10px 0;
+  padding: 0 calc(10px * var(--create-editor-scale, 1)) 0;
 }
 
 .edit-storyboard-image-modal .scene-image-tab.active .scene-label {
@@ -174,7 +174,7 @@
 }
 
 .edit-storyboard-image-modal .scene-image-tab.scene-image-tab--generating .scene-image-thumbnail {
-  border: 1px solid rgba(74, 231, 253, 0.45);
+  border: calc(1px * var(--create-editor-scale, 1)) solid rgba(74, 231, 253, 0.45);
 }
 
 .edit-storyboard-image-modal .scene-tab-generating-mask {
@@ -185,11 +185,11 @@
   align-items: center;
   justify-content: center;
   background: rgba(10, 14, 22, 0.82);
-  backdrop-filter: blur(3px);
+  backdrop-filter: blur(calc(3px * var(--create-editor-scale, 1)));
 }
 
 .edit-storyboard-image-modal .scene-tab-generating-mask__icon {
-  font-size: 18px;
+  font-size: calc(18px * var(--create-editor-scale, 1));
   color: #4ae7fd;
 }
 
@@ -204,7 +204,7 @@
 /* 三栏布局（与 EditSceneImageModal .figma-stage-layout 一致） */
 .edit-storyboard-image-modal .figma-stage-layout {
   display: grid;
-  grid-template-columns: 144px minmax(0, 1fr) 398px;
+  grid-template-columns: calc(144px * var(--create-editor-scale, 1)) minmax(0, 1fr) calc(398px * var(--create-editor-scale, 1));
   grid-template-rows: minmax(0, 1fr);
   height: 100%;
   min-height: 0;
@@ -217,14 +217,14 @@
 
 .edit-storyboard-image-modal .stage-history-panel,
 .edit-storyboard-image-modal .stage-config-panel {
-  border: 1px solid rgba(128, 154, 188, 0.26);
+  border: calc(1px * var(--create-editor-scale, 1)) solid rgba(128, 154, 188, 0.26);
   background: rgb(25, 26, 29);
 }
 
 .edit-storyboard-image-modal .stage-history-panel {
   display: flex;
   flex-direction: column;
-  padding: 10px 7px;
+  padding: calc(10px * var(--create-editor-scale, 1)) calc(7px * var(--create-editor-scale, 1));
   height: 100%;
   min-height: 0;
   overflow: visible;

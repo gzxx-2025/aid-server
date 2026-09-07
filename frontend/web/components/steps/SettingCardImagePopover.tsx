@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { useCreateEditorPortalStyle } from '~/components/common/CreateEditorViewport'
+import { readCreateEditorElementScale } from '~/utils/createEditorViewport'
 import { Alert } from 'antd'
 import { ShimmerImage } from '~/components/common/ShimmerImage'
 import { BillingQuoteHint } from '~/components/common/BillingQuoteHint'
@@ -75,6 +77,7 @@ export function SettingCardImagePopover({
   onSelect,
   children
 }: Props) {
+  const editorPortalStyle = useCreateEditorPortalStyle()
   const rootRef = useRef<HTMLDivElement | null>(null)
   const triggerRef = useRef<HTMLDivElement | null>(null)
   const panelRef = useRef<HTMLDivElement | null>(null)
@@ -96,7 +99,7 @@ export function SettingCardImagePopover({
   const renderedRef = useRef(false)
   const transitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const panelStyle = panelFixedStyle as CSSProperties
+  const panelStyle: CSSProperties = { ...panelFixedStyle, ...editorPortalStyle }
 
   function setOpenBoth(value: boolean) {
     openRef.current = value
@@ -130,13 +133,15 @@ export function SettingCardImagePopover({
     if (!openRef.current || !triggerRef.current) return
 
     const rect = triggerRef.current.getBoundingClientRect()
-    const spaceBelow = window.innerHeight - rect.bottom - GAP
-    const spaceAbove = rect.top - GAP
+    const scale = readCreateEditorElementScale(triggerRef.current)
+    const gap = GAP * scale
+    const spaceBelow = window.innerHeight - rect.bottom - gap
+    const spaceAbove = rect.top - gap
 
     let upward = false
-    if (spaceBelow >= ESTIMATED_PANEL_MIN) {
+    if (spaceBelow >= ESTIMATED_PANEL_MIN * scale) {
       upward = false
-    } else if (spaceAbove >= ESTIMATED_PANEL_MIN) {
+    } else if (spaceAbove >= ESTIMATED_PANEL_MIN * scale) {
       upward = true
     } else {
       upward = spaceAbove > spaceBelow
@@ -144,8 +149,9 @@ export function SettingCardImagePopover({
 
     setOpenUpward(upward)
 
-    const minW = 320
-    const widthPx = Math.min(Math.max(rect.width, minW), Math.min(420, window.innerWidth - 24))
+    const minW = 320 * scale
+    const widthPx = Math.min(Math.max(rect.width, minW), Math.min(420 * scale, window.innerWidth - 24))
+    const maxHeight = Math.max(0, (upward ? spaceAbove : spaceBelow) - 12)
     let leftPx = rect.left
     leftPx = Math.max(12, Math.min(leftPx, window.innerWidth - widthPx - 12))
 
@@ -155,7 +161,8 @@ export function SettingCardImagePopover({
       setPanelFixedStyle({
         position: 'fixed',
         left: `${leftPx}px`,
-        top: `${rect.bottom + GAP}px`,
+        top: `${rect.bottom + gap}px`,
+        maxHeight: `${maxHeight}px`,
         width: `${widthPx}px`,
         zIndex: z
       })
@@ -163,7 +170,8 @@ export function SettingCardImagePopover({
       setPanelFixedStyle({
         position: 'fixed',
         left: `${leftPx}px`,
-        bottom: `${window.innerHeight - rect.top + GAP}px`,
+        bottom: `${window.innerHeight - rect.top + gap}px`,
+        maxHeight: `${maxHeight}px`,
         width: `${widthPx}px`,
         zIndex: z
       })

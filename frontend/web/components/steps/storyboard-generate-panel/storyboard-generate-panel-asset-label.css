@@ -26,11 +26,11 @@
 @media (min-height: 1080px) {
   /* 高分辨率：参照设计稿，一屏铺满展示，不允许上方双栏“自动顶高”导致出现滚动条 */
   .storyboard-generate-panel .storyboard-top:not(.storyboard-top-expanded) {
-    grid-template-rows: var(--storyboard-top-collapsed-height, 290px);
+    grid-template-rows: var(--storyboard-top-collapsed-height, calc(290px * var(--create-editor-scale, 1)));
   }
 
   .storyboard-generate-panel .storyboard-top-expanded {
-    grid-template-rows: var(--storyboard-top-expanded-height, 450px);
+    grid-template-rows: var(--storyboard-top-expanded-height, calc(450px * var(--create-editor-scale, 1)));
   }
 
   .storyboard-generate-panel .storyboard-top:not(.storyboard-top-expanded) .storyboard-left-col .asset-panel {
@@ -55,9 +55,9 @@
 }
 
 .storyboard-generate-panel .asset-card {
-  height: var(--storyboard-card-height, 50px);
+  height: var(--storyboard-card-height, calc(50px * var(--create-editor-scale, 1)));
   border-radius: var(--radius-md);
-  border: 1px dashed var(--create-border-dashed);
+  border: calc(1px * var(--create-editor-scale, 1)) dashed var(--create-border-dashed);
   background: rgba(18, 18, 18, 1);
   color: var(--gray-700);
   width: 40%;
@@ -67,7 +67,7 @@
 
 .storyboard-generate-panel .asset-card span {
   color: #8E97A5 !important;
-  font-size: 12px;
+  font-size: calc(12px * var(--create-editor-scale, 1));
 }
 
 .storyboard-generate-panel .asset-card:hover {
@@ -77,19 +77,19 @@
 }
 
 .storyboard-generate-panel .asset-card.small {
-  height: var(--storyboard-card-small-height, 44px);
+  height: var(--storyboard-card-small-height, calc(44px * var(--create-editor-scale, 1)));
 }
 
 .storyboard-generate-panel .asset-icon {
-  font-size: 1rem;
+  font-size: calc(1rem * var(--create-editor-scale, 1));
   font-weight: 700;
-  line-height: 14px;
+  line-height: calc(14px * var(--create-editor-scale, 1));
 }
 
 .storyboard-generate-panel .asset-row-other .asset-grid-other-top {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.35rem;
+  gap: calc(0.35rem * var(--create-editor-scale, 1));
 }
 
 .storyboard-generate-panel .asset-thumb-item--removable {
@@ -98,15 +98,15 @@
 
 .storyboard-generate-panel .asset-thumb-remove {
   position: absolute;
-  top: 2px;
-  right: 2px;
-  width: 18px;
-  height: 18px;
+  top: calc(2px * var(--create-editor-scale, 1));
+  right: calc(2px * var(--create-editor-scale, 1));
+  width: calc(18px * var(--create-editor-scale, 1));
+  height: calc(18px * var(--create-editor-scale, 1));
   padding: 0;
-  line-height: 16px;
-  font-size: 14px;
+  line-height: calc(16px * var(--create-editor-scale, 1));
+  font-size: calc(14px * var(--create-editor-scale, 1));
   border: none;
-  border-radius: 4px;
+  border-radius: calc(4px * var(--create-editor-scale, 1));
   background: rgba(0, 0, 0, 0.55);
   color: #fff;
   cursor: pointer;
@@ -120,19 +120,19 @@
 .storyboard-generate-panel .asset-horizontal-wrap {
   display: flex;
   align-items: center;
-  gap: var(--storyboard-block-gap, 6px);
+  gap: var(--storyboard-block-gap, calc(6px * var(--create-editor-scale, 1)));
   min-width: 0;
 }
 
 .storyboard-generate-panel .asset-arrow {
   flex-shrink: 0;
-  width: 28px;
-  height: var(--storyboard-card-height, 36px);
+  width: calc(28px * var(--create-editor-scale, 1));
+  height: var(--storyboard-card-height, calc(36px * var(--create-editor-scale, 1)));
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--gray-200);
-  border-radius: 4px;
+  border: calc(1px * var(--create-editor-scale, 1)) solid var(--gray-200);
+  border-radius: calc(4px * var(--create-editor-scale, 1));
   background: var(--create-surface-panel);
   cursor: pointer;
   color: var(--gray-600);
@@ -146,10 +146,10 @@
 .storyboard-generate-panel .asset-horizontal {
   display: flex;
   align-items: center;
-  gap: var(--storyboard-block-gap, 6px);
+  gap: var(--storyboard-block-gap, calc(6px * var(--create-editor-scale, 1)));
   overflow-x: auto;
   overflow-y: hidden;
-  padding: 4px 0;
+  padding: calc(4px * var(--create-editor-scale, 1)) 0;
   min-width: 0;
   flex: 1;
   scrollbar-width: none;
@@ -162,12 +162,12 @@
 
 .storyboard-generate-panel .asset-thumb-item {
   flex-shrink: 0;
-  width: 72px;
-  height: var(--storyboard-thumb-height, 52px);
+  width: calc(72px * var(--create-editor-scale, 1));
+  height: var(--storyboard-thumb-height, calc(52px * var(--create-editor-scale, 1)));
   cursor: pointer;
   border-radius: var(--radius-md);
   overflow: hidden;
-  border: 1px solid var(--gray-200);
+  border: calc(1px * var(--create-editor-scale, 1)) solid var(--gray-200);
   transition: border-color 0.2s;
   display: flex;
   flex-direction: column;
@@ -184,16 +184,16 @@
 
 .storyboard-generate-panel .asset-thumb-img {
   width: 100%;
-  height: var(--storyboard-thumb-img-height, 36px);
-  min-height: var(--storyboard-thumb-img-height, 36px);
+  height: var(--storyboard-thumb-img-height, calc(36px * var(--create-editor-scale, 1)));
+  min-height: var(--storyboard-thumb-img-height, calc(36px * var(--create-editor-scale, 1)));
   object-fit: cover;
   display: block;
 }
 
 .storyboard-generate-panel .asset-thumb-name {
   display: block;
-  padding: 2px 4px;
-  font-size: 0.65rem;
+  padding: calc(2px * var(--create-editor-scale, 1)) calc(4px * var(--create-editor-scale, 1));
+  font-size: calc(0.65rem * var(--create-editor-scale, 1));
   line-height: 1.2;
   color: var(--gray-600);
   white-space: nowrap;
@@ -205,19 +205,19 @@
 
 .storyboard-generate-panel .asset-card-inline {
   flex-shrink: 0;
-  width: 72px;
-  height: var(--storyboard-thumb-height, 52px);
+  width: calc(72px * var(--create-editor-scale, 1));
+  height: var(--storyboard-thumb-height, calc(52px * var(--create-editor-scale, 1)));
   margin: 0;
 }
 
 .storyboard-generate-panel .asset-other-content {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: calc(0.5rem * var(--create-editor-scale, 1));
   min-width: 0;
 }
 
 .storyboard-generate-panel .asset-card-import-other {
   width: 30%;
-  max-width: 140px;
+  max-width: calc(140px * var(--create-editor-scale, 1));
 }

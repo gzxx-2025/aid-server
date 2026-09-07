@@ -1,5 +1,7 @@
 'use client'
 
+import { CreateEditorViewport } from '~/components/common/CreateEditorViewport'
+
 /**
  * 编辑分镜视频弹窗（原 components/steps/EditStoryboardVideoModal.vue，5632 行）。
  *
@@ -639,7 +641,7 @@ export function EditStoryboardVideoModal(rawProps: EditStoryboardVideoModalProps
       className="edit-scene-image-modal edit-storyboard-video-modal"
       onCancel={handleCancel}
     >
-      <div className="edit-scene-image-container">
+      <CreateEditorViewport className="edit-scene-image-container">
         <div className="modal-header">
           <Button type="text" className="back-btn" onClick={handleCancel} icon={<ArrowLeftOutlined />}>
             <span>返回</span>
@@ -680,7 +682,7 @@ export function EditStoryboardVideoModal(rawProps: EditStoryboardVideoModalProps
             </div>
           )}
         </div>
-      </div>
+      </CreateEditorViewport>
 
       <VideoModalSubModals
         ctx={ctx}

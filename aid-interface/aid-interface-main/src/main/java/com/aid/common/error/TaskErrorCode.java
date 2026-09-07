@@ -9,10 +9,10 @@ package com.aid.common.error;
  */
 public enum TaskErrorCode {
     /** 用户预扣余额不足（预检或预冻结失败） */
-    USER_PREHOLD_BALANCE_NOT_ENOUGH("USER", "BALANCE", "预扣余额不足，充值后可继续生成", true, "USER", true),
+    USER_PREHOLD_BALANCE_NOT_ENOUGH("USER", "BALANCE", "账户余额不足", true, "USER", true),
 
     /** 用户余额不足（直接消费或非预扣扣减失败） */
-    USER_BALANCE_NOT_ENOUGH("USER", "BALANCE", "余额不足，充值后可继续生成", true, "USER", true),
+    USER_BALANCE_NOT_ENOUGH("USER", "BALANCE", "账户余额不足", true, "USER", true),
 
     /** 用户输入参数非法 */
     USER_INPUT_INVALID("USER", "USER_INPUT", "部分生成设置有误，检查后重试", false, null, false),

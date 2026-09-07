@@ -1,4 +1,4 @@
-/* 原 EnhanceImageModePopover.vue <style scoped>：类名与声明原样保留（enhance-mode-* 前缀已具名，无需额外作用域） */
+/* 原 EnhanceImageModePopover.vue \3c style scoped>：类名与声明原样保留（enhance-mode-* 前缀已具名，无需额外作用域） */
 .enhance-mode-popover-root {
   display: inline-flex;
   vertical-align: middle;
@@ -9,33 +9,33 @@
 }
 
 .enhance-mode-panel {
-  padding: 10px;
-  border-radius: 12px;
+  padding: calc(10px * var(--create-editor-scale, 1));
+  border-radius: calc(12px * var(--create-editor-scale, 1));
   background: rgba(19, 23, 34, 0.98);
-  border: 1px solid rgba(74, 231, 253, 0.22);
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
+  border: calc(1px * var(--create-editor-scale, 1)) solid rgba(74, 231, 253, 0.22);
+  box-shadow: 0 calc(12px * var(--create-editor-scale, 1)) calc(36px * var(--create-editor-scale, 1)) rgba(0, 0, 0, 0.45);
   box-sizing: border-box;
 }
 
 .enhance-mode-panel.is-open-down {
-  border-top-left-radius: 10px;
-  border-top-right-radius: 10px;
+  border-top-left-radius: calc(10px * var(--create-editor-scale, 1));
+  border-top-right-radius: calc(10px * var(--create-editor-scale, 1));
 }
 
 .enhance-mode-panel.is-open-up {
-  border-bottom-left-radius: 10px;
-  border-bottom-right-radius: 10px;
+  border-bottom-left-radius: calc(10px * var(--create-editor-scale, 1));
+  border-bottom-right-radius: calc(10px * var(--create-editor-scale, 1));
 }
 
 .enhance-mode-item {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
+  gap: calc(12px * var(--create-editor-scale, 1));
   width: 100%;
-  padding: 10px 10px;
+  padding: calc(10px * var(--create-editor-scale, 1)) calc(10px * var(--create-editor-scale, 1));
   margin: 0;
   border: none;
-  border-radius: 10px;
+  border-radius: calc(10px * var(--create-editor-scale, 1));
   background: transparent;
   cursor: pointer;
   text-align: left;
@@ -48,17 +48,17 @@
 }
 
 .enhance-mode-item + .enhance-mode-item {
-  border-top: 1px solid rgba(120, 140, 170, 0.18);
-  margin-top: 4px;
-  padding-top: 14px;
+  border-top: calc(1px * var(--create-editor-scale, 1)) solid rgba(120, 140, 170, 0.18);
+  margin-top: calc(4px * var(--create-editor-scale, 1));
+  padding-top: calc(14px * var(--create-editor-scale, 1));
 }
 
 .enhance-mode-thumb {
   position: relative;
   flex-shrink: 0;
-  width: 52px;
-  height: 52px;
-  border-radius: 8px;
+  width: calc(52px * var(--create-editor-scale, 1));
+  height: calc(52px * var(--create-editor-scale, 1));
+  border-radius: calc(8px * var(--create-editor-scale, 1));
   overflow: hidden;
   display: flex;
   background: #1a2233;
@@ -70,7 +70,7 @@
 }
 
 .enhance-mode-thumb__half--before {
-  filter: blur(1.2px) saturate(0.85);
+  filter: blur(calc(1.2px * var(--create-editor-scale, 1))) saturate(0.85);
   opacity: 0.72;
 }
 
@@ -97,13 +97,13 @@
 .enhance-mode-thumb__divider {
   position: absolute;
   left: 50%;
-  top: 4px;
-  bottom: 4px;
-  width: 2px;
-  margin-left: -1px;
+  top: calc(4px * var(--create-editor-scale, 1));
+  bottom: calc(4px * var(--create-editor-scale, 1));
+  width: calc(2px * var(--create-editor-scale, 1));
+  margin-left: calc(-1px * var(--create-editor-scale, 1));
   background: rgba(255, 255, 255, 0.85);
-  border-radius: 1px;
-  box-shadow: 0 0 6px rgba(0, 0, 0, 0.35);
+  border-radius: calc(1px * var(--create-editor-scale, 1));
+  box-shadow: 0 0 calc(6px * var(--create-editor-scale, 1)) rgba(0, 0, 0, 0.35);
 }
 
 .enhance-mode-body {
@@ -115,8 +115,8 @@
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 4px 8px;
-  font-size: 14px;
+  gap: calc(4px * var(--create-editor-scale, 1)) calc(8px * var(--create-editor-scale, 1));
+  font-size: calc(14px * var(--create-editor-scale, 1));
   font-weight: 600;
   line-height: 1.35;
 }
@@ -126,24 +126,24 @@
 }
 
 .enhance-mode-cost {
-  font-size: 12px;
+  font-size: calc(12px * var(--create-editor-scale, 1));
   font-weight: 500;
   color: #a8b4c8;
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: calc(2px * var(--create-editor-scale, 1));
 }
 
 .enhance-mode-coin {
-  width: 14px;
-  height: 14px;
+  width: calc(14px * var(--create-editor-scale, 1));
+  height: calc(14px * var(--create-editor-scale, 1));
   vertical-align: middle;
   display: inline-block;
 }
 
 .enhance-mode-desc {
-  margin: 6px 0 0;
-  font-size: 12px;
+  margin: calc(6px * var(--create-editor-scale, 1)) 0 0;
+  font-size: calc(12px * var(--create-editor-scale, 1));
   line-height: 1.45;
   color: #8e97a5;
 }
@@ -156,10 +156,10 @@
 .enhance-mode-fade-enter-from,
 .enhance-mode-fade-leave-to {
   opacity: 0;
-  transform: translateY(4px);
+  transform: translateY(calc(4px * var(--create-editor-scale, 1)));
 }
 
 .enhance-mode-panel.is-open-up.enhance-mode-fade-enter-from,
 .enhance-mode-panel.is-open-up.enhance-mode-fade-leave-to {
-  transform: translateY(-4px);
+  transform: translateY(calc(-4px * var(--create-editor-scale, 1)));
 }
