@@ -15,7 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/** 任务落库前统一去重、截断并回写参考图片与参考视频。 */
+/** 任务落库前统一去重、校验并回写参考图片与参考视频。 */
 @Slf4j
 public final class ReferenceMediaRequestNormalizer {
 
@@ -92,11 +92,7 @@ public final class ReferenceMediaRequestNormalizer {
         int before = simple.size() + structured.size();
         Integer max = configuredLimit(modelConfig, KEY_MAX_REFERENCE_IMAGES, providerFallbackMaxImages);
         if (max != null && max >= 0 && before > max) {
-            int simpleKeep = Math.min(simple.size(), max);
-            simple = new ArrayList<>(simple.subList(0, simpleKeep));
-            int structuredKeep = Math.max(0, Math.min(structured.size(), max - simpleKeep));
-            structured = new ArrayList<>(structured.subList(0, structuredKeep));
-            warnTruncated(modelConfig, "参考图", max, before);
+            rejectExcess(modelConfig, "参考图", max, before);
         }
 
         request.setImageUrl(simple.stream()
@@ -128,9 +124,7 @@ public final class ReferenceMediaRequestNormalizer {
         addVideoUrls(videos, seen, options.get("videos"));
         Integer max = configuredLimit(modelConfig, KEY_MAX_REFERENCE_VIDEOS, providerFallbackMaxVideos);
         if (max != null && max >= 0 && videos.size() > max) {
-            int before = videos.size();
-            videos = new ArrayList<>(videos.subList(0, max));
-            warnTruncated(modelConfig, "参考视频", max, before);
+            rejectExcess(modelConfig, "参考视频", max, videos.size());
         }
         for (String key : FEATURE_VIDEO_KEYS) options.remove(key);
         for (String key : BASE_VIDEO_KEYS) options.remove(key);
@@ -150,26 +144,42 @@ public final class ReferenceMediaRequestNormalizer {
         if (max == null || max < 0 || values.size() <= max) {
             return values;
         }
-        warnTruncated(modelConfig, type, max, values.size());
-        return new ArrayList<>(values.subList(0, max));
+        rejectExcess(modelConfig, type, max, values.size());
+        return values;
     }
 
     private static Integer configuredLimit(AiModelConfigVo config, String key, Integer providerFallback) {
         JsonNode capability = ModelCapabilityResolver.parseCapability(config == null ? null : config.getCapabilityJson());
         JsonNode node = capability == null ? null : capability.get(key);
         if (node != null && node.isNumber()) {
-            return (int) Math.floor(node.doubleValue());
+            int configured = node.intValue();
+            if (KEY_MAX_REFERENCE_IMAGES.equals(key) && config != null
+                    && Boolean.FALSE.equals(config.getSupportsMultiImageInput())) {
+                int semanticLimit = nonMultiImageSlotLimit(config);
+                return configured < 0 ? semanticLimit : Math.min(semanticLimit, configured);
+            }
+            return configured;
         }
         if (KEY_MAX_REFERENCE_IMAGES.equals(key) && config != null
                 && Boolean.FALSE.equals(config.getSupportsMultiImageInput())) {
-            return 1;
+            return nonMultiImageSlotLimit(config);
         }
         return providerFallback;
     }
 
-    private static void warnTruncated(AiModelConfigVo config, String type, int max, int actual) {
-        log.warn("{}超过模型能力上限按顺序截断: modelCode={}, max={}, actual={}",
+    /**
+     * 非多图模型仍可能同时具有首帧和尾帧两个语义槽位。它们不是任意多图输入，
+     * 但归一化阶段必须允许这两个明确槽位同时存在，并继续拒绝第三张额外参考图。
+     */
+    private static int nonMultiImageSlotLimit(AiModelConfigVo config) {
+        return Boolean.TRUE.equals(config.getSupportsFirstFrame())
+                && Boolean.TRUE.equals(config.getSupportsLastFrame()) ? 2 : 1;
+    }
+
+    private static void rejectExcess(AiModelConfigVo config, String type, int max, int actual) {
+        log.info("{}超过模型能力上限: modelCode={}, max={}, actual={}",
                 type, config == null ? null : config.getModelCode(), max, actual);
+        throw new ServiceException(type + "数量超限");
     }
 
     private static Map<String, Object> mutableOptions(Map<String, Object> source) {
@@ -232,8 +242,9 @@ public final class ReferenceMediaRequestNormalizer {
         List<Object> keyFrames = mergeListOptions(options, KEY_FRAME_IMAGE_KEYS);
         if (!settings.isEmpty()) {
             if (!keyFrames.isEmpty()) {
-                log.warn("结构化参考图同时存在互斥别名，按上游实际优先级保留 image_settings: modelCode={}",
+                log.info("结构化参考图同时存在互斥输入: modelCode={}",
                         modelConfig == null ? null : modelConfig.getModelCode());
+                throw new ServiceException("参考图片配置冲突");
             }
             List<Object> normalized = new ArrayList<>();
             for (Object value : settings) {

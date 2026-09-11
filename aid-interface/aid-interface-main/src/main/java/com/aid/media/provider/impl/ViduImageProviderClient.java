@@ -37,7 +37,7 @@ import java.util.Objects;
 @Component
 public class ViduImageProviderClient implements ImageProviderClient {
 
-    /** Vidu 参考生图官方上限（viduq2：0～7 张），超出则截断，避免整单被厂商拒绝。 */
+    /** Vidu 参考生图官方上限（viduq2：0～7 张），超出直接拒绝。 */
     private static final int VIDU_IMAGE_REFERENCE_MAX = 7;
 
     @Override
@@ -64,7 +64,7 @@ public class ViduImageProviderClient implements ImageProviderClient {
                 ReferenceImageLimiter.resolveMax(modelConfig, VIDU_IMAGE_REFERENCE_MAX));
         String submitUrl = buildApiUrl(modelConfig.getBaseUrl(), modelConfig.getApiSuffix());
         Map<String, Object> body = buildSubmitBody(modelConfig, request);
-        String bodyJson = JSONUtil.toJsonStr(body);
+        String bodyJson = JSONUtil.toJsonStr(com.aid.model.definition.ModelConfiguredRequestBody.apply(modelConfig, body, request));
         String raw = doPost(submitUrl, modelConfig.getApiKey(), bodyJson);
         JsonNode root = ProviderResponseHelper.readTree(raw);
         String taskId = ProviderResponseHelper.readText(root,
@@ -203,7 +203,7 @@ public class ViduImageProviderClient implements ImageProviderClient {
         if (images.isEmpty() && StrUtil.isNotBlank(request.getReferenceImageUrl())) {
             images.add(request.getReferenceImageUrl());
         }
-        // 统一上限：读 capability_json.maxReferenceImages，缺省回退 Vidu 官方默认 7 张；超限截断 + warn
+        // 统一上限：读 capability_json.maxReferenceImages，缺省回退 Vidu 官方默认 7 张；超限直接拒绝。
         return ReferenceImageLimiter.limit(images, modelConfig, VIDU_IMAGE_REFERENCE_MAX, "Vidu");
     }
 

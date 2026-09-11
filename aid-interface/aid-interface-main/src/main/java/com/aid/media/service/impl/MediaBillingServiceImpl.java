@@ -26,6 +26,7 @@ import com.aid.domain.vo.AiModelConfigVo;
 import com.aid.media.enums.MediaBillingStatus;
 import com.aid.media.service.IMediaBillingService;
 import com.aid.notify.wechat.service.IWechatNotifyService;
+import com.aid.tokendance.provider.common.TokenDanceResponseMapper;
 
 import cn.hutool.core.util.IdUtil;
 import cn.hutool.core.util.StrUtil;
@@ -336,6 +337,7 @@ public class MediaBillingServiceImpl implements IMediaBillingService {
         wrapper.select(AidMediaTask::getId, AidMediaTask::getUserId, AidMediaTask::getBillingStatus,
                 AidMediaTask::getFrozenAmount, AidMediaTask::getBillingTraceId, AidMediaTask::getStatus,
                 AidMediaTask::getMediaType, AidMediaTask::getUpstreamAcceptTime,
+                AidMediaTask::getProtocol, AidMediaTask::getErrorDetailJson,
                 AidMediaTask::getProjectId, AidMediaTask::getBizTaskType,
                 AidMediaTask::getRequestJson);
         wrapper.lt(AidMediaTask::getUpdateTime, LocalDateTime.now().minusMinutes(2));
@@ -354,7 +356,9 @@ public class MediaBillingServiceImpl implements IMediaBillingService {
             {
                 boolean result;
                 boolean textProviderStarted = "TEXT".equalsIgnoreCase(task.getMediaType())
-                        && task.getUpstreamAcceptTime() != null;
+                        && task.getUpstreamAcceptTime() != null
+                        && !TokenDanceResponseMapper.isConfirmedRejection(
+                                task.getProtocol(), task.getErrorDetailJson());
                 if ("SUCCEEDED".equals(task.getStatus()) || textProviderStarted)
                 {
                     if (textProviderStarted && "FAILED".equals(task.getStatus()))

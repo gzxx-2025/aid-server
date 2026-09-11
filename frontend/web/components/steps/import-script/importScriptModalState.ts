@@ -11,7 +11,7 @@ export interface ImportScriptModalProps {
   title?: string
   zIndex?: number
   multiple?: boolean
-  acceptAssetType?: 'image' | 'video' | 'script' | 'all'
+  acceptAssetType?: 'image' | 'video' | 'media' | 'script' | 'all'
   initialTab?: ImportScriptTab | null
   initialMaterialCategory?: string | null
   beforeScriptImport?: () => Promise<boolean>
@@ -55,6 +55,7 @@ export function isAcceptedImportAsset(
   if (asset.type === 'folder') return true
   if (acceptAssetType === 'image') return isImageAsset(asset)
   if (acceptAssetType === 'video') return isVideoAsset(asset)
+  if (acceptAssetType === 'media') return isImageAsset(asset) || isVideoAsset(asset)
   // `all` means the complete library is browsable in script-import contexts;
   // it must not allow binary media to enter the screenplay import callback.
   return isScriptAsset(asset)

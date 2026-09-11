@@ -2,6 +2,7 @@
 
 import { useEffect,useMemo,useRef } from 'react'
 import type { UserModelListItem } from '~/types/business-api'
+import { findModelByReference } from '~/utils/modelReference'
 import {
 buildAspectRatioSelectOptions,
 buildAudioSelectOptions,
@@ -31,6 +32,8 @@ function findRawModelByCode(
 ): UserModelListItem | null {
   const trimmed = String(code || '').trim()
   if (!trimmed) return null
+  const exact = findModelByReference(rawModelList, trimmed)
+  if (exact) return exact
   const normalized = trimmed.toLowerCase()
   return (
     rawModelList.find((m) => {
@@ -43,6 +46,10 @@ function findRawModelByCode(
       return false
     }) ?? null
   )
+}
+
+function parameterValues(settings: VideoGenerationSettingsState): Record<string, unknown> {
+  return { aspectRatio: settings.aspectRatio, durationSeconds: Number(settings.duration), audio: settings.audio === 'with_audio', options: { resolution: settings.quality.toUpperCase() } }
 }
 
 /**
@@ -63,8 +70,8 @@ export function useVideoModelGenerateSettings(options: UseVideoModelGenerateSett
   )
 
   const capabilitySnapshot = useMemo<ModelCapabilitySnapshot>(
-    () => parseModelCapability(selectedRawModel),
-    [selectedRawModel]
+    () => parseModelCapability(selectedRawModel, parameterValues(generationSettings)),
+    [selectedRawModel, generationSettings]
   )
 
   const aspectRatioSelectOptions = useMemo(() => {
@@ -92,7 +99,7 @@ export function useVideoModelGenerateSettings(options: UseVideoModelGenerateSett
   const supportsDuration = capabilitySnapshot.supportsDuration
   const supportsAudio = capabilitySnapshot.supportsAudio
   const audioSelectOptions = useMemo(
-    () => buildAudioSelectOptions(capabilitySnapshot.supportsAudio),
+    () => buildAudioSelectOptions(capabilitySnapshot.supportsAudio, capabilitySnapshot.audioOptions),
     [capabilitySnapshot]
   )
 
@@ -119,7 +126,7 @@ export function useVideoModelGenerateSettings(options: UseVideoModelGenerateSett
     const snapshot =
       next?.selectedModelCode !== undefined
         ? parseModelCapability(
-            findRawModelByCode(next.selectedModelCode, next?.rawModelList ?? rawModelListRef.current)
+            findRawModelByCode(next.selectedModelCode, next?.rawModelList ?? rawModelListRef.current), parameterValues(settings)
           )
         : capabilitySnapshotRef.current
     onGenerationSettingsChangeRef.current(coerceVideoGenerationSettings(settings, snapshot))
@@ -127,13 +134,14 @@ export function useVideoModelGenerateSettings(options: UseVideoModelGenerateSett
 
   // 原 watch(selectedRawModel, ...)：非 immediate，首帧跳过
   const firstRunRef = useRef(true)
+  const constraintKey = JSON.stringify([selectedRawModel?.id, selectedRawModel?.capabilityCode, capabilitySnapshot])
   useEffect(() => {
     if (firstRunRef.current) {
       firstRunRef.current = false
       return
     }
     syncSettingsToModel()
-  }, [selectedRawModel])
+  }, [constraintKey])
 
   return {
     capabilitySnapshot,

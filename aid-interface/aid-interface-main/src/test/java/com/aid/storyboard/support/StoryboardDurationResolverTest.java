@@ -6,7 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import org.junit.jupiter.api.Test;
 
 import com.aid.domain.vo.AiModelConfigVo;
-import com.aid.storyboard.support.StoryboardDurationResolver.Resolution;
 
 class StoryboardDurationResolverTest
 {
@@ -18,28 +17,6 @@ class StoryboardDurationResolverTest
         assertNull(StoryboardDurationResolver.parseRecommendedDuration("{\"视频时长建议秒\":0}"));
         assertNull(StoryboardDurationResolver.parseRecommendedDuration("{\"视频时长建议秒\":6.5}"));
         assertNull(StoryboardDurationResolver.parseRecommendedDuration("not-json"));
-    }
-
-    @Test
-    void shouldPreferRequestForSingleRecommendedMode()
-    {
-        AiModelConfigVo model = model("[4,8,12]", 4, 4);
-
-        Resolution result = StoryboardDurationResolver.resolve(5, 10, true, true, model);
-
-        assertEquals(8, result.durationSeconds());
-        assertEquals(StoryboardDurationResolver.SOURCE_REQUEST, result.source());
-    }
-
-    @Test
-    void shouldPreferSuggestionForBatchRecommendedMode()
-    {
-        AiModelConfigVo model = model("[4,8,12]", 4, 4);
-
-        Resolution result = StoryboardDurationResolver.resolve(5, 10, true, false, model);
-
-        assertEquals(12, result.durationSeconds());
-        assertEquals(StoryboardDurationResolver.SOURCE_STORYBOARD_SUGGESTION, result.source());
     }
 
     @Test

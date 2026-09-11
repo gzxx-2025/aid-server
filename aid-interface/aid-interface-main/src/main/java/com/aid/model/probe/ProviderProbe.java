@@ -53,4 +53,9 @@ public interface ProviderProbe {
      * @return 探活结果
      */
     ProbeResult probe(AidAiModel model, AidAiProvider provider);
+
+    /** 供应商级探测只判断账户连通性；默认保留需要具体模型参数的协议行为。 */
+    default ProbeResult probeProvider(AidAiModel routingModel, AidAiProvider provider) {
+        return probe(routingModel, provider);
+    }
 }

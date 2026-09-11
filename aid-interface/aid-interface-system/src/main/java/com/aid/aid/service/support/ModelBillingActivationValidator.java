@@ -53,7 +53,7 @@ public final class ModelBillingActivationValidator {
         }
         String mode = StrUtil.blankToDefault(model.getBillingMode(), "FIXED").trim().toUpperCase();
         if ("FIXED".equals(mode)) {
-            if (model.getCostCredits() == null || model.getCostCredits().compareTo(BigDecimal.ZERO) <= 0) {
+            if (model.getCostCredits() == null || model.getCostCredits().compareTo(BigDecimal.ZERO) < 0) {
                 throw failure("fixed price missing, modelCode=" + model.getModelCode(), "模型价格未配置");
             }
             return;

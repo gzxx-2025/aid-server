@@ -4,11 +4,17 @@ import cn.hutool.core.collection.CollectionUtil;
 import cn.hutool.core.text.CharSequenceUtil;
 import com.aid.billing.dto.BillingInput;
 import com.aid.billing.enums.BillingConstants;
+import com.aid.common.exception.ServiceException;
+import com.aid.domain.vo.AiModelConfigVo;
 import com.aid.media.dto.MediaImageGenerateRequest;
 import com.aid.media.dto.MediaTextGenerateRequest;
 import com.aid.media.dto.MediaVideoGenerateRequest;
 import com.aid.media.dto.MediaAudioGenerateRequest;
 import com.aid.media.util.ImageBillingCapabilityHelper;
+import com.aid.media.util.MediaGenerationSceneResolver;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -20,7 +26,10 @@ import java.util.Set;
  * 计费参数提取工具：从不同请求类型中提取统一的计费参数。
  * 提供静态方法，不持有状态，不依赖Spring容器。
  */
+@Slf4j
 public final class BillingInputExtractor {
+
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     /**
      * estimatedOutputChars/max_tokens/expectedImageCount/n/videoDuration 等参数统一做硬上限保护，
@@ -64,6 +73,14 @@ public final class BillingInputExtractor {
     public static BillingInput fromImageRequest(MediaImageGenerateRequest request,
                                                 String effectiveModelCode,
                                                 Integer configuredMaxOutputCount) {
+        return fromImageRequest(request, effectiveModelCode, configuredMaxOutputCount, null);
+    }
+
+    /** 使用完整模型能力解析模型专属的输出像素档位。 */
+    public static BillingInput fromImageRequest(MediaImageGenerateRequest request,
+                                                String effectiveModelCode,
+                                                Integer configuredMaxOutputCount,
+                                                AiModelConfigVo modelConfig) {
         Map<String, Object> params = new HashMap<>();
         // 分辨率三级取值，保证计费命中的 SKU 与真实出图档位一致：
         // 1) options.resolution 显式档位（Vidu 等厂商为 1080p/2K/4K 枚举，与下发上游的字段同源）
@@ -136,7 +153,35 @@ public final class BillingInputExtractor {
         if (CharSequenceUtil.isNotBlank(effectiveSize)) {
             params.put("rawSize", effectiveSize.trim());
         }
+        params.put("outputPixels", resolveOutputPixels(effectiveSize, modelConfig));
         return new BillingInput("IMAGE", params);
+    }
+
+    private static long resolveOutputPixels(String size, AiModelConfigVo modelConfig) {
+        if (CharSequenceUtil.isBlank(size)) {
+            return Long.MAX_VALUE;
+        }
+        String normalized = size.trim().replace('×', 'x').replace('*', 'x').toUpperCase();
+        if (normalized.matches("\\d{2,5}X\\d{2,5}")) {
+            String[] dimensions = normalized.split("X", 2);
+            try {
+                return Math.multiplyExact(Long.parseLong(dimensions[0]), Long.parseLong(dimensions[1]));
+            } catch (NumberFormatException | ArithmeticException ignored) {
+                return Long.MAX_VALUE;
+            }
+        }
+        // 1K/2K 等是模型档位，不是全局固定宽高。只有模型核验模板明确给出用于
+        // 成本阶梯选择的代表像素值时才使用；缺失时走最高价档，避免低估成本。
+        if (modelConfig != null && CharSequenceUtil.isNotBlank(modelConfig.getCapabilityJson())) {
+            try {
+                JsonNode value = MAPPER.readTree(modelConfig.getCapabilityJson())
+                        .path("outputPixelEstimateBySize").path(normalized);
+                if (value.canConvertToLong() && value.longValue() > 0) return value.longValue();
+            } catch (Exception ignored) {
+                // 非法能力 JSON 由管理端保存校验负责；计费侧保守落最高档。
+            }
+        }
+        return Long.MAX_VALUE;
     }
 
     private static boolean isGptImageModel(String modelCode) {
@@ -183,14 +228,24 @@ public final class BillingInputExtractor {
         }
         Integer explicit = request.getExpectedImageCount();
         if (explicit != null && explicit > 0) {
-            return Math.min(explicit, IMAGE_EXPECTED_COUNT_HARD_CAP);
+            if (explicit > IMAGE_EXPECTED_COUNT_HARD_CAP) {
+                log.info("图片生成数量超过系统安全上限: actual={}, max={}",
+                        explicit, IMAGE_EXPECTED_COUNT_HARD_CAP);
+                throw new ServiceException("图片数量超限");
+            }
+            return explicit;
         }
         if (options != null) {
             Object n = options.get("n");
             if (n != null) {
                 int parsed = toInt(n);
                 if (parsed > 0) {
-                    return Math.min(parsed, IMAGE_EXPECTED_COUNT_HARD_CAP);
+                    if (parsed > IMAGE_EXPECTED_COUNT_HARD_CAP) {
+                        log.info("图片生成数量超过系统安全上限: actual={}, max={}",
+                                parsed, IMAGE_EXPECTED_COUNT_HARD_CAP);
+                        throw new ServiceException("图片数量超限");
+                    }
+                    return parsed;
                 }
             }
         }
@@ -258,6 +313,12 @@ public final class BillingInputExtractor {
      * 从视频生成请求提取计费参数。
      */
     public static BillingInput fromVideoRequest(MediaVideoGenerateRequest request) {
+        return fromVideoRequest(request, null);
+    }
+
+    /** 从已解析模型与真实输入提取视频计费参数。 */
+    public static BillingInput fromVideoRequest(MediaVideoGenerateRequest request,
+                                                AiModelConfigVo modelConfig) {
         Map<String, Object> params = new HashMap<>();
         // 时长（秒）：加硬上限避免前端塞超大 duration 打爆结算
         boolean autoDuration = request.getDurationSeconds() == null
@@ -321,22 +382,39 @@ public final class BillingInputExtractor {
         params.put("referenceImageCount", countVideoInputImages(request));
         int inputVideoCount = countInputVideos(request.getOptions());
         params.put("inputVideoCount", inputVideoCount);
+        params.put("referenceVideoCount", inputVideoCount);
+        params.put("hasVideoInput", inputVideoCount > 0);
+        int referenceAudioCount = request.getReferenceAudios() == null ? 0
+                : (int) request.getReferenceAudios().stream().filter(java.util.Objects::nonNull)
+                .map(com.aid.media.dto.ReferenceAudioInput::getSampleUrl).filter(CharSequenceUtil::isNotBlank).distinct().count();
+        params.put("referenceAudioCount", referenceAudioCount);
         int inputVideoSeconds = extractInputVideoSeconds(request.getOptions());
         // MiniMax H3 按上游实际输入视频秒数结算。预冻结阶段不采信客户端自报时长，
         // 有参考视频时留 0 交给 inputPricing.video.maxSeconds 按官方 15 秒上限冻结。
         if (isMinimaxH3VideoModel(request.getModelName()) && inputVideoCount > 0) {
             inputVideoSeconds = 0;
         }
+        if (request.getResolvedReferenceVideos() != null && !request.getResolvedReferenceVideos().isEmpty()) {
+            long durationMs = request.getResolvedReferenceVideos().stream()
+                    .map(com.aid.media.dto.ReferenceVideoInput::getDurationMs).filter(java.util.Objects::nonNull)
+                    .reduce(0L, Math::addExact);
+            inputVideoSeconds = Math.toIntExact(Math.floorDiv(Math.addExact(durationMs, 999L), 1000L));
+        }
         params.put("inputVideoSeconds", inputVideoSeconds);
-        // 既有供应商允许通过白名单 options.generateMode 声明 EDGE/MULTI 等业务模式；
-        // Kling 则只按真实下发素材推导，避免前端伪造计费档位。
-        String generateMode = countVideoInputImages(request) > 0 ? "IMAGE_TO_VIDEO" : "TEXT_TO_VIDEO";
-        if (isKlingVideoModel(request.getModelName())) {
-            generateMode = inputVideoCount > 0 ? "VIDEO_TO_VIDEO" : generateMode;
-        } else {
-            String requestedMode = extractFromOptions(request.getOptions(), "generateMode");
-            if (isLegacyVideoGenerateMode(requestedMode)) {
-                generateMode = requestedMode.trim().toUpperCase();
+        String generateMode = null;
+        if (modelConfig != null) {
+            generateMode = MediaGenerationSceneResolver.resolveVideo(modelConfig, request).billingGenerateMode();
+        }
+        if (CharSequenceUtil.isBlank(generateMode)) {
+            // 兼容尚未传入模型配置的旧调用；正式报价与提交均走上方可信场景解析。
+            generateMode = countVideoInputImages(request) > 0 ? "IMAGE_TO_VIDEO" : "TEXT_TO_VIDEO";
+            if (isKlingVideoModel(request.getModelName())) {
+                generateMode = inputVideoCount > 0 ? "VIDEO_TO_VIDEO" : generateMode;
+            } else {
+                String requestedMode = extractFromOptions(request.getOptions(), "generateMode");
+                if (isLegacyVideoGenerateMode(requestedMode)) {
+                    generateMode = requestedMode.trim().toUpperCase();
+                }
             }
         }
         params.put("generateMode", generateMode);

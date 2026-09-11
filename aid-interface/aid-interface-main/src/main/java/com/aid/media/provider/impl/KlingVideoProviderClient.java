@@ -46,7 +46,7 @@ public class KlingVideoProviderClient implements VideoProviderClient {
     public ProviderSubmitResult submit(AiModelConfigVo modelConfig, MediaVideoGenerateRequest request) {
         validateBaseUrl(modelConfig);
         Map<String, Object> body = prepareSubmissionBody(modelConfig, request);
-        String raw = submitWithRetry(buildSubmitUrl(modelConfig), modelConfig.getApiKey(), JSONUtil.toJsonStr(body));
+        String raw = submitWithRetry(buildSubmitUrl(modelConfig), modelConfig.getApiKey(), JSONUtil.toJsonStr(com.aid.model.definition.ModelConfiguredRequestBody.apply(modelConfig, body, request)));
         return parseSubmitResponse(raw);
     }
 

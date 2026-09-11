@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import dayjs, { Dayjs } from 'dayjs'
 import {
-  Alert, Button, Card, Col, DatePicker, Descriptions, Drawer, Empty, Form, Image, Input,
+  Alert, AutoComplete, Button, Card, Col, DatePicker, Descriptions, Drawer, Empty, Form, Image, Input,
   InputNumber, Modal, Popconfirm, Row, Select, Space, Statistic, Switch, Table, Tabs, Tag,
   Typography, message
 } from 'antd'
@@ -39,7 +39,7 @@ function numberText(value?: number, unit?: string) {
 function statusTag(status?: string) {
   if (status === 'CRITICAL') return <Tag color="error">严重不足</Tag>
   if (status === 'WARNING') return <Tag color="warning">余额预警</Tag>
-  return <Tag color="success">正常</Tag>
+  return status === 'NORMAL' ? <Tag color="success">正常</Tag> : <Tag>待检查</Tag>
 }
 
 export default function ProviderBalancePage() {
@@ -228,8 +228,9 @@ function ProviderPanel({ providers, loading, moduleEnabled, onChanged }: { provi
   const check = async (row: BalanceProvider) => {
     setChecking(row.providerId)
     try {
-      await checkBalanceProvider(row.providerId)
-      message.success(`${row.providerName} 余额检查完成`)
+      const result: any = await checkBalanceProvider(row.providerId)
+      if (result?.data?.queryError) message.warning(`${row.providerName}：${result.data.queryError}`)
+      else message.success(`${row.providerName} 余额检查完成`)
       onChanged()
     } finally { setChecking(undefined) }
   }
@@ -240,10 +241,14 @@ function ProviderPanel({ providers, loading, moduleEnabled, onChanged }: { provi
       render: (_: any, row: BalanceProvider) => <Space><Image width={30} height={30} preview={false} src={row.logoUrl} fallback="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" /><div><div className="provider-name">{row.providerName}</div><Text type="secondary">{row.providerCode}</Text></div></Space>
     },
     { title: '监控', width: 90, render: (_: any, row: BalanceProvider) => <Tag color={row.enabled ? 'blue' : 'default'}>{row.enabled ? '已选择' : '未选择'}</Tag> },
-    { title: '当前状态', width: 105, render: (_: any, row: BalanceProvider) => row.enabled ? statusTag(row.currentStatus) : <Text type="secondary">不参与</Text> },
+    { title: '当前状态', width: 130, render: (_: any, row: BalanceProvider) => row.enabled
+      ? <Space direction="vertical" size={0}>{row.currentBalance == null && row.currentSource !== 'ERROR_RULE'
+        ? <Tag color={row.lastError ? 'warning' : 'default'}>{row.lastError ? '查询不可用' : '待检查'}</Tag> : statusTag(row.currentStatus)}
+        {row.currentBalance == null && ['WARNING', 'CRITICAL'].includes(row.currentStatus || '') && <Text type="secondary">已有告警未解除</Text>}
+      </Space> : <Text type="secondary">不参与</Text> },
     {
       title: '余额', width: 180,
-      render: (_: any, row: BalanceProvider) => row.enabled ? <div><strong>{numberText(row.currentBalance, row.currency)}</strong><div><Text type="secondary">{row.currentSource || '尚未检查'}</Text></div></div> : '-'
+      render: (_: any, row: BalanceProvider) => row.enabled ? <div><strong>{numberText(row.currentBalance, row.currency)}</strong><div><Text type="secondary">{row.currentSource || (row.lastCheckTime ? '本次未取得余额' : '尚未检查')}</Text></div>{row.lastError && <Text type="warning">{row.lastError}</Text>}</div> : '-'
     },
     {
       title: '检测来源', width: 250,
@@ -272,10 +277,19 @@ function ProviderPanel({ providers, loading, moduleEnabled, onChanged }: { provi
       <Table rowKey="providerId" dataSource={providers} columns={columns} loading={loading} scroll={{ x: 1450 }} pagination={false} />
       <Drawer title={editing ? `配置 · ${editing.providerName}` : '供应商配置'} width={640} open={!!editing} onClose={() => setEditing(undefined)} extra={<Button type="primary" loading={saving} onClick={save}>保存</Button>}>
         <Form form={form} layout="vertical">
-          <Alert type="info" showIcon message="检测来源可组合开启；官方 API 失败时会自动使用模拟余额。接口查询异常只进入日报，不触发短信或微信。" className="form-alert" />
+          <Alert type="info" showIcon message="检测来源可组合开启；仅开启模拟余额时才会在官方查询失败后使用模拟值。查询异常不等于余额为零，也不会解除已有告警。" className="form-alert" />
+          {editing?.apiBalanceUnit && <Alert type="info" showIcon message={`官方余额单位：${editing.apiBalanceUnit.toUpperCase()}；阈值必须使用相同单位，不自动兑换。`}
+            description={editing.apiBalanceUnit === 'RESOURCE_UNITS'
+              ? '可灵仅统计生效中的同类资源包余量，约有 12 小时延迟，不是人民币余额。未返回资源包或存在不同种类时不混合汇总，可结合余额不足错误提醒。'
+              : 'DeepSeek 按所选币种分别监控；Vidu 以 CREDITS 积分监控。已有阈值不会自动改写。'} className="form-alert" />}
           <Row gutter={18}>
             <Col span={12}><Form.Item name="enabled" label="选择此供应商进行监控" valuePropName="checked"><Switch /></Form.Item></Col>
-            <Col span={12}><Form.Item name="currency" label="余额单位" rules={[{ required: true }]}><Input placeholder="CNY / USD / CREDITS" /></Form.Item></Col>
+            <Col span={12}><Form.Item name="currency" label="余额单位" dependencies={['apiEnabled']} rules={[{ required: true }, ({ getFieldValue }) => ({
+              validator: (_, value) => !getFieldValue('apiEnabled') || !editing?.apiBalanceUnit || editing.apiBalanceUnit.toUpperCase().split('/').includes(String(value).toUpperCase())
+                ? Promise.resolve() : Promise.reject(new Error(`请选择官方单位：${editing.apiBalanceUnit.toUpperCase()}`))
+            })]}>{editing?.apiBalanceUnit
+              ? <AutoComplete options={editing.apiBalanceUnit.toUpperCase().split('/').map((value) => ({ value, label: value === 'RESOURCE_UNITS' ? 'RESOURCE_UNITS · 资源包数量' : value }))} />
+              : <Input placeholder="CNY / USD / CREDITS" />}</Form.Item></Col>
             <Col span={8}><Form.Item name="apiEnabled" label="官方余额 API" valuePropName="checked"><Switch disabled={!editing?.apiSupported} /></Form.Item></Col>
             <Col span={8}><Form.Item name="simulatedEnabled" label="模拟余额" valuePropName="checked"><Switch /></Form.Item></Col>
             <Col span={8}><Form.Item name="errorRuleEnabled" label="错误规则触发" valuePropName="checked"><Switch /></Form.Item></Col>

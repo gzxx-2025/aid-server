@@ -16,6 +16,12 @@ public class UserProjectQueryRequest {
     /** 类型: series剧集, movie电影 */
     private String projectType;
 
-    /** 状态(0草稿 1制作中 2已完成) */
+    /** 状态(0草稿 1制作中 2完成未提交 3审核中 4审核通过 5审核失败) */
     private Integer status;
+
+    /** 页码；与 pageSize 均未传时兼容返回全部匹配作品 */
+    private Integer pageNum;
+
+    /** 每页条数，最大100；与 pageNum 均未传时兼容返回全部匹配作品 */
+    private Integer pageSize;
 }

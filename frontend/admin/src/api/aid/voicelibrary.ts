@@ -159,3 +159,168 @@ export function cleanExpiredVoices() {
     method: 'post'
   })
 }
+
+// ==================== 通用音色工作台 ====================
+
+export type VoiceWorkbenchOperation =
+  | 'SYNTHESIZE'
+  | 'REGISTER_CLONE'
+  | 'REFERENCE_CLONE'
+  | 'DESIGN'
+
+export interface VoiceWorkbenchSampleLimit {
+  formats?: string[];
+  maxBytes?: number;
+  maxEncodedBytes?: number;
+  minDurationMs?: number;
+  maxDurationMs?: number;
+  minSampleRate?: number;
+  channels?: number;
+}
+
+export interface VoiceWorkbenchOperationCapability {
+  operation: VoiceWorkbenchOperation;
+  supported: boolean;
+  disabledReason?: string;
+  requiredFields?: string[];
+  optionalFields?: string[];
+  textLimit?: number;
+  sampleLimit?: VoiceWorkbenchSampleLimit;
+  audioFormats?: string[];
+  sampleRates?: number[];
+  canPublish?: boolean;
+  publishTargetModelIds?: number[];
+}
+
+export interface VoiceWorkbenchCapabilities {
+  modelId: number;
+  modelCode?: string;
+  realModelCode?: string;
+  modelName?: string;
+  providerId?: number;
+  providerName?: string;
+  configVersion?: number;
+  payer?: 'SITE_OWNER';
+  notice?: string;
+  operations: VoiceWorkbenchOperationCapability[];
+}
+
+export interface VoiceWorkbenchSample {
+  fileId: string;
+  name: string;
+  mime?: string;
+  sizeBytes: number;
+  durationMs?: number;
+  sampleRate?: number;
+  channels?: number;
+  verified: boolean;
+  warnings?: string[];
+}
+
+export interface VoiceWorkbenchRequestFields {
+  modelId: number;
+  operation: VoiceWorkbenchOperation;
+  voiceCode?: string;
+  text?: string;
+  sourceFileId?: string;
+  description?: string;
+  rightsConfirmed: boolean;
+  audioFormat?: string;
+  sampleRate?: number;
+  speechRate?: number;
+  loudnessRate?: number;
+  pitch?: number;
+  emotion?: string;
+  /** 声音设计时由供应商自动优化/生成试听文本。 */
+  optimizeTextPreview?: boolean;
+}
+
+export interface VoiceWorkbenchQuoteLine {
+  label: string;
+  amount: number;
+  quantity?: number;
+  unit?: string;
+  estimated?: boolean;
+}
+
+export interface VoiceWorkbenchQuote {
+  quoteRef?: string;
+  pricingStatus: 'READY' | 'FREE' | 'MISSING';
+  payer: 'SITE_OWNER';
+  currency: string;
+  totalCost?: number;
+  breakdown?: VoiceWorkbenchQuoteLine[];
+  expiresAt?: string;
+  warnings?: string[];
+}
+
+export interface VoiceWorkbenchTaskResult {
+  voiceCode?: string;
+  audioUrl?: string;
+}
+
+export interface VoiceWorkbenchTask {
+  taskId: number;
+  operation: VoiceWorkbenchOperation;
+  status: string;
+  progress?: number;
+  result?: VoiceWorkbenchTaskResult;
+  quotedCost?: number;
+  finalCost?: number;
+  currency?: string;
+  failureReason?: string;
+  draftVoiceId?: number;
+  payer?: 'SITE_OWNER';
+}
+
+export interface VoiceWorkbenchPublishRequest {
+  taskId: number;
+  targetModelId?: number;
+  name: string;
+  publishStatus: 'DRAFT' | 'PUBLISHED';
+  language: string;
+  gender: string;
+  ageRange: string;
+}
+
+export interface VoiceWorkbenchPublishResult {
+  voiceId: number;
+  status: 'DRAFT' | 'PUBLISHED';
+}
+
+export function getVoiceWorkbenchCapabilities(modelId: number) {
+  return request<VoiceWorkbenchCapabilities>({
+    url: '/aid/voice-workbench/capabilities', method: 'get', params: { modelId }
+  })
+}
+
+export function uploadVoiceWorkbenchSample(modelId: number, file: File, rightsConfirmed: true) {
+  const data = new FormData()
+  data.append('modelId', String(modelId))
+  data.append('rightsConfirmed', String(rightsConfirmed))
+  data.append('file', file)
+  return request<VoiceWorkbenchSample>({
+    url: '/aid/voice-workbench/samples', method: 'post', data,
+    headers: { 'Content-Type': 'multipart/form-data' }
+  })
+}
+
+export function quoteVoiceWorkbench(data: VoiceWorkbenchRequestFields) {
+  return request<VoiceWorkbenchQuote>({ url: '/aid/voice-workbench/quote', method: 'post', data })
+}
+
+export function createVoiceWorkbenchTask(data: VoiceWorkbenchRequestFields & {
+  quoteRef: string;
+  chargeConfirmed: true;
+  idempotencyKey: string;
+}) {
+  return request<VoiceWorkbenchTask>({ url: '/aid/voice-workbench/create', method: 'post', data })
+}
+
+export function getVoiceWorkbenchTask(taskId: number) {
+  return request<VoiceWorkbenchTask>({ url: `/aid/voice-workbench/tasks/${taskId}`, method: 'get' })
+}
+
+export function publishVoiceWorkbenchResult(data: VoiceWorkbenchPublishRequest) {
+  return request<VoiceWorkbenchPublishResult>({ url: '/aid/voice-workbench/publish', method: 'post', data })
+}

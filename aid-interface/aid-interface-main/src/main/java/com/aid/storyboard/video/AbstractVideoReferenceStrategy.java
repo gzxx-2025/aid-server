@@ -10,22 +10,25 @@ import java.util.regex.Pattern;
 
 import cn.hutool.core.collection.CollectionUtil;
 import cn.hutool.core.util.StrUtil;
+import com.aid.common.exception.ServiceException;
+import lombok.extern.slf4j.Slf4j;
 
 /**
- * 分镜视频参考装配策略抽象基类，收敛参考图截断、首帧挑选、参考图说明拼接、用户补充追加等复用工具方法。
+ * 分镜视频参考装配策略的公共校验与提示词装配工具。
  *
  * @author 视觉AID
  */
+@Slf4j
 public abstract class AbstractVideoReferenceStrategy implements VideoReferenceStrategy
 {
     /** 提示词「参考图说明」段前缀。 */
     protected static final String REFERENCE_LEGEND_PREFIX = "参考图说明：";
 
-    /** 业务私有图片占位；策略裁剪引用后必须同步改写提示词，禁止留下悬空序号。 */
+    /** 业务私有图片占位；能力校验后按实际素材重编号，禁止留下悬空序号。 */
     private static final Pattern AT_REF_PATTERN = Pattern.compile("@图片(\\d+)\\[([^\\]]*)\\]");
 
     /**
-     * 截断后的参考素材列表（按 N 升序，仅含 URL 非空，截断到上限），保留富信息用于拼说明。
+     * 按原顺序收集参考素材，超出上限拒绝。
      */
     protected List<ResolvedReference> takeRefs(List<ResolvedReference> refs, int max)
     {
@@ -36,14 +39,14 @@ public abstract class AbstractVideoReferenceStrategy implements VideoReferenceSt
         }
         for (ResolvedReference r : refs)
         {
-            if (out.size() >= max)
-            {
-                break;
-            }
             if (r != null && StrUtil.isNotBlank(r.getUrl()))
             {
                 out.add(r);
             }
+        }
+        if (max >= 0 && out.size() > max) {
+            log.info("分镜参考图片数量超限: max={}, actual={}", max, out.size());
+            throw new ServiceException("参考图片数量超限");
         }
         return out;
     }
@@ -51,7 +54,7 @@ public abstract class AbstractVideoReferenceStrategy implements VideoReferenceSt
     /**
      * 拼装「参考图说明」段（图片1=名称（类型）...），编号从 1 递增并与 referenceImages 下标对齐。
      *
-     * @param refs 已截断、按 N 升序的参考素材
+     * @param refs 已校验、按 N 升序的参考素材
      * @return 参考图说明段；refs 为空返回空串
      */
     protected String buildReferenceLegend(List<ResolvedReference> refs)
@@ -103,7 +106,7 @@ public abstract class AbstractVideoReferenceStrategy implements VideoReferenceSt
     }
 
     /**
-     * 按最终实际下发的引用列表重排提示词：保留项连续编号，被裁剪项退回资产名称文字。
+     * 按最终实际下发的引用列表重排提示词：保留项连续编号，非引用型素材退回资产名称文字。
      */
     protected String remapPromptForPicked(String prompt, List<ResolvedReference> picked)
     {
@@ -142,6 +145,7 @@ public abstract class AbstractVideoReferenceStrategy implements VideoReferenceSt
     /** 单图策略实际采用的参考对象；显式首帧存在时返回 null，表示所有私有引用均降级为文字。 */
     protected ResolvedReference pickSingleReference(VideoReferenceContext ctx)
     {
+        validateSingleFrameInputs(ctx);
         if (StrUtil.isNotBlank(ctx.getBaseImageUrl()) || CollectionUtil.isEmpty(ctx.getReferences()))
         {
             return null;
@@ -170,11 +174,28 @@ public abstract class AbstractVideoReferenceStrategy implements VideoReferenceSt
      */
     protected String pickSingleFrame(VideoReferenceContext ctx)
     {
+        validateSingleFrameInputs(ctx);
         if (StrUtil.isNotBlank(ctx.getBaseImageUrl()))
         {
             return ctx.getBaseImageUrl();
         }
         ResolvedReference reference = pickSingleReference(ctx);
         return Objects.isNull(reference) ? null : reference.getUrl();
+    }
+
+    private void validateSingleFrameInputs(VideoReferenceContext ctx) {
+        Map<String, Boolean> images = new LinkedHashMap<>();
+        if (StrUtil.isNotBlank(ctx.getBaseImageUrl())) images.put(ctx.getBaseImageUrl().trim(), true);
+        if (ctx.getReferences() != null) {
+            for (ResolvedReference reference : ctx.getReferences()) {
+                if (reference != null && StrUtil.isNotBlank(reference.getUrl())) {
+                    images.put(reference.getUrl().trim(), true);
+                }
+            }
+        }
+        if (images.size() > 1) {
+            log.info("单图场景参考图片数量超限: actual={}", images.size());
+            throw new ServiceException("参考图片数量超限");
+        }
     }
 }

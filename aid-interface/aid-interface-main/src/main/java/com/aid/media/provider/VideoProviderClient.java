@@ -35,6 +35,23 @@ public interface VideoProviderClient {
         return null;
     }
 
+    /** 在能力校验和报价之前对齐协议默认参数，不访问上游。 */
+    default void normalizeRequest(AiModelConfigVo modelConfig, MediaVideoGenerateRequest request) {
+    }
+
+    /** Pure provider contract validation; no network I/O or external mutation. */
+    default void validateRequest(AiModelConfigVo modelConfig, MediaVideoGenerateRequest request) {
+    }
+
+    /**
+     * Planned quotes may not have their final prompt yet. Implementations must
+     * validate every other provider constraint without mutating the request.
+     */
+    default void validateRequest(AiModelConfigVo modelConfig, MediaVideoGenerateRequest request,
+                                 boolean planned) {
+        validateRequest(modelConfig, request);
+    }
+
     // 提交视频生成任务：返回直出URL或providerTaskId。
     ProviderSubmitResult submit(AiModelConfigVo modelConfig, MediaVideoGenerateRequest request);
 

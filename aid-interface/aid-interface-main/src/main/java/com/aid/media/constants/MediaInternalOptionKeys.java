@@ -42,6 +42,9 @@ public final class MediaInternalOptionKeys {
     /** 编排父任务执行周期（仅用于迟到业务结果隔离）。 */
     public static final String PARENT_EXECUTION_TRACE_ID = "parentExecutionTraceId";
 
+    /** 业务生成记录关联，仅供站内任务跟踪，禁止透传上游。 */
+    public static final String LOCAL_RECORD_ID = "localRecordId";
+
     private static final Set<String> KEYS = Set.of(
             SBZ_IMAGE_GEN_CTX,
             SBZ_VIDEO_GEN_CTX,
@@ -52,7 +55,8 @@ public final class MediaInternalOptionKeys {
             ESTIMATED_OUTPUT_CHARS,
             MAX_OUTPUT_CHARS,
             NORMALIZED_VIDEO_INPUTS,
-            PARENT_EXECUTION_TRACE_ID);
+            PARENT_EXECUTION_TRACE_ID,
+            LOCAL_RECORD_ID);
 
     /**
      * 判定 options 键是否为平台内部键（不允许出现在上游请求体）。

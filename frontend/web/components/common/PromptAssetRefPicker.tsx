@@ -35,6 +35,7 @@ export function PromptAssetRefPicker({
   })()
 
   const assetsAreAudio = assets.some((a) => a.assetType === 'audio')
+  const assetsAreVideo = assets.some((a) => a.assetType === 'video')
 
   return createPortal(
     <>
@@ -59,6 +60,14 @@ export function PromptAssetRefPicker({
                 className="prompt-asset-ref-picker__thumb prompt-asset-ref-picker__thumb--audio"
                 aria-hidden="true"
               />
+            ) : item.assetType === 'video' && item.url ? (
+              <video
+                className="prompt-asset-ref-picker__thumb"
+                src={item.url}
+                muted
+                playsInline
+                preload="metadata"
+              />
             ) : item.url ? (
               <img className="prompt-asset-ref-picker__thumb" src={item.url} alt={item.name} />
             ) : (
@@ -72,7 +81,7 @@ export function PromptAssetRefPicker({
         ))}
         {!assets.length ? (
           <div className="prompt-asset-ref-picker__empty">
-            {assetsAreAudio ? '暂无已导入音频' : '暂无已导入图片'}
+            {assetsAreAudio ? '暂无已导入音频' : assetsAreVideo ? '暂无已导入视频' : '暂无已导入图片'}
           </div>
         ) : null}
       </div>

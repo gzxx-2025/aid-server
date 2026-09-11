@@ -6,6 +6,7 @@ import cn.hutool.http.HttpResponse;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.aid.common.constant.HttpConstants;
+import com.aid.common.exception.ServiceException;
 import com.aid.common.utils.ProviderEndpointUtils;
 import com.aid.common.oss.entity.UploadResult;
 import com.aid.common.oss.factory.OssFactory;
@@ -70,14 +71,14 @@ public class OpenAiImageProviderClient implements ImageProviderClient {
         String model = resolveEffectiveModel(modelConfig, request);
         List<String> images = resolveReferenceImages(request, modelConfig);
         // 清洗排在参考图定型之后：正文的「图片N」编号必须与真正下发的张数一一对应，
-        // 被上限截断掉的编号一律文字降级，不留指向不存在实物的悬空引用
+        // 数量已通过能力校验，这里只负责规范化占位编号，不丢弃素材。
         ReferencePromptSanitizer.sanitizeInPlace(request, images.size());
         boolean edit = !images.isEmpty();
 
         Map<String, Object> body = buildRequestBody(model, request, images, edit, modelConfig);
         String json;
         try {
-            json = MAPPER.writeValueAsString(body);
+            json = MAPPER.writeValueAsString(com.aid.model.definition.ModelConfiguredRequestBody.apply(modelConfig, body, request));
         } catch (Exception e) {
             log.error("OpenAI 图片请求体序列化失败, model={}", model, e);
             return ProviderSubmitResult.builder().rawResponse(OpenAiImageConstants.ERROR_SERIALIZE).build();
@@ -192,7 +193,7 @@ public class OpenAiImageProviderClient implements ImageProviderClient {
 
     /**
      * 合并参考图 URL：referenceImageUrl + options.referenceImages + options.images，
-     * 统一读 capability_json.maxReferenceImages 截断（缺省回退官方 16 张）。
+     * 统一读 capability_json.maxReferenceImages 校验（缺省回退官方 16 张）。
      */
     private List<String> resolveReferenceImages(MediaImageGenerateRequest request, AiModelConfigVo modelConfig) {
         if (request == null) {
@@ -230,10 +231,18 @@ public class OpenAiImageProviderClient implements ImageProviderClient {
         // 模型配置上限优先（max_output_count>0 时生效）
         Integer configuredMax = modelConfig == null ? null : modelConfig.getMaxOutputCount();
         if (configuredMax != null && configuredMax > 0) {
-            count = Math.min(count, configuredMax);
+            if (count > configuredMax) {
+                log.info("OpenAI 图片输出数量超过模型配置: max={}, actual={}", configuredMax, count);
+                throw new ServiceException("生成图片数量超限");
+            }
         }
         // 官方硬上限兜底
-        return Math.min(count, OpenAiImageConstants.MAX_IMAGE_COUNT);
+        if (count > OpenAiImageConstants.MAX_IMAGE_COUNT) {
+            log.info("OpenAI 图片输出数量超过协议上限: max={}, actual={}",
+                    OpenAiImageConstants.MAX_IMAGE_COUNT, count);
+            throw new ServiceException("生成图片数量超限");
+        }
+        return count;
     }
 
     /**

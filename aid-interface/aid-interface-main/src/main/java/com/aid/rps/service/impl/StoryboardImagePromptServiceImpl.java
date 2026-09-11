@@ -564,7 +564,7 @@ public class StoryboardImagePromptServiceImpl implements IStoryboardImagePromptS
         {
             throw new ServiceException("智能体配置异常");
         }
-        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(modelCode);
+        AiModelConfigVo modelConfig = aiModelConfigService.selectForBusiness(modelCode, helper.businessFunctionForAgent(agentCode), null);
         if (Objects.isNull(modelConfig))
         {
             throw new ServiceException("模型不存在");
@@ -945,7 +945,8 @@ public class StoryboardImagePromptServiceImpl implements IStoryboardImagePromptS
                                 taskId, userId, /*taskPromptDigest*/ null, BIZ_TASK_TYPE,
                                 // storyboardId 是跨续生不变的业务序位；remaining 列表会收缩，禁止把本轮循环下标写入 stable slot。
                                 "stage=image_prompt,item=" + sb.getId(),
-                                raw -> StrUtil.isNotBlank(parseLlmOutput(raw)), executionTraceId),
+                                raw -> StrUtil.isNotBlank(parseLlmOutput(raw)), executionTraceId, null,
+                                helper.businessFunctionForAgent(agentCode)),
                         TextTaskExecutionRejectedException::new);
                 if (StrUtil.isBlank(llmRaw))
                 {
@@ -1254,7 +1255,7 @@ public class StoryboardImagePromptServiceImpl implements IStoryboardImagePromptS
             }
 
             // 重新估算剩余镜头金额并独立 freeze（首跑结算时已经按差额退过未跑镜头的钱）
-            AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(modelCode);
+            AiModelConfigVo modelConfig = aiModelConfigService.selectForBusiness(modelCode, helper.businessFunctionForAgent(resumeAgentCode), null);
             if (Objects.isNull(modelConfig))
             {
                 projectLockGuard.releaseIfMatch(projectLockKey, resumeProjectLockResult.getToken());

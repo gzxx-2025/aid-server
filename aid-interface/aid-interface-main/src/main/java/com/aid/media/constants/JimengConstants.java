@@ -221,12 +221,12 @@ public final class JimengConstants {
     public static final String OPTIONS_IMAGES = "images";
     public static final String OPTIONS_REFERENCE_IMAGES = "referenceImages";
 
-    /** size 形如 1024*1024 时的分隔 */
-    public static final String SIZE_DIMENSION_SPLIT_REGEX = "\\*";
+    /** 显式宽高的展示别名分隔，上游仍使用独立 width/height 字段。 */
+    public static final String SIZE_DIMENSION_SPLIT_REGEX = "[xX×*]";
 
     // --- prompt 限制（4.0 / 4.6 文档均为 800 字符） ---
 
-    /** prompt 最大长度：超长截断并 log.warn */
+    /** prompt 最大长度：超长在请求提交前拒绝 */
     public static final int PROMPT_MAX_LENGTH = 800;
 
     // --- size 面积常量（用于 "1K"/"2K"/"4K" 到面积 int 的翻译） ---

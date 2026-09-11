@@ -7,21 +7,15 @@ import {
   useEffect,
   useImperativeHandle,
   useRef,
-  useState,
   type MouseEvent as ReactMouseEvent
 } from 'react'
 import PublicBrandLogo from '~/components/atoms/PublicBrandLogo'
 import SidebarNavHoverIcon from '~/components/atoms/SidebarNavHoverIcon'
-import OpenSourcePanel, { type FloatingPanelHandle } from '~/components/common/OpenSourcePanel'
-import DiscussionGroupPanel from '~/components/common/DiscussionGroupPanel'
 import starlightCoinUrl from '~/assets/img/home/starlightCoin.svg'
 import groupAvtorUrl from '~/assets/img/home/Group-avtor.svg'
 import tutorialIconUrl from '~/assets/img/icon/xsjc.svg'
-import openSourceIconUrl from '~/assets/img/icon/ky.svg'
-import discussionGroupIconUrl from '~/assets/img/home/discussion _group.svg'
 import inviteIconUrl from '~/assets/img/login/invite.svg'
 import { assetUrl } from '~/utils/assetUrl'
-import { toLayoutPx } from '~/utils/viewportZoom'
 import { useUserStore } from '~/stores/user'
 import { useAuthPublicConfig } from '~/composables/useAuthPublicConfig'
 import { formatCreditAmount } from '~/components/common/recharge/rechargeFormat'
@@ -29,8 +23,6 @@ import './HomeNewSidebar.css'
 
 export interface HomeNewSidebarHandle {
   userMenuTriggerRef: HTMLElement | null
-  openSourceTriggerRef: HTMLElement | null
-  discussionGroupTriggerRef: HTMLElement | null
 }
 
 interface HomeNewSidebarProps {
@@ -46,8 +38,6 @@ interface HomeNewSidebarProps {
   onWorks?: () => void
   onAssets?: () => void
   onTutorial?: () => void
-  onOpenSource?: () => void
-  onDiscussionGroup?: () => void
   onInvite?: () => void
   onLogin?: () => void
   onToggleUserMenu?: () => void
@@ -68,8 +58,6 @@ const HomeNewSidebar = forwardRef<HomeNewSidebarHandle, HomeNewSidebarProps>(
       onWorks,
       onAssets,
       onTutorial,
-      onOpenSource,
-      onDiscussionGroup,
       onInvite,
       onLogin,
       onToggleUserMenu,
@@ -80,9 +68,6 @@ const HomeNewSidebar = forwardRef<HomeNewSidebarHandle, HomeNewSidebarProps>(
     const token = useUserStore((s) => s.token)
     const user = useUserStore((s) => s.user)
     const {
-      openSourceGiteeUrl,
-      openSourceGitUrl,
-      exchangeImageUrl,
       invitePromotionEnabled,
       loadPublicConfig
     } = useAuthPublicConfig()
@@ -93,9 +78,6 @@ const HomeNewSidebar = forwardRef<HomeNewSidebarHandle, HomeNewSidebarProps>(
       ? formatCreditAmount(Number(user?.balance ?? 0))
       : '0'
 
-    const showOpenSourceNav = !skeleton && (!!openSourceGiteeUrl || !!openSourceGitUrl)
-    const showDiscussionGroupNav = !skeleton && !!exchangeImageUrl
-
     const userMenuTriggerRef = useRef<HTMLButtonElement | null>(null)
     const setUserMenuTriggerRef = useCallback(
       (element: HTMLButtonElement | null) => {
@@ -104,29 +86,11 @@ const HomeNewSidebar = forwardRef<HomeNewSidebarHandle, HomeNewSidebarProps>(
       },
       [onUserMenuTriggerChange]
     )
-    const openSourceTriggerRef = useRef<HTMLButtonElement | null>(null)
-    const openSourcePanelRef = useRef<FloatingPanelHandle | null>(null)
-    const [showOpenSourcePanel, setShowOpenSourcePanel] = useState(false)
-    const [openSourcePanelStyle, setOpenSourcePanelStyle] = useState<Record<string, string>>({})
-
-    const discussionGroupTriggerRef = useRef<HTMLButtonElement | null>(null)
-    const discussionGroupPanelRef = useRef<FloatingPanelHandle | null>(null)
-    const [showDiscussionGroupPanel, setShowDiscussionGroupPanel] = useState(false)
-    const [discussionGroupPanelStyle, setDiscussionGroupPanelStyle] = useState<
-      Record<string, string>
-    >({})
-
     useImperativeHandle(
       ref,
       () => ({
         get userMenuTriggerRef() {
           return userMenuTriggerRef.current
-        },
-        get openSourceTriggerRef() {
-          return openSourceTriggerRef.current
-        },
-        get discussionGroupTriggerRef() {
-          return discussionGroupTriggerRef.current
         }
       }),
       []
@@ -138,114 +102,9 @@ const HomeNewSidebar = forwardRef<HomeNewSidebarHandle, HomeNewSidebarProps>(
       onBrand?.()
     }
 
-    function updateOpenSourcePanelPosition() {
-      const trigger = openSourceTriggerRef.current
-      if (!trigger) return
-      const rect = trigger.getBoundingClientRect()
-      setOpenSourcePanelStyle({
-        left: `${toLayoutPx(rect.right + 12)}px`,
-        top: `${toLayoutPx(rect.top)}px`
-      })
-    }
-
-    function updateDiscussionGroupPanelPosition() {
-      const trigger = discussionGroupTriggerRef.current
-      if (!trigger) return
-      const rect = trigger.getBoundingClientRect()
-      setDiscussionGroupPanelStyle({
-        left: `${toLayoutPx(rect.right + 12)}px`,
-        top: `${toLayoutPx(rect.top)}px`
-      })
-    }
-
-    function closeOpenSourcePanel() {
-      setShowOpenSourcePanel(false)
-    }
-
-    function closeDiscussionGroupPanel() {
-      setShowDiscussionGroupPanel(false)
-    }
-
-    function toggleOpenSourcePanel() {
-      const next = !showOpenSourcePanel
-      setShowOpenSourcePanel(next)
-      if (next) {
-        closeDiscussionGroupPanel()
-        requestAnimationFrame(() => updateOpenSourcePanelPosition())
-      }
-      onOpenSource?.()
-    }
-
-    function toggleDiscussionGroupPanel() {
-      const next = !showDiscussionGroupPanel
-      setShowDiscussionGroupPanel(next)
-      if (next) {
-        closeOpenSourcePanel()
-        requestAnimationFrame(() => updateDiscussionGroupPanelPosition())
-      }
-      onDiscussionGroup?.()
-    }
-
-    function handleDocumentClick(event: MouseEvent) {
-      const target = event.target as Node | null
-      if (!target) return
-
-      if (showOpenSourcePanel) {
-        if (!openSourceTriggerRef.current?.contains(target)) {
-          const floating = openSourcePanelRef.current?.floatingRoot
-          if (!floating?.contains(target)) closeOpenSourcePanel()
-        }
-      }
-
-      if (showDiscussionGroupPanel) {
-        if (!discussionGroupTriggerRef.current?.contains(target)) {
-          const floating = discussionGroupPanelRef.current?.floatingRoot
-          if (!floating?.contains(target)) closeDiscussionGroupPanel()
-        }
-      }
-    }
-
-    function updateFloatingPanelsPosition() {
-      if (showOpenSourcePanel) updateOpenSourcePanelPosition()
-      if (showDiscussionGroupPanel) updateDiscussionGroupPanelPosition()
-    }
-
-    // 全局监听需要读到最新一轮渲染的闭包，统一走 latestRef
-    const latestRef = useRef({
-      handleDocumentClick,
-      updateFloatingPanelsPosition
-    })
     useEffect(() => {
-      latestRef.current = {
-        handleDocumentClick,
-        updateFloatingPanelsPosition
-      }
-    })
-
-    useEffect(() => {
-      if (skeleton) return
-      void loadPublicConfig()
-      const onDocumentClick = (event: MouseEvent) => latestRef.current.handleDocumentClick(event)
-      const onReposition = () => latestRef.current.updateFloatingPanelsPosition()
-      document.addEventListener('click', onDocumentClick)
-      window.addEventListener('resize', onReposition)
-      window.addEventListener('scroll', onReposition, true)
-
-      return () => {
-        document.removeEventListener('click', onDocumentClick)
-        window.removeEventListener('resize', onReposition)
-        window.removeEventListener('scroll', onReposition, true)
-      }
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [])
-
-    useEffect(() => {
-      if (!showOpenSourceNav) closeOpenSourcePanel()
-    }, [showOpenSourceNav])
-
-    useEffect(() => {
-      if (!showDiscussionGroupNav) closeDiscussionGroupPanel()
-    }, [showDiscussionGroupNav])
+      if (!skeleton) void loadPublicConfig()
+    }, [skeleton, loadPublicConfig])
 
     const brandChildren = (
       <PublicBrandLogo className="home-new-logo" alt="平台首页" compactFallback />
@@ -288,7 +147,7 @@ const HomeNewSidebar = forwardRef<HomeNewSidebarHandle, HomeNewSidebarProps>(
                 onClick={() => onGallery?.()}
               >
                 <SidebarNavHoverIcon type="gallery" className="home-new-nav-ico" />
-                <span>创作首页</span>
+                <span>案例广场</span>
               </button>
               <button
                 type="button"
@@ -325,48 +184,6 @@ const HomeNewSidebar = forwardRef<HomeNewSidebarHandle, HomeNewSidebarProps>(
                 />
                 <span>新手教程</span>
               </button>
-              {showOpenSourceNav ? (
-                <button
-                  ref={openSourceTriggerRef}
-                  type="button"
-                  className={
-                    showOpenSourcePanel ? 'home-new-nav-item is-active' : 'home-new-nav-item'
-                  }
-                  aria-haspopup="dialog"
-                  aria-expanded={showOpenSourcePanel}
-                  onClick={toggleOpenSourcePanel}
-                >
-                  <img
-                    src={assetUrl(openSourceIconUrl)}
-                    alt=""
-                    className="home-new-nav-ico home-new-nav-ico-img"
-                    width={24}
-                    height={24}
-                  />
-                  <span>开源</span>
-                </button>
-              ) : null}
-              {showDiscussionGroupNav ? (
-                <button
-                  ref={discussionGroupTriggerRef}
-                  type="button"
-                  className={
-                    showDiscussionGroupPanel ? 'home-new-nav-item is-active' : 'home-new-nav-item'
-                  }
-                  aria-haspopup="dialog"
-                  aria-expanded={showDiscussionGroupPanel}
-                  onClick={toggleDiscussionGroupPanel}
-                >
-                  <img
-                    src={assetUrl(discussionGroupIconUrl)}
-                    alt=""
-                    className="home-new-nav-ico home-new-nav-ico-img"
-                    width={24}
-                    height={24}
-                  />
-                  <span>交流群</span>
-                </button>
-              ) : null}
               {invitePromotionEnabled ? (
                 <button
                   type="button"
@@ -425,23 +242,6 @@ const HomeNewSidebar = forwardRef<HomeNewSidebarHandle, HomeNewSidebarProps>(
           )}
         </div>
 
-        {!skeleton ? (
-          <>
-            <OpenSourcePanel
-              ref={openSourcePanelRef}
-              open={showOpenSourcePanel}
-              floatingStyle={openSourcePanelStyle}
-              giteeUrl={openSourceGiteeUrl}
-              gitUrl={openSourceGitUrl}
-            />
-            <DiscussionGroupPanel
-              ref={discussionGroupPanelRef}
-              open={showDiscussionGroupPanel}
-              floatingStyle={discussionGroupPanelStyle}
-              qrImageUrl={exchangeImageUrl}
-            />
-          </>
-        ) : null}
       </aside>
     )
   }

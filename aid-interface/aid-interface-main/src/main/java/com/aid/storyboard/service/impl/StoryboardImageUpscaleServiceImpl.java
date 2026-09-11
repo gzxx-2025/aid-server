@@ -1,5 +1,7 @@
 package com.aid.storyboard.service.impl;
 
+import com.aid.common.error.TaskErrorCode;
+import com.aid.common.error.TaskErrorPresentation;
 import com.aid.common.error.TaskErrorSnapshot;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -123,6 +125,9 @@ public class StoryboardImageUpscaleServiceImpl implements IStoryboardImageUpscal
     @Autowired
     private IAiModelConfigService aiModelConfigService;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.aid.model.definition.BusinessModelResolver businessModelResolver;
+
     @Autowired
     private IMediaGenerationService mediaGenerationService;
 
@@ -172,7 +177,7 @@ public class StoryboardImageUpscaleServiceImpl implements IStoryboardImageUpscal
         AidAiModel model = validateModelInPool(request.getModelCode());
 
         // 清晰度档位按模型 capability.sizeOptions 解析（如 ultra 仅 4K/8K）：传值未命中直接拦截，未传值回退模型默认档
-        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(model.getModelCode());
+        AiModelConfigVo modelConfig = aiModelConfigService.selectForBusiness(model.getModelCode(), FUNC_CODE_IMAGE_UPSCALE, null);
         String resolvedResolution = ModelCapabilityResolver.resolveSize(modelConfig, request.getResolution());
 
         String lockKey = FORM_LOCK_PREFIX + TASK_TYPE_STORYBOARD_IMAGE_UPSCALE + ":" + record.getId();
@@ -238,7 +243,7 @@ public class StoryboardImageUpscaleServiceImpl implements IStoryboardImageUpscal
         AidGenRecord record = loadAndCheckRecord(request.getGenRecordId(), userId);
         AidStoryboard storyboard = loadAndCheckStoryboard(record.getStoryboardId(), userId);
         AidAiModel model = validateModelInPool(request.getModelCode());
-        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(model.getModelCode());
+        AiModelConfigVo modelConfig = aiModelConfigService.selectForBusiness(model.getModelCode(), FUNC_CODE_IMAGE_UPSCALE, null);
         String resolution = ModelCapabilityResolver.resolveSize(modelConfig, request.getResolution());
         MediaImageGenerateRequest mediaRequest = buildUpscaleMediaRequest(userId, storyboard,
                 model.getModelCode(), mediaUrlResolver.toFullUrl(record.getFileUrl()), resolution, null);
@@ -347,106 +352,10 @@ public class StoryboardImageUpscaleServiceImpl implements IStoryboardImageUpscal
      */
     private AidAiModel validateModelInPool(String modelCode)
     {
-        LambdaQueryWrapper<AidAiModelFuncConfig> cfgQuery = Wrappers.lambdaQuery();
-        cfgQuery.select(AidAiModelFuncConfig::getId, AidAiModelFuncConfig::getFuncCode,
-                AidAiModelFuncConfig::getModelIds, AidAiModelFuncConfig::getStatus,
-                AidAiModelFuncConfig::getDelFlag);
-        cfgQuery.eq(AidAiModelFuncConfig::getFuncCode, FUNC_CODE_IMAGE_UPSCALE);
-        cfgQuery.eq(AidAiModelFuncConfig::getStatus, STATUS_NORMAL);
-        cfgQuery.eq(AidAiModelFuncConfig::getDelFlag, DEL_FLAG_NORMAL);
-        cfgQuery.last("limit 1");
-        AidAiModelFuncConfig cfg = aidAiModelFuncConfigService.getOne(cfgQuery, false);
-        if (Objects.isNull(cfg))
-        {
-            log.error("分镜图高清功能池未配置: funcCode={}", FUNC_CODE_IMAGE_UPSCALE);
-            throw new RuntimeException("功能未开放");
-        }
-        List<Long> allowedIds = parseModelIdsJson(cfg.getModelIds());
-        if (CollectionUtil.isEmpty(allowedIds))
-        {
-            log.error("分镜图高清功能池为空: funcCode={}", FUNC_CODE_IMAGE_UPSCALE);
-            throw new RuntimeException("功能未开放");
-        }
-
-        LambdaQueryWrapper<AidAiModel> modelQuery = Wrappers.lambdaQuery();
-        modelQuery.select(AidAiModel::getId, AidAiModel::getModelCode,
-                AidAiModel::getModelName, AidAiModel::getModelType,
-                AidAiModel::getStatus, AidAiModel::getDelFlag);
-        modelQuery.eq(AidAiModel::getModelCode, modelCode);
-        modelQuery.eq(AidAiModel::getStatus, STATUS_NORMAL);
-        modelQuery.eq(AidAiModel::getDelFlag, DEL_FLAG_NORMAL);
-        modelQuery.last("limit 1");
-        AidAiModel model = aidAiModelService.getOne(modelQuery, false);
-        if (Objects.isNull(model))
-        {
-            log.info("分镜图高清模型不存在或已停用: modelCode={}", modelCode);
-            throw new RuntimeException("模型无效");
-        }
-        if (!Objects.equals(MODEL_TYPE_IMAGE, model.getModelType()))
-        {
-            log.info("分镜图高清模型类型不匹配: modelCode={}, type={}", modelCode, model.getModelType());
-            throw new RuntimeException("模型不符");
-        }
-        if (!allowedIds.contains(model.getId()))
-        {
-            log.info("分镜图高清模型不在功能池: modelCode={}, modelId={}, pool={}",
-                    modelCode, model.getId(), allowedIds);
-            throw new RuntimeException("模型不符");
-        }
-        // 高清"能力"由 func_code=image_upscale 功能池统一治理（运营把能做高清的模型加入池即可），
-        // 不再额外卡 imageRefine=3，与形态图高清 / 其它图片生成口径保持一致。
-        return model;
+        return businessModelResolver.resolve(FUNC_CODE_IMAGE_UPSCALE, modelCode, "image");
     }
 
-    private List<Long> parseModelIdsJson(String modelIdsJson)
-    {
-        List<Long> ordered = new ArrayList<>();
-        if (StrUtil.isBlank(modelIdsJson))
-        {
-            return ordered;
-        }
-        try
-        {
-            List<?> raw = JSONUtil.parseArray(modelIdsJson).toList(Object.class);
-            for (Object item : raw)
-            {
-                if (Objects.isNull(item))
-                {
-                    continue;
-                }
-                Long id = null;
-                if (item instanceof Number)
-                {
-                    id = ((Number) item).longValue();
-                }
-                else
-                {
-                    String s = item.toString().trim();
-                    if (StrUtil.isBlank(s))
-                    {
-                        continue;
-                    }
-                    try
-                    {
-                        id = Long.parseLong(s);
-                    }
-                    catch (NumberFormatException ignore)
-                    {
-                    }
-                }
-                if (Objects.nonNull(id) && id > 0L && !ordered.contains(id))
-                {
-                    ordered.add(id);
-                }
-            }
-        }
-        catch (Exception e)
-        {
-            log.error("解析分镜图高清功能池modelIds失败: jsonLen={}, err={}",
-                    StrUtil.length(modelIdsJson), e.getMessage());
-        }
-        return ordered;
-    }
+
     private Long createExtractTask(AidGenRecord record, AidStoryboard storyboard, Long userId,
                                     String modelCode, String resolution)
     {
@@ -607,8 +516,8 @@ public class StoryboardImageUpscaleServiceImpl implements IStoryboardImageUpscal
     {
         MediaImageGenerateRequest imageRequest = new MediaImageGenerateRequest();
         imageRequest.setModelName(modelCode);
+        imageRequest.setBusinessFuncCode(FUNC_CODE_IMAGE_UPSCALE);
         imageRequest.setUserId(userId);
-        imageRequest.setPrompt(UPSCALE_FALLBACK_PROMPT);
         imageRequest.setProjectId(storyboard.getProjectId());
         imageRequest.setEpisodeId(storyboard.getEpisodeId());
         imageRequest.setReferenceImageUrl(referenceUrl);
@@ -625,11 +534,18 @@ public class StoryboardImageUpscaleServiceImpl implements IStoryboardImageUpscal
         imageRequest.setBizTaskId(bizTaskId);
         imageRequest.setBizTaskType(TASK_TYPE_STORYBOARD_IMAGE_UPSCALE);
 
-        AiModelConfigVo defaultModelConfig = aiModelConfigService.selectByModelCode(modelCode);
+        AiModelConfigVo defaultModelConfig = aiModelConfigService.selectForBusiness(modelCode, FUNC_CODE_IMAGE_UPSCALE, null);
         if (Objects.isNull(defaultModelConfig))
         {
             log.error("分镜图高清模型配置缺失: modelCode={}", modelCode);
             throw new RuntimeException("模型无效");
+        }
+        // 超清协议（如即梦智能超清）没有 prompt 参数，且能力明确禁止文本输入。
+        // 仅为允许文本的高清模型附加系统提示词，避免通用能力校验把内部兜底文案
+        // 误判成用户传入的不支持模态，并确保无文本协议不会收到多余字段。
+        if (!Boolean.FALSE.equals(defaultModelConfig.getSupportsTextInput()))
+        {
+            imageRequest.setPrompt(UPSCALE_FALLBACK_PROMPT);
         }
         AgentModelDefault agentModel = new AgentModelDefault(modelCode);
         agentDefaultParamsApplier.applyToImage(agentModel, imageRequest, defaultModelConfig);
@@ -666,7 +582,7 @@ public class StoryboardImageUpscaleServiceImpl implements IStoryboardImageUpscal
             String errorMsg = imageResponse.getErrorMessage();
             log.error("分镜图高清失败: mediaTaskId={}, status={}, error={}",
                     imageResponse.getTaskId(), imageResponse.getStatus(), errorMsg);
-            throw new RuntimeException(StrUtil.isNotBlank(errorMsg) ? errorMsg : "图片生成失败");
+            throw mediaTaskFailure(imageResponse, "图片生成失败");
         }
 
         Long mediaTaskId = imageResponse.getTaskId();
@@ -712,11 +628,31 @@ public class StoryboardImageUpscaleServiceImpl implements IStoryboardImageUpscal
             {
                 String errorMsg = polled.getErrorMessage();
                 log.error("分镜图高清异步失败: mediaTaskId={}, error={}", mediaTaskId, errorMsg);
-                throw new RuntimeException(StrUtil.isNotBlank(errorMsg) ? errorMsg : "图片生成失败");
+                throw mediaTaskFailure(polled, "图片生成失败");
             }
         }
         log.error("分镜图高清异步超时: mediaTaskId={}, timeout={}s", mediaTaskId, IMAGE_POLL_TIMEOUT_SECONDS);
         throw new RuntimeException("图片生成超时");
+    }
+
+    /** 子媒体任务已完成错误分类时，父业务任务必须保留同一机器可读错误码及责任方。 */
+    private RuntimeException mediaTaskFailure(MediaTaskResponse response, String fallback)
+    {
+        String errorCode = response == null ? null : response.getErrorCode();
+        if (StrUtil.isNotBlank(errorCode))
+        {
+            try
+            {
+                String userMessage = StrUtil.blankToDefault(response.getUserMessage(), fallback);
+                return TaskErrorPresentation.fromCode(TaskErrorCode.valueOf(errorCode), userMessage);
+            }
+            catch (IllegalArgumentException ignored)
+            {
+                log.warn("分镜图高清收到未识别的媒体任务错误码: errorCode={}", errorCode);
+            }
+        }
+        String errorMessage = response == null ? null : response.getErrorMessage();
+        return TaskErrorPresentation.toServiceException(errorMessage, fallback);
     }
     /** 落新行 aid_gen_record（与原记录共存，用户可自行选择哪一版作为最终图） */
     private Long persistUpscaledRecord(AidStoryboard storyboard, AidGenRecord source, Long userId,
@@ -801,13 +737,18 @@ public class StoryboardImageUpscaleServiceImpl implements IStoryboardImageUpscal
 
     private boolean updateTaskFailed(Long taskId, String errorMessage)
     {
-        String safeMsg = StrUtil.isNotBlank(errorMessage) ? errorMessage : "生成失败";
+        return updateTaskFailed(taskId, com.aid.common.error.ErrorNormalizer.normalizeByMessage(errorMessage));
+    }
+
+    private boolean updateTaskFailed(Long taskId, com.aid.common.error.TaskErrorResult errorResult)
+    {
+        String safeMsg = StrUtil.blankToDefault(errorResult.getRawMessage(), errorResult.getUserMessage());
         LambdaUpdateWrapper<AidExtractTask> update = Wrappers.lambdaUpdate();
         update.eq(AidExtractTask::getId, taskId);
         update.in(AidExtractTask::getStatus, TASK_STATUS_PENDING, TASK_STATUS_PROCESSING);
         update.set(AidExtractTask::getStatus, TASK_STATUS_FAILED);
         update.set(AidExtractTask::getErrorMessage, StrUtil.sub(safeMsg, 0, 255))
-                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.fromMessage(StrUtil.sub(safeMsg, 0, 255)));
+                .set(AidExtractTask::getErrorDetailJson, TaskErrorSnapshot.write(errorResult));
         update.set(AidExtractTask::getUpdateTime, DateUtils.getNowDate());
         int rows = extractTaskService.getBaseMapper().update(null, update);
         if (rows == 0)
@@ -816,12 +757,6 @@ public class StoryboardImageUpscaleServiceImpl implements IStoryboardImageUpscal
             return false;
         }
         return true;
-    }
-
-    private boolean updateTaskFailed(Long taskId, com.aid.common.error.TaskErrorResult errorResult)
-    {
-        String dbMessage = errorResult.getRawMessage() != null ? errorResult.getRawMessage() : errorResult.getUserMessage();
-        return updateTaskFailed(taskId, dbMessage);
     }
 
     private boolean updateTaskCancelled(Long taskId)

@@ -11,7 +11,6 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ModelCapabilityValidatorReferenceAudioTest {
 
@@ -23,13 +22,11 @@ class ModelCapabilityValidatorReferenceAudioTest {
     private static final String DISABLED = "{\"supportsAudio\":true,\"supportsReferenceAudio\":false}";
 
     @Test
-    void shouldDropImplicitReferencesWhenCapabilityOff() {
-        // 提示词占位推导出的引用属于隐式来源：能力未开启时降级丢弃，不能阻断出片
+    void shouldRejectImplicitReferencesWhenCapabilityOff() {
         MediaVideoGenerateRequest request = request(true, voiceSample("https://cdn.example.com/a.wav", 5000));
 
-        ModelCapabilityValidator.normalizeAndValidateReferenceAudios(model(DISABLED), request);
-
-        assertTrue(request.getReferenceAudios().isEmpty());
+        assertThrows(ServiceException.class,
+                () -> ModelCapabilityValidator.normalizeAndValidateReferenceAudios(model(DISABLED), request));
     }
 
     @Test
@@ -44,13 +41,11 @@ class ModelCapabilityValidatorReferenceAudioTest {
     }
 
     @Test
-    void shouldDropImplicitReferencesWhenAudioSwitchOff() {
-        // 用户没开生成声音时，自动推导的参考音频不得升级成强制项
+    void shouldRejectImplicitReferencesWhenAudioSwitchOff() {
         MediaVideoGenerateRequest request = request(false, voiceSample("https://cdn.example.com/a.wav", 5000));
 
-        ModelCapabilityValidator.normalizeAndValidateReferenceAudios(model(ENABLED), request);
-
-        assertTrue(request.getReferenceAudios().isEmpty());
+        assertThrows(ServiceException.class,
+                () -> ModelCapabilityValidator.normalizeAndValidateReferenceAudios(model(ENABLED), request));
     }
 
     @Test
@@ -68,30 +63,26 @@ class ModelCapabilityValidatorReferenceAudioTest {
     }
 
     @Test
-    void shouldDropImplicitReferenceWithUnsupportedFormatOrDuration() {
+    void shouldRejectImplicitReferenceWithUnsupportedFormatOrDuration() {
         MediaVideoGenerateRequest request = request(true,
                 voiceSample("https://cdn.example.com/a.m4a", 5000),
                 voiceSample("https://cdn.example.com/b.wav", 1000),
                 voiceSample("https://cdn.example.com/c.wav", 5000));
         request.getReferenceAudios().get(0).setFormat("m4a");
 
-        ModelCapabilityValidator.normalizeAndValidateReferenceAudios(model(ENABLED), request);
-
-        assertEquals(1, request.getReferenceAudios().size());
-        assertEquals("https://cdn.example.com/c.wav", request.getReferenceAudios().get(0).getSampleUrl());
+        assertThrows(ServiceException.class,
+                () -> ModelCapabilityValidator.normalizeAndValidateReferenceAudios(model(ENABLED), request));
     }
 
     @Test
-    void shouldStopAtTotalDurationLimitWithoutFailing() {
-        // 总时长上限 20 秒：第三条超出后剔除，前两条照常下发
+    void shouldRejectTotalDurationOverLimit() {
         MediaVideoGenerateRequest request = request(true,
                 voiceSample("https://cdn.example.com/a.wav", 9000),
                 voiceSample("https://cdn.example.com/b.wav", 9000),
                 voiceSample("https://cdn.example.com/c.wav", 9000));
 
-        ModelCapabilityValidator.normalizeAndValidateReferenceAudios(model(ENABLED), request);
-
-        assertEquals(2, request.getReferenceAudios().size());
+        assertThrows(ServiceException.class,
+                () -> ModelCapabilityValidator.normalizeAndValidateReferenceAudios(model(ENABLED), request));
     }
 
     @Test

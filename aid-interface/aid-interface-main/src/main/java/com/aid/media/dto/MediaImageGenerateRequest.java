@@ -10,6 +10,17 @@ public class MediaImageGenerateRequest {
     // 指定模型名称（可选）：为空时走后端默认模型路由策略。
     private String modelName;
 
+    /** 本次业务调用的能力；专用业务接口由 Service 填写。 */
+    private String capabilityCode;
+
+    /** 业务 Service 指定的功能池，不接受客户端覆盖。 */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private String businessFuncCode;
+
+    /** 归一化后的调用配置标识，参与请求幂等。 */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private String invocationIdentity;
+
     // 项目ID（可选）：用于关联任务到具体项目，列表查询时按项目过滤。
     private Long projectId;
 
@@ -50,7 +61,7 @@ public class MediaImageGenerateRequest {
     /**
      * 目标输出张数（可选，仅用于预扣与展示）。
      * 最终扣费以 provider 实际返回图片张数为准，不作为结算依据。
-     * 为空时按 1；&lt;=0 时拒绝；超过模型上限时沿用既有业务规则截断并回写请求。
+     * 为空时按 1；&lt;=0 或超过模型上限时直接拒绝。
      */
     private Integer expectedImageCount;
 

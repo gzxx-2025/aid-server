@@ -8,6 +8,7 @@ import com.aid.aid.domain.AidAiProvider;
 import com.aid.aid.domain.dto.ProviderUpstreamTaskQuery;
 import com.aid.aid.service.IAidAiProviderService;
 import com.aid.aid.service.IProviderUpstreamOperationsService;
+import com.aid.aid.service.spi.ProviderUpstreamAccountOperationsExtension;
 import com.aid.common.exception.ServiceException;
 import com.aid.common.utils.ProviderEndpointUtils;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -16,6 +17,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.math.BigDecimal;
 import java.net.URLEncoder;
@@ -49,15 +51,21 @@ public class ProviderUpstreamOperationsServiceImpl implements IProviderUpstreamO
     private static final String DEEPSEEK_PROVIDER_CODE = "deepseek";
     private static final Set<String> MINIMAX_TASK_STATUSES = Set.of(
         "queued", "running", "succeeded", "failed", "cancelled");
-    private static final Set<String> MINIMAX_TASK_TYPES = Set.of("generation");
+    private static final Set<String> MINIMAX_TASK_TYPES = Set.of("generation", "regeneration", "h3_context_ir");
 
     private final IAidAiProviderService providerService;
+    private List<ProviderUpstreamAccountOperationsExtension> accountOperationsExtensions = List.of();
     private final Map<Long, BalanceCache> balanceCache = new ConcurrentHashMap<>();
     private final Map<Long, Object> balanceLocks = new ConcurrentHashMap<>();
+    private final Map<Long, Long> balanceAttempts = new ConcurrentHashMap<>();
 
     @Override
     public Map<String, Object> capabilities(Long providerId) {
         AidAiProvider provider = requireProvider(providerId);
+        ProviderUpstreamAccountOperationsExtension accountExtension = accountExtension(provider);
+        if (accountExtension != null) {
+            return accountExtension.capabilities(provider);
+        }
         boolean kling = KLING_PROVIDER_CODE.equalsIgnoreCase(StrUtil.trim(provider.getProviderCode()));
         boolean minimax = MINIMAX_PROVIDER_CODE.equalsIgnoreCase(StrUtil.trim(provider.getProviderCode()));
         boolean vidu = VIDU_PROVIDER_CODE.equalsIgnoreCase(StrUtil.trim(provider.getProviderCode()));
@@ -66,6 +74,8 @@ public class ProviderUpstreamOperationsServiceImpl implements IProviderUpstreamO
         result.put("balance", kling || vidu || deepseek);
         result.put("upstreamTasks", kling || minimax);
         if (kling) {
+            result.put("balanceKind", "resourcePackages");
+            result.put("balanceUnit", "RESOURCE_UNITS");
             result.put("taskStatuses", TASK_STATUSES);
             result.put("productTypes", PRODUCT_TYPES);
             result.put("taskSearchTypes", SEARCH_TYPES);
@@ -74,16 +84,18 @@ public class ProviderUpstreamOperationsServiceImpl implements IProviderUpstreamO
         if (minimax) {
             result.put("taskStatuses", List.of("queued", "running", "succeeded", "failed", "cancelled"));
             result.put("productTypes", List.of("video"));
-            result.put("taskTypes", List.of("generation"));
+            result.put("taskTypes", List.of("generation", "regeneration", "h3_context_ir"));
             result.put("taskSearchTypes", List.of("task_ids"));
             result.put("supportsTimeRange", false);
             result.put("recentDays", 7);
         }
         if (vidu) {
+            result.put("balanceKind", "credits");
             result.put("balanceUnit", "credits");
             result.put("balanceDelayNotice", "余额来自 Vidu 官方积分查询接口");
         }
         if (deepseek) {
+            result.put("balanceKind", "money");
             result.put("balanceUnit", "CNY/USD");
             result.put("balanceDelayNotice", "余额来自 DeepSeek 官方账户余额接口");
         }
@@ -93,6 +105,10 @@ public class ProviderUpstreamOperationsServiceImpl implements IProviderUpstreamO
     @Override
     public Map<String, Object> balance(Long providerId, Long startTime, Long endTime, String resourcePackName) {
         AidAiProvider provider = requireProvider(providerId);
+        ProviderUpstreamAccountOperationsExtension accountExtension = accountExtension(provider);
+        if (accountExtension != null) {
+            return accountExtension.balance(provider, startTime, endTime, resourcePackName);
+        }
         if (VIDU_PROVIDER_CODE.equalsIgnoreCase(StrUtil.trim(provider.getProviderCode()))) {
             return viduBalance(provider);
         }
@@ -106,7 +122,10 @@ public class ProviderUpstreamOperationsServiceImpl implements IProviderUpstreamO
         if (start <= 0 || end <= start) {
             throw failure("invalid balance time range", "余额时间无效");
         }
-        String cacheKey = start + ":" + end + ":" + StrUtil.trimToEmpty(resourcePackName);
+        String identity = cn.hutool.crypto.digest.DigestUtil.sha256Hex(JSONUtil.toJsonStr(java.util.Arrays.asList(
+                provider.getBaseUrl(), provider.getTaskQuerySuffix(), provider.getApiKey(), provider.getApiSecret(),
+                provider.getAuthHeader(), provider.getAuthPrefix())));
+        String cacheKey = identity + ":" + startTime + ":" + endTime + ":" + StrUtil.trimToEmpty(resourcePackName);
         BalanceCache cached = balanceCache.get(providerId);
         if (cached != null && cached.key().equals(cacheKey) && now - cached.createdAt() < BALANCE_CACHE_MS) {
             return cached.value();
@@ -117,10 +136,12 @@ public class ProviderUpstreamOperationsServiceImpl implements IProviderUpstreamO
             if (cached != null && cached.key().equals(cacheKey) && now - cached.createdAt() < BALANCE_CACHE_MS) {
                 return cached.value();
             }
-            if (cached != null && now - cached.createdAt() < 1_000L) {
+            Long lastAttempt = balanceAttempts.get(providerId);
+            if (lastAttempt != null && now - lastAttempt < 1_000L) {
                 // 不同筛选条件也不得突破官方 QPS<=1；让管理端稍后重试，不阻塞线程睡眠。
                 throw failure("balance QPS exceeded", "查询过于频繁");
             }
+            balanceAttempts.put(providerId, now);
             StringBuilder path = new StringBuilder(buildKlingBalancePath(provider.getTaskQuerySuffix()))
                 .append("?start_time=").append(start).append("&end_time=").append(end);
             if (StrUtil.isNotBlank(resourcePackName)) {
@@ -154,27 +175,7 @@ public class ProviderUpstreamOperationsServiceImpl implements IProviderUpstreamO
                         provider.getId(), response.getStatus(), StrUtil.length(raw));
                 throw new ServiceException(response.getStatus() == 401 ? "上游鉴权配置无效" : "余额查询失败");
             }
-            BigDecimal total = BigDecimal.ZERO;
-            List<Map<String, Object>> remains = new ArrayList<>();
-            for (JsonNode item : root.path("remains")) {
-                JsonNode remain = item.get("credit_remain");
-                if (remain != null && remain.isNumber()) {
-                    total = total.add(remain.decimalValue());
-                } else if (remain != null && remain.isTextual()) {
-                    try { total = total.add(new BigDecimal(remain.asText())); }
-                    catch (NumberFormatException ignored) { }
-                }
-                Map<String, Object> row = new LinkedHashMap<>();
-                row.put("type", item.path("type").asText(""));
-                row.put("credit_remain", remain == null || remain.isNull() ? null : remain.asText());
-                remains.add(row);
-            }
-            Map<String, Object> result = new LinkedHashMap<>();
-            result.put("balance", total);
-            result.put("unit", "credits");
-            result.put("remains", remains);
-            result.put("queriedAt", Instant.now().toEpochMilli());
-            return Collections.unmodifiableMap(result);
+            return parseViduBalance(root, Instant.now().toEpochMilli());
         } catch (ServiceException ex) {
             throw ex;
         } catch (Exception ex) {
@@ -205,15 +206,7 @@ public class ProviderUpstreamOperationsServiceImpl implements IProviderUpstreamO
                         provider.getId(), response.getStatus(), StrUtil.length(raw));
                 throw new ServiceException(response.getStatus() == 401 ? "上游鉴权配置无效" : "余额查询失败");
             }
-            JsonNode primary = balanceInfos.get(0);
-            BigDecimal total = new BigDecimal(primary.path("total_balance").asText());
-            Map<String, Object> result = new LinkedHashMap<>();
-            result.put("balance", total);
-            result.put("unit", primary.path("currency").asText(""));
-            result.put("isAvailable", root.path("is_available").asBoolean(false));
-            result.put("balanceInfos", MAPPER.convertValue(balanceInfos, new TypeReference<List<Map<String, Object>>>() { }));
-            result.put("queriedAt", Instant.now().toEpochMilli());
-            return Collections.unmodifiableMap(result);
+            return parseDeepseekBalance(root, Instant.now().toEpochMilli());
         } catch (ServiceException ex) {
             throw ex;
         } catch (Exception ex) {
@@ -239,6 +232,9 @@ public class ProviderUpstreamOperationsServiceImpl implements IProviderUpstreamO
         if (hasSearchType) {
             String path = buildExactSearchPath(provider.getTaskQuerySuffix(), safe);
             JsonNode data = request(provider, "GET", buildProviderUrl(provider, path), null).path("data");
+            if (!data.isArray() && !data.isNull() && !data.isMissingNode()) {
+                throw failure("invalid exact task result list", "任务响应异常");
+            }
             List<Map<String, Object>> items = data.isArray()
                 ? MAPPER.convertValue(data, new TypeReference<List<Map<String, Object>>>() {}) : List.of();
             return Map.of("result", items, "nextCursor", "", "hasMore", false);
@@ -312,11 +308,12 @@ public class ProviderUpstreamOperationsServiceImpl implements IProviderUpstreamO
             }
             taskIds = splitTaskIds(query.getSearchValue());
         }
-        String taskType = StrUtil.blankToDefault(StrUtil.trim(query.getTaskType()), "generation");
-        if (!MINIMAX_TASK_TYPES.contains(taskType)) {
+        String taskType = StrUtil.trimToEmpty(query.getTaskType());
+        if (StrUtil.isNotBlank(taskType) && !MINIMAX_TASK_TYPES.contains(taskType)) {
             throw failure("unsupported MiniMax task type=" + taskType, "任务类型无效");
         }
-        String model = StrUtil.blankToDefault(StrUtil.trim(query.getModel()), "MiniMax-H3");
+        String model = StrUtil.trimToEmpty(query.getModel());
+        if (model.length() > 128) throw failure("MiniMax model filter too long", "模型筛选无效");
         return new MinimaxCursor(1, limit, statuses, taskIds, model, taskType);
     }
 
@@ -358,8 +355,8 @@ public class ProviderUpstreamOperationsServiceImpl implements IProviderUpstreamO
             if (state.page() < 1 || state.limit() < 1 || state.limit() > 100
                 || state.statuses() == null || state.taskIds() == null
                 || state.statuses().stream().anyMatch(value -> !MINIMAX_TASK_STATUSES.contains(value))
-                || !MINIMAX_TASK_TYPES.contains(state.taskType())
-                || StrUtil.isBlank(state.model()) || state.model().length() > 128
+                || (StrUtil.isNotBlank(state.taskType()) && !MINIMAX_TASK_TYPES.contains(state.taskType()))
+                || (state.model() != null && state.model().length() > 128)
                 || state.taskIds().size() > 50
                 || state.taskIds().stream().anyMatch(value -> StrUtil.isBlank(value) || value.length() > 256)) {
                 throw new IllegalArgumentException("invalid cursor state");
@@ -471,7 +468,18 @@ public class ProviderUpstreamOperationsServiceImpl implements IProviderUpstreamO
             throw failure("invalid task page", "任务响应异常");
         }
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("result", MAPPER.convertValue(data.path("result"), new TypeReference<List<Map<String, Object>>>() {}));
+        JsonNode rows = data.path("result");
+        if (!rows.isMissingNode() && !rows.isNull() && !rows.isArray()) {
+            throw failure("invalid task result list", "任务响应异常");
+        }
+        if (data.has("has_more") && !data.path("has_more").isBoolean()) {
+            throw failure("invalid task page flag", "任务响应异常");
+        }
+        if (data.path("has_more").asBoolean(false) && StrUtil.isBlank(data.path("next_cursor").asText(""))) {
+            throw failure("task page cursor missing", "任务响应异常");
+        }
+        result.put("result", rows.isArray()
+                ? MAPPER.convertValue(rows, new TypeReference<List<Map<String, Object>>>() {}) : List.of());
         result.put("nextCursor", data.path("next_cursor").asText(""));
         result.put("hasMore", data.path("has_more").asBoolean(false));
         return result;
@@ -526,13 +534,91 @@ public class ProviderUpstreamOperationsServiceImpl implements IProviderUpstreamO
         result.remove("code");
         result.remove("msg");
         result.remove("message");
+        JsonNode rows = data.path("resource_pack_subscribe_infos");
+        if (!rows.isMissingNode() && !rows.isNull() && !rows.isArray()) {
+            throw failure("invalid resource package list", "余额响应异常");
+        }
+        result.put("resource_pack_subscribe_infos", rows.isArray()
+                ? MAPPER.convertValue(rows, new TypeReference<List<Map<String, Object>>>() {}) : List.of());
+        // 缺失或空列表不能证明账户无余额，更不能把查询时间当作可计量余额。
+        result.put("balanceAvailable", rows.isArray() && !rows.isEmpty());
+        result.put("balanceKind", "resourcePackages");
+        result.put("unit", "RESOURCE_UNITS");
         result.put("delayNotice", "资源包余量统计可能延迟约 12 小时");
         result.put("queriedAt", queriedAt);
         return Collections.unmodifiableMap(new LinkedHashMap<>(result));
     }
 
+    static Map<String, Object> parseViduBalance(JsonNode root, long queriedAt) {
+        JsonNode rows = root.path("remains");
+        if (!rows.isArray()) throw failure("Vidu remains missing", "余额响应异常");
+        BigDecimal total = BigDecimal.ZERO;
+        for (JsonNode row : rows) total = total.add(balanceDecimal(row.path("credit_remain")));
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("balance", total);
+        result.put("unit", "credits");
+        result.put("balanceKind", "credits");
+        result.put("remains", MAPPER.convertValue(rows, new TypeReference<List<Map<String, Object>>>() {}));
+        result.put("queriedAt", queriedAt);
+        return Collections.unmodifiableMap(result);
+    }
+
+    static Map<String, Object> parseDeepseekBalance(JsonNode root, long queriedAt) {
+        JsonNode rows = root.path("balance_infos");
+        if (!rows.isArray() || rows.isEmpty() || !root.path("is_available").isBoolean()) {
+            throw failure("DeepSeek balance fields missing", "余额响应异常");
+        }
+        Set<String> currencies = new java.util.HashSet<>();
+        for (JsonNode row : rows) {
+            String currency = row.path("currency").asText("");
+            if (!Set.of("CNY", "USD").contains(currency) || !currencies.add(currency)) {
+                throw failure("invalid DeepSeek balance currency", "余额币种异常");
+            }
+            balanceDecimal(row.path("total_balance"));
+            balanceDecimal(row.path("granted_balance"));
+            balanceDecimal(row.path("topped_up_balance"));
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("balance", balanceDecimal(rows.get(0).path("total_balance")));
+        result.put("unit", rows.get(0).path("currency").asText());
+        result.put("balanceKind", "money");
+        result.put("isAvailable", root.path("is_available").asBoolean());
+        result.put("balanceInfos", MAPPER.convertValue(rows, new TypeReference<List<Map<String, Object>>>() {}));
+        result.put("queriedAt", queriedAt);
+        return Collections.unmodifiableMap(result);
+    }
+
+    private static BigDecimal balanceDecimal(JsonNode value) {
+        try {
+            if (!value.isNumber() && !value.isTextual()) throw new NumberFormatException();
+            return new BigDecimal(value.asText().trim());
+        } catch (NumberFormatException ex) {
+            throw failure("invalid balance amount", "余额金额格式异常");
+        }
+    }
+
     Object balanceLock(Long providerId) {
         return balanceLocks.computeIfAbsent(providerId, ignored -> new Object());
+    }
+
+    @Autowired(required = false)
+    void setAccountOperationsExtensions(List<ProviderUpstreamAccountOperationsExtension> extensions) {
+        this.accountOperationsExtensions = extensions == null ? List.of() : List.copyOf(extensions);
+    }
+
+    private ProviderUpstreamAccountOperationsExtension accountExtension(AidAiProvider provider) {
+        ProviderUpstreamAccountOperationsExtension selected = null;
+        for (ProviderUpstreamAccountOperationsExtension extension : accountOperationsExtensions) {
+            if (!extension.supports(provider.getProviderCode())) {
+                continue;
+            }
+            if (selected != null) {
+                throw failure("duplicate account operation extension, providerId=" + provider.getId(),
+                        "供应商扩展冲突");
+            }
+            selected = extension;
+        }
+        return selected;
     }
 
     private static void addFilter(List<Map<String, Object>> filters, String key, String raw, Set<String> allowed) {

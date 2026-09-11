@@ -1,0 +1,14 @@
+package com.aid.project.snapshot.model;
+
+/** 案例广场项目访问能力的稳定原因码。 */
+public enum ProjectCaseAccessReason
+{
+    PROJECT_UNAVAILABLE,
+    NO_APPROVED_SNAPSHOT,
+    PROJECT_CONTENT_SHARING_DISABLED,
+    PROJECT_TYPE_UNSUPPORTED,
+    PROJECT_CONTENT_NOT_VIEWABLE,
+    PROJECT_COPY_DISABLED,
+    RIGHTS_RESTRICTED,
+    PUBLISHED_SNAPSHOT_UNAVAILABLE
+}

@@ -183,6 +183,8 @@ export interface VideoModalBaseCtx {
 
   // 参考音频 / 视频参数
   referenceAudios: Mirrored<ReferenceMediaItem[]>
+  /** 多参生视频引用的视频记录；与参考图、参考音频使用独立协议字段 */
+  referenceVideos: Mirrored<ReferenceMediaItem[]>
   videoAspectRatio: Mirrored<string>
   videoDuration: Mirrored<string>
   videoCount: Mirrored<number>
@@ -381,6 +383,8 @@ export interface VideoModalPromptApi {
   writePromptPlainToActiveEditor: (plain: string) => void
   applyImportedReferenceAudios: (audios: ReferenceMediaItem[]) => void
   removeReferenceAudioAt: (index: number) => Promise<void>
+  applyImportedReferenceVideos: (videos: ReferenceMediaItem[]) => void
+  removeReferenceVideoAt: (index: number) => void
   applyVideoParamSelectionsFromPlain: (plain: string) => void
 }
 
@@ -443,7 +447,7 @@ export interface VideoModalReferencesApi {
   collectReferenceImageUrls: () => string[]
   collectMultiParamAssetImages: () => Array<{ url?: string; thumbnail?: string }>
   validateImageToVideoReferenceImages: (images: string[]) => boolean
-  validateMultiParamAssetImages: () => boolean
+  validateMultiParamReferenceMedia: () => boolean
   normalizeImageToVideoReferenceItems: <T extends { url?: string; thumbnail?: string }>(items: T[]) => T[]
   resolveBaseImageRecordId: () => number | undefined
   handleImportReference: () => void

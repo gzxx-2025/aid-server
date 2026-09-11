@@ -81,7 +81,7 @@ public class VolcengineImageProviderClient implements ImageProviderClient {
         String raw;
         try {
             HttpResult httpResponse = doPost(buildSubmitUrl(modelConfig), modelConfig.getApiKey(),
-                    OBJECT_MAPPER.writeValueAsString(generateRequest), timeoutSeconds);
+                    com.aid.model.definition.ModelConfiguredRequestBody.applyJson(modelConfig, OBJECT_MAPPER.writeValueAsString(generateRequest), request), timeoutSeconds);
             raw = httpResponse.body();
             if (httpResponse.statusCode() < 200 || httpResponse.statusCode() >= 300) {
                 log.error("Volcengine 图片生成调用失败, model={}, httpStatus={}, responseLength={}",

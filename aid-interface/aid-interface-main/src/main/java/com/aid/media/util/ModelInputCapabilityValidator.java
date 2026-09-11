@@ -38,6 +38,14 @@ public final class ModelInputCapabilityValidator {
     private ModelInputCapabilityValidator() {
     }
 
+    public static String imageScene(AiModelConfigVo model, MediaImageGenerateRequest request) {
+        return resolveImageScene(model, request, imageInputs(request));
+    }
+
+    public static String videoScene(AiModelConfigVo model, MediaVideoGenerateRequest request) {
+        return MediaGenerationSceneResolver.resolveVideo(model, request).capabilityScene();
+    }
+
     public static void validateRawImageInputs(AiModelConfigVo modelConfig,
                                               MediaImageGenerateRequest request) {
         if (modelConfig == null || request == null || !hasRawImageInput(request)) {
@@ -45,7 +53,7 @@ public final class ModelInputCapabilityValidator {
         }
         JsonNode capability = ModelCapabilityResolver.parseCapability(modelConfig.getCapabilityJson());
         if (Integer.valueOf(0).equals(configuredInteger(capability, "maxReferenceImages"))) {
-            return;
+            reject(modelConfig, "raw", "模型禁止图片输入", "模型不支持图片");
         }
         if (Boolean.FALSE.equals(modelConfig.getSupportsImageInput())) {
             reject(modelConfig, "raw", "模型禁止图片输入", "模型不支持图片");
@@ -69,11 +77,11 @@ public final class ModelInputCapabilityValidator {
             reject(modelConfig, "raw", "模型禁止首帧", "模型不支持首帧");
         }
         boolean rawImages = hasRawVideoImageInput(request);
-        if (rawImages && !Integer.valueOf(0).equals(configuredInteger(capability, "maxReferenceImages"))
-                && Boolean.FALSE.equals(modelConfig.getSupportsImageInput())) {
+        if (rawImages && (Integer.valueOf(0).equals(configuredInteger(capability, "maxReferenceImages"))
+                || Boolean.FALSE.equals(modelConfig.getSupportsImageInput()))) {
             reject(modelConfig, "raw", "模型禁止图片输入", "模型不支持图片");
         }
-        boolean lipSync = options != null && options.containsKey("video_url") && options.containsKey("audio_url");
+        boolean lipSync = isLipSyncRequest(modelConfig, request);
         boolean rawVideos = hasRawVideoInput(options, false);
         boolean rawReferenceVideos = hasRawVideoInput(options, lipSync);
         JsonNode supportsVideo = capability == null ? null : capability.get("supportsVideoInput");
@@ -87,14 +95,26 @@ public final class ModelInputCapabilityValidator {
 
     public static void normalizeAndValidateImage(AiModelConfigVo modelConfig,
                                                  MediaImageGenerateRequest request) {
+        normalizeAndValidateImage(modelConfig, request, false);
+    }
+
+    public static void normalizeAndValidatePlannedImage(AiModelConfigVo modelConfig, MediaImageGenerateRequest request) {
+        normalizeAndValidateImage(modelConfig, request, true);
+    }
+
+    private static void normalizeAndValidateImage(AiModelConfigVo modelConfig, MediaImageGenerateRequest request, boolean planned) {
         if (modelConfig == null || request == null) {
             return;
         }
-        validateTextCapability(modelConfig);
         normalizeImageOutputCount(modelConfig, request);
         JsonNode capability = capabilityOrMissing(modelConfig);
         validateImageSizeCapability(modelConfig, request, capability);
         InputState inputs = imageInputs(request);
+        if (planned && !inputs.text()) {
+            inputs = new InputState(true, inputs.firstFrame(), inputs.lastFrame(), inputs.imageCount(),
+                    inputs.videoCount(), inputs.audioCount(), inputs.referenceImageCount(), inputs.referenceVideoCount(), inputs.referenceAudioCount());
+        }
+        validateTextCapability(modelConfig, inputs.text());
         validateRule(modelConfig, inputs, capability, "root");
         String scene = resolveImageScene(modelConfig, request, inputs);
         validateScene(modelConfig, capability, scene);
@@ -104,20 +124,45 @@ public final class ModelInputCapabilityValidator {
     }
 
     public static void validateVideo(AiModelConfigVo modelConfig, MediaVideoGenerateRequest request) {
+        validateVideo(modelConfig, request, false, true);
+    }
+
+    /** 规划报价允许提示词尚未生成，已确定的素材和参数仍执行完整校验。 */
+    public static void validatePlannedVideo(AiModelConfigVo modelConfig, MediaVideoGenerateRequest request) {
+        validateVideo(modelConfig, request, true, true);
+    }
+
+    public static void validateVideoQuote(AiModelConfigVo modelConfig, MediaVideoGenerateRequest request, boolean planned) {
+        validateVideo(modelConfig, request, planned, false);
+    }
+
+    private static void validateVideo(AiModelConfigVo modelConfig, MediaVideoGenerateRequest request,
+                                      boolean planned, boolean verifyMetadata) {
         if (modelConfig == null || request == null) {
             return;
         }
-        validateTextCapability(modelConfig);
         JsonNode capability = capabilityOrMissing(modelConfig);
         validateVideoParameterCapabilities(modelConfig, request);
         InputState inputs = videoInputs(modelConfig, capability, request);
+        if (planned && !inputs.text()) {
+            inputs = new InputState(true, inputs.firstFrame(), inputs.lastFrame(), inputs.imageCount(),
+                    inputs.videoCount(), inputs.audioCount(), inputs.referenceImageCount(),
+                    inputs.referenceVideoCount(), inputs.referenceAudioCount());
+        }
+        validateTextCapability(modelConfig, inputs.text());
         validateMinimum(capability, "minReferenceVideos", inputs.videoCount(), "至少传%d个视频");
         validateMinimum(capability, "minReferenceAudios", inputs.audioCount(), "至少传%d个音频");
+        if (capability.path("referenceAudioRequiresVisualInput").asBoolean(false)
+                && inputs.audioCount() > 0 && inputs.imageCount() == 0 && inputs.videoCount() == 0) {
+            reject(modelConfig, "root", "参考音频缺少配套视觉素材", "参考音频必须与图片或视频同时提交");
+        }
+        ReferenceVideoCapabilityValidator.validate(request, capability, verifyMetadata);
         validateRule(modelConfig, inputs, capability, "root");
-        String scene = resolveVideoScene(modelConfig, capability, inputs);
+        String scene = MediaGenerationSceneResolver.resolveVideo(modelConfig, request).capabilityScene();
         validateScene(modelConfig, capability, scene);
         JsonNode sceneRule = capability.path("sceneRules").path(scene);
         validateRule(modelConfig, inputs, sceneRule, "scene");
+        ReferenceVideoCapabilityValidator.validate(request, sceneRule, verifyMetadata);
         validateDefaultInputRequirement(modelConfig, inputs, capability, sceneRule, scene);
     }
 
@@ -127,24 +172,34 @@ public final class ModelInputCapabilityValidator {
         Object optionCount = request.getOptions() == null ? null : request.getOptions().get("n");
         if (requested == null && optionCount != null) {
             requested = parseInteger(optionCount);
+            if (requested == null) throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_INVALID, "生成数量无效");
+        } else if (requested != null && optionCount != null && !requested.equals(parseInteger(optionCount))) {
+            throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_INVALID, "生成数量配置冲突");
         }
         if (requested != null && requested <= 0) {
             throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_INVALID, "生成数量无效");
         }
+        if (requested != null && requested > 1 && request.getOptions() != null
+                && Boolean.TRUE.equals(request.getOptions().get("force_single"))) {
+            throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_INVALID, "生成数量配置冲突");
+        }
         int normalized = ImageBillingCapabilityHelper.normalizeExpectedCount(
                 modelConfig.getModelCode(), requested, modelConfig.getMaxOutputCount());
         if (requested != null && requested > normalized) {
-            log.warn("图片输出数量超过模型上限按现有规则截断: modelCode={}, max={}, actual={}",
+            log.warn("图片输出数量超过模型上限: modelCode={}, max={}, actual={}",
                     modelConfig.getModelCode(), normalized, requested);
+            throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_INVALID, "生成数量超限");
         }
         request.setExpectedImageCount(normalized);
         if (request.getOptions() != null && request.getOptions().containsKey("n")) {
-            request.getOptions().put("n", normalized);
+            Map<String, Object> options = new java.util.LinkedHashMap<>(request.getOptions());
+            options.put("n", normalized);
+            request.setOptions(options);
         }
     }
 
-    private static void validateTextCapability(AiModelConfigVo modelConfig) {
-        if (Boolean.FALSE.equals(modelConfig.getSupportsTextInput())) {
+    private static void validateTextCapability(AiModelConfigVo modelConfig, boolean textPresent) {
+        if (textPresent && Boolean.FALSE.equals(modelConfig.getSupportsTextInput())) {
             reject(modelConfig, "parameter", "全局prompt必填但模型禁止文本", "模型能力配置冲突");
         }
     }
@@ -171,9 +226,24 @@ public final class ModelInputCapabilityValidator {
 
     private static void validateVideoParameterCapabilities(AiModelConfigVo modelConfig,
                                                            MediaVideoGenerateRequest request) {
-        if (Boolean.FALSE.equals(modelConfig.getSupportsDuration())
+        boolean lipSync = isLipSyncRequest(modelConfig, request);
+        if (!lipSync && Boolean.FALSE.equals(modelConfig.getSupportsDuration())
                 && request.getDurationSeconds() != null) {
             reject(modelConfig, "parameter", "模型禁止时长参数", "模型不支持时长");
+        }
+        if (lipSync && request.getDurationSeconds() != null) {
+            JsonNode capability = ModelCapabilityResolver.parseCapability(modelConfig.getCapabilityJson());
+            int duration = request.getDurationSeconds();
+            Integer min = configuredInteger(capability, "referenceVideoMinDurationSeconds");
+            Integer max = configuredInteger(capability, "referenceVideoMaxDurationSeconds");
+            if ((min != null && duration < min) || (max != null && duration > max)) {
+                reject(modelConfig, "parameter", "对口型素材时长超限", "视频或音频时长不符合要求");
+            }
+        }
+        if (Boolean.FALSE.equals(modelConfig.getSupportsAspectRatio())
+                && !ModelCapabilityResolver.isVideoAspectRatioFollowInput(modelConfig)
+                && StrUtil.isNotBlank(request.getAspectRatio())) {
+            reject(modelConfig, "parameter", "模型禁止画面比例参数", "画面比例不支持");
         }
         String size = firstText(request.getOptions(), "resolution", "size", "imageSize", "image_size");
         if (Boolean.FALSE.equals(modelConfig.getSupportsSizePreset()) && StrUtil.isNotBlank(size)) {
@@ -186,6 +256,14 @@ public final class ModelInputCapabilityValidator {
         if (rule == null || !rule.isObject()) {
             return;
         }
+        validateMaximum(modelConfig, rule, "maxReferenceImages", inputs.imageCount(), "参考图片数量超限");
+        validateMinimum(rule, "minReferenceImages", inputs.imageCount(), "至少传%d张图片");
+        validateMinimum(rule, "minReferenceVideos", inputs.videoCount(), "至少传%d个视频");
+        validateMinimum(rule, "minReferenceAudios", inputs.audioCount(), "至少传%d个音频");
+        validateMaximum(modelConfig, rule, "maxReferenceVideos", inputs.videoCount(), "参考视频数量超限");
+        validateMaximum(modelConfig, rule, "maxReferenceAudios", inputs.audioCount(), "参考音频数量超限");
+        validateMaximum(modelConfig, rule, "maxReferenceMaterials",
+                inputs.imageCount() + inputs.videoCount() + inputs.audioCount(), "参考素材数量超限");
         if ((rule.has("enabled") && !rule.path("enabled").asBoolean(true))
                 || (rule.has("supported") && !rule.path("supported").asBoolean(true))) {
             reject(modelConfig, source, "场景未开启", "输入组合不支持");
@@ -245,6 +323,14 @@ public final class ModelInputCapabilityValidator {
         }
     }
 
+    private static void validateMaximum(AiModelConfigVo model, JsonNode rule, String key,
+                                        int actual, String message) {
+        Integer max = configuredInteger(rule, key);
+        if (max != null && max >= 0 && actual > max) {
+            reject(model, "count", key + ":" + actual + ">" + max, message);
+        }
+    }
+
     private static String resolveImageScene(AiModelConfigVo modelConfig,
                                             MediaImageGenerateRequest request, InputState inputs) {
         Map<String, Object> options = request.getOptions();
@@ -261,47 +347,6 @@ public final class ModelInputCapabilityValidator {
         if ("image_upscale".equals(mode)) return "imageUpscale";
         if ("image_to_image".equals(mode)) return "imageToImage";
         return inputs.has("image") ? "imageToImage" : "textToImage";
-    }
-
-    private static String resolveVideoScene(AiModelConfigVo modelConfig, JsonNode capability,
-                                            InputState inputs) {
-        String configured = ModelCapabilityResolver.readText(capability, "videoScenario");
-        String configuredScene = scenarioToScene(configured);
-        if (StrUtil.isNotBlank(configuredScene)) {
-            return configuredScene;
-        }
-        JsonNode scenes = capability.path("sceneRules");
-        String mode = normalizeMode(modelConfig.getGenerateMode());
-        boolean hasMedia = inputs.has("image") || inputs.has("video") || inputs.has("audio");
-        if (!hasMedia && declaresScene(capability, "textToVideo")) return "textToVideo";
-        if (inputs.has("lastFrame") || "first_last_frame".equals(mode)
-                || "start_end".equals(mode) || "start_end_to_video".equals(mode)) return "startEndToVideo";
-        if (inputs.has("firstFrame")) return "imageToVideo";
-        // 全模态模型常用一个 model_code 同时承载首帧和参考生视频；有真实参考媒体且能力只声明
-        // referenceToVideo 时，应让实际输入覆盖静态 generateMode=image_to_video。
-        if ((inputs.referenceImageCount() > 0 || inputs.referenceVideoCount() > 0
-                || inputs.referenceAudioCount() > 0)
-                && declaresScene(capability, "referenceToVideo")
-                && !declaresScene(capability, "videoToVideo")) {
-            return "referenceToVideo";
-        }
-        if (("image_to_video".equals(mode) || "first_frame".equals(mode))
-                && !isReferenceImageRole(capability)) return "imageToVideo";
-        if ("reference_to_video".equals(mode) || "reference".equals(mode)) return "referenceToVideo";
-        if ("video_to_video".equals(mode) || "video_edit".equals(mode)
-                || "video_extend".equals(mode) || "edit".equals(mode)
-                || "extend".equals(mode) || "lip_sync".equals(mode)) return "videoToVideo";
-        if (inputs.referenceImageCount() > 0 || inputs.referenceVideoCount() > 0
-                || inputs.referenceAudioCount() > 0) {
-            return "referenceToVideo";
-        }
-        if (inputs.has("video")) return "videoToVideo";
-        if (inputs.has("image") && scenes.has("referenceToVideo") && !scenes.has("imageToVideo")) {
-            return "referenceToVideo";
-        }
-        if (inputs.has("image")) return "imageToVideo";
-        if (!inputs.has("audio")) return "textToVideo";
-        return "referenceToVideo";
     }
 
     private static void validateInputRequirement(AiModelConfigVo modelConfig, InputState inputs,
@@ -329,7 +374,9 @@ public final class ModelInputCapabilityValidator {
         }
         if ("lip_sync".equals(normalizeMode(modelConfig == null ? null : modelConfig.getGenerateMode()))) {
             requireInput(modelConfig, inputs, "video", "generateMode");
-            requireInput(modelConfig, inputs, "audio", "generateMode");
+            if (!inputs.has("audio") && !inputs.has("text")) {
+                reject(modelConfig, "generateMode", "缺少音频或文本驱动", "缺少必要输入");
+            }
             return;
         }
         switch (scene) {
@@ -399,6 +446,7 @@ public final class ModelInputCapabilityValidator {
             case "first_last_frame", "firstlastframe", "start_end_to_video", "startendtovideo" -> "startEndToVideo";
             case "reference", "reference_to_video", "referencetovideo" -> "referenceToVideo";
             case "edit", "extend", "video_to_video", "videotovideo" -> "videoToVideo";
+            case "multi_frame", "multiframe" -> "multiFrame";
             default -> raw.trim();
         };
     }
@@ -479,6 +527,20 @@ public final class ModelInputCapabilityValidator {
         return false;
     }
 
+    private static boolean isLipSyncRequest(AiModelConfigVo modelConfig,
+                                            MediaVideoGenerateRequest request) {
+        if (modelConfig != null && ("lip_sync".equalsIgnoreCase(modelConfig.getGenerateMode())
+                || "lip_sync".equalsIgnoreCase(modelConfig.getCapabilityCode()))) {
+            return true;
+        }
+        if (request != null && "lip_sync".equalsIgnoreCase(request.getCapabilityCode())) {
+            return true;
+        }
+        Map<String, Object> options = request == null ? null : request.getOptions();
+        return options != null && options.containsKey("video_url")
+                && (options.containsKey("audio_url") || StrUtil.isNotBlank(request.getPrompt()));
+    }
+
     private static boolean hasNonBlankValue(Object raw) {
         if (raw instanceof List<?> list) return list.stream().anyMatch(ModelInputCapabilityValidator::hasNonBlankValue);
         return raw != null && StrUtil.isNotBlank(String.valueOf(raw));
@@ -500,12 +562,6 @@ public final class ModelInputCapabilityValidator {
         return "image_to_video".equals(mode) || "first_frame".equals(mode)
                 || "first_last_frame".equals(mode) || "start_end".equals(mode)
                 || "start_end_to_video".equals(mode);
-    }
-
-    private static boolean isReferenceImageRole(JsonNode capability) {
-        String imageRole = normalizeMode(ModelCapabilityResolver.readText(capability, "inputImageRole"));
-        return "reference".equals(imageRole) || "reference_image".equals(imageRole)
-                || "referenceimage".equals(imageRole);
     }
 
     private static Set<String> readInputNames(JsonNode node) {

@@ -130,7 +130,7 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
     /** 提示词最大长度 */
     private static final int MAX_PROMPT_LENGTH = 8000;
 
-    /** 用户补充文本最大长度（超出截断） */
+    /** 用户补充文本最大长度（超出拒绝） */
     private static final int MAX_USER_INPUT_LENGTH = 500;
 
     /** 负向提示词最大长度（超出报错） */
@@ -294,14 +294,14 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
                 StrUtil.isNotBlank(request.getImagePrompt()));
 
         AidAgent agent = loadAndAssertAgent(effectiveAgentCode);
-        AiModelConfigVo modelConfig = resolveModelConfig(request.getModelName(), agent);
+        AiModelConfigVo modelConfig = resolveModelConfig(request.getModelName(), agent,
+                resolveImageCapability(ids, single ? request.getImagePrompt() : null, userId));
         String modelCode = modelConfig.getModelCode();
         Long modelId = modelConfig.getId();
 
         // 档位/比例统一按模型 capability 白名单解析：传值未命中直接拦截，未传值回退模型默认档，
         // 并消解「显式像素档位」与「比例」的互斥，避免兜底档位挤掉用户选的比例
-        ModelCapabilityResolver.ImageSizeSpec sizeSpec = ModelCapabilityResolver.resolveImageSpec(
-                modelConfig, request.getSize(), request.getAspectRatio());
+        ModelCapabilityResolver.ImageSizeSpec sizeSpec = resolveImageSizeSpec(modelConfig, request);
         String resolvedSize = sizeSpec.size();
         String resolvedAspectRatio = sizeSpec.aspectRatio();
 
@@ -337,9 +337,9 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
         boolean single = ids.size() == 1;
         int perShotCount = single ? clampCount(request.getCount()) : 1;
         AidAgent agent = loadAndAssertAgent(StrUtil.blankToDefault(request.getAgentCode(), DEFAULT_AGENT_CODE));
-        AiModelConfigVo modelConfig = resolveModelConfig(request.getModelName(), agent);
-        ModelCapabilityResolver.ImageSizeSpec sizeSpec = ModelCapabilityResolver.resolveImageSpec(
-                modelConfig, request.getSize(), request.getAspectRatio());
+        AiModelConfigVo modelConfig = resolveModelConfig(request.getModelName(), agent,
+                resolveImageCapability(ids, single ? request.getImagePrompt() : null, userId));
+        ModelCapabilityResolver.ImageSizeSpec sizeSpec = resolveImageSizeSpec(modelConfig, request);
 
         List<BillingQuoteVO> items = new ArrayList<>();
         for (Long id : ids)
@@ -409,15 +409,19 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
         if (StrUtil.isNotBlank(request.getUserInputText())
                 && request.getUserInputText().length() > MAX_USER_INPUT_LENGTH)
         {
-            log.warn("分镜图生成 userInputText 超长截断: originLen={}", request.getUserInputText().length());
-            request.setUserInputText(request.getUserInputText().substring(0, MAX_USER_INPUT_LENGTH));
+            log.error("分镜图生成用户补充内容过长: len={}", request.getUserInputText().length());
+            throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_TOO_LONG, "用户补充内容过长，请精简");
         }
-        if (StrUtil.isNotBlank(request.getSize()) && StrUtil.isNotBlank(request.getAspectRatio()))
-        {
-            log.info("分镜图生成 size 与 aspectRatio 同时非空, size 优先");
-            request.setAspectRatio(null);
-        }
+        // 保留原始比例交给模型规格解析器校验，不能在解析模型前丢弃非法参数。
         return ids;
+    }
+
+    private ModelCapabilityResolver.ImageSizeSpec resolveImageSizeSpec(
+            AiModelConfigVo model, StoryboardImageGenerateRequest request) {
+        // TokenDance 在协议层把档位和画幅合成真实尺寸；其他供应商保留原有 size 优先语义。
+        String ratio = StrUtil.isNotBlank(request.getSize()) && !"tokendance".equalsIgnoreCase(model.getProviderCode())
+                ? null : request.getAspectRatio();
+        return ModelCapabilityResolver.resolveImageSpec(model, request.getSize(), ratio);
     }
 
     /** 分镜 ID 列表去重 + 基础非空校验 + 批量规模上限。 */
@@ -474,14 +478,19 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
         }
     }
 
-    /** 单镜头出图张数兜底：null→1，限制 [1,8]。 */
+    /** 单镜头出图张数：null→1，超出 [1,8] 直接拒绝。 */
     private int clampCount(Integer count)
     {
-        if (Objects.isNull(count) || count < MIN_COUNT)
+        if (Objects.isNull(count))
         {
             return MIN_COUNT;
         }
-        return Math.min(count, MAX_COUNT);
+        if (count < MIN_COUNT || count > MAX_COUNT)
+        {
+            log.info("分镜图片输出数量超限: min={}, max={}, actual={}", MIN_COUNT, MAX_COUNT, count);
+            throw new ServiceException("生成图片数量超限");
+        }
+        return count;
     }
 
     /** 把异常文案归一化为简短的镜头跳过原因（控制在 ~12 字内，供前端列表展示）。 */
@@ -641,13 +650,23 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
         List<StoryboardImageReferenceResolver.ResolvedImageReference> rich =
                 storyboardImageReferenceResolver.resolveRich(
                         prompt, storyboard.getProjectId(), userId, additionallyEnabledIds);
+        long validReferenceCount = rich.stream()
+                .filter(ref -> ref.getType() == StoryboardImageReferenceResolver.RefType.REFERENCE)
+                .filter(ref -> StrUtil.isNotBlank(ref.getUrl()))
+                .count();
+        if (maxReferenceImages >= 0 && validReferenceCount > maxReferenceImages)
+        {
+            log.info("分镜图参考图片数量超限: storyboardId={}, max={}, actual={}",
+                    storyboard.getId(), maxReferenceImages, validReferenceCount);
+            throw new ServiceException("参考图片数量超限");
+        }
         Map<Integer, Integer> compactByOriginal = new LinkedHashMap<>();
         int compact = 0;
         for (StoryboardImageReferenceResolver.ResolvedImageReference ref : rich)
         {
             if (ref.getType() == StoryboardImageReferenceResolver.RefType.REFERENCE
                     && StrUtil.isNotBlank(ref.getUrl())
-                    && compact < maxReferenceImages)
+                    && (maxReferenceImages < 0 || compact < maxReferenceImages))
             {
                 compactByOriginal.put(ref.getN(), ++compact);
             }
@@ -723,6 +742,12 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
      */
     private AiModelConfigVo resolveModelConfig(String requestModelCode, AidAgent agent)
     {
+        return resolveModelConfig(requestModelCode, agent, null);
+    }
+
+    private AiModelConfigVo resolveModelConfig(String requestModelCode, AidAgent agent,
+                                               String capabilityCode)
+    {
         if (Objects.isNull(agent))
         {
             log.error("解析智能体模型失败: agent 为空");
@@ -730,7 +755,8 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
         }
         if (StrUtil.isNotBlank(requestModelCode))
         {
-            AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(requestModelCode);
+            AiModelConfigVo modelConfig = StrUtil.isBlank(agent.getBizCategoryCode()) ? aiModelConfigService.selectByModelCode(requestModelCode)
+                    : aiModelConfigService.selectForBusiness(requestModelCode, agent.getBizCategoryCode(), capabilityCode);
             if (Objects.isNull(modelConfig))
             {
                 log.info("用户指定模型不可用: agentCode={}, requestModelCode={}",
@@ -752,7 +778,8 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
             log.error("智能体未配置默认模型: agentCode={}", agent.getAgentCode());
             throw new ServiceException("模型未配置");
         }
-        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(agentModelCode);
+        AiModelConfigVo modelConfig = StrUtil.isBlank(agent.getBizCategoryCode()) ? aiModelConfigService.selectByModelCode(agentModelCode)
+                : aiModelConfigService.selectForBusiness(agentModelCode, agent.getBizCategoryCode(), capabilityCode);
         if (Objects.isNull(modelConfig))
         {
             log.error("智能体配置的模型不可用: agentCode={}, modelCode={}", agent.getAgentCode(), agentModelCode);
@@ -766,6 +793,21 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
         }
         assertModelInBizCategoryPool(agentModelCode, modelConfig.getId(), agent);
         return modelConfig;
+    }
+
+    /** 无图片引用的分镜必须选择文生图能力；出现有效引用语法时才选择图生图能力。 */
+    private String resolveImageCapability(List<Long> storyboardIds, String singlePrompt, Long userId)
+    {
+        for (Long storyboardId : storyboardIds)
+        {
+            AidStoryboard storyboard = loadAndCheckStoryboard(storyboardId, userId);
+            String prompt = resolveImagePrompt(storyboardIds.size() == 1 ? singlePrompt : null, storyboard);
+            if (CollectionUtil.isNotEmpty(parseAtReferences(prompt)))
+            {
+                return "image_to_image";
+            }
+        }
+        return "text_to_image";
     }
 
     private void assertModelInBizCategoryPool(String modelCode, Long modelId, AidAgent agent)
@@ -1168,6 +1210,7 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
         inputMap.put("storyboardIds", acceptedIds);
         inputMap.put("agentCode", agentCode);
         inputMap.put("modelCode", modelCode);
+        inputMap.put("capabilityCode", modelConfig.getCapabilityCode());
         inputMap.put("aspectRatio", aspectRatio);
         inputMap.put("size", size);
         inputMap.put("negativePrompt", negativePrompt);
@@ -1738,7 +1781,12 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
         {
             throw new ServiceException("任务数据异常");
         }
-        AiModelConfigVo modelConfig = resolveModelConfig(modelCode, loadAndAssertAgent(agentCode));
+        String capabilityCode = input.path("capabilityCode").asText(null);
+        if (StrUtil.isBlank(capabilityCode))
+        {
+            capabilityCode = resolveImageCapability(new ArrayList<>(takeByShot.keySet()), null, userId);
+        }
+        AiModelConfigVo modelConfig = resolveModelConfig(modelCode, loadAndAssertAgent(agentCode), capabilityCode);
         String userInputText = input.hasNonNull("userInputText")
                 ? input.get("userInputText").asText() : null;
         List<PreparedShot> shots = new ArrayList<>();
@@ -1938,7 +1986,12 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
 
         // 重新解析智能体 + 模型（沿用原 agentCode / modelCode，强校验池）
         AidAgent agent = loadAndAssertAgent(agentCode);
-        AiModelConfigVo modelConfig = resolveModelConfig(modelCode, agent);
+        String capabilityCode = input.path("capabilityCode").asText(null);
+        if (StrUtil.isBlank(capabilityCode))
+        {
+            capabilityCode = resolveImageCapability(new ArrayList<>(remainByShot.keySet()), null, userId);
+        }
+        AiModelConfigVo modelConfig = resolveModelConfig(modelCode, agent, capabilityCode);
         String resolvedModelCode = modelConfig.getModelCode();
         Long modelId = modelConfig.getId();
 
@@ -2224,6 +2277,8 @@ public class StoryboardImageGenerationServiceImpl implements IStoryboardImageGen
         MediaImageGenerateRequest request = new MediaImageGenerateRequest();
         request.setPrompt(prompt);
         request.setModelName(modelConfig.getModelCode());
+        request.setCapabilityCode(modelConfig.getCapabilityCode());
+        request.setBusinessFuncCode(modelConfig.getBusinessFuncCode());
         request.setUserId(userId);
         request.setProjectId(storyboard.getProjectId());
         request.setEpisodeId(storyboard.getEpisodeId());

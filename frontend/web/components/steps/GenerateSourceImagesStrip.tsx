@@ -6,6 +6,7 @@ import { ShimmerImage } from '~/components/common/ShimmerImage'
 import { useReferenceAudioPreview } from '~/composables/useReferenceAudioPreview'
 import audioIconRaw from '~/assets/img/icon/music-nor.svg'
 import { assetUrl } from '~/utils/assetUrl'
+import { openVideoPreviewModal } from '~/utils/openVideoPreviewModal'
 import {
   getOverflowReferenceStripEntries,
   getPinnedReferenceStripEntries,
@@ -22,10 +23,12 @@ export type GenerateSourceStripImage = {
   thumbnail?: string
   title?: string
   name?: string
-  kind?: 'image' | 'audio'
+  kind?: 'image' | 'audio' | 'video'
   audioSource?: 'voice_sample' | 'upload'
   /** 音频时长（毫秒），素材条左上角展示秒数 */
   durationMs?: number
+  durationSeconds?: number
+  referenceVideoRecordId?: number
 }
 
 export interface GenerateSourceImagesStripProps {
@@ -121,6 +124,11 @@ export function GenerateSourceImagesStrip({
       void play(String(img.url || ''), audioPlayKey(img, idx))
       return
     }
+    if (img?.kind === 'video') {
+      const url = resolveSrc(img)
+      if (url) openVideoPreviewModal({ url, title: resolveAlt(img, idx) })
+      return
+    }
     if (!enablePreview) return
     if (img?.url || img?.thumbnail) {
       onPreview?.(img)
@@ -133,6 +141,7 @@ export function GenerateSourceImagesStrip({
       'generate-source-thumb',
       enablePreview || isAudioItem(img) ? 'is-clickable' : '',
       isAudioItem(img) ? 'generate-source-thumb--audio' : '',
+      img?.kind === 'video' ? 'generate-source-thumb--video' : '',
       isAudioPlaying(img, originalIndex) ? 'is-playing' : ''
     ]
       .filter(Boolean)
@@ -161,6 +170,14 @@ export function GenerateSourceImagesStrip({
             )}
             <span className="generate-source-audio-name">{resolveAlt(img, originalIndex)}</span>
           </>
+        ) : img?.kind === 'video' ? (
+          <video
+            className="generate-source-thumb__image"
+            src={resolveSrc(img)}
+            muted
+            playsInline
+            preload="metadata"
+          />
         ) : useShimmer ? (
           <ShimmerImage
             src={resolveSrc(img)}

@@ -1,8 +1,7 @@
 /**
  * 全站浮层/弹窗 Portal 挂载点。
  *
- * 直接 portal 到 document.body 时，与 React 19 根节点争用 body 子节点，
- * 在 home 壳层内多次 client 路由切换后可能触发 removeChild(null) 并留下透明遮罩挡点击。
+ * 容器由根布局保留，浮层不依赖当前页面的布局与卸载时机。
  * 统一挂到独立 #aid-portal-root，容器本身 pointer-events: none，仅子节点可交互。
  */
 export const AID_PORTAL_ROOT_ID = 'aid-portal-root'

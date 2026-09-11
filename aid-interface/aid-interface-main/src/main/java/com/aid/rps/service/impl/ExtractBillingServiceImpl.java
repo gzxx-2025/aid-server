@@ -1,6 +1,7 @@
 package com.aid.rps.service.impl;
 
 import com.aid.common.error.TaskErrorSnapshot;
+import com.aid.tokendance.provider.common.TokenDanceResponseMapper;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -1489,7 +1490,8 @@ public class ExtractBillingServiceImpl implements IExtractBillingService
                 // 聚合只读取关联、状态、模型和计费快照字段，禁止扫描媒体任务无关大字段。
                 .select(AidMediaTask::getId, AidMediaTask::getModelName,
                         AidMediaTask::getStatus, AidMediaTask::getBillingSnapshotJson,
-                        AidMediaTask::getUpstreamAcceptTime)
+                        AidMediaTask::getUpstreamAcceptTime, AidMediaTask::getProtocol,
+                        AidMediaTask::getErrorDetailJson)
                 .eq(AidMediaTask::getBizTaskId, taskId)
                 .eq(AidMediaTask::getBizTaskType,
                         StrUtil.blankToDefault(mediaBizTaskType, MEDIA_BIZ_TYPE_EXTRACT))
@@ -1500,7 +1502,8 @@ public class ExtractBillingServiceImpl implements IExtractBillingService
             // 仅旧父计费的多调用资产任务需要 requestJson 中的紧凑 callIdentity 做逐次估算匹配。
             query.select(AidMediaTask::getId, AidMediaTask::getModelName,
                     AidMediaTask::getStatus, AidMediaTask::getBillingSnapshotJson,
-                    AidMediaTask::getUpstreamAcceptTime, AidMediaTask::getRequestJson);
+                    AidMediaTask::getUpstreamAcceptTime, AidMediaTask::getRequestJson,
+                    AidMediaTask::getProtocol, AidMediaTask::getErrorDetailJson);
         }
         if (usageStartMediaTaskId > 0L)
         {
@@ -1536,7 +1539,9 @@ public class ExtractBillingServiceImpl implements IExtractBillingService
             {
                 String modelCode = StrUtil.trim(mediaTask.getModelName());
                 boolean succeeded = Objects.equals(MEDIA_TASK_STATUS_SUCCEEDED, mediaTask.getStatus());
-                boolean providerStarted = mediaTask.getUpstreamAcceptTime() != null;
+                boolean providerStarted = mediaTask.getUpstreamAcceptTime() != null
+                        && !TokenDanceResponseMapper.isConfirmedRejection(
+                                mediaTask.getProtocol(), mediaTask.getErrorDetailJson());
                 boolean terminal = succeeded || Objects.equals(MEDIA_TASK_STATUS_FAILED, mediaTask.getStatus());
                 if (!terminal)
                 {

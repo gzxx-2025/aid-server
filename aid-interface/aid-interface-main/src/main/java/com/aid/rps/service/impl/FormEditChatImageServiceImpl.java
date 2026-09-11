@@ -2,6 +2,7 @@ package com.aid.rps.service.impl;
 
 import com.aid.media.util.MediaTaskPayloadSanitizer;
 import com.aid.common.error.ErrorNormalizer;
+import com.aid.common.error.TaskErrorCode;
 import com.aid.common.error.TaskErrorSnapshot;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -183,6 +184,9 @@ public class FormEditChatImageServiceImpl implements IFormEditChatImageService
     @Autowired
     private IAiModelConfigService aiModelConfigService;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.aid.model.definition.BusinessModelResolver businessModelResolver;
+
     @Autowired
     private IMediaGenerationService mediaGenerationService;
 
@@ -233,7 +237,8 @@ public class FormEditChatImageServiceImpl implements IFormEditChatImageService
         EditChatContext ctx = loadAndValidateOwnership(request.getFormId(), userId);
 
         AidAiModel model = validateEditChatModel(request.getModelCode());
-        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(model.getModelCode());
+        AiModelConfigVo modelConfig = aiModelConfigService.selectForBusiness(model.getModelCode(),
+                FUNC_CODE_IMAGE_EDIT, resolveImageCapability(request.referenceImagesAsList()));
         if (Objects.isNull(modelConfig))
         {
             log.error("编辑弹窗生图模型配置缺失: modelCode={}", model.getModelCode());
@@ -328,7 +333,8 @@ public class FormEditChatImageServiceImpl implements IFormEditChatImageService
         validateBasicRequest(request, userId, false);
         EditChatContext ctx = loadAndValidateOwnership(request.getFormId(), userId);
         AidAiModel model = validateEditChatModel(request.getModelCode());
-        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(model.getModelCode());
+        AiModelConfigVo modelConfig = aiModelConfigService.selectForBusiness(model.getModelCode(),
+                FUNC_CODE_IMAGE_EDIT, resolveImageCapability(request.referenceImagesAsList()));
         if (modelConfig == null)
         {
             throw new RuntimeException("模型无效");
@@ -537,9 +543,9 @@ public class FormEditChatImageServiceImpl implements IFormEditChatImageService
      */
     private static final class BatchAllFailedException extends RuntimeException
     {
-        BatchAllFailedException(String message)
+        BatchAllFailedException(String message, Throwable cause)
         {
-            super(message);
+            super(message, cause);
         }
     }
 
@@ -697,7 +703,7 @@ public class FormEditChatImageServiceImpl implements IFormEditChatImageService
             throw new RuntimeException("参考图不能空");
         }
         // 远程合法性校验：非法 → 整批拒绝，不进任务系统 / 计费 / 媒体主链路
-        // 张数上限由模型 capability_json.maxReferenceImages 决定，超出部分由 Provider 层统一截断，此处不做上限拦截
+        // 张数上限由统一媒体能力校验按 capability_json.maxReferenceImages 严格拒绝，禁止 Provider 静默截断。
         for (String url : referenceImages)
         {
             if (StrUtil.isBlank(url))
@@ -821,53 +827,7 @@ public class FormEditChatImageServiceImpl implements IFormEditChatImageService
      */
     private AidAiModel validateEditChatModel(String modelCode)
     {
-        LambdaQueryWrapper<AidAiModelFuncConfig> cfgQuery = Wrappers.lambdaQuery();
-        cfgQuery.select(AidAiModelFuncConfig::getId, AidAiModelFuncConfig::getFuncCode,
-                AidAiModelFuncConfig::getModelIds, AidAiModelFuncConfig::getStatus,
-                AidAiModelFuncConfig::getDelFlag);
-        cfgQuery.eq(AidAiModelFuncConfig::getFuncCode, FUNC_CODE_IMAGE_EDIT);
-        cfgQuery.eq(AidAiModelFuncConfig::getStatus, STATUS_NORMAL);
-        cfgQuery.eq(AidAiModelFuncConfig::getDelFlag, DEL_FLAG_NORMAL);
-        cfgQuery.last("limit 1");
-        AidAiModelFuncConfig cfg = aidAiModelFuncConfigService.getOne(cfgQuery, false);
-        if (Objects.isNull(cfg))
-        {
-            log.error("编辑弹窗生图失败，未配置功能池: funcCode={}", FUNC_CODE_IMAGE_EDIT);
-            throw new RuntimeException("功能未开放");
-        }
-        List<Long> allowedIds = parseModelIdsJson(cfg.getModelIds());
-        if (CollectionUtil.isEmpty(allowedIds))
-        {
-            log.error("编辑弹窗生图失败，功能池为空: funcCode={}", FUNC_CODE_IMAGE_EDIT);
-            throw new RuntimeException("功能未开放");
-        }
-
-        LambdaQueryWrapper<AidAiModel> modelQuery = Wrappers.lambdaQuery();
-        modelQuery.select(AidAiModel::getId, AidAiModel::getModelCode,
-                AidAiModel::getModelName, AidAiModel::getModelType,
-                AidAiModel::getStatus, AidAiModel::getDelFlag);
-        modelQuery.eq(AidAiModel::getModelCode, modelCode);
-        modelQuery.eq(AidAiModel::getStatus, STATUS_NORMAL);
-        modelQuery.eq(AidAiModel::getDelFlag, DEL_FLAG_NORMAL);
-        modelQuery.last("limit 1");
-        AidAiModel model = aidAiModelService.getOne(modelQuery, false);
-        if (Objects.isNull(model))
-        {
-            log.info("编辑弹窗生图失败，模型不存在或已停用: modelCode={}", modelCode);
-            throw new RuntimeException("模型无效");
-        }
-        if (!Objects.equals(MODEL_TYPE_IMAGE, model.getModelType()))
-        {
-            log.info("编辑弹窗生图失败，模型类型不匹配: modelCode={}, modelType={}", modelCode, model.getModelType());
-            throw new RuntimeException("模型不符");
-        }
-        if (!allowedIds.contains(model.getId()))
-        {
-            log.info("编辑弹窗生图失败，模型不在功能池: modelCode={}, modelId={}, pool={}",
-                    modelCode, model.getId(), allowedIds);
-            throw new RuntimeException("模型不符");
-        }
-        return model;
+        return businessModelResolver.resolve(FUNC_CODE_IMAGE_EDIT, modelCode, "image");
     }
 
     /**
@@ -881,37 +841,8 @@ public class FormEditChatImageServiceImpl implements IFormEditChatImageService
 
         CapabilityVO capability = parseCapabilityJsonStrict(modelConfig.getCapabilityJson(), modelCode, formId, userId);
 
-        List<String> aspectOptions = capability.getAspectRatioOptions();
-        if (CollectionUtil.isEmpty(aspectOptions))
-        {
-            log.info("编辑弹窗生图比例能力缺失: formId={}, userId={}, modelCode={}", formId, userId, modelCode);
-            throw new RuntimeException("比例不符");
-        }
-        String requestedAspect = request.getAspectRatio().trim();
-        boolean aspectMatched = Objects.nonNull(
-                ModelCapabilityResolver.matchOption(aspectOptions, requestedAspect));
-        if (!aspectMatched)
-        {
-            log.info("编辑弹窗生图比例不支持: formId={}, userId={}, modelCode={}, aspectRatio={}, supported={}",
-                    formId, userId, modelCode, requestedAspect, aspectOptions);
-            throw new RuntimeException("比例不符");
-        }
-
-        List<String> sizeOptions = capability.getSizeOptions();
-        if (CollectionUtil.isEmpty(sizeOptions))
-        {
-            log.info("编辑弹窗生图清晰度能力缺失: formId={}, userId={}, modelCode={}", formId, userId, modelCode);
-            throw new RuntimeException("清晰度不符");
-        }
-        String requestedSize = request.getSize().trim();
-        boolean sizeMatched = Objects.nonNull(
-                ModelCapabilityResolver.matchOption(sizeOptions, requestedSize));
-        if (!sizeMatched)
-        {
-            log.info("编辑弹窗生图清晰度不支持: formId={}, userId={}, modelCode={}, size={}, supported={}",
-                    formId, userId, modelCode, requestedSize, sizeOptions);
-            throw new RuntimeException("清晰度不符");
-        }
+        ModelCapabilityResolver.validateImageOutputSelection(modelConfig,
+                request.getSize(), request.getAspectRatio());
 
         Integer maxOutput = modelConfig.getMaxOutputCount();
         if (Objects.isNull(maxOutput) || maxOutput <= 0)
@@ -935,7 +866,7 @@ public class FormEditChatImageServiceImpl implements IFormEditChatImageService
 
         //    - refCount == 0：走文生图路径（仅 chat 模式可能为 0），模型必须 supportsTextInput=true
         //    - refCount >= 1：图生图 / 多图融合，模型必须 supportsImageInput=true
-        //    注：参考图张数上限由模型 capability_json.maxReferenceImages 决定，超出由 Provider 层统一截断，此处不做上限拦截
+        //    注：参考图张数上限由统一媒体能力校验按 capability_json.maxReferenceImages 严格拒绝。
         int refCount = CollectionUtil.isEmpty(request.referenceImagesAsList()) ? 0 : request.referenceImagesAsList().size();
         Boolean supportsText = modelConfig.getSupportsTextInput();
         Boolean supportsImage = modelConfig.getSupportsImageInput();
@@ -997,56 +928,7 @@ public class FormEditChatImageServiceImpl implements IFormEditChatImageService
     }
 
     /** 解析 {@code aid_ai_model_func_config.model_ids} JSON 数组字符串（复用多机位相同实现）。 */
-    private List<Long> parseModelIdsJson(String modelIdsJson)
-    {
-        List<Long> ordered = new ArrayList<>();
-        if (StrUtil.isBlank(modelIdsJson))
-        {
-            return ordered;
-        }
-        try
-        {
-            List<?> raw = JSONUtil.parseArray(modelIdsJson).toList(Object.class);
-            for (Object item : raw)
-            {
-                if (Objects.isNull(item))
-                {
-                    continue;
-                }
-                Long id = null;
-                if (item instanceof Number)
-                {
-                    id = ((Number) item).longValue();
-                }
-                else
-                {
-                    String s = item.toString().trim();
-                    if (StrUtil.isBlank(s))
-                    {
-                        continue;
-                    }
-                    try
-                    {
-                        id = Long.parseLong(s);
-                    }
-                    catch (NumberFormatException ignore)
-                    {
-                        // 非数字元素跳过
-                    }
-                }
-                if (Objects.nonNull(id) && id > 0L && !ordered.contains(id))
-                {
-                    ordered.add(id);
-                }
-            }
-        }
-        catch (Exception e)
-        {
-            log.error("解析编辑弹窗生图功能池 modelIds 失败: jsonLen={}, err={}",
-                    StrUtil.length(modelIdsJson), e.getMessage());
-        }
-        return ordered;
-    }
+
 
     /** 最终 prompt 拼装：
      * 原文保留 + 图片比例 + 参考图 URL 列表一起拼进最终 prompt，让下游模型能拿到完整上下文。
@@ -1189,8 +1071,9 @@ public class FormEditChatImageServiceImpl implements IFormEditChatImageService
                 //   ② 单轮异常不再整体失败 —— 已成功的图继续保留，批次末尾再按"部分成功 / 全部成功 / 全部失败"统一收尾。
                 List<Long> imageIds = new ArrayList<>();
                 List<Map<String, Object>> items = new ArrayList<>();
-                // 批次内"累计失败"收集：每轮失败仅记录，不再中断循环；末尾统一决定终态
+                // 批次内“累计失败”收集：每轮失败仅记录，不再中断循环；末尾统一决定终态
                 List<Map<String, Object>> failedItems = new ArrayList<>();
+                Throwable firstFailure = null;
                 FormImageSortBaseline baseline = resolveFormImageBaseline(form.getId());
                 for (int i = 0; i < imageCount; i++)
                 {
@@ -1238,6 +1121,10 @@ public class FormEditChatImageServiceImpl implements IFormEditChatImageService
                         failItem.put("message", TaskErrorPresentation.toUserMessage(
                                 modelCode, perItemEx.getMessage(), "生成失败"));
                         failedItems.add(failItem);
+                        if (firstFailure == null)
+                        {
+                            firstFailure = perItemEx;
+                        }
                         // 单张失败也推一次 progress：分子走"已处理张数"而非"成功张数"，
                         // 保证前端始终能看到"1/4 → 2/4 → 3/4 → 4/4"单调递增，不会卡在同一分子
                         pushEditChatStepProgress(taskId, form.getId(), imageCount,
@@ -1255,7 +1142,8 @@ public class FormEditChatImageServiceImpl implements IFormEditChatImageService
                                 taskId, form.getId(), failedItems);
                         // 对前端只透出归一化文案，原始底层异常仅保留在服务端日志。
                         String userFacing = pickFirstUserFacingMessage(failedItems, "生成失败");
-                        throw new BatchAllFailedException(userFacing);
+                        // 批次全部失败时保留首个实际失败为 cause，供统一错误归一层读取子任务错误快照。
+                        throw new BatchAllFailedException(userFacing, firstFailure);
                     }
                 }
 
@@ -1382,6 +1270,7 @@ public class FormEditChatImageServiceImpl implements IFormEditChatImageService
     {
         MediaImageGenerateRequest imageRequest = new MediaImageGenerateRequest();
         imageRequest.setModelName(modelCode);
+        imageRequest.setBusinessFuncCode(FUNC_CODE_IMAGE_EDIT);
         imageRequest.setUserId(userId);
         imageRequest.setPrompt(finalPrompt);
         imageRequest.setProjectId(form.getProjectId());
@@ -1389,7 +1278,7 @@ public class FormEditChatImageServiceImpl implements IFormEditChatImageService
 
         Map<String, Object> options = new HashMap<>();
         // 参考图：顶层 referenceImageUrl 固定带首张（兼容仅识别单图字段的 Provider），
-        // 完整多图列表通过 options.referenceImages 下发；具体可用张数由各 Provider 按 capability_json.maxReferenceImages 截断。
+        // 完整多图列表通过 options.referenceImages 下发；统一能力层会在 Provider 调用前严格校验数量上限。
         if (CollectionUtil.isNotEmpty(referenceImages))
         {
             // DB 侧存相对路径，下游 provider 需完整可访问 URL，这里统一拼成完整URL
@@ -1411,17 +1300,30 @@ public class FormEditChatImageServiceImpl implements IFormEditChatImageService
         imageRequest.setBizTaskId(bizTaskId);
         imageRequest.setBizTaskType(TASK_TYPE_FORM_EDIT_CHAT);
 
-        AiModelConfigVo defaultModelConfig = aiModelConfigService.selectByModelCode(modelCode);
+        AiModelConfigVo defaultModelConfig = aiModelConfigService.selectForBusiness(modelCode,
+                FUNC_CODE_IMAGE_EDIT, resolveImageCapability(referenceImages));
         if (Objects.isNull(defaultModelConfig))
         {
             log.error("编辑弹窗生图模型配置缺失: modelCode={}", modelCode);
             throw new RuntimeException("模型无效");
         }
+        // 业务池可以为同一模型绑定多个能力，必须把本次根据真实素材选中的能力带入统一媒体链路。
+        // 否则报价/提交阶段会再次按功能池默认能力解析，把无参考图请求误选为图生图。
+        imageRequest.setCapabilityCode(defaultModelConfig.getCapabilityCode());
         // 应用模型能力校验与默认参数。
         AgentModelDefault agentModel = new AgentModelDefault(modelCode);
         agentDefaultParamsApplier.applyToImage(agentModel, imageRequest, defaultModelConfig);
 
         return imageRequest;
+    }
+
+    /**
+     * 对话作图同一入口同时承载文生图和图生图，必须按真实输入选择协议能力。
+     * 不能让功能池的 image_to_image 默认值覆盖无参考图的 chat 请求。
+     */
+    private String resolveImageCapability(List<String> referenceImages)
+    {
+        return CollectionUtil.isEmpty(referenceImages) ? "text_to_image" : "image_to_image";
     }
 
     /**
@@ -1460,7 +1362,7 @@ public class FormEditChatImageServiceImpl implements IFormEditChatImageService
             String errorMsg = imageResponse.getErrorMessage();
             log.error("编辑弹窗生图失败: mediaTaskId={}, status={}, error={}",
                     imageResponse.getTaskId(), imageResponse.getStatus(), errorMsg);
-            throw new RuntimeException(StrUtil.isNotBlank(errorMsg) ? errorMsg : "图片生成失败");
+            throw mediaTaskFailure(imageResponse, "图片生成失败");
         }
 
         Long mediaTaskId = imageResponse.getTaskId();
@@ -1508,11 +1410,31 @@ public class FormEditChatImageServiceImpl implements IFormEditChatImageService
             {
                 String errorMsg = polled.getErrorMessage();
                 log.error("编辑弹窗生图异步失败: mediaTaskId={}, error={}", mediaTaskId, errorMsg);
-                throw new RuntimeException(StrUtil.isNotBlank(errorMsg) ? errorMsg : "图片生成失败");
+                throw mediaTaskFailure(polled, "图片生成失败");
             }
         }
         log.error("编辑弹窗生图异步超时: mediaTaskId={}, timeout={}s", mediaTaskId, IMAGE_POLL_TIMEOUT_SECONDS);
         throw new RuntimeException("图片生成超时");
+    }
+
+    /** 保留子媒体任务已归类的错误码，避免父任务误判为平台内部失败。 */
+    private RuntimeException mediaTaskFailure(MediaTaskResponse response, String fallback)
+    {
+        String errorCode = response == null ? null : response.getErrorCode();
+        if (StrUtil.isNotBlank(errorCode))
+        {
+            try
+            {
+                return TaskErrorPresentation.fromCode(TaskErrorCode.valueOf(errorCode),
+                        StrUtil.blankToDefault(response.getUserMessage(), fallback));
+            }
+            catch (IllegalArgumentException ignored)
+            {
+                log.warn("编辑弹窗生图收到未识别的媒体任务错误码: errorCode={}", errorCode);
+            }
+        }
+        String errorMessage = response == null ? null : response.getErrorMessage();
+        return TaskErrorPresentation.toServiceException(errorMessage, fallback);
     }
     /**
      * 落地一条 {@code aid_role_prop_scene_form_image}（source_type = ai_edit_chat）。

@@ -16,6 +16,8 @@ import { looksLikeMarkdown,scriptApiTextToEditorHtml } from '~/utils/htmlPlain'
 import { collectReferenceAudioIds } from '~/utils/referenceMediaItem'
 import {
 collectStoryboardPromptAssets,
+collectPromptVideoAssetsFromMedia,
+mergePromptAssets,
 patchEmptyResolvedPromptAssets,
 storyboardPromptHtmlToPlain,
 storyboardPromptMarkdownPlainToHtml,
@@ -26,6 +28,7 @@ import {
 prependDefaultReferenceImageToPlainPrompt,
 promptPlainHasAssetPlaceholders
 } from '~/utils/storyboardPromptDefaultRefInject'
+import { syncVideoPlaceholdersIntoPrompt } from '~/utils/storyboardVideoReferenceVideoWire'
 import {
 resolveStoryboardImageAssetsFromPlain
 } from '~/utils/storyboardPromptGenerateFlow'
@@ -255,7 +258,6 @@ export function useVideoModalPromptEditorOps(ctx: VideoModalCtx) {
     } else if (injectedAsset) {
       resolvedAssets = [injectedAsset]
     }
-
     ctx.videoPromptProgrammaticSyncDepth.set(ctx.videoPromptProgrammaticSyncDepth.get() + 1)
     try {
       applyVideoParamSelectionsFromPlain(text)
@@ -288,7 +290,10 @@ export function useVideoModalPromptEditorOps(ctx: VideoModalCtx) {
     ticket = beginVideoPromptApply('multiParam', Number(ctx.currentStoryboardId()))
   ): Promise<boolean> {
     if (!canApplyVideoPrompt('multiParam', ticket)) return false
-    const raw = String(plain || '').trim()
+    const raw = syncVideoPlaceholdersIntoPrompt(
+      String(plain || '').trim(),
+      ctx.referenceVideos.get()
+    )
     if (!raw) {
       if (!canApplyVideoPrompt('multiParam', ticket)) return false
       ctx.resolvedMultiParamPromptAssets.set([])
@@ -331,6 +336,10 @@ export function useVideoModalPromptEditorOps(ctx: VideoModalCtx) {
       )
     } else if (injectedAsset) {
       resolvedAssets = [injectedAsset]
+    }
+    const localVideoAssets = collectPromptVideoAssetsFromMedia(ctx.referenceVideos.get())
+    if (localVideoAssets.length) {
+      resolvedAssets = mergePromptAssets(resolvedAssets, localVideoAssets)
     }
 
     ctx.videoPromptProgrammaticSyncDepth.set(ctx.videoPromptProgrammaticSyncDepth.get() + 1)

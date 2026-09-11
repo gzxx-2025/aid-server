@@ -12,6 +12,7 @@ import com.aid.media.dto.MediaVideoGenerateRequest;
 import com.aid.media.provider.MinimaxH3StatusMapper;
 import com.aid.media.provider.MinimaxH3VideoRequestBuilder;
 import com.aid.media.provider.ProviderResponseHelper;
+import com.aid.media.provider.ProviderErrorSanitizer;
 import com.aid.media.provider.ProviderSubmitResult;
 import com.aid.media.provider.ProviderTaskResult;
 import com.aid.media.provider.VideoProviderClient;
@@ -56,7 +57,7 @@ public class MinimaxH3VideoProviderClient implements VideoProviderClient {
         Map<String, Object> body = MinimaxH3VideoRequestBuilder.buildSubmissionBody(modelConfig, request);
         HttpResult response;
         try {
-            response = doPost(buildSubmitUrl(modelConfig), modelConfig.getApiKey(), JSONUtil.toJsonStr(body));
+            response = doPost(buildSubmitUrl(modelConfig), modelConfig.getApiKey(), JSONUtil.toJsonStr(com.aid.model.definition.ModelConfiguredRequestBody.apply(modelConfig, body, request)));
         } catch (ServiceException ex) {
             throw ex;
         } catch (Exception ex) {
@@ -84,20 +85,22 @@ public class MinimaxH3VideoProviderClient implements VideoProviderClient {
             return anomaly(null, "上游查询暂不可用", null);
         }
         return parseQueryResponse(response.statusCode(), response.body(), providerTaskId,
-            modelConfig.getModelCode());
+            StrUtil.blankToDefault(modelConfig.getCapabilityCode(), modelConfig.getModelCode()));
     }
 
     static ProviderSubmitResult parseSubmitResponse(int httpStatus, String raw) {
         if (httpStatus < 200 || httpStatus >= 300 || !JSONUtil.isTypeJSON(raw)) {
             log.warn("MiniMax H3 submit rejected, httpStatus={}, responseLength={}",
                 httpStatus, StrUtil.length(raw));
-            throw new ServiceException("上游提交失败");
+            return ProviderSubmitResult.builder()
+                    .rawResponse(ProviderErrorSanitizer.fromHttp(httpStatus, raw)).build();
         }
         JsonNode root = ProviderResponseHelper.readTree(raw);
         String taskId = ProviderResponseHelper.readText(root, "task_id");
         if (StrUtil.isBlank(taskId)) {
             log.warn("MiniMax H3 submit response missing task_id, responseLength={}", StrUtil.length(raw));
-            throw new ServiceException("上游提交失败");
+            return ProviderSubmitResult.builder()
+                    .rawResponse(ProviderErrorSanitizer.safeMessage(raw, "上游响应缺少任务标识")).build();
         }
         return ProviderSubmitResult.builder().providerTaskId(taskId).rawResponse(raw).build();
     }
@@ -209,17 +212,20 @@ public class MinimaxH3VideoProviderClient implements VideoProviderClient {
      */
     private static InputUsage resolveSuccessfulInputUsage(String modelCode, Integer videoSeconds,
                                                            Integer imageCount) {
-        if (MinimaxH3Constants.MODEL_T2V.equals(modelCode)) {
+        if (MinimaxH3Constants.MODEL_T2V.equals(modelCode) || "text_to_video".equals(modelCode)) {
             return knownSceneInputUsage(videoSeconds, imageCount, 0);
         }
         if (MinimaxH3Constants.MODEL_I2V_FIRST.equals(modelCode)
-            || MinimaxH3Constants.MODEL_I2V_LAST.equals(modelCode)) {
+            || MinimaxH3Constants.MODEL_I2V_LAST.equals(modelCode)
+            || "image_to_video".equals(modelCode) || "last_frame_to_video".equals(modelCode)) {
             return knownSceneInputUsage(videoSeconds, imageCount, 1);
         }
-        if (MinimaxH3Constants.MODEL_I2V_FIRST_LAST.equals(modelCode)) {
+        if (MinimaxH3Constants.MODEL_I2V_FIRST_LAST.equals(modelCode)
+            || "start_end_to_video".equals(modelCode)) {
             return knownSceneInputUsage(videoSeconds, imageCount, 2);
         }
-        if (MinimaxH3Constants.MODEL_REFERENCE.equals(modelCode)) {
+        if (MinimaxH3Constants.MODEL_REFERENCE.equals(modelCode)
+            || "reference_to_video".equals(modelCode)) {
             return videoSeconds != null && imageCount != null
                 ? new InputUsage(videoSeconds, imageCount) : null;
         }

@@ -81,6 +81,7 @@ export default function ProviderDialog({ open, title, data, onCancel, onOk }: Pr
   // 监听 providerCode 让 thinking 自动预览
   const providerCode = Form.useWatch('providerCode', form);
   const normalizedProviderCode = normalizeCallbackProviderCode(providerCode);
+  const isTokenDance = normalizedProviderCode === 'tokendance';
   const callbackPath = resolveProviderCallbackPath(providerCode);
   const callbackExample = `https://api.example.com${callbackPath}`;
   // 监听服务商名 / 文档链接 / 申请链接（用于头部展示与按钮）
@@ -230,9 +231,27 @@ export default function ProviderDialog({ open, title, data, onCancel, onOk }: Pr
               forceRender: true,
               children: (
                 <div style={tabBodyStyle}>
+                  {!data?.id && (
+                    <Alert
+                      type="info"
+                      showIcon
+                      style={{ marginBottom: 16 }}
+                      message="TokenDance 已作为推荐供应商内置"
+                      description="无需重复新增。请从页面顶部推荐区进入模型目录或授权与账户；此处用于添加其他服务商。"
+                    />
+                  )}
+                  {isTokenDance && (
+                    <Alert
+                      type="success"
+                      showIcon
+                      style={{ marginBottom: 16 }}
+                      message="TokenDance 官方供应商配置"
+                      description="API Key 由保存后的“账户”入口通过 S256 PKCE 安全授权；协议列表由本地模型目录逐模型展示和选择，无需在这里手写协议或 JSON。"
+                    />
+                  )}
                   <Row gutter={16}>
                     <Col span={12}><Form.Item name="providerName" label="服务商名称" rules={[{ required: true }]}><Input placeholder="如: 字节火山引擎" /></Form.Item></Col>
-                    <Col span={12}><Form.Item name="providerCode" label="服务商编码" rules={[{ required: true }]} tooltip="系统内路由标识，volcengine / dashscope / openai 等"><Input placeholder="如: bytedance" /></Form.Item></Col>
+                    <Col span={12}><Form.Item name="providerCode" label="服务商编码" rules={[{ required: true }]} tooltip={isTokenDance ? 'TokenDance 的稳定路由编码，创建后不可修改。' : '系统内路由标识，volcengine / dashscope / openai 等'}><Input disabled={!!data?.id && isTokenDance} placeholder="如: bytedance" /></Form.Item></Col>
                     <Col span={24}>
                       <Form.Item
                         name="logoUrl"
@@ -261,18 +280,26 @@ export default function ProviderDialog({ open, title, data, onCancel, onOk }: Pr
                       </Form.Item>
                     </Col>
                     <Col span={12}>
-                      <Form.Item name="apiKey" label="API 密钥" rules={[{ required: !data?.id }]}>
-                        <Input.Password placeholder={data?.id ? '已配置（不显示，留空不修改）' : '官方 API 密钥(加密存储)'} visibilityToggle={false} />
-                      </Form.Item>
-                      {apiKeyApplyUrl && (
-                        <Button
-                          type="link"
-                          size="small"
-                          style={{ padding: 0, marginTop: -12, marginBottom: 8 }}
-                          onClick={() => window.open(apiKeyApplyUrl, '_blank', 'noopener,noreferrer')}
-                        >
-                          去申请 →
-                        </Button>
+                      {isTokenDance ? (
+                        <Form.Item label="API 密钥">
+                          <Input disabled value="保存供应商后，通过“账户”入口 OAuth 授权" />
+                        </Form.Item>
+                      ) : (
+                        <>
+                          <Form.Item name="apiKey" label="API 密钥" rules={[{ required: !data?.id }]}>
+                            <Input.Password placeholder={data?.id ? '已配置（不显示，留空不修改）' : '官方 API 密钥(加密存储)'} visibilityToggle={false} />
+                          </Form.Item>
+                          {apiKeyApplyUrl && (
+                            <Button
+                              type="link"
+                              size="small"
+                              style={{ padding: 0, marginTop: -12, marginBottom: 8 }}
+                              onClick={() => window.open(apiKeyApplyUrl, '_blank', 'noopener,noreferrer')}
+                            >
+                              去申请 →
+                            </Button>
+                          )}
+                        </>
                       )}
                     </Col>
                     <Col span={12}><Form.Item name="apiSecret" label="扩展密钥" tooltip={normalizedProviderCode === 'kling' ? '可灵启用回调优先时必须填写 whsec_ Webhook Secret；轮换期可用逗号或换行分隔多个。' : '按供应商协议填写。Webhook 服务商可在此填写签名密钥。'} rules={[{ required: !data?.id && normalizedProviderCode === 'kling' && strategy.supportsCallback && strategy.dispatchMode === 'CALLBACK_FIRST', message: '可灵回调优先模式必须填写 whsec_ 签名密钥' }]}><Input.Password placeholder={data?.id ? '已配置则留空不修改' : '扩展密钥(选填)'} visibilityToggle={false} /></Form.Item></Col>

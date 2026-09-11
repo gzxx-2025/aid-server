@@ -9,6 +9,7 @@ usePromptDictionary,
 } from '~/composables/usePromptDictionary'
 import {
 collectPromptAudioAssetsFromMedia,
+collectPromptVideoAssetsFromMedia,
 collectStoryboardPromptAssets,
 mergePromptAssets,
 storyboardPromptHtmlToPlain,
@@ -101,8 +102,9 @@ export function useStoryboardPanelPromptSync(options: PromptSyncOptions) {
 
   const storyboardPromptAssets = useMemo(() => {
     const audioAssets = collectPromptAudioAssetsFromMedia(props.referenceAudios ?? [])
+    const videoAssets = collectPromptVideoAssetsFromMedia(props.referenceVideos ?? [])
     const extraImageAssets = (props.extraPromptAssets ?? []).filter(
-      (asset) => asset.assetType !== 'audio'
+      (asset) => asset.assetType !== 'audio' && asset.assetType !== 'video'
     )
     const startIndex =
       extraImageAssets.length > 0
@@ -120,7 +122,8 @@ export function useStoryboardPanelPromptSync(options: PromptSyncOptions) {
       const base = props.extraPromptAssets?.length
         ? mergePromptAssets(props.extraPromptAssets, local)
         : local
-      return audioAssets.length ? mergePromptAssets(base, audioAssets) : base
+      const withVideos = videoAssets.length ? mergePromptAssets(base, videoAssets) : base
+      return audioAssets.length ? mergePromptAssets(withVideos, audioAssets) : withVideos
     }
     if (props.mode === 'storyboardVideo' || props.mode === 'edgeVideo') {
       const base = props.extraPromptAssets?.length ? [...props.extraPromptAssets] : []
@@ -130,6 +133,7 @@ export function useStoryboardPanelPromptSync(options: PromptSyncOptions) {
   }, [
     props.mode,
     props.referenceAudios,
+    props.referenceVideos,
     props.extraPromptAssets,
     props.sceneImages,
     props.characterImages,
@@ -202,6 +206,7 @@ export function useStoryboardPanelPromptSync(options: PromptSyncOptions) {
     syncStoryboardPromptAssetRefsInEditor,
     syncStripImagesFromPromptRefDiff,
     syncStripAudiosFromPromptRefDiff,
+    syncStripVideosFromPromptRefDiff,
     storyboardVideoReferenceList,
     syncStoryboardVideoPromptWithoutImageRefs
   } = promptAssetSync
@@ -361,7 +366,12 @@ export function useStoryboardPanelPromptSync(options: PromptSyncOptions) {
       }
       return
     }
-    propsRef.current!.onRemoveReferenceAudio?.(index - imgCount)
+    const videoCount = propsRef.current!.referenceVideos.length
+    if (index < imgCount + videoCount) {
+      propsRef.current!.onRemoveReferenceVideo?.(index - imgCount)
+      return
+    }
+    propsRef.current!.onRemoveReferenceAudio?.(index - imgCount - videoCount)
   }
 
   // ---- 原 watch 平移 ----
@@ -401,6 +411,7 @@ export function useStoryboardPanelPromptSync(options: PromptSyncOptions) {
     props.otherImages,
     props.referenceImage,
     props.referenceImages,
+    props.referenceVideos,
     props.isSettingExpanded,
     props.mode
   ])
@@ -411,6 +422,7 @@ export function useStoryboardPanelPromptSync(options: PromptSyncOptions) {
       const html = propsRef.current!.prompt || ''
       syncStripImagesFromPromptRefDiff(html || '')
       syncStripAudiosFromPromptRefDiff(html || '')
+      syncStripVideosFromPromptRefDiff(html || '')
     })
     return cancel
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -34,6 +34,7 @@ public class BillingPreHoldCalculationServiceImpl implements BillingPreHoldCalcu
             return result;
         }
         BigDecimal normalized = BillingConstants.normalizeAccountAmount(result.getAmount());
+        result.setInputMetadataPending(billingInput.isInputMetadataPending());
         result.setAmount(normalized);
         if (result.getSnapshot() != null)
         {

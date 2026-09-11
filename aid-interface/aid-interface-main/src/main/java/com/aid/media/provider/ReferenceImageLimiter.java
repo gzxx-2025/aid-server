@@ -4,6 +4,7 @@ import cn.hutool.core.util.StrUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.aid.domain.vo.AiModelConfigVo;
+import com.aid.common.exception.ServiceException;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayList;
@@ -121,13 +122,13 @@ public final class ReferenceImageLimiter {
     }
 
     /**
-     * 按模型配置的上限截断参考图列表（统一入口）：超限按顺序保留前 N 张并打 warn，不抛错。
+     * 校验参考图数量，禁止静默丢弃调用方选择的素材。
      *
      * @param images      已合并的有序参考图列表（URL 或 Data URI）
      * @param modelConfig 模型配置（读 capability_json.maxReferenceImages）
      * @param fallbackMax 配置缺失时的厂商默认上限
      * @param providerTag 日志用厂商标识（如 "Agnes"/"Vidu"/"即梦4.0"）
-     * @return 截断后的列表（不超过生效上限）；入参为空返回空列表
+     * @return 数量合法的原列表；入参为空返回空列表
      */
     public static List<String> limit(List<String> images, AiModelConfigVo modelConfig,
                                      int fallbackMax, String providerTag) {
@@ -135,15 +136,10 @@ public final class ReferenceImageLimiter {
             return images == null ? new ArrayList<>() : images;
         }
         int max = resolveMax(modelConfig, fallbackMax);
-        // 0 → 禁止参考图：丢弃全部，强制纯文生图
-        if (max == FORBID) {
-            log.warn("{} 模型已禁用参考图(maxReferenceImages=0)，丢弃{}张参考图转纯文生图", providerTag, images.size());
-            return new ArrayList<>();
-        }
         if (images.size() <= max) {
             return images;
         }
-        log.warn("{} 参考图超过上限按顺序截断: max={}, 实际={}, 仅保留前{}张", providerTag, max, images.size(), max);
-        return new ArrayList<>(images.subList(0, max));
+        log.info("{} 参考图数量不符合模型限制: max={}, actual={}", providerTag, max, images.size());
+        throw new ServiceException(max == FORBID ? "模型不支持图片" : "参考图片数量超限");
     }
 }

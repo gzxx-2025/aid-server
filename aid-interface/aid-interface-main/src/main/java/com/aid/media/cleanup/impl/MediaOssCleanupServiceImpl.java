@@ -20,6 +20,8 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.aid.aid.domain.AidAiVoiceLibrary;
 import com.aid.aid.domain.AidAudioRecord;
 import com.aid.aid.domain.AidComicAsset;
+import com.aid.aid.domain.AidComicProject;
+import com.aid.aid.domain.AidEpisodeEditor;
 import com.aid.aid.domain.AidGenRecord;
 import com.aid.aid.domain.AidRolePropSceneFormImage;
 import com.aid.aid.domain.AidRoleVoiceBinding;
@@ -27,6 +29,8 @@ import com.aid.aid.domain.AidUserComicAsset;
 import com.aid.aid.service.IAidAiVoiceLibraryService;
 import com.aid.aid.service.IAidAudioRecordService;
 import com.aid.aid.service.IAidComicAssetService;
+import com.aid.aid.service.IAidComicProjectService;
+import com.aid.aid.service.IAidEpisodeEditorService;
 import com.aid.aid.service.IAidGenRecordService;
 import com.aid.aid.service.IAidRolePropSceneFormImageService;
 import com.aid.aid.service.IAidRoleVoiceBindingService;
@@ -34,6 +38,7 @@ import com.aid.aid.service.IAidUserComicAssetService;
 import com.aid.common.aid.oss.core.OssTemplate;
 import com.aid.common.aid.oss.util.MediaUrlResolver;
 import com.aid.media.cleanup.IMediaOssCleanupService;
+import com.aid.media.cleanup.IAdditionalMediaReferenceProvider;
 
 import cn.hutool.core.util.StrUtil;
 import lombok.extern.slf4j.Slf4j;
@@ -75,6 +80,14 @@ public class MediaOssCleanupServiceImpl implements IMediaOssCleanupService
     @Autowired
     private IAidGenRecordService aidGenRecordService;
 
+    /** 项目封面服务：复制工程共享封面时阻止来源项目删除误清理。 */
+    @Autowired
+    private IAidComicProjectService aidComicProjectService;
+
+    /** 预览工程封面服务：复制时间线共享封面时阻止误清理。 */
+    @Autowired
+    private IAidEpisodeEditorService aidEpisodeEditorService;
+
     /** 配音记录服务：共享音频/视频仍有业务引用时阻止误删。 */
     @Autowired
     private IAidAudioRecordService aidAudioRecordService;
@@ -90,6 +103,10 @@ public class MediaOssCleanupServiceImpl implements IMediaOssCleanupService
     /** 角色音色绑定服务：保护有效绑定仍展示或复用的媒体。 */
     @Autowired
     private IAidRoleVoiceBindingService roleVoiceBindingService;
+
+    /** 可选模块的媒体引用扩展；没有扩展模块时为空集合。 */
+    @Autowired(required = false)
+    private List<IAdditionalMediaReferenceProvider> additionalReferenceProviders = List.of();
 
     /**
      * 清理媒体文件。
@@ -297,6 +314,18 @@ public class MediaOssCleanupServiceImpl implements IMediaOssCleanupService
         {
             return true;
         }
+        if (aidComicProjectService.count(Wrappers.<AidComicProject>lambdaQuery()
+                .eq(AidComicProject::getDelFlag, DEL_FLAG_NORMAL)
+                .in(AidComicProject::getCoverUrl, candidates)) > 0)
+        {
+            return true;
+        }
+        if (aidEpisodeEditorService.count(Wrappers.<AidEpisodeEditor>lambdaQuery()
+                .eq(AidEpisodeEditor::getDelFlag, DEL_FLAG_NORMAL)
+                .in(AidEpisodeEditor::getCoverUrl, candidates)) > 0)
+        {
+            return true;
+        }
         if (aidUserComicAssetService.count(Wrappers.<AidUserComicAsset>lambdaQuery()
                 .in(AidUserComicAsset::getImageUrl, candidates)) > 0)
         {
@@ -321,12 +350,23 @@ public class MediaOssCleanupServiceImpl implements IMediaOssCleanupService
         {
             return true;
         }
-        return Objects.nonNull(roleVoiceBindingService)
+        if (Objects.nonNull(roleVoiceBindingService)
                 && roleVoiceBindingService.count(Wrappers.<AidRoleVoiceBinding>lambdaQuery()
                         .eq(AidRoleVoiceBinding::getDelFlag, DEL_FLAG_NORMAL)
                         .and(wrapper -> wrapper.in(AidRoleVoiceBinding::getAvatarUrl, candidates)
                                 .or().in(AidRoleVoiceBinding::getSampleUrl, candidates)
-                                .or().in(AidRoleVoiceBinding::getReferenceAudioUrl, candidates))) > 0;
+                                .or().in(AidRoleVoiceBinding::getReferenceAudioUrl, candidates))) > 0)
+        {
+            return true;
+        }
+        for (IAdditionalMediaReferenceProvider provider : additionalReferenceProviders)
+        {
+            if (!provider.findReferenced(candidates).isEmpty())
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     private Set<String> buildCandidates(String url)
@@ -380,6 +420,20 @@ public class MediaOssCleanupServiceImpl implements IMediaOssCleanupService
             addReferenced(referenced, row.getSyncVideoUrl());
         });
 
+        List<AidComicProject> projects = aidComicProjectService.list(
+                Wrappers.<AidComicProject>lambdaQuery()
+                        .select(AidComicProject::getCoverUrl)
+                        .eq(AidComicProject::getDelFlag, DEL_FLAG_NORMAL)
+                        .in(AidComicProject::getCoverUrl, candidates));
+        projects.forEach(row -> addReferenced(referenced, row.getCoverUrl()));
+
+        List<AidEpisodeEditor> editors = aidEpisodeEditorService.list(
+                Wrappers.<AidEpisodeEditor>lambdaQuery()
+                        .select(AidEpisodeEditor::getCoverUrl)
+                        .eq(AidEpisodeEditor::getDelFlag, DEL_FLAG_NORMAL)
+                        .in(AidEpisodeEditor::getCoverUrl, candidates));
+        editors.forEach(row -> addReferenced(referenced, row.getCoverUrl()));
+
         List<AidUserComicAsset> userAssets = aidUserComicAssetService.list(
                 Wrappers.<AidUserComicAsset>lambdaQuery()
                         .select(AidUserComicAsset::getImageUrl)
@@ -426,6 +480,10 @@ public class MediaOssCleanupServiceImpl implements IMediaOssCleanupService
                 addReferenced(referenced, row.getSampleUrl());
                 addReferenced(referenced, row.getReferenceAudioUrl());
             });
+        }
+        for (IAdditionalMediaReferenceProvider provider : additionalReferenceProviders)
+        {
+            referenced.addAll(provider.findReferenced(candidates));
         }
     }
 

@@ -30,6 +30,9 @@ public interface IMediaGenerationService {
      */
     MediaTaskResponse generateAudio(com.aid.media.dto.MediaAudioGenerateRequest request);
 
+    /** 后台公用音色任务，站长承担上游费用，管理员身份与用户账户隔离。 */
+    MediaTaskResponse generateOperatorAudio(com.aid.media.dto.MediaAudioGenerateRequest request, Long adminId);
+
     /**
      * 业务含义：触发已落库的 COMPOSE 合成任务提交上游（复用统一并发/排队/调度机制）。
      *

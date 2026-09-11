@@ -49,6 +49,9 @@ import java.util.Objects;
 @Service
 public class TaskDispatchServiceImpl implements TaskDispatchService {
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.aid.model.definition.ModelTaskConfigurationResolver taskConfigurationResolver;
+
     /** 独立滚动文件日志：只记录已提交上游但无法确认状态的任务。 */
     private static final Logger UPSTREAM_ANOMALY_LOG = LoggerFactory.getLogger("media-upstream-anomaly");
 
@@ -779,8 +782,7 @@ public class TaskDispatchServiceImpl implements TaskDispatchService {
                 }
                 return composeClient.query(null, task.getProviderTaskId());
             }
-            AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCodeForUser(
-                task.getModelName(), task.getUserId());
+            AiModelConfigVo modelConfig = taskConfigurationResolver.resolve(task);
             if (Objects.isNull(modelConfig)) {
                 log.warn("queryUpstream 模型配置缺失, taskId={}, modelName={}", task.getId(), task.getModelName());
                 return null;

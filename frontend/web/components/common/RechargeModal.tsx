@@ -24,6 +24,12 @@ import './recharge/recharge-modal.css'
 import { RechargeConsumeDrawer } from './recharge/RechargeConsumeDrawer'
 import { formatCreditAmount, formatPrice } from './recharge/rechargeFormat'
 import {
+  RECHARGE_MODAL_Z_INDEX,
+  closeRechargeHistoryDrawer,
+  openRechargeHistoryDrawer,
+  type RechargeHistoryDrawer
+} from './recharge/rechargeOverlayLifecycle'
+import {
 isPendingOrderConflictError,
 nextFrame,
 payFlagsFromConfig,
@@ -85,9 +91,24 @@ export function RechargeModal({ open, onOpenChange, onPaid }: RechargeModalProps
   const pollRequestPendingRef = useRef(false)
   const qrSeqRef = useRef(0)
 
-  const [showOrders, setShowOrders] = useState(false)
-  /** 消耗明细 Drawer */
-  const [showConsume, setShowConsume] = useState(false)
+  /** 订单与消耗侧栏共用单一状态，禁止两个全屏遮罩同时残留。 */
+  const [historyDrawer, setHistoryDrawer] = useState<RechargeHistoryDrawer | null>(null)
+  const showOrders = historyDrawer === 'orders'
+  const showConsume = historyDrawer === 'consume'
+  const setShowOrders = (nextOpen: boolean) => {
+    setHistoryDrawer((current) =>
+      nextOpen
+        ? openRechargeHistoryDrawer('orders')
+        : closeRechargeHistoryDrawer(current, 'orders')
+    )
+  }
+  const setShowConsume = (nextOpen: boolean) => {
+    setHistoryDrawer((current) =>
+      nextOpen
+        ? openRechargeHistoryDrawer('consume')
+        : closeRechargeHistoryDrawer(current, 'consume')
+    )
+  }
   const [orderTab, orderTabRef, setOrderTab] = useStateRef<RechargeOrderTabKey>('all')
   const [orders, ordersRef, setOrders] = useStateRef<RechargeOrderRow[]>([])
   const [, setOrdersLoading] = useState(false)
@@ -208,6 +229,7 @@ export function RechargeModal({ open, onOpenChange, onPaid }: RechargeModalProps
     setHighlightOrderNo('')
     setRepayOrderRow(null)
     setShowPayModal(false)
+    setHistoryDrawer(null)
     onOpenChange(false)
   }
 
@@ -614,6 +636,7 @@ export function RechargeModal({ open, onOpenChange, onPaid }: RechargeModalProps
       setCurrentOrderNo('')
       setCurrentAmount(null)
       setShowPayModal(false)
+      setHistoryDrawer(null)
       return
     }
     void (async () => {
@@ -669,7 +692,7 @@ export function RechargeModal({ open, onOpenChange, onPaid }: RechargeModalProps
         centered
         className="recharge-modal recharge-modal-branded recharge-main-modal"
         wrapClassName="recharge-modal-wrap"
-        zIndex={1000}
+        zIndex={RECHARGE_MODAL_Z_INDEX}
         onCancel={handleClose}
         title={<ModalTitleWatermark title="充值中心" watermark="REFILL" />}
       >
@@ -763,22 +786,23 @@ export function RechargeModal({ open, onOpenChange, onPaid }: RechargeModalProps
             </p>
           </footer>
         </div>
-
-        <RechargeOrdersDrawer
-          open={showOrders}
-          onClose={() => setShowOrders(false)}
-          orderTab={orderTab}
-          onTabChange={handleOrderTabChange}
-          orders={orders}
-          highlightOrderNo={highlightOrderNo}
-          repayingOrderNo={repayingOrderNo}
-          cancellingOrderNo={cancellingOrderNo}
-          onRepay={(row) => void handleRepay(row)}
-          onCancelOrder={handleCancelOrder}
-        />
-
-        <RechargeConsumeDrawer open={showConsume} onClose={() => setShowConsume(false)} />
       </Modal>
+
+      {/* 历史侧栏与主 Modal 并列挂载，避免嵌套 Portal 的遮罩和焦点生命周期互相干扰。 */}
+      <RechargeOrdersDrawer
+        open={showOrders}
+        onClose={() => setShowOrders(false)}
+        orderTab={orderTab}
+        onTabChange={handleOrderTabChange}
+        orders={orders}
+        highlightOrderNo={highlightOrderNo}
+        repayingOrderNo={repayingOrderNo}
+        cancellingOrderNo={cancellingOrderNo}
+        onRepay={(row) => void handleRepay(row)}
+        onCancelOrder={handleCancelOrder}
+      />
+
+      <RechargeConsumeDrawer open={showConsume} onClose={() => setShowConsume(false)} />
 
       {/* 第二步：扫码支付（无标题栏，金额摘要 + 支付方式图标 + 二维码） */}
       <RechargePayModal

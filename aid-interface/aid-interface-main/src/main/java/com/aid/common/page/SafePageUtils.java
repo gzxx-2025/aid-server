@@ -32,8 +32,16 @@ public final class SafePageUtils {
      */
     public static void startClampedPage() {
         PageDomain pageDomain = TableSupport.buildPageRequest();
-        Integer rawPageNum = pageDomain.getPageNum();
-        Integer rawPageSize = pageDomain.getPageSize();
+        startClampedPage(pageDomain.getPageNum(), pageDomain.getPageSize());
+    }
+
+    /**
+     * 使用业务请求体中的分页参数开启钳制分页。
+     *
+     * @param rawPageNum 原始页码
+     * @param rawPageSize 原始每页条数
+     */
+    public static void startClampedPage(Integer rawPageNum, Integer rawPageSize) {
         int pageNum = (Objects.isNull(rawPageNum) || rawPageNum < 1) ? DEFAULT_PAGE_NUM : rawPageNum;
         int pageSize = Objects.isNull(rawPageSize) ? DEFAULT_PAGE_SIZE
                 : Math.min(Math.max(rawPageSize, 1), MAX_PAGE_SIZE);

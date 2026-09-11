@@ -20,6 +20,10 @@ export type StripReferenceAudio = StripReferenceImage & {
   referenceAudioId?: string | number
 }
 
+export type StripReferenceVideo = StripReferenceImage & {
+  referenceVideoRecordId?: string | number
+}
+
 function stripAt(s: string): string {
   const t = String(s || '').trim()
   return t.startsWith('@') ? t.slice(1) : t
@@ -63,7 +67,7 @@ export function extractPromptAssetRefIdentityKeysFromHtml(html: string): Set<str
       doc.querySelectorAll('.scp-prompt-asset-ref').forEach((el) => {
         const node = el as HTMLElement
         const assetType = String(node.dataset.assetType || '').trim()
-        if (assetType === 'audio') return
+        if (assetType === 'audio' || assetType === 'video') return
         for (const k of referenceImageIdentityKeys({
           id: node.dataset.assetId,
           name: node.dataset.name
@@ -131,6 +135,48 @@ export function extractPromptAudioRefIdentityKeysFromHtml(html: string): Set<str
   return keys
 }
 
+/** 参考视频 / prompt 视频引用的稳定身份键。 */
+export function referenceVideoIdentityKeys(video: StripReferenceVideo): string[] {
+  const keys: string[] = []
+  const ids = [video?.id, video?.referenceVideoRecordId]
+    .map((value) => String(value ?? '').replace(/^reference-video-/, '').trim())
+    .filter(Boolean)
+  for (const id of new Set(ids)) keys.push(`video-id:${id}`)
+  const name = normalizePromptAssetPlaceholderName(video?.title || video?.name)
+  if (name) keys.push(`video-name:${name}`)
+  return keys
+}
+
+export function extractPromptVideoRefIdentityKeysFromHtml(html: string): Set<string> {
+  const keys = new Set<string>()
+  const source = String(html || '')
+  if (!source) return keys
+  if (typeof DOMParser !== 'undefined') {
+    try {
+      const doc = new DOMParser().parseFromString(`<div>${source}</div>`, 'text/html')
+      doc.querySelectorAll('.scp-prompt-asset-ref').forEach((el) => {
+        const node = el as HTMLElement
+        if (String(node.dataset.assetType || '').trim() !== 'video') return
+        for (const key of referenceVideoIdentityKeys({
+          id: node.dataset.assetId,
+          name: node.dataset.name
+        })) {
+          keys.add(key)
+        }
+      })
+    } catch {
+      /* ignore */
+    }
+  }
+  const placeholderRe = /@视频\d+\[([^\]]+)\]/g
+  let match: RegExpExecArray | null
+  while ((match = placeholderRe.exec(source))) {
+    const name = normalizePromptAssetPlaceholderName(match[1] || '')
+    if (name) keys.add(`video-name:${name}`)
+  }
+  return keys
+}
+
 export function diffIdentityKeySets(
   prev: Iterable<string>,
   next: Iterable<string>
@@ -151,7 +197,8 @@ export function diffIdentityKeySets(
 export function promptAssetItemKey(
   asset: Pick<PromptAssetItem, 'assetId' | 'name'> & Partial<Pick<PromptAssetItem, 'assetType'>>
 ): string {
-  const mediaKind = asset.assetType === 'audio' ? 'audio' : 'image'
+  const mediaKind =
+    asset.assetType === 'audio' ? 'audio' : asset.assetType === 'video' ? 'video' : 'image'
   const id = String(asset.assetId || '').trim()
   if (id) return `${mediaKind}:id:${id}`
   const name = normalizePromptAssetPlaceholderName(asset.name)
@@ -284,6 +331,28 @@ export function findAudioIndexesLostFromPrompt(opts: {
     const keys = referenceAudioIdentityKeys(opts.audios[index]!)
     if (!audioIsReferenced(keys, prevKeys)) continue
     if (audioIsReferenced(keys, nextKeys)) continue
+    indexes.push(index)
+  }
+  return indexes.sort((a, b) => b - a)
+}
+
+export function findVideoIndexesLostFromPrompt(opts: {
+  videos: StripReferenceVideo[]
+  prevKeys: Iterable<string>
+  nextKeys: Iterable<string>
+}): number[] {
+  const previous = opts.prevKeys instanceof Set ? opts.prevKeys : new Set(opts.prevKeys)
+  const next = opts.nextKeys instanceof Set ? opts.nextKeys : new Set(opts.nextKeys)
+  const isReferenced = (keys: string[], refs: Set<string>) => {
+    const idKeys = keys.filter((key) => key.startsWith('video-id:'))
+    const hasStableIds = [...refs].some((key) => key.startsWith('video-id:'))
+    if (idKeys.length && hasStableIds) return idKeys.some((key) => refs.has(key))
+    return keys.some((key) => refs.has(key))
+  }
+  const indexes: number[] = []
+  for (let index = 0; index < opts.videos.length; index += 1) {
+    const keys = referenceVideoIdentityKeys(opts.videos[index]!)
+    if (!isReferenced(keys, previous) || isReferenced(keys, next)) continue
     indexes.push(index)
   }
   return indexes.sort((a, b) => b - a)

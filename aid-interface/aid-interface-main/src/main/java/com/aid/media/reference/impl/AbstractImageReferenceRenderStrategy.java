@@ -162,7 +162,7 @@ public abstract class AbstractImageReferenceRenderStrategy implements ImageRefer
     }
 
     /**
-     * 按模型配置上限截断「引用类型」URL 列表（复用统一治理器）。
+     * 按模型配置上限校验「引用类型」URL 列表（复用统一治理器）。
      */
     protected List<String> limitReferenceUrls(List<String> urls, ImageReferenceRenderContext ctx, String providerTag)
     {

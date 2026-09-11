@@ -666,7 +666,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
             for (ExtractCallBillingEstimate call : model.calls())
             {
                 items.add(billingQuoteAssembler.single(
-                        "ASSET_EXTRACT", model.modelConfig(), call.result(), 1));
+                        "ASSET_EXTRACT", call.modelConfig(), call.result(), 1));
             }
         }
         return billingQuoteAssembler.aggregate("ASSET_EXTRACT", items);
@@ -1345,7 +1345,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         {
             return new ExtractModelBillingEstimate(BigDecimal.ZERO, List.of(
                     new ExtractCallBillingEstimate("unknown", null,
-                            BillingCalcResult.fixed(BigDecimal.ZERO, null))));
+                            BillingCalcResult.fixed(BigDecimal.ZERO, null), modelConfig)));
         }
 
         ExtractInputEstimate inputEstimate = estimateExtractInput(taskId, extractTypes, modelCode);
@@ -1371,9 +1371,15 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         BigDecimal totalAmount = BigDecimal.ZERO;
         for (ExtractCallInputEstimate callInput : inputEstimate.calls())
         {
-            BillingCalcResult result = estimateExtractCallCost(trace, modelConfig, callInput.inputChars());
+            AiModelConfigVo callModel = aiModelConfigService.selectForBusiness(modelConfig.getModelCode(),
+                    mapExtractTypeToBizCategory(callInput.extractType()), null);
+            if (callModel == null) {
+                log.info("提取报价的业务模型不可用: modelCode={}, extractType={}", modelConfig.getModelCode(), callInput.extractType());
+                throw new ServiceException("业务模型不可用");
+            }
+            BillingCalcResult result = estimateExtractCallCost(trace, callModel, callInput.inputChars());
             callEstimates.add(new ExtractCallBillingEstimate(
-                    callInput.extractType(), callInput.callSlot(), result));
+                    callInput.extractType(), callInput.callSlot(), result, callModel));
             totalAmount = totalAmount.add(defaultAmount(result.getAmount()));
         }
         log.info("逐调用预估提取费用完成: trace={}, modelCode={}, calls={}, amount={}",
@@ -1423,7 +1429,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
     }
 
     private record ExtractCallBillingEstimate(String extractType, String callSlot,
-                                              BillingCalcResult result)
+                                              BillingCalcResult result, AiModelConfigVo modelConfig)
     {
     }
 
@@ -1664,7 +1670,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
             for (ExtractCallBillingEstimate call : model.calls())
             {
                 items.add(billingQuoteAssembler.single(
-                        "TASK_RESUME", model.modelConfig(), call.result(), 1));
+                        "TASK_RESUME", call.modelConfig(), call.result(), 1));
             }
         }
         return billingQuoteAssembler.aggregate("TASK_RESUME", items);
@@ -1679,12 +1685,22 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
     {
     }
 
+    private static String formBusinessFunction(String assetType)
+    {
+        if (ASSET_TYPE_CHARACTER.equals(assetType)) return BIZ_CATEGORY_MAIN_CHARACTER_FORM;
+        if (ASSET_TYPE_SCENE.equals(assetType)) return "main_scene_form";
+        if (ASSET_TYPE_PROP.equals(assetType)) return "main_prop_form";
+        throw new ServiceException("资产类型不支持");
+    }
+
     private BillingCalcResult estimateFormGenerateCost(Long taskId, AidRolePropScene asset, String modelCode)
     {
-        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(modelCode);
+        AiModelConfigVo modelConfig = aiModelConfigService.selectForBusiness(modelCode,
+                formBusinessFunction(asset.getAssetType()), null);
         if (modelConfig == null)
         {
-            return BillingCalcResult.fixed(BigDecimal.ZERO, null);
+            log.info("形态报价的业务模型不可用: modelCode={}, assetType={}", modelCode, asset.getAssetType());
+            throw new ServiceException("业务模型不可用");
         }
 
         // 按各资产类型最终下发的 system + user messages 预估。
@@ -2485,7 +2501,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
     private JsonNode callOrReplayExtractLlm(String promptTemplate, Map<String, String> userInputs,
                                             String modelCode, Long taskId, Long userId,
                                             String taskPromptDigest, String callIdentity,
-                                            RollingExtractProgress progress)
+                                            RollingExtractProgress progress, String businessFuncCode)
     {
         java.util.function.Predicate<JsonNode> replayValidator;
         if (callIdentity.startsWith("stage=scene,"))
@@ -2505,7 +2521,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         return batchParentSubmissionGuard.executeManagedTask(taskId, progress.billingTraceId,
                 () -> helper.callLlmWithInputs(promptTemplate, userInputs, modelCode,
                         taskId, userId, taskPromptDigest, callIdentity, replayValidator,
-                        progress.billingTraceId, outputTokenCap),
+                        progress.billingTraceId, outputTokenCap, businessFuncCode),
                 TextTaskExecutionRejectedException::new);
     }
 
@@ -2780,7 +2796,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
                     continue;
                 }
                 JsonNode result = callOrReplayExtractLlm(promptTemplate, userInputs, modelCode,
-                        taskId, userId, digest, callIdentity, rollingProgress);
+                        taskId, userId, digest, callIdentity, rollingProgress, BIZ_CATEGORY_MAIN_CHARACTER_EXTRACT);
 
                 persistExtractCallResult(taskId, userId, stableSlot, result, allAssets, rollingProgress,
                         node -> parseAndPersistCharacters(node, lib, projectId, episodeId, userId,
@@ -2908,7 +2924,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
                         continue;
                     }
                     JsonNode result = callOrReplayExtractLlm(promptTemplate, userInputs, modelCode,
-                            taskId, userId, digest, callIdentity, rollingProgress);
+                            taskId, userId, digest, callIdentity, rollingProgress, BIZ_CATEGORY_MAIN_CHARACTER_EXTRACT);
                     persistExtractCallResult(taskId, userId, stableSlot, result, allAssets, rollingProgress,
                             node -> parseAndPersistCharacters(node, lib, projectId, episodeId, userId,
                                     allAssets, rollingProgress.enabled));
@@ -3010,7 +3026,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
                     continue;
                 }
                 JsonNode result = callOrReplayExtractLlm(promptTemplate, userInputs, modelCode,
-                        taskId, userId, digest, callIdentity, rollingProgress);
+                        taskId, userId, digest, callIdentity, rollingProgress, BIZ_CATEGORY_MAIN_CHARACTER_EXTRACT);
                 // 新角色主资产恒落项目级（episodeId=0），跨集唯一；已有角色走信息合并+形态增量
                 persistExtractCallResult(taskId, userId, stableSlot, result, allAssets, rollingProgress,
                         node -> parseAndPersistCharacters(node, lib, projectId,
@@ -3202,10 +3218,10 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
                     final String _propTpl = propPromptTemplate;
                     CompletableFuture<JsonNode> sceneFuture = CompletableFuture.supplyAsync(
                             () -> callOrReplayExtractLlm(_sceneTpl, sceneInputs, sceneModelCode,
-                                    taskId, userId, spDigest, sceneCallIdentity, rollingProgress), getExtractExecutor());
+                                    taskId, userId, spDigest, sceneCallIdentity, rollingProgress, BIZ_CATEGORY_MAIN_SCENE_EXTRACT), getExtractExecutor());
                     CompletableFuture<JsonNode> propFuture = CompletableFuture.supplyAsync(
                             () -> callOrReplayExtractLlm(_propTpl, propInputs, propModelCode,
-                                    taskId, userId, spDigest, propCallIdentity, rollingProgress), getExtractExecutor());
+                                    taskId, userId, spDigest, propCallIdentity, rollingProgress, BIZ_CATEGORY_MAIN_PROP_EXTRACT), getExtractExecutor());
 
                     // 当前窗口两个 Provider 调用已经并发启动，必须都等待并消费成功一边；余额不足只阻断
                     // 后续 chunk，不能提前返回而丢掉另一边已经付费完成的结果。
@@ -3288,7 +3304,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
                 {
                     JsonNode sceneResult = callOrReplayExtractLlm(scenePromptTemplate, sceneInputs,
                             sceneModelCode, taskId, userId, spDigest, sceneCallIdentity,
-                            rollingProgress);
+                            rollingProgress, BIZ_CATEGORY_MAIN_SCENE_EXTRACT);
                     persistExtractCallResult(taskId, userId, sceneStableSlot, sceneResult,
                             allAssets, rollingProgress,
                             node -> parseAndPersistScenes(node, lib, projectId, episodeId,
@@ -3298,7 +3314,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
                 {
                     JsonNode propResult = callOrReplayExtractLlm(propPromptTemplate, propInputs,
                             propModelCode, taskId, userId, spDigest, propCallIdentity,
-                            rollingProgress);
+                            rollingProgress, BIZ_CATEGORY_MAIN_PROP_EXTRACT);
                     persistExtractCallResult(taskId, userId, propStableSlot, propResult,
                             allAssets, rollingProgress,
                             node -> parseAndPersistProps(node, lib, projectId, episodeId,
@@ -7887,7 +7903,8 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
             estimated = true;
         }
 
-        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(modelCode);
+        AiModelConfigVo modelConfig = aiModelConfigService.selectForBusiness(modelCode,
+                helper.businessFunctionForAgent(agentCode), null);
         ModelCapabilityResolver.ImageSizeSpec sizeSpec = ModelCapabilityResolver.resolveImageSpec(
                 modelConfig, resolution, aspectRatio);
         String finalPrompt = buildFormImagePrompt(
@@ -7902,7 +7919,9 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         }
 
         MediaImageGenerateRequest imageRequest = new MediaImageGenerateRequest();
-        imageRequest.setModelName(modelCode);
+        imageRequest.setModelName(modelConfig.getModelCode());
+        imageRequest.setBusinessFuncCode(helper.businessFunctionForAgent(agentCode));
+        imageRequest.setCapabilityCode(modelConfig.getCapabilityCode());
         imageRequest.setUserId(userId);
         imageRequest.setPrompt(finalPrompt);
         imageRequest.setTaskPromptDigest(buildFormImagePromptDigest(asset, form));
@@ -9331,7 +9350,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
                         modelCode, parentTaskId, userId, characterInput, "extract",
                         "stage=form_character,item=" + asset.getId(),
                         raw -> isValidCharacterFormOutput(raw, asset),
-                        expectedTraceId), TextTaskExecutionRejectedException::new);
+                        expectedTraceId, BIZ_CATEGORY_MAIN_CHARACTER_FORM), TextTaskExecutionRejectedException::new);
 
         if (!isValidCharacterFormOutput(visualDescription, asset))
         {
@@ -9930,7 +9949,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
                 () -> helper.callLlmRawWithInputs(sceneStyleTemplate, sceneStyleInputs,
                         modelCode, parentTaskId, userId, digest, "extract",
                         "stage=form_scene,item=" + asset.getId(), this::isValidStylistReplay,
-                        expectedTraceId), TextTaskExecutionRejectedException::new);
+                        expectedTraceId, "main_scene_form"), TextTaskExecutionRejectedException::new);
 
         if (StrUtil.isBlank(llmOutput))
         {
@@ -10041,7 +10060,7 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
                 () -> helper.callLlmRawWithInputs(propStyleTemplate, propStyleInputs,
                         modelCode, parentTaskId, userId, digest, "extract",
                         "stage=form_prop,item=" + asset.getId(), this::isValidStylistReplay,
-                        expectedTraceId), TextTaskExecutionRejectedException::new);
+                        expectedTraceId, "main_prop_form"), TextTaskExecutionRejectedException::new);
 
         if (StrUtil.isBlank(llmOutput))
         {
@@ -10312,7 +10331,8 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
                 () -> helper.callLlmRaw(
                         systemPrompt, userContent, modelCode, parentTaskId, userId, userContent, "extract",
                         "stage=form_" + asset.getAssetType() + ",item=" + asset.getId(),
-                        StrUtil::isNotBlank, expectedTraceId),
+                        StrUtil::isNotBlank, expectedTraceId, null,
+                        formBusinessFunction(asset.getAssetType())),
                 TextTaskExecutionRejectedException::new);
 
         if (StrUtil.isBlank(visualDescription))
@@ -11405,7 +11425,8 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
             CardImageValidated validated, String agentCode, String modelCode, String resolution,
             String aspectRatio, Long userId)
     {
-        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(modelCode);
+        AiModelConfigVo modelConfig = aiModelConfigService.selectForBusiness(modelCode,
+                helper.businessFunctionForAgent(agentCode), null);
         ModelCapabilityResolver.ImageSizeSpec sizeSpec = ModelCapabilityResolver.resolveImageSpec(
                 modelConfig, resolution, aspectRatio);
         String finalPrompt = buildCardImagePrompt(
@@ -11419,7 +11440,9 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
                 List.of(sourceUrl), validated.form.getId());
 
         MediaImageGenerateRequest request = new MediaImageGenerateRequest();
-        request.setModelName(modelCode);
+        request.setModelName(modelConfig.getModelCode());
+        request.setBusinessFuncCode(helper.businessFunctionForAgent(agentCode));
+        request.setCapabilityCode(modelConfig.getCapabilityCode());
         request.setUserId(userId);
         request.setPrompt(finalPrompt);
         request.setTaskPromptDigest(buildCardImagePromptDigest(
@@ -12363,4 +12386,3 @@ public class AssetExtractServiceImpl implements IAssetExtractService, com.aid.rp
         return sb.toString();
     }
 }
-

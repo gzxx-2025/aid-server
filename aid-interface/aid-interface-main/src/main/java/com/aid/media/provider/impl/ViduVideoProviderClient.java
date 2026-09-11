@@ -8,6 +8,7 @@ import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.aid.common.constant.HttpConstants;
+import com.aid.common.exception.ServiceException;
 import com.aid.common.utils.ProviderEndpointUtils;
 import com.aid.media.constants.ViduConstants;
 import com.aid.media.constants.VolcengineConstants;
@@ -71,7 +72,7 @@ public class ViduVideoProviderClient implements VideoProviderClient {
         ViduScenario scenario = resolveScenario(modelConfig, request);
         String submitUrl = buildApiUrl(modelConfig.getBaseUrl(), modelConfig.getApiSuffix());
         Map<String, Object> body = buildSubmitBody(request, modelConfig, scenario);
-        String bodyJson = JSONUtil.toJsonStr(body);
+        String bodyJson = JSONUtil.toJsonStr(com.aid.model.definition.ModelConfiguredRequestBody.apply(modelConfig, body, request));
         String raw = doPost(submitUrl, modelConfig.getApiKey(), bodyJson);
         JsonNode root = ProviderResponseHelper.readTree(raw);
         String taskId = ProviderResponseHelper.readText(root,
@@ -253,6 +254,12 @@ public class ViduVideoProviderClient implements VideoProviderClient {
             String tier = ResolutionUtil.parseTier(resolution);
             body.put(ViduConstants.JSON_RESOLUTION, StrUtil.isNotBlank(tier) ? tier : resolution.trim());
         }
+        if (scenario == ViduScenario.MULTI_FRAME
+                && (Boolean.TRUE.equals(request.getAudio()) || Boolean.TRUE.equals(request.getBgm())
+                || StrUtil.isNotBlank(request.getVoiceId()) || StrUtil.isNotBlank(request.getAudioType()))) {
+            log.info("Vidu 多帧视频场景收到音频参数");
+            throw new ServiceException("多帧场景不支持音频");
+        }
         applyAudioFields(body, request, modelConfig);
         applyCallbackUrl(body, modelConfig);
         // 先合并 options 官方字段（subjects / images 等装配策略产出），再做场景兜底补缺：
@@ -260,11 +267,36 @@ public class ViduVideoProviderClient implements VideoProviderClient {
         // 多发一个官方参数表不存在的顶层 images，Vidu 对多余字段会拒单
         mergeTopLevelOptions(body, request);
         applyScenarioSpecificFields(body, request, scenario);
+        if (scenario == ViduScenario.MULTI_FRAME) {
+            validateMultiFrameBody(body);
+        }
         // Base64 传图开关：官方 images/start_image/key_image 均支持 data URI，启用时统一转内联下发
         applyBase64ImagesIfEnabled(body, modelConfig);
         // 最后按官方各端点的字段白名单裁剪：Vidu 对多余字段会返回 FieldUnwanted 拒单
         pruneUnsupportedFields(body, scenario);
         return body;
+    }
+
+    /** 官方 multiframe 必须为 1 张 start_image + 2~9 个 image_settings，提交前硬拒绝边界错误。 */
+    static void validateMultiFrameBody(Map<String, Object> body) {
+        Object startImage = body.get(ViduConstants.JSON_START_IMAGE);
+        if (startImage == null || StrUtil.isBlank(String.valueOf(startImage))) {
+            throw new ServiceException("请提供首帧图片");
+        }
+        Object rawSettings = body.get(ViduConstants.JSON_IMAGE_SETTINGS);
+        if (!(rawSettings instanceof List<?> settings) || settings.size() < 2) {
+            throw new ServiceException("至少提供2张关键帧图片");
+        }
+        if (settings.size() > 9) {
+            throw new ServiceException("关键帧图片数量超限");
+        }
+        for (Object raw : settings) {
+            if (!(raw instanceof Map<?, ?> item)
+                    || item.get(ViduConstants.JSON_KEY_IMAGE) == null
+                    || StrUtil.isBlank(String.valueOf(item.get(ViduConstants.JSON_KEY_IMAGE)))) {
+                throw new ServiceException("关键帧图片不能为空");
+            }
+        }
     }
 
     /**
@@ -338,27 +370,43 @@ public class ViduVideoProviderClient implements VideoProviderClient {
     /**
      * 音画字段下发（capability 门禁）：能力来自 modelConfig.capabilityJson，解析
      * supportsAudio/supportsBgm/supportsVoiceId/audioTypes。规则：
-     * - 仅当 supportsAudio 且 request.audio!=null → 下发 audio；
-     * - audio=true 且 supportsVoiceId 且 voiceId 非空 → 下发 voice_id；
-     * - audio=true 且 audioType 合法（在 capability.audioTypes 或三枚举内）→ 下发 audio_type；
-     * - 仅当 supportsBgm 且 request.bgm!=null → 下发 bgm（遵守文档：q3 系列 bgm 不生效，则 capability 不声明 supportsBgm 即可）。
+     * - supportsAudio=false 时明确请求生成音频直接拒绝；
+     * - audio=true 时严格校验 voice_id、audio_type 与 bgm 能力，不静默忽略。
      */
     private void applyAudioFields(Map<String, Object> body, MediaVideoGenerateRequest request, AiModelConfigVo modelConfig) {
         JSONObject capability = parseCapability(modelConfig);
         boolean supportsAudio = getBool(capability, "supportsAudio");
         boolean supportsBgm = getBool(capability, "supportsBgm");
         boolean supportsVoiceId = getBool(capability, "supportsVoiceId");
+        if (Boolean.TRUE.equals(request.getAudio()) && !supportsAudio) {
+            log.info("Vidu 模型未启用音画同出: modelCode={}", modelConfig.getModelCode());
+            throw new ServiceException("模型不支持音画同出");
+        }
         boolean audioOn = false;
         if (supportsAudio && request.getAudio() != null) {
             body.put(ViduConstants.JSON_AUDIO, request.getAudio());
             audioOn = Boolean.TRUE.equals(request.getAudio());
         }
-        if (audioOn && supportsVoiceId && StrUtil.isNotBlank(request.getVoiceId())) {
+        if (StrUtil.isNotBlank(request.getVoiceId())) {
+            if (!audioOn || !supportsVoiceId) {
+                log.info("Vidu 指定音色能力校验失败: modelCode={}, audioOn={}",
+                        modelConfig.getModelCode(), audioOn);
+                throw new ServiceException("当前模式不支持音色");
+            }
             body.put(ViduConstants.JSON_VOICE_ID, request.getVoiceId());
         }
-        if (audioOn && StrUtil.isNotBlank(request.getAudioType())
-            && isAudioTypeValid(request.getAudioType(), capability)) {
+        if (StrUtil.isNotBlank(request.getAudioType())) {
+            if (!audioOn || !isAudioTypeValid(request.getAudioType(), capability)) {
+                log.info("Vidu 音频类型能力校验失败: modelCode={}, audioType={}, audioOn={}",
+                        modelConfig.getModelCode(), request.getAudioType(), audioOn);
+                throw new ServiceException("音频类型不支持");
+            }
             body.put(ViduConstants.JSON_AUDIO_TYPE, request.getAudioType());
+        }
+        if (Boolean.TRUE.equals(request.getBgm()) && (!audioOn || !supportsBgm)) {
+            log.info("Vidu 背景音乐能力校验失败: modelCode={}, audioOn={}",
+                    modelConfig.getModelCode(), audioOn);
+            throw new ServiceException("当前模式不支持音乐");
         }
         if (supportsBgm && request.getBgm() != null) {
             body.put(ViduConstants.JSON_BGM, request.getBgm());
@@ -568,7 +616,15 @@ public class ViduVideoProviderClient implements VideoProviderClient {
             return;
         }
         Object keyImagesRaw = readOption(request, ViduConstants.OPTIONS_KEY_IMAGES_ALT, ViduConstants.OPTIONS_KEY_IMAGES_CAMEL);
-        if (!(keyImagesRaw instanceof List<?> keyImages) || keyImages.isEmpty()) {
+        List<?> keyImages;
+        if (keyImagesRaw instanceof List<?> explicitKeyImages && !explicitKeyImages.isEmpty()) {
+            keyImages = explicitKeyImages;
+        } else {
+            // 分镜多参数入口使用统一 referenceImages 承载首帧之后的关键帧；
+            // 这里必须映射成官方 image_settings，不能因内部键不在上游白名单而静默丢失。
+            keyImages = readReferenceImages(request);
+        }
+        if (keyImages.isEmpty()) {
             return;
         }
         List<Map<String, Object>> imageSettings = new ArrayList<>();

@@ -26,7 +26,8 @@ type TimelineThumb = { ts: number; img: Blob }
 /** 将时间限制在视频可解码的帧范围内，避免精确 duration 落入结束黑帧。 */
 export function clampVideoFrameTime(target: number, duration: number): number {
   const safeDuration = Number.isFinite(duration) ? Math.max(0, duration) : 0
-  const lastFrameTime = Math.max(0, safeDuration - DEFAULT_FRAME_INTERVAL_SECONDS)
+  // 不假设 30fps：减固定 1/30 秒会漏掉 60fps 视频的真正尾帧。
+  const lastFrameTime = Math.max(0, safeDuration - 1 / MICROSECONDS_PER_SECOND)
   const safeTarget = Number.isFinite(target) ? target : 0
   return Math.min(Math.max(0, safeTarget), lastFrameTime)
 }
@@ -61,7 +62,6 @@ export function buildVideoFrameDecodeCandidates(targetUs: number, durationUs: nu
     seen.add(next)
     candidates.push(next)
   }
-  if (!seen.has(0)) candidates.push(0)
   return candidates
 }
 
@@ -254,6 +254,9 @@ async function decodeVideoFrame(
       if (!frame) continue
 
       try {
+        // 不接受解码器残留的远端帧；失败必须显式失败，不能把另一个边界的画面保存为成功。
+        const frameEndUs = frame.timestamp + (frame.duration ?? DEFAULT_FRAME_INTERVAL_US)
+        if (candidateUs < frame.timestamp - 1_000 || candidateUs > frameEndUs + 1_000) continue
         const rgba = await copyVideoFrameToRgba(frame)
         return encodeRgbaFrameToPng(resizeRgbaFrame(rgba, maxWidth))
       } finally {

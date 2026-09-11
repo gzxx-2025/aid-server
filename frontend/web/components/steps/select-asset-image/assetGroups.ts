@@ -203,9 +203,16 @@ export function isAudioPendingItem(item: any): boolean {
   return item?.kind === 'audio' || item?.audioSource === 'voice_sample' || item?.audioSource === 'upload'
 }
 
+export function isVideoPendingItem(item: any): boolean {
+  return item?.kind === 'video' || Number(item?.referenceVideoRecordId) > 0
+}
+
 export function rowKey(item: any) {
   if (isAudioPendingItem(item)) {
     return `audio-${item.referenceAudioId || item.id || item.url || item.name}`
+  }
+  if (isVideoPendingItem(item)) {
+    return `video-${item.referenceVideoRecordId || item.id || item.url || item.name}`
   }
   const u = item.url || item.thumbnail || ''
   return `img-${item.id}-${u}`

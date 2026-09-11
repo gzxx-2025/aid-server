@@ -6,7 +6,7 @@ import iconStartRaw from '~/assets/img/icon/icon_start.svg'
 import { ShimmerImage } from '~/components/common/ShimmerImage'
 import { assetUrl } from '~/utils/assetUrl'
 import { emptyImageIconUrl as emptyImageIconRaw } from '~/utils/emptyImageIcon'
-import { isAudioPendingItem,rowKey } from './assetGroups'
+import { isAudioPendingItem,isVideoPendingItem,rowKey } from './assetGroups'
 const iconStartUrl = assetUrl(iconStartRaw)
 const audioIconUrl = assetUrl(audioIconRaw)
 const emptyImageIconUrl = assetUrl(emptyImageIconRaw)
@@ -18,7 +18,7 @@ export interface PendingImportListProps {
   onRemove: (item: any) => void
 }
 
-/** 底部「已导入素材」待确认清单（图片 / 参考音频混排） */
+/** 底部「已导入素材」待确认清单（图片 / 参考视频 / 参考音频混排） */
 export function PendingImportList({
   selectedList,
   isPendingAudioPlaying,
@@ -33,11 +33,11 @@ export function PendingImportList({
         {selectedList.map((item, index) => (
           <div
             key={rowKey(item)}
-            className={`saim-pending-item${isAudioPendingItem(item) ? ' saim-pending-item--audio' : ''}`}
+            className={`saim-pending-item${isAudioPendingItem(item) ? ' saim-pending-item--audio' : isVideoPendingItem(item) ? ' saim-pending-item--video' : ''}`}
           >
             <button
               type="button"
-              className={`saim-pending-thumb${isAudioPendingItem(item) ? ' saim-pending-thumb--audio' : ''}${isPendingAudioPlaying(item) ? ' is-playing' : ''}`}
+              className={`saim-pending-thumb${isAudioPendingItem(item) ? ' saim-pending-thumb--audio' : isVideoPendingItem(item) ? ' saim-pending-thumb--video' : ''}${isPendingAudioPlaying(item) ? ' is-playing' : ''}`}
               title={
                 isAudioPendingItem(item)
                   ? isPendingAudioPlaying(item)
@@ -69,6 +69,14 @@ export function PendingImportList({
                     )}
                   </span>
                 </>
+              ) : isVideoPendingItem(item) && (item.url || item.thumbnail) ? (
+                <video
+                  className="saim-pending-thumb__img"
+                  src={String(item.url || item.thumbnail)}
+                  muted
+                  playsInline
+                  preload="metadata"
+                />
               ) : item.url || item.thumbnail ? (
                 <ShimmerImage
                   src={String(item.url || item.thumbnail || '')}
@@ -96,7 +104,7 @@ export function PendingImportList({
               </button>
             ) : (
               <span className="saim-pending-name" title={item.title || item.name}>
-                {item.title || item.name || `图片${index + 1}`}
+                {item.title || item.name || (isVideoPendingItem(item) ? `视频${index + 1}` : `图片${index + 1}`)}
               </span>
             )}
             <button

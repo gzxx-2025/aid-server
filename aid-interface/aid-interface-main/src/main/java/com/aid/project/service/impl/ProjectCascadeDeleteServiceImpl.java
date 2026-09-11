@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Objects;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,6 +34,7 @@ import com.aid.aid.service.IAidRolePropSceneService;
 import com.aid.aid.service.IAidRoleVoiceBindingService;
 import com.aid.aid.service.IAidScenePlotService;
 import com.aid.aid.service.IAidStoryboardService;
+import com.aid.common.event.ProjectCascadeDeletingEvent;
 import com.aid.media.cleanup.IGenerationArtifactCleanupService;
 import com.aid.media.cleanup.IMediaOssCleanupService;
 import com.aid.project.service.IProjectCascadeDeleteService;
@@ -109,6 +111,10 @@ public class ProjectCascadeDeleteServiceImpl implements IProjectCascadeDeleteSer
     /** 项目 */
     @Autowired
     private IAidComicProjectService aidComicProjectService;
+
+    /** 允许可选模块在项目主记录删除前清理自身业务数据。 */
+    @Autowired
+    private ApplicationEventPublisher applicationEventPublisher;
 
     /**
      * 级联硬删除整个项目子树（含 OSS 清理）。
@@ -208,6 +214,8 @@ public class ProjectCascadeDeleteServiceImpl implements IProjectCascadeDeleteSer
         {
             filesToClean.add(project.getCoverUrl());
         }
+        applicationEventPublisher.publishEvent(new ProjectCascadeDeletingEvent(
+                projectId, userId, Objects.isNull(project) ? null : project.getSourceSnapshotId()));
         aidComicProjectService.removeById(projectId);
 
         mediaOssCleanupService.cleanupFiles(filesToClean);

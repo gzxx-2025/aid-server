@@ -27,6 +27,20 @@ public final class VersionCompareUtil {
     }
 
     /**
+     * 判断当前版本是否满足目录声明的最低版本。
+     *
+     * @param current 当前版本号
+     * @param minimum 最低版本号
+     * @return true=满足最低版本
+     */
+    public static boolean isAtLeast(String current, String minimum) {
+        if (StrUtil.isBlank(current) || StrUtil.isBlank(minimum)) {
+            return false;
+        }
+        return compare(normalize(current), normalize(minimum)) >= 0;
+    }
+
+    /**
      * 去掉版本号前缀 v/V 与首尾空白
      */
     private static String normalize(String version) {

@@ -25,6 +25,9 @@ import com.aid.common.core.domain.BaseEntity;
 @TableName(value = "aid_ai_model")
 public class AidAiModel extends BaseEntity implements Serializable
 {
+    @TableField(exist = false)
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private java.util.List<AidAiModelAlias> legacyAliases;
     private static final long serialVersionUID = 1L;
 
     /** 主键ID */
@@ -86,6 +89,9 @@ public class AidAiModel extends BaseEntity implements Serializable
 
     /** 计费规则版本号 */
     private Integer billingVersion;
+
+    /** 模型管理配置的并发修改版本。 */
+    private Long configVersion;
 
     /** 是否免费：0收费，1免费 */
     private Boolean isFree;
@@ -187,5 +193,17 @@ public class AidAiModel extends BaseEntity implements Serializable
      */
     @TableField(exist = false)
     private String inputRequirement;
+
+    /** 模型完整能力定义。 */
+    @TableField(exist = false)
+    private java.util.List<com.aid.aid.domain.model.ModelCapabilityDefinition> capabilities;
+
+    /** 业务功能对模型能力的绑定。 */
+    @TableField(exist = false)
+    private java.util.List<AidAiBusinessModelBinding> businessBindings;
+
+    /** 业务视图选中的能力。 */
+    @TableField(exist = false)
+    private String selectedCapabilityCode;
 
 }

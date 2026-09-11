@@ -66,7 +66,7 @@ public class DashscopeImageProviderClient implements ImageProviderClient {
         ImageDialect dialect = resolveDialect(effectiveModel);
         String submitUrl = buildSubmitUrl(modelConfig);
         Map<String, Object> body = dialect.buildSubmitBody(effectiveModel, request);
-        String raw = doPost(submitUrl, modelConfig.getApiKey(), JSONUtil.toJsonStr(body), dialect.extraHeaders());
+        String raw = doPost(submitUrl, modelConfig.getApiKey(), JSONUtil.toJsonStr(com.aid.model.definition.ModelConfiguredRequestBody.apply(modelConfig, body, request)), dialect.extraHeaders());
         JsonNode root = ProviderResponseHelper.readTree(raw);
         String taskId = ProviderResponseHelper.readText(root, "output.task_id", "task_id", "data.task_id");
         String directUrl = dialect.extractDirectUrl(root);
@@ -606,7 +606,7 @@ public class DashscopeImageProviderClient implements ImageProviderClient {
             boolean isWan27 = normalized.startsWith(DashscopeConstants.MODEL_WAN_27_PREFIX);
             boolean isWan26Image = normalized.startsWith(DashscopeConstants.MODEL_WAN_26_IMAGE_PREFIX);
             parameters.putIfAbsent(DashscopeConstants.JSON_WATERMARK, DashscopeConstants.DEFAULT_WATERMARK);
-            // n 与计费 expectedImageCount 对齐（1~4 收口），确保上游生成张数等于预扣张数
+            // n 与计费 expectedImageCount 对齐；超出官方上限直接拒绝，禁止少生成后仍按原请求计费。
             parameters.put(DashscopeConstants.JSON_N, resolveOutputCount(request));
             if (isWan27) {
                 boolean sequentialOn = Boolean.parseBoolean(
@@ -627,14 +627,19 @@ public class DashscopeImageProviderClient implements ImageProviderClient {
         }
 
         /**
-         * 解析上游 n：取计费口径的 expectedImageCount，缺省 1，并按官方区间 1~4 收口。
+         * 解析上游 n：取计费口径的 expectedImageCount，缺省 1，并校验官方区间 1~4。
          */
         private int resolveOutputCount(MediaImageGenerateRequest request) {
             Integer expected = request == null ? null : request.getExpectedImageCount();
             if (expected == null || expected < 1) {
                 return DashscopeConstants.DEFAULT_N;
             }
-            return Math.min(expected, DashscopeConstants.WAN_NEW_MAX_OUTPUT_N);
+            if (expected > DashscopeConstants.WAN_NEW_MAX_OUTPUT_N) {
+                log.info("DashScope 图片输出数量超限: max={}, actual={}",
+                        DashscopeConstants.WAN_NEW_MAX_OUTPUT_N, expected);
+                throw new ServiceException("生成图片数量超限");
+            }
+            return expected;
         }
 
         /** 未声明比例时的兜底比例：官方 size 必填，按方图出图最安全 */

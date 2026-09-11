@@ -31,6 +31,9 @@ export interface ModelOption {
   prices?: Array<{ resolution: string; cost: number }>
   /** POST /api/user/storyboard/generate/media 等仍要求 modelId 时使用 */
   serverModelId?: number
+  legacyModelCodes?: string[]
+  legacyModelIds?: number[]
+  capabilityCode?: string
   /** capability.supportsAudio：是否支持音画同步（音画同出） */
   supportsAudio?: boolean
   /** 接口明确标记为 true 时显示免费角标。 */

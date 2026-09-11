@@ -754,7 +754,7 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
             task.setTotalCount(batchPlans.size());
             extractTaskService.updateById(task);
 
-            AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(resolvedModelCode);
+            AiModelConfigVo modelConfig = aiModelConfigService.selectForBusiness(resolvedModelCode, helper.businessFunctionForAgent(agentCode), null);
             if (Objects.isNull(modelConfig))
             {
                 throw new ServiceException("模型未配置");
@@ -1044,7 +1044,7 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
                             // stable slot，否则 attempt=1 已付费成功后崩溃会在续生的 attempt=0 漏回放。
                             "stage=shot_group_split,item=" + plot.getId(),
                             raw -> isShotGroupSplitReplayValid(raw, taskId, plot, userId),
-                            executionTraceId), TextTaskExecutionRejectedException::new);
+                            executionTraceId, null, helper.businessFunctionForAgent(AGENT_CODE_STORYBOARD_WRITER)), TextTaskExecutionRejectedException::new);
             touchExtractTask(taskId, executionTraceId);
             lastOutput = splitOutput;
             addSplitChars(splitChars, splitSystemPrompt, currentUserContent, splitOutput, modelCode);
@@ -1255,7 +1255,7 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
         {
             throw new ServiceException("批量过多");
         }
-        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(modelCode);
+        AiModelConfigVo modelConfig = aiModelConfigService.selectForBusiness(modelCode, helper.businessFunctionForAgent(agentCode), null);
         if (Objects.isNull(modelConfig))
         {
             throw new ServiceException("模型未配置");
@@ -1437,7 +1437,7 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
         }
 
         // 估算费用 + 创建批次记录（每个批次绑定 shotGroupPlanId）
-        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(modelCode);
+        AiModelConfigVo modelConfig = aiModelConfigService.selectForBusiness(modelCode, helper.businessFunctionForAgent(agentCode), null);
         if (Objects.isNull(modelConfig))
         {
             throw new ServiceException("模型未配置");
@@ -1835,7 +1835,7 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
                                     // 仅属于本轮调度，实际输入差异交给 messages SHA 与 billing trace。
                                     "stage=script_direct,item=" + batch.getId(),
                                     raw -> isDirectScriptReplayValid(raw, sceneList, writerOutput,
-                                            coverageBatch, selective), executionTraceId, outputTokenCap),
+                                            coverageBatch, selective), executionTraceId, outputTokenCap, helper.businessFunctionForAgent(agentCode)),
                             TextTaskExecutionRejectedException::new);
                     List<SceneEnvelope> envelopes = sceneEnvelopeParser.parse(
                             llmOutput, sceneList, writerOutput, coverageBatch, selective);
@@ -2597,7 +2597,7 @@ public class StoryboardScriptServiceImpl implements IStoryboardScriptService
                                         userId, batch.getSceneId(), scene.getName(), replaySortOrder,
                                         batch.getId(), canonicalSceneCode, referenceWhitelist,
                                         batchPlan.getGroupCode(), batchPlan.getGroupIndex()),
-                                executionTraceId, outputTokenCap),
+                                executionTraceId, outputTokenCap, helper.businessFunctionForAgent(agentCode)),
                         TextTaskExecutionRejectedException::new);
                 long llmCostMs = System.currentTimeMillis() - llmStart;
 

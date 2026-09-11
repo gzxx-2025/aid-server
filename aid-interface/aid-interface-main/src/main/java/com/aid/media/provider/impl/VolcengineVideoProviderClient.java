@@ -91,7 +91,7 @@ public class VolcengineVideoProviderClient implements VideoProviderClient {
         CreateContentGenerationTaskResult result;
         try {
             HttpResult response = doPost(buildSubmitUrl(modelConfig), modelConfig.getApiKey(),
-                    OBJECT_MAPPER.writeValueAsString(createRequest));
+                    com.aid.model.definition.ModelConfiguredRequestBody.applyJson(modelConfig, OBJECT_MAPPER.writeValueAsString(createRequest), request));
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 log.error("Volcengine 视频生成提交失败, model={}, httpStatus={}, responseLength={}",
                         effectiveModel, response.statusCode(), StringUtils.length(response.body()));
@@ -394,11 +394,15 @@ public class VolcengineVideoProviderClient implements VideoProviderClient {
         int max = readCapabilityInt(modelConfig, "maxReferenceVideos", DEFAULT_MAX_REFERENCE_VIDEOS);
         List<String> result = new ArrayList<>(videos);
         if (max == 0) {
-            return Collections.emptyList();
+            if (!result.isEmpty()) {
+                log.info("Volcengine 模型禁止参考视频: actual={}", result.size());
+                throw new ServiceException("模型不支持参考视频");
+            }
+            return result;
         }
         if (max > 0 && result.size() > max) {
-            log.warn("Volcengine 参考视频超过上限按顺序截断: max={}, actual={}", max, result.size());
-            return new ArrayList<>(result.subList(0, max));
+            log.info("Volcengine 参考视频数量不符合模型限制: max={}, actual={}", max, result.size());
+            throw new ServiceException("参考视频数量超限");
         }
         return result;
     }

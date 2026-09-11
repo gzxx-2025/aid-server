@@ -17,6 +17,21 @@ public class MediaTextGenerateRequest {
      */
     private String modelName;
 
+    /** 本次业务调用的能力；专用业务接口由 Service 填写。 */
+    private String capabilityCode;
+
+    /** 业务 Service 指定的功能池，不接受客户端覆盖。 */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private String businessFuncCode;
+
+    /** 归一化后的调用配置标识，参与请求幂等。 */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private String invocationIdentity;
+
+    /** 内部编排已锁定模型时禁止回退到其他模型。 */
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    private boolean strictModelSelection;
+
     /** 项目ID（可选）：用于关联任务到具体项目 */
     private Long projectId;
 
@@ -111,6 +126,51 @@ public class MediaTextGenerateRequest {
          * 多模态内容块。模型是否支持图片、视频或音频由 capability_json 校验。
          */
         private List<TextContentPart> parts;
+
+        /** 助手请求调用的客户端函数；由调用方执行，不由模型协议层执行。 */
+        private List<TextToolCall> toolCalls;
+
+        /** 工具结果对应的调用标识。 */
+        private String toolCallId;
+
+        /** 工具续轮所需的公开思考内容；仅在当前请求内存中使用。 */
+        @lombok.ToString.Exclude
+        private String reasoningContent;
+
+        /** Anthropic 工具续轮所需的完整签名思考块，仅在内存中使用。 */
+        @lombok.ToString.Exclude
+        private List<TextThinkingBlock> thinkingBlocks;
+
+        /** Responses 的响应标识，供下一轮 previous_response_id 使用。 */
+        private String responseId;
+
+        /** Responses 无状态续轮使用的完整助手输出项，仅在内存中原序传递。 */
+        @lombok.ToString.Exclude
+        private List<Map<String, Object>> responseItems;
+
+        /** Anthropic 工具执行失败标记；工具结果仍在 content 中。 */
+        private Boolean toolError;
+    }
+
+    /** 客户端函数调用，不包含可执行代码。 */
+    @Data
+    public static class TextToolCall {
+        private String id;
+        private String name;
+        /** JSON 对象字符串，调用方应按自己的工具 Schema 再次验证。 */
+        private String arguments;
+    }
+
+    /** 上游签名的思考内容块，不能修改内容后继续使用原签名。 */
+    @Data
+    public static class TextThinkingBlock {
+        private String type;
+        @lombok.ToString.Exclude
+        private String thinking;
+        @lombok.ToString.Exclude
+        private String signature;
+        @lombok.ToString.Exclude
+        private String data;
     }
 
     /** 单个文本模型输入内容块。 */

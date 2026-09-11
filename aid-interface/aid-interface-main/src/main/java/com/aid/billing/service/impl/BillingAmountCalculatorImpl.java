@@ -1,5 +1,6 @@
 package com.aid.billing.service.impl;
 
+import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.text.CharSequenceUtil;
 import cn.hutool.json.JSONUtil;
 import com.aid.billing.dto.BillingCalcResult;
@@ -17,6 +18,7 @@ import com.aid.billing.service.BillingPriceMultiplierService;
 import com.aid.billing.service.BillingRuleResolver;
 import com.aid.billing.util.TextTokenEstimator;
 import com.aid.billing.util.BillingSettlementPolicy;
+import com.aid.billing.util.BillingRouteDimensions;
 import com.aid.domain.vo.AiModelConfigVo;
 import com.aid.media.provider.ProviderUsageSupport;
 import com.aid.media.provider.TextOutputLimitResolver;
@@ -27,8 +29,10 @@ import org.springframework.stereotype.Component;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Stream;
 
 /**
  * 计费金额计算器实现
@@ -45,6 +49,7 @@ public class BillingAmountCalculatorImpl implements BillingAmountCalculator {
 
     @Override
     public BillingCalcResult calculatePreHoldAmount(AiModelConfigVo modelConfig, BillingInput billingInput) {
+        BillingRouteDimensions.apply(modelConfig, billingInput);
         if (BillingMode.of(modelConfig.getBillingMode()) == BillingMode.FIXED) {
             MeterType meterType = resolveMeterType(modelConfig, null, null);
             log.info("预扣计费分发: modelCode={}, meterType={}", modelConfig.getModelCode(), meterType);
@@ -95,6 +100,19 @@ public class BillingAmountCalculatorImpl implements BillingAmountCalculator {
             case SKU_PACKAGE -> preHoldSkuPackage(modelConfig, matchedSku, rule, billingInput);
             case PER_CHAR -> preHoldPerChar(modelConfig, matchedSku, rule, billingInput);
         };
+        BigDecimal surcharge = matchedSku.getFixedSurcharge();
+        if (surcharge != null) {
+            if (surcharge.signum() < 0 || (meterType != MeterType.PER_CHAR && meterType != MeterType.SKU_PACKAGE)) {
+                return BillingCalcResult.notMatched("附加计费配置无效");
+            }
+            BillingSnapshot snapshot = result.getSnapshot();
+            if (snapshot == null) return BillingCalcResult.notMatched("计费快照缺失");
+            snapshot.setFixedSurcharge(surcharge);
+            snapshot.setBaseAmount(snapshot.getBaseAmount().add(surcharge));
+            BigDecimal amount = result.getAmount().add(surcharge.multiply(resolveFinalMultiplierFromSnapshot(snapshot)));
+            result.setAmount(amount);
+            snapshot.setPreHoldAmount(amount);
+        }
         return applyFreeDecision(modelConfig, result);
     }
 
@@ -185,16 +203,23 @@ public class BillingAmountCalculatorImpl implements BillingAmountCalculator {
 
     /** 显式 SKU 口径必须提供同单位主价格；仅无 SKU 口径的旧规则保留历史反推兜底。 */
     private boolean hasValidMatchedSkuPrice(BillingSku sku, MeterType meterType) {
+        if (meterType == MeterType.TOKEN && Stream.of(sku.getInputPricePerMillion(),
+                sku.getOutputPricePerMillion(), sku.getCachedInputPricePerMillion(), sku.getCacheWritePricePerMillion(),
+                sku.getReasoningPricePerMillion()).anyMatch(value -> value != null && value.signum() < 0)) return false;
         boolean explicitMeterType = CharSequenceUtil.isNotBlank(sku.getMeterType());
         return switch (meterType) {
-            case TOKEN -> isPositive(sku.getInputPricePerMillion()) || isPositive(sku.getOutputPricePerMillion());
-            case PER_IMAGE, SKU_PACKAGE -> isPositive(sku.getPrice());
-            case PER_SECOND -> isPositive(sku.getPricePerSecond())
+            case TOKEN -> isNonNegative(sku.getInputPricePerMillion()) && isNonNegative(sku.getOutputPricePerMillion());
+            case PER_IMAGE, SKU_PACKAGE -> isNonNegative(sku.getPrice());
+            case PER_SECOND -> isNonNegative(sku.getPricePerSecond())
                     || (!explicitMeterType && isPositive(sku.getPrice())
                     && safeGetInt(sku.getMatch(), "durationMax", 0) > 0);
-            case PER_CHAR -> isPositive(sku.getPricePerChar())
+            case PER_CHAR -> isNonNegative(sku.getPricePerChar())
                     || (!explicitMeterType && isPositive(sku.getPrice()));
         };
+    }
+
+    private boolean isNonNegative(BigDecimal value) {
+        return value != null && value.signum() >= 0;
     }
 
     /**
@@ -296,7 +321,7 @@ public class BillingAmountCalculatorImpl implements BillingAmountCalculator {
      * 未设置时用 sku.price / match.durationMax 推算（兼容旧整包价数据）。
      */
     private BigDecimal resolvePerSecondPrice(BillingSku sku) {
-        if (sku.getPricePerSecond() != null && sku.getPricePerSecond().compareTo(BigDecimal.ZERO) > 0) {
+        if (isNonNegative(sku.getPricePerSecond())) {
             return sku.getPricePerSecond();
         }
         // 兜底：从整包价反推
@@ -322,7 +347,7 @@ public class BillingAmountCalculatorImpl implements BillingAmountCalculator {
         int chars = safeGetInt(billingInput.getParams(), "chars",
                 safeGetInt(billingInput.getParams(), "textLength", 0));
         BigDecimal baseAmount;
-        if (pricePerChar != null && pricePerChar.compareTo(BigDecimal.ZERO) > 0 && chars > 0) {
+        if (isNonNegative(pricePerChar) && chars >= 0) {
             baseAmount = pricePerChar.multiply(BigDecimal.valueOf(chars));
         } else {
             // 单价缺失或字符数为 0：按 SKU 固定价兜底，避免免费放行
@@ -511,6 +536,9 @@ public class BillingAmountCalculatorImpl implements BillingAmountCalculator {
         // 免费决定来自任务创建时快照；历史快照字段为空按收费兼容，绝不读取实时模型状态。
         if (Boolean.TRUE.equals(snapshot.getIsFree())) {
             snapshot.setPreHoldAmount(BigDecimal.ZERO);
+            if (MeterType.of(snapshot.getMeterType()) == MeterType.TOKEN) {
+                preserveFreeTokenUsageAndProviderCost(snapshot, usageData);
+            }
             markSettleDone(snapshot, BigDecimal.ZERO, BigDecimal.ZERO);
             return BillingCalcResult.fixed(BigDecimal.ZERO, snapshot);
         }
@@ -559,6 +587,37 @@ public class BillingAmountCalculatorImpl implements BillingAmountCalculator {
         }
         return settleWithFlatPrice(preHoldAmount, snapshot, ruleJson, usageData);
     }
+
+    /**
+     * 免费模型只免网站用户金额，不丢弃上游真实 Token 用量和可计算的供应商成本。
+     * 成本计算使用冻结快照的官方价格；临时按 PROVIDER 付款方计算只为写入原始成本，
+     * 随后恢复任务原付款方与免费决定，用户 actual/prehold/refund 仍由调用处分支固定为零。
+     */
+    private void preserveFreeTokenUsageAndProviderCost(BillingSnapshot snapshot,
+                                                       Map<String, Object> usageData) {
+        // 旧 FIXED/TOKEN 快照没有按百万 Token 价格：仍保存真实 usage，但不能把未知成本写成 0。
+        if (snapshot.getInputPricePerMillion() == null || snapshot.getOutputPricePerMillion() == null) {
+            persistTokenUsageAudit(snapshot, resolveActualUsage(usageData, snapshot));
+            return;
+        }
+        BillingSnapshot costSnapshot = parseSnapshot(JSONUtil.toJsonStr(snapshot));
+        if (costSnapshot == null) {
+            return;
+        }
+        String payerType = snapshot.getPayerType();
+        Long payerAdminId = snapshot.getPayerAdminId();
+        costSnapshot.setIsFree(false);
+        costSnapshot.setPayerType("PROVIDER");
+        BillingCalcResult cost = settleWithTokenPricing(BigDecimal.ZERO, costSnapshot, usageData);
+        if (cost == null || cost.getSnapshot() == null) {
+            return;
+        }
+        BeanUtil.copyProperties(cost.getSnapshot(), snapshot);
+        snapshot.setIsFree(true);
+        snapshot.setPayerType(payerType);
+        snapshot.setPayerAdminId(payerAdminId);
+        snapshot.setPreHoldAmount(BigDecimal.ZERO);
+    }
     /**
      * 按 inputTokens × inputPrice/M + outputTokens × outputPrice/M 计算预扣金额。
      */
@@ -587,7 +646,9 @@ public class BillingAmountCalculatorImpl implements BillingAmountCalculator {
                 || billingInput.getParams() == null) {
             return;
         }
-        Map<String, Object> params = billingInput.getParams();
+        // 调用方可传 Map.of 等只读参数；计算器只改自己的副本，并回写规范化结果。
+        Map<String, Object> params = new LinkedHashMap<>(billingInput.getParams());
+        billingInput.setParams(params);
         SettleRule settleRule = rule == null ? null : rule.getSettleRule();
         boolean allowExtraCharge = settleRule != null && settleRule.isAllowExtraCharge();
         int conservativeInput = safeGetInt(params, "conservativeInputTokens", 0);
@@ -597,7 +658,20 @@ public class BillingAmountCalculatorImpl implements BillingAmountCalculator {
                 conservativeInput = TextTokenEstimator.estimateUnknownTextConservative(
                         safeGetInt(params, "inputChars", 0), safeGetInt(params, "messageCount", 1));
             }
-            params.put("inputTokens", Math.max(safeGetInt(params, "inputTokens", 0), conservativeInput));
+            int estimatedInput = Math.max(safeGetInt(params, "inputTokens", 0), conservativeInput);
+            int contextLimit = TextOutputLimitResolver.contextWindowTokens(modelConfig);
+            // 字节/字符上界不是实际 token。单次成功请求不可能超过已声明上下文；
+            // 仅限制预估上界，不能扩展官方阶梯、裁剪真实输入或修改实际 usage 结算。
+            // 多次调用的合计估值不套用单次窗口，避免少冻结。
+            if ("tokendance".equalsIgnoreCase(modelConfig.getProviderCode())
+                    && contextLimit > 0 && Math.max(1, safeGetInt(params, "expectedCallCount", 1)) == 1
+                    && (safeGetInt(params, "inputChars", 0) > 0
+                    || safeGetInt(params, "conservativeInputTokens", 0) > 0)) {
+                params.put("unboundedEstimatedInputTokens", estimatedInput);
+                params.put("inputTokenEstimateContextBound", contextLimit);
+                estimatedInput = Math.min(estimatedInput, contextLimit);
+            }
+            params.put("inputTokens", estimatedInput);
 
             int providerCap = safeGetInt(params, "providerOutputTokenCap", 0);
             if (providerCap <= 0) {
@@ -701,6 +775,10 @@ public class BillingAmountCalculatorImpl implements BillingAmountCalculator {
         // 按实际 token × 实际命中档位单价计算（基础金额）+ 输入媒体附加费。
         BigDecimal actualBase = calcTokenCost(actualUsage, snapshot, inputPrice, outputPrice)
                 .add(snapshotInputMediaBase(snapshot));
+        if ("PROVIDER".equals(snapshot.getPayerType())) {
+            // 站长成本按冻结的上游价格确认，不使用网站积分倍率。
+            snapshot.setProviderActualCostCny(actualBase);
+        }
         // 应用与预扣同一份倍率（来自快照），保证审计口径一致
         BigDecimal finalMultiplier = resolveFinalMultiplierFromSnapshot(snapshot);
         BigDecimal actualAmount = actualBase.multiply(finalMultiplier);
@@ -764,7 +842,7 @@ public class BillingAmountCalculatorImpl implements BillingAmountCalculator {
     private BillingCalcResult settleWithPerSecondPricing(BigDecimal preHoldAmount, BillingSnapshot snapshot,
                                                           Map<String, Object> usageData) {
         BigDecimal pps = snapshot.getPricePerSecond();
-        if (pps == null || pps.compareTo(BigDecimal.ZERO) <= 0) {
+        if (pps == null || pps.compareTo(BigDecimal.ZERO) < 0) {
             // 快照中无每秒单价（旧数据兜底），按预扣金额直接结算
             log.info("PER_SECOND结算兜底: pricePerSecond为空, 按预扣金额结算, preHold={}", preHoldAmount);
             markSettleDone(snapshot, preHoldAmount, preHoldAmount);
@@ -976,6 +1054,11 @@ public class BillingAmountCalculatorImpl implements BillingAmountCalculator {
                             hasInputParent && hasOutputParent)));
             usage.providerUsageCaptured = usage.inputUsageComplete && usage.outputUsageComplete
                     && providerMarkedComplete;
+            if (!hasInputParent && usage.outputUsageComplete && !usageData.containsKey("input_usage_complete")
+                    && Boolean.parseBoolean(String.valueOf(usageData.getOrDefault("provider_usage_captured", true))) && usesOutputOnlyVideoTokens(snapshot)) {
+                // 视频像素 Token 已计入输入素材成本，完整计量只要求输出侧；缺失输入侧仍保留为空供审计。
+                usage.providerUsageCaptured = true;
+            }
             usage.inputBucketsComplete = Boolean.parseBoolean(String.valueOf(
                     usageData.getOrDefault("input_token_buckets_complete", false)));
             usage.outputBucketsComplete = Boolean.parseBoolean(String.valueOf(
@@ -1019,6 +1102,24 @@ public class BillingAmountCalculatorImpl implements BillingAmountCalculator {
         }
 
         return usage;
+    }
+
+    private boolean usesOutputOnlyVideoTokens(BillingSnapshot snapshot) {
+        if (!"video".equalsIgnoreCase(snapshot.getModelType()) || CharSequenceUtil.isBlank(snapshot.getBillingRuleJson())) return false;
+        AiModelConfigVo frozen = new AiModelConfigVo();
+        frozen.setBillingMode(BillingConstants.MODE_SKU);
+        frozen.setBillingRuleJson(snapshot.getBillingRuleJson());
+        BillingRule rule = billingRuleResolver.parseRule(frozen);
+        if (rule == null || rule.getVideoTokenEstimate() == null || rule.getSkus() == null) return false;
+        List<BillingSku> active = rule.getSkus().stream().filter(BillingSku::isEnabled).toList();
+        return !active.isEmpty() && active.stream().allMatch(sku -> sku.getInputPricePerMillion() != null
+                && sku.getInputPricePerMillion().signum() == 0
+                && (sku.getCachedInputPricePerMillion() == null || sku.getCachedInputPricePerMillion().signum() == 0)
+                && (sku.getCacheWritePricePerMillion() == null || sku.getCacheWritePricePerMillion().signum() == 0)
+                && (sku.getMatch() == null || sku.getMatch().keySet().stream().noneMatch(key -> {
+                    String normalized = key.toLowerCase(java.util.Locale.ROOT);
+                    return normalized.contains("inputtoken") || normalized.contains("totaltoken") || normalized.contains("cached") || normalized.contains("cachewrite");
+                })));
     }
 
     private void persistTokenUsageAudit(BillingSnapshot snapshot, TokenUsage usage) {

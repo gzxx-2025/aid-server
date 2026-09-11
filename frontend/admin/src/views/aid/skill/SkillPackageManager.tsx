@@ -96,6 +96,8 @@ function readonlyRelations(relations: SkillVersionDetail['relations']) {
 function normalizedDraft(draft: SkillDraftDetail) {
   return {
     ...draft,
+    inputSchemaJson: draft.inputSchemaJson?.trim() ? draft.inputSchemaJson : '{}',
+    outputSchemaJson: draft.outputSchemaJson?.trim() ? draft.outputSchemaJson : '{}',
     defaultModelCode: draft.defaultModelCode || draft.modelCode,
     selectableModelCodes: draft.selectableModelCodes?.length
       ? draft.selectableModelCodes : draft.modelCode ? [draft.modelCode] : [],
@@ -621,11 +623,11 @@ export default function SkillPackageManager({
                   <Input.TextArea rows={12} maxLength={100000} showCount />
                 </Form.Item>
                 <Tabs items={[
-                  { key: 'input', label: '输入 Schema', children: <Form.Item name="inputSchemaJson"
+                  { key: 'input', label: '输入 Schema', forceRender: true, children: <Form.Item name="inputSchemaJson"
                     rules={[{ validator: (_, value) => validateSkillSchema(value) }]}><SchemaFieldEditor /></Form.Item> },
-                  { key: 'output', label: '输出 Schema', children: <Form.Item name="outputSchemaJson"
+                  { key: 'output', label: '输出 Schema', forceRender: true, children: <Form.Item name="outputSchemaJson"
                     rules={[{ validator: (_, value) => validateSkillSchema(value) }]}><SchemaFieldEditor /></Form.Item> },
-                  { key: 'definition', label: '定义 JSON', children: <Form.Item name="definitionJson"
+                  { key: 'definition', label: '定义 JSON', forceRender: true, children: <Form.Item name="definitionJson"
                     rules={[{ validator: (_, value) => {
                       const errorMessage = value?.trim() ? parseJson(value, '定义 JSON', true) : undefined;
                       return errorMessage ? Promise.reject(new Error(errorMessage)) : Promise.resolve();
@@ -650,8 +652,8 @@ export default function SkillPackageManager({
                 <Divider orientation="left">固定子 Skill</Divider>
                 <Form.List name="relations">{(fields, { add, remove }) => <Space direction="vertical"
                   size={8} style={{ width: '100%' }}>
-                  {fields.map(({ key, name }) => <SkillRelationEditor key={key} name={name}
-                      parentSkillId={skill!.id} form={form} disabled={!canEdit || packageBusy}
+                  {skill && fields.map(({ key, name }) => <SkillRelationEditor key={key} name={name}
+                      parentSkillId={skill.id} form={form} disabled={!canEdit || packageBusy}
                       skillLabels={relationSkillLabels} versionLabels={relationVersionLabels}
                       onSkillLabel={rememberSkillLabel} onVersionLabel={rememberVersionLabel}
                       onRemove={() => remove(name)} />)}

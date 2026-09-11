@@ -4,8 +4,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.math.BigDecimal;
 
 import com.aid.domain.vo.AiModelConfigVo;
+import com.aid.common.exception.ServiceException;
 import com.aid.media.dto.ReferenceAudioInput;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -17,7 +19,7 @@ import lombok.extern.slf4j.Slf4j;
 
 /**
  * 参考音频能力与「数量上限」统一收口：capability_json 的参考音频键位只在此解析，
- * 超限按顺序截断并打 warn，与 {@link ReferenceImageLimiter} 口径一致，不抛超限异常。
+ * 超限拒绝，与 {@link ReferenceImageLimiter} 保持一致。
  *
  * @author 视觉AID
  */
@@ -88,21 +90,20 @@ public final class ReferenceAudioLimiter {
         capability.generatedAudioRequired = !node.has(KEY_REQUIRES_GENERATED_AUDIO)
                 || node.path(KEY_REQUIRES_GENERATED_AUDIO).asBoolean(true);
         capability.maxCount = node.path(KEY_MAX_REFERENCE_AUDIOS).asInt(0);
-        capability.minDurationSeconds = node.path(KEY_MIN_DURATION_SECONDS).asInt(0);
-        capability.maxDurationSeconds = node.path(KEY_MAX_DURATION_SECONDS).asInt(0);
-        capability.maxTotalDurationSeconds = node.path(KEY_MAX_TOTAL_DURATION_SECONDS).asInt(0);
+        capability.minDurationSeconds = decimal(node.path(KEY_MIN_DURATION_SECONDS));
+        capability.maxDurationSeconds = decimal(node.path(KEY_MAX_DURATION_SECONDS));
+        capability.maxTotalDurationSeconds = decimal(node.path(KEY_MAX_TOTAL_DURATION_SECONDS));
         capability.formats = readFormats(node);
         return capability;
     }
 
     /**
-     * 按模型配置的条数上限截断参考音频列表（统一入口）：超限保留前 N 条并打 warn，不抛错。
-     * 截断后重排 {@code index} 为 1..N，保证下发编号连续。
+     * 校验参考音频数量并重排编号，禁止静默丢弃素材。
      *
      * @param audios      有序参考音频列表
      * @param modelConfig 模型配置
      * @param providerTag 日志用厂商标识
-     * @return 截断并重排编号后的列表；入参为空返回空列表
+     * @return 校验并重排编号后的列表；入参为空返回空列表
      */
     public static List<ReferenceAudioInput> limit(List<ReferenceAudioInput> audios,
                                                   AiModelConfigVo modelConfig, String providerTag) {
@@ -111,17 +112,16 @@ public final class ReferenceAudioLimiter {
         }
         int max = readCapability(modelConfig).getMaxCount();
         List<ReferenceAudioInput> result = new ArrayList<>(audios);
-        if (max > 0 && result.size() > max) {
-            log.warn("{} 参考音频超过上限按顺序截断: max={}, 实际={}, 仅保留前{}条",
-                    providerTag, max, result.size(), max);
-            result = new ArrayList<>(result.subList(0, max));
+        if (max >= 0 && result.size() > max) {
+            log.info("{} 参考音频超过上限: max={}, actual={}", providerTag, max, result.size());
+            throw new ServiceException("参考音频数量超限");
         }
         reindex(result);
         return result;
     }
 
     /**
-     * 重排参考音频编号为 1..N（截断/剔除后保证编号连续）。
+     * 重排已经完成能力校验的参考音频编号为 1..N。
      *
      * @param audios 参考音频列表（原地修改）
      */
@@ -172,6 +172,10 @@ public final class ReferenceAudioLimiter {
         return formats;
     }
 
+    private static BigDecimal decimal(JsonNode node) {
+        return node.isNumber() ? node.decimalValue() : BigDecimal.ZERO;
+    }
+
     /** 模型参考音频能力配置。 */
     @Getter
     public static final class ReferenceAudioCapability {
@@ -186,13 +190,13 @@ public final class ReferenceAudioLimiter {
         private int maxCount;
 
         /** 单条最短时长秒；未配置为 0 表示不限。 */
-        private int minDurationSeconds;
+        private BigDecimal minDurationSeconds = BigDecimal.ZERO;
 
         /** 单条最长时长秒；未配置为 0 表示不限。 */
-        private int maxDurationSeconds;
+        private BigDecimal maxDurationSeconds = BigDecimal.ZERO;
 
         /** 多条总时长上限秒；未配置为 0 表示不限。 */
-        private int maxTotalDurationSeconds;
+        private BigDecimal maxTotalDurationSeconds = BigDecimal.ZERO;
 
         /** 允许的音频格式（小写）；为空表示未配置。 */
         private List<String> formats = new ArrayList<>();
@@ -243,10 +247,11 @@ public final class ReferenceAudioLimiter {
             if (Objects.isNull(durationMs) || durationMs <= 0) {
                 return false;
             }
-            if (minDurationSeconds > 0 && durationMs < minDurationSeconds * 1000L) {
+            BigDecimal millis = BigDecimal.valueOf(durationMs);
+            if (minDurationSeconds.signum() > 0 && millis.compareTo(minDurationSeconds.multiply(BigDecimal.valueOf(1000))) < 0) {
                 return false;
             }
-            return maxDurationSeconds <= 0 || durationMs <= maxDurationSeconds * 1000L;
+            return maxDurationSeconds.signum() <= 0 || millis.compareTo(maxDurationSeconds.multiply(BigDecimal.valueOf(1000))) <= 0;
         }
     }
 }

@@ -17,6 +17,9 @@ public class BillingInput {
     /** 计费参数键值对（如 resolution=720P, duration=5, inputChars=1200） */
     private Map<String, Object> params;
 
+    /** 只读报价中尚未核验的素材元数据，不允许用于正式任务预扣。 */
+    private boolean inputMetadataPending;
+
     public BillingInput() {
     }
 

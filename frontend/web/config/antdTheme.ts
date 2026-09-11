@@ -1,5 +1,7 @@
 import { theme, type ThemeConfig } from 'antd'
 
+const GLOBAL_FEEDBACK_Z_INDEX = 20000
+
 /**
  * Product-wide Ant Design theme.
  *
@@ -41,7 +43,12 @@ export const AID_ANTD_THEME: ThemeConfig = {
       titleColor: '#e6edf3'
     },
     Message: {
-      contentBg: '#191a1d'
+      contentBg: '#191a1d',
+      // 全局反馈高于业务 Portal、视频预览及编辑器；静态 API 和 hooks 共用。
+      zIndexPopup: GLOBAL_FEEDBACK_Z_INDEX
+    },
+    Notification: {
+      zIndexPopup: GLOBAL_FEEDBACK_Z_INDEX
     },
     Drawer: {
       colorBgElevated: '#191a1d',

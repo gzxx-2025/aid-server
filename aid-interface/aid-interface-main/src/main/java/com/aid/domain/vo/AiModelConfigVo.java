@@ -18,8 +18,38 @@ public class AiModelConfigVo implements Serializable {
     /** 模型ID */
     private Long id;
 
+    /** 本次调用选中的模型能力。 */
+    private String capabilityCode;
+
+    /** 本次调用选中的协议绑定。 */
+    private String bindingCode;
+    private java.util.List<com.aid.aid.domain.model.ModelProtocolBinding.FieldMapping> requestMappings;
+
+    /** 模型配置版本。 */
+    private Long configVersion;
+
+    /** 本次解析出的能力定义。 */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private com.aid.aid.domain.model.ModelCapabilityDefinition resolvedDefinition;
+
+    /** 本次解析持有的完整能力配置，避免同一次报价中混入后续编辑结果。 */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    @lombok.ToString.Exclude
+    private java.util.List<com.aid.aid.domain.model.ModelCapabilityDefinition> resolvedCapabilities;
+
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    @lombok.ToString.Exclude
+    private java.util.Map<String, Object> invocationBaseline;
+
+    /** 业务绑定的参数默认值。 */
+    private String businessDefaultsJson;
+    private String businessFuncCode;
+
     /** 所属服务商ID */
     private Long providerId;
+
+    /** 服务端凭证版本引用，不包含密钥。 */
+    private Integer credentialVersion;
 
     /** 模型展示/选择码 (如: gpt5.4_a, qwen-image-max)，全表唯一，前端按此选择 */
     private String modelCode;
@@ -85,9 +115,11 @@ public class AiModelConfigVo implements Serializable {
     private String baseUrl;
 
     /** API密钥（如用户有自定义配置则返回用户密钥） */
+    @lombok.ToString.Exclude
     private String apiKey;
 
     /** 扩展密钥 */
+    @lombok.ToString.Exclude
     private String apiSecret;
 
     /** 任务查询路径模板（%s 为 taskId 占位符），来自 aid_ai_provider.task_query_suffix */

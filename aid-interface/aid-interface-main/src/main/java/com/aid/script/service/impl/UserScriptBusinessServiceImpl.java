@@ -21,6 +21,7 @@ import com.aid.common.page.SafePageUtils;
 import com.aid.common.utils.DateUtils;
 import com.aid.enums.ProjectTypeEnum;
 import com.aid.enums.ScriptStatusEnum;
+import com.aid.project.service.IProjectContentGuardService;
 import com.aid.script.dto.UserScriptAutoSaveRequest;
 import com.aid.script.dto.UserScriptQueryRequest;
 import com.aid.script.dto.UserScriptSaveRequest;
@@ -83,6 +84,9 @@ public class UserScriptBusinessServiceImpl implements IUserScriptBusinessService
     @Autowired
     private IAidComicEpisodeService aidComicEpisodeService;
 
+    @Autowired
+    private IProjectContentGuardService projectContentGuardService;
+
     /**
      * 校验项目归属并返回项目
      */
@@ -107,6 +111,9 @@ public class UserScriptBusinessServiceImpl implements IUserScriptBusinessService
         if (project == null) {
             log.info("剧本操作项目缺失或越权, projectId={}, userId={}", projectId, userId);
             throw new ServiceException("项目不存在");
+        }
+        if (forUpdate) {
+            projectContentGuardService.assertProjectEditable(project);
         }
         return project;
     }

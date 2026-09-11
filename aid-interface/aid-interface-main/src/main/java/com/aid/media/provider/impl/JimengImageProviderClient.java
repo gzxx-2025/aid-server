@@ -160,18 +160,18 @@ public class JimengImageProviderClient implements ImageProviderClient {
     @Override
     public ProviderSubmitResult submit(AiModelConfigVo modelConfig, MediaImageGenerateRequest request) {
         String modelCode = resolveEffectiveModel(modelConfig, request);
-        String reqKey = resolveReqKey(modelCode);
+        String reqKey = com.aid.model.definition.ModelConfiguredRequestBody.configuredRequestKey(modelConfig, request);
+        if (reqKey == null) reqKey = resolveReqKey(modelCode);
 
         List<String> imageInputs = resolveImageInputs(request);
-        // 统一上限：读 capability_json.maxReferenceImages，缺省回退即梦各版本官方默认；超限截断 + warn（不再抛错）
+        // 统一上限：读 capability_json.maxReferenceImages，缺省回退即梦各版本官方默认；超限直接拒绝。
         int jimengMaxRef = JimengConstants.MODEL_CODE_ULTRA.equalsIgnoreCase(modelCode)
                 ? JimengConstants.MAX_REF_IMAGES_ULTRA
                 : (JimengConstants.MODEL_CODE_V46.equalsIgnoreCase(modelCode)
                         ? JimengConstants.MAX_REF_IMAGES_V46
                         : JimengConstants.MAX_REF_IMAGES_V40);
         imageInputs = ReferenceImageLimiter.limit(imageInputs, modelConfig, jimengMaxRef, "即梦-" + modelCode);
-        // 清洗必须排在截断之后：即梦各版本默认上限（V4.0 仅 4 张）常小于业务层按 capability 排好的编号，
-        // 先清洗会把被截断掉的图片仍以「图片N」留在正文里，形成指向不存在实物的悬空引用。
+        // 数量校验完成后再规范化提示词占位，确保编号与真实下发素材一一对应。
         ReferencePromptSanitizer.sanitizeInPlace(request, imageInputs.size());
         // Base64 传图开关：官方 binary_data_base64 与 image_urls 二选一，启用时下载转裸 base64 下发
         boolean useBase64 = com.aid.media.provider.ReferenceImageBase64Support.isBase64Enabled(modelConfig);
@@ -190,6 +190,7 @@ public class JimengImageProviderClient implements ImageProviderClient {
             useBase64 = false;
         }
         Map<String, Object> body = buildSubmitBody(modelCode, reqKey, request, imageInputs, useBase64);
+        body = com.aid.model.definition.ModelConfiguredRequestBody.apply(modelConfig, body, request);
 
         boolean isImg2Img = CollectionUtil.isNotEmpty(imageInputs);
         log.info("即梦图片提交请求: modelCode={}, reqKey={}, promptLen={}, refImages={}, mode={}, width={}, height={}, size={}, forceSingle={}",
@@ -268,7 +269,7 @@ public class JimengImageProviderClient implements ImageProviderClient {
 
         log.info("即梦图片提交成功, modelCode={}, reqKey={}, taskId={}", modelCode, reqKey, taskId);
         return ProviderSubmitResult.builder()
-                .providerTaskId(taskId)
+                .providerTaskId(modelConfig.getCapabilityCode() == null ? taskId : taskId + JimengConstants.VIDEO_TASK_ID_REQ_KEY_SEPARATOR + reqKey)
                 .rawResponse(raw)
                 .build();
     }
@@ -312,7 +313,14 @@ public class JimengImageProviderClient implements ImageProviderClient {
         // 配置类异常（未配模型/modelCode 不在固定映射）属永久失败，不能伪装成 PROCESSING 造成无限轮询。
         String reqKey;
         try {
-            reqKey = resolveReqKey(modelCode);
+            reqKey = null;
+            if (providerTaskId != null && providerTaskId.contains(JimengConstants.VIDEO_TASK_ID_REQ_KEY_SEPARATOR)) {
+                int separator = providerTaskId.lastIndexOf(JimengConstants.VIDEO_TASK_ID_REQ_KEY_SEPARATOR);
+                reqKey = providerTaskId.substring(separator + JimengConstants.VIDEO_TASK_ID_REQ_KEY_SEPARATOR.length());
+                providerTaskId = providerTaskId.substring(0, separator);
+            }
+            if (reqKey == null) reqKey = com.aid.model.definition.ModelConfiguredRequestBody.configuredRequestKey(modelConfig, null);
+            if (reqKey == null) reqKey = resolveReqKey(modelCode);
         } catch (IllegalArgumentException e) {
             log.error("即梦图片查询配置错误, modelCode={}, taskId={}, msg={}", modelCode, providerTaskId, e.getMessage());
             return queryAnomaly(null, e.getMessage(), null);
@@ -451,11 +459,9 @@ public class JimengImageProviderClient implements ImageProviderClient {
             if (StrUtil.isBlank(prompt)) {
                 throw new IllegalArgumentException("请填提示词");
             }
-            // 官方限制：最长不超过 800 字符，超长截断
+            // 官方限制：最长不超过 800 字符，超长直接拒绝。
             if (prompt.length() > JimengConstants.PROMPT_MAX_LENGTH) {
-                log.warn("即梦3.1 prompt 超长截断, 原始长度={}, 截断至={}",
-                        prompt.length(), JimengConstants.PROMPT_MAX_LENGTH);
-                prompt = prompt.substring(0, JimengConstants.PROMPT_MAX_LENGTH);
+                throw invalidParameter("提示词长度超过即梦模型上限", "提示词过长");
             }
             body.put(JimengConstants.JSON_PROMPT, prompt);
             applyOptionsV31(body, request);
@@ -466,19 +472,16 @@ public class JimengImageProviderClient implements ImageProviderClient {
         if (StrUtil.isBlank(prompt)) {
             throw new IllegalArgumentException("请填提示词");
         }
-        // prompt 长度收口：4.0 / 4.6 文档均限制 800 字符，超长截断
+        // 4.0 / 4.6 文档均限制 800 字符，超长直接拒绝。
         if (prompt.length() > JimengConstants.PROMPT_MAX_LENGTH) {
-            log.warn("即梦图片 prompt 超长截断, modelCode={}, 原始长度={}, 截断至={}",
-                    modelCode, prompt.length(), JimengConstants.PROMPT_MAX_LENGTH);
-            prompt = prompt.substring(0, JimengConstants.PROMPT_MAX_LENGTH);
+            throw invalidParameter("提示词长度超过即梦模型上限", "提示词过长");
         }
         int maxRef = JimengConstants.MODEL_CODE_V46.equalsIgnoreCase(modelCode)
                 ? JimengConstants.MAX_REF_IMAGES_V46
                 : JimengConstants.MAX_REF_IMAGES_V40;
-        // 参考图数量已在 submit 入口经 ReferenceImageLimiter 统一截断到 maxRef，此处不再抛错
+        // submit 入口已经做过统一校验；这里保留防御性检查，禁止任何路径静默丢图。
         if (CollectionUtil.isNotEmpty(imageInputs) && imageInputs.size() > maxRef) {
-            log.warn("{} 参考图仍超限(理论不应发生), 截断至 max={}, 实际={}", modelCode, maxRef, imageInputs.size());
-            imageInputs = new java.util.ArrayList<>(imageInputs.subList(0, maxRef));
+            throw invalidParameter("参考图片数量超过即梦模型上限", "参考图片超限");
         }
         body.put(JimengConstants.JSON_PROMPT, prompt);
         if (CollectionUtil.isNotEmpty(imageInputs)) {
@@ -501,7 +504,7 @@ public class JimengImageProviderClient implements ImageProviderClient {
         if (options == null) {
             return;
         }
-        // resolution 官方仅接受小写 "4k"/"8k"：统一小写下发，非法值丢弃走上游默认 4k
+        // resolution 官方仅接受小写 "4k"/"8k"：展示别名可归一化，非法值直接拒绝。
         Object resolutionVal = options.get(JimengConstants.OPTIONS_RESOLUTION);
         if (resolutionVal != null && StrUtil.isNotBlank(String.valueOf(resolutionVal))) {
             String normalized = String.valueOf(resolutionVal).trim().toLowerCase(Locale.ROOT);
@@ -509,15 +512,21 @@ public class JimengImageProviderClient implements ImageProviderClient {
                     || JimengConstants.ULTRA_RESOLUTION_8K.equals(normalized)) {
                 body.put(JimengConstants.JSON_RESOLUTION, normalized);
             } else {
-                log.warn("即梦超清 resolution 非法值丢弃, 输入={}, 官方仅支持4k/8k, 走上游默认4k", resolutionVal);
+                throw invalidParameter("即梦超清分辨率不在 4K/8K 枚举内", "分辨率不支持");
             }
         }
-        // scale 官方范围 int [0,100]，clamp 后下发
+        // scale 官方范围 int [0,100]，越界或非整数直接拒绝。
         Object scaleVal = options.get(JimengConstants.OPTIONS_SCALE);
-        if (scaleVal instanceof Number) {
-            int clamped = Math.max(JimengConstants.SCALE_ULTRA_MIN,
-                    Math.min(((Number) scaleVal).intValue(), JimengConstants.SCALE_ULTRA_MAX));
-            body.put(JimengConstants.JSON_SCALE, clamped);
+        if (scaleVal != null) {
+            if (!(scaleVal instanceof Number number)
+                    || number.doubleValue() != Math.rint(number.doubleValue())) {
+                throw invalidParameter("即梦超清 scale 不是整数", "参数格式错误");
+            }
+            int value = number.intValue();
+            if (value < JimengConstants.SCALE_ULTRA_MIN || value > JimengConstants.SCALE_ULTRA_MAX) {
+                throw invalidParameter("即梦超清 scale 超过 0-100", "参数范围错误");
+            }
+            body.put(JimengConstants.JSON_SCALE, value);
         }
     }
 
@@ -552,8 +561,11 @@ public class JimengImageProviderClient implements ImageProviderClient {
         // scale：4.0 文档要求 float [0, 1]，默认 0.5
         Object scaleVal = options.get(JimengConstants.OPTIONS_SCALE);
         double sv;
-        if (scaleVal instanceof Number) {
-            sv = ((Number) scaleVal).doubleValue();
+        if (scaleVal != null) {
+            if (!(scaleVal instanceof Number number)) {
+                throw invalidParameter("即梦4.0 scale 不是数字", "参数格式错误");
+            }
+            sv = number.doubleValue();
             if (sv > JimengConstants.SCALE_V40_MAX) {
                 // 可能是按 4.6 的 [1,100] 传入，转为 [0,1]
                 sv = sv / JimengConstants.SCALE_V46_MAX;
@@ -563,8 +575,9 @@ public class JimengImageProviderClient implements ImageProviderClient {
             // 未传 scale，落入默认值
             sv = JimengConstants.SCALE_V40_DEFAULT;
         }
-        // 最终范围校验：clamp 到 [0, 1]
-        sv = Math.max(JimengConstants.SCALE_V40_MIN, Math.min(sv, JimengConstants.SCALE_V40_MAX));
+        if (sv < JimengConstants.SCALE_V40_MIN || sv > JimengConstants.SCALE_V40_MAX) {
+            throw invalidParameter("即梦4.0 scale 超过 0-1", "参数范围错误");
+        }
         body.put(JimengConstants.JSON_SCALE, sv);
         putIfPresent(body, options, JimengConstants.JSON_FORCE_SINGLE, JimengConstants.OPTIONS_FORCE_SINGLE);
         putIfPresent(body, options, JimengConstants.JSON_MIN_RATIO, JimengConstants.OPTIONS_MIN_RATIO);
@@ -586,21 +599,28 @@ public class JimengImageProviderClient implements ImageProviderClient {
         // scale：4.6 文档要求 int [1, 100]，默认 50
         Object scaleVal = options.get(JimengConstants.OPTIONS_SCALE);
         int ivs;
-        if (scaleVal instanceof Number) {
-            double sv = ((Number) scaleVal).doubleValue();
+        if (scaleVal != null) {
+            if (!(scaleVal instanceof Number number)) {
+                throw invalidParameter("即梦4.6 scale 不是数字", "参数格式错误");
+            }
+            double sv = number.doubleValue();
             if (sv > 0 && sv <= JimengConstants.SCALE_V40_MAX) {
                 // 可能是按 4.0 的 [0,1] 传入，转为 [1,100]
                 ivs = (int) Math.round(sv * JimengConstants.SCALE_V46_MAX);
                 log.info("即梦4.6 scale自动换算: 原值={}, 换算后={}", scaleVal, ivs);
             } else {
-                ivs = ((Number) scaleVal).intValue();
+                if (sv != Math.rint(sv)) {
+                    throw invalidParameter("即梦4.6 scale 不是整数", "参数格式错误");
+                }
+                ivs = number.intValue();
             }
         } else {
             // 未传 scale，落入默认值
             ivs = JimengConstants.SCALE_V46_DEFAULT;
         }
-        // 最终范围校验：clamp 到 [1, 100]
-        ivs = Math.max(JimengConstants.SCALE_V46_MIN, Math.min(ivs, JimengConstants.SCALE_V46_MAX));
+        if (ivs < JimengConstants.SCALE_V46_MIN || ivs > JimengConstants.SCALE_V46_MAX) {
+            throw invalidParameter("即梦4.6 scale 超过 1-100", "参数范围错误");
+        }
         body.put(JimengConstants.JSON_SCALE, ivs);
         putIfPresent(body, options, JimengConstants.JSON_FORCE_SINGLE, JimengConstants.OPTIONS_FORCE_SINGLE);
         putIfPresent(body, options, JimengConstants.JSON_MIN_RATIO, JimengConstants.OPTIONS_MIN_RATIO);
@@ -633,16 +653,22 @@ public class JimengImageProviderClient implements ImageProviderClient {
         Map<String, Object> options = request.getOptions();
         Object w = options == null ? null : options.get(JimengConstants.OPTIONS_WIDTH);
         Object h = options == null ? null : options.get(JimengConstants.OPTIONS_HEIGHT);
-        if (w != null && h != null) {
-            body.put(JimengConstants.JSON_WIDTH, w);
-            body.put(JimengConstants.JSON_HEIGHT, h);
+        if (w != null || h != null) {
+            if (!(w instanceof Number width) || !(h instanceof Number height)
+                    || width.doubleValue() != Math.rint(width.doubleValue())
+                    || height.doubleValue() != Math.rint(height.doubleValue())
+                    || width.intValue() <= 0 || height.intValue() <= 0) {
+                throw invalidParameter("即梦图片宽高没有同时提供正整数", "图片尺寸错误");
+            }
+            body.put(JimengConstants.JSON_WIDTH, width.intValue());
+            body.put(JimengConstants.JSON_HEIGHT, height.intValue());
             if (options != null) {
                 options.remove("aspect_ratio");
             }
             return;
         }
         String size = request.getSize();
-        if (StrUtil.isNotBlank(size) && size.contains("*")) {
+        if (StrUtil.isNotBlank(size) && size.matches(".*" + JimengConstants.SIZE_DIMENSION_SPLIT_REGEX + ".*")) {
             String[] parts = size.split(JimengConstants.SIZE_DIMENSION_SPLIT_REGEX);
             if (parts.length == 2) {
                 try {
@@ -650,8 +676,9 @@ public class JimengImageProviderClient implements ImageProviderClient {
                     int height = Integer.parseInt(parts[1].trim());
                     body.put(JimengConstants.JSON_WIDTH, width);
                     body.put(JimengConstants.JSON_HEIGHT, height);
-                } catch (NumberFormatException ignore) {
-                    // 非整数 size 忽略，交给上游按默认面积处理
+                } catch (NumberFormatException exception) {
+                    log.info("即梦图片尺寸解析失败: size={}", size);
+                    throw new IllegalArgumentException("图片尺寸错误", exception);
                 }
             }
             if (options != null) {
@@ -673,9 +700,7 @@ public class JimengImageProviderClient implements ImageProviderClient {
                             modelCode, ratio, StrUtil.isBlank(size) ? "(默认2K)" : size, dims[0], dims[1]);
                     return;
                 } else {
-                    log.warn("即梦图片未知 aspect_ratio={}, 回退默认尺寸模式, modelCode={}, size={}",
-                            ratio, modelCode, size);
-                    // 回退到下面的档位兜底逻辑
+                    throw invalidParameter("即梦图片画面比例不支持: " + ratio, "图片比例不支持");
                 }
             }
         }
@@ -696,7 +721,7 @@ public class JimengImageProviderClient implements ImageProviderClient {
                 body.put(JimengConstants.JSON_SIZE, area);
                 log.info("即梦图片翻译 size={} -> area={}, modelCode={}", size, area, modelCode);
             } else {
-                log.warn("即梦图片未识别 size={}，忽略，由上游默认, modelCode={}", size, modelCode);
+                throw invalidParameter("即梦图片清晰度档位不支持: " + size, "清晰度不支持");
             }
         }
         // 兜底：不传任何尺寸参数，上游默认 2K 面积 + 智能比例
@@ -704,7 +729,7 @@ public class JimengImageProviderClient implements ImageProviderClient {
 
     /**
      * 3.1 档位兜底：无比例时按档位写官方 1:1 推荐宽高。
-     * 官方约束宽高乘积 ≤ 2048*2048（无 4K），2K 以上档位一律压到 2048*2048；不传档位时不下发（上游默认 1328*1328）。
+     * 官方约束宽高乘积 ≤ 2048*2048（无 4K），显式传入不支持档位时直接拒绝。
      */
     private void applyDefaultDimsV31(Map<String, Object> body, String size) {
         if (StrUtil.isBlank(size)) {
@@ -717,13 +742,8 @@ public class JimengImageProviderClient implements ImageProviderClient {
         } else if ("2K".equals(upper)) {
             body.put(JimengConstants.JSON_WIDTH, V31_2K_DIMENSION);
             body.put(JimengConstants.JSON_HEIGHT, V31_2K_DIMENSION);
-        } else if ("4K".equals(upper)) {
-            // 3.1 官方上限 2048*2048，4K 请求压回 2K 并告警
-            log.warn("即梦3.1 不支持 4K, 压回 2K(2048*2048)");
-            body.put(JimengConstants.JSON_WIDTH, V31_2K_DIMENSION);
-            body.put(JimengConstants.JSON_HEIGHT, V31_2K_DIMENSION);
         } else {
-            log.warn("即梦3.1 未识别 size={}，不下发宽高，由上游默认 1328*1328", size);
+            throw invalidParameter("即梦3.1 清晰度不在 1K/2K 枚举内", "清晰度不支持");
         }
     }
 
@@ -731,7 +751,7 @@ public class JimengImageProviderClient implements ImageProviderClient {
      * 根据 size 档位 + modelCode 选择推荐宽高表。
      * 1K：3.1 用官方 1328 基准表，4.0/4.6 用 1024 表；
      * 2K：三个版本官方推荐值一致，共用；
-     * 4K：仅 4.0/4.6（两版在 4:3/21:9 差 1px），3.1 无 4K 压回 2K 表。
+     * 4K：仅 4.0/4.6（两版在 4:3/21:9 差 1px），3.1 显式请求 4K 直接拒绝。
      */
     private Map<String, int[]> resolveSizeTable(String size, String modelCode) {
         boolean isV31 = JimengConstants.MODEL_CODE_V31.equalsIgnoreCase(modelCode);
@@ -740,9 +760,7 @@ public class JimengImageProviderClient implements ImageProviderClient {
         }
         if ("4K".equalsIgnoreCase(size)) {
             if (isV31) {
-                // 3.1 官方无 4K，回退 2K 表
-                log.warn("即梦3.1 不支持 4K 档位，按 2K 推荐宽高下发");
-                return JIMENG_RATIO_TO_2K_SIZE;
+                throw invalidParameter("即梦3.1 收到不支持的 4K 档位", "清晰度不支持");
             }
             return JimengConstants.MODEL_CODE_V46.equalsIgnoreCase(modelCode)
                     ? JIMENG_RATIO_TO_4K_SIZE_V46 : JIMENG_RATIO_TO_4K_SIZE_V40;
@@ -965,6 +983,11 @@ public class JimengImageProviderClient implements ImageProviderClient {
                 .providerStatus(providerStatus)
                 .terminalConfirmed(Boolean.FALSE)
                 .build();
+    }
+
+    private static IllegalArgumentException invalidParameter(String detail, String userMessage) {
+        log.info("即梦图片参数校验失败: {}", detail);
+        return new IllegalArgumentException(userMessage);
     }
 
     /**

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Button, Card, Col, Form, Input, Modal, Popconfirm, Row, Select, Space, Table, Tag, message } from 'antd';
 import { AppstoreOutlined, DeleteOutlined, DownloadOutlined, EditOutlined, PlusOutlined, RedoOutlined, SearchOutlined } from '@ant-design/icons';
 import {
@@ -12,6 +12,8 @@ import SectionTitle from '@/components/SectionTitle';
 import { download } from '@/utils/request';
 import { useDict } from '@/hooks/useDict';
 import ModelPoolSelector, { type PoolModel } from './ModelPoolSelector';
+import FunctionCapabilityEditor from './FunctionCapabilityEditor';
+import type { BusinessModelBinding } from '../aimanage/ModelBusinessBindingEditor';
 
 export default function FuncconfigPage() {
   const [loading, setLoading] = useState(false);
@@ -26,6 +28,8 @@ export default function FuncconfigPage() {
   const [form] = Form.useForm();
   const [selectedModels, setSelectedModels] = useState<PoolModel[]>([]);
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const [modelBindings, setModelBindings] = useState<BusinessModelBinding[]>([]);
   const [editingId, setEditingId] = useState<any>(null);
   const [editingData, setEditingData] = useState<any>(null);
   const dicts = useDict('one_or_zero');
@@ -80,6 +84,7 @@ export default function FuncconfigPage() {
     setEditingData(null);
     form.setFieldsValue({ status: '0' });
     setSelectedModels([]);
+    setModelBindings([]);
     setDlgTitle('新增功能配置');
     setDlgOpen(true);
   };
@@ -101,6 +106,7 @@ export default function FuncconfigPage() {
       .map((id) => (byId.get(id) as PoolModel | undefined)
         || ({ id, modelCode: `#${id}`, modelName: `未知模型#${id}`, modelType: '', _missing: true } as PoolModel));
     setSelectedModels(hydrated);
+    setModelBindings(data.modelBindings || []);
     setDlgTitle('修改功能配置');
     setDlgOpen(true);
   };
@@ -116,21 +122,31 @@ export default function FuncconfigPage() {
   };
 
   const handleSave = async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    try {
     const values = await form.validateFields();
     if (selectedModels.length === 0) { message.error('请至少选择一个可用模型'); return; }
     const modelIds = JSON.stringify(selectedModels.map((m) => m.id));
+    for (const model of selectedModels.filter((item) => item.capabilities?.length)) {
+      if (modelBindings.filter((row) => row.modelId === model.id && row.defaultCapability).length !== 1) {
+        message.error(`请选择 ${model.modelName} 的业务能力及默认能力`); return;
+      }
+    }
+    const bindings = modelBindings.filter((row) => selectedModels.some((model) => model.id === row.modelId)).map((row) => ({ ...row, funcCode: values.funcCode }));
     setSaving(true);
     try {
       if (editingId) {
-        await updateFuncconfig({ ...(editingData || {}), ...values, id: editingId, modelIds });
+        await updateFuncconfig({ ...(editingData || {}), ...values, id: editingId, modelIds, modelBindings: bindings });
         message.success('修改成功');
       } else {
-        await addFuncconfig({ ...values, modelIds });
+        await addFuncconfig({ ...values, modelIds, modelBindings: bindings });
         message.success('新增成功');
       }
       setDlgOpen(false);
       loadList();
     } finally { setSaving(false); }
+    } finally { savingRef.current = false; }
   };
 
   const columns: any[] = [
@@ -212,7 +228,7 @@ export default function FuncconfigPage() {
         />
       </Card>
 
-      <Modal open={dlgOpen} title={<Space><AppstoreOutlined style={{ color: '#2563eb' }} /><span>{dlgTitle}</span></Space>} onCancel={() => setDlgOpen(false)} onOk={handleSave} confirmLoading={saving} width={1180} destroyOnClose maskClosable={false}>
+      <Modal open={dlgOpen} title={<Space><AppstoreOutlined style={{ color: '#2563eb' }} /><span>{dlgTitle}</span></Space>} onCancel={() => { if (!savingRef.current) setDlgOpen(false); }} onOk={handleSave} confirmLoading={saving} width={1180} destroyOnClose maskClosable={false}>
         <Form form={form} layout="vertical" style={{ marginTop: 8 }}>
           <Row gutter={16}>
             <Col span={12}><Form.Item name="funcName" label="功能名称" rules={[{ required: true, message: '功能名称不能为空' }]}><Input placeholder="如：图片编辑、图片高清" /></Form.Item></Col>
@@ -229,6 +245,7 @@ export default function FuncconfigPage() {
             onChange={setSelectedModels}
             providerNameMap={providerNameMap}
           />
+          <FunctionCapabilityEditor models={selectedModels} value={modelBindings} onChange={setModelBindings} />
 
           <Row gutter={16} style={{ marginTop: 16 }}>
             <Col span={12}><Form.Item name="status" label="状态" rules={[{ required: true }]}><Select options={statusDict.map((d: any) => ({ label: d.label, value: d.value }))} placeholder="请选择状态" /></Form.Item></Col>

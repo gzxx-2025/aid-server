@@ -46,7 +46,7 @@ public class StoryboardVideoEdgeGenerateRequest
      */
     private String resolution;
 
-    /** 目标视频时长（秒，可选）；单个和批量均优先使用本值，为空按模型默认，并按模型档位向上归一化。 */
+    /** 目标视频时长（秒，可选）；显式传值必须命中模型档位，为空时才使用模型默认。 */
     private Integer durationSeconds;
 
     /** 生成数量（可选，默认 1，范围 [1,4]）。仅单镜头生效；多镜头每镜头 1 条，传 &gt;1 报错。 */
@@ -55,7 +55,7 @@ public class StoryboardVideoEdgeGenerateRequest
     /** 是否生成音频（可选）。仅当模型 capability.supportsAudio=true 时可传；不支持时传 true 将被拒绝。 */
     private Boolean generateAudio;
 
-    /** 用户补充文本（可选，最大 500 字符，超出截断），拼接到提示词之后。 */
+    /** 用户补充文本（可选，最大 500 字符，超出拒绝），拼接到提示词之后。 */
     private String userInputText;
 
     /**

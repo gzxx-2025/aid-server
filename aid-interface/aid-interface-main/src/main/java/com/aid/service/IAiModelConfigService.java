@@ -15,6 +15,16 @@ public interface IAiModelConfigService {
      */
     AiModelConfigVo selectByModelCode(String modelCode);
 
+    /** 按业务明确的能力查询模型调用配置。 */
+    default AiModelConfigVo selectByModelCode(String modelCode, String capabilityCode) {
+        return selectByModelCode(modelCode);
+    }
+
+    /** 按业务绑定解析模型能力与默认参数。 */
+    default AiModelConfigVo selectForBusiness(String modelCode, String funcCode, String capabilityCode) {
+        return selectByModelCode(modelCode, capabilityCode);
+    }
+
     /**
      * 按模型代码和任务用户查询配置。
      *
@@ -23,6 +33,11 @@ public interface IAiModelConfigService {
      * @return 已组装的模型配置，不存在返回 null
      */
     AiModelConfigVo selectByModelCodeForUser(String modelCode, Long userId);
+
+    /** 已建任务按原模型记录解析凭证，模型停用不取消原任务的查询。 */
+    default AiModelConfigVo selectTaskCredentials(Long modelId, String modelCode, Long userId) {
+        return selectByModelCodeForUser(modelCode, userId);
+    }
 
     /**
      * 按模型分类查询优先级最高的模型。
@@ -48,4 +63,9 @@ public interface IAiModelConfigService {
      * @return 已组装的模型配置，不存在返回 null
      */
     AiModelConfigVo selectByModelId(Long modelId);
+
+    /** 按模型主键和业务明确的能力读取调用配置。 */
+    default AiModelConfigVo selectByModelId(Long modelId, String capabilityCode) {
+        return selectByModelId(modelId);
+    }
 }

@@ -199,7 +199,7 @@ public class ConfigurableAsyncImageProviderClient implements ImageProviderClient
         if (StrUtil.isNotBlank(size)) {
             body.put("size", size);
         }
-        return executeJsonPost(buildSubmitUrl(modelConfig, false), modelConfig, JSONUtil.toJsonStr(body));
+        return executeJsonPost(buildSubmitUrl(modelConfig, false), modelConfig, JSONUtil.toJsonStr(com.aid.model.definition.ModelConfiguredRequestBody.apply(modelConfig, body, request)));
     }
 
     private static HttpResult submitEdit(AiModelConfigVo modelConfig,
@@ -307,7 +307,11 @@ public class ConfigurableAsyncImageProviderClient implements ImageProviderClient
         int count = request == null || request.getExpectedImageCount() == null
                 ? 1 : Math.max(1, request.getExpectedImageCount());
         if (modelConfig.getMaxOutputCount() != null && modelConfig.getMaxOutputCount() > 0) {
-            count = Math.min(count, modelConfig.getMaxOutputCount());
+            if (count > modelConfig.getMaxOutputCount()) {
+                log.info("可配置异步图片输出数量超限: modelCode={}, max={}, actual={}",
+                        modelConfig.getModelCode(), modelConfig.getMaxOutputCount(), count);
+                throw new ServiceException("生成图片数量超限");
+            }
         }
         return count;
     }

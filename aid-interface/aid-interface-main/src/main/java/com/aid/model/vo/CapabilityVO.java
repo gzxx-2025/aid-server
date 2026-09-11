@@ -4,6 +4,7 @@ import java.io.Serializable;
 import java.util.List;
 import java.util.Map;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.Data;
 
 /**
@@ -12,6 +13,7 @@ import lombok.Data;
  * @author 视觉AID
  */
 @Data
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class CapabilityVO implements Serializable
 {
     private static final long serialVersionUID = 1L;
@@ -40,14 +42,29 @@ public class CapabilityVO implements Serializable
     /** 视频生成细分场景，供同一上游模型的多个平台模型编码区分请求结构。 */
     private String videoScenario;
 
+    /** Seedance Generations 当前模型允许的显式任务类型。 */
+    private List<String> seedanceTaskTypeOptions;
+
+    /** 当前模型允许的业务场景白名单。 */
+    private List<String> allowedScenes;
+
     /** 视频输出容器格式枚举（如 mp4/mov）。 */
     private List<String> outputFormatOptions;
 
     /** 默认视频输出容器格式。 */
     private String defaultOutputFormat;
 
+    /** 视频输出帧率枚举；仅描述上游可选或固定输出，不与参考视频输入帧率混用。 */
+    private List<Integer> outputFpsOptions;
+
+    /** 默认视频输出帧率。 */
+    private Integer defaultOutputFps;
+
     /** 提示词最大字符数。 */
     private Integer maxPromptCharacters;
+
+    /** 提示词包含中日韩文字时的最大字符数；未配置时回退 maxPromptCharacters。 */
+    private Integer maxPromptCharactersCjk;
 
     /** 可灵场景允许的音频模式枚举，如 off、native、original。 */
     private List<String> audioModeOptions;
@@ -61,23 +78,26 @@ public class CapabilityVO implements Serializable
     /** 是否支持外部参考音频输入。 */
     private Boolean supportsReferenceAudio;
 
+    /** 参考音频是否必须与图片或视频素材同时提交。 */
+    private Boolean referenceAudioRequiresVisualInput;
+
     /** 单次最多参考音频数量。 */
     private Integer maxReferenceAudios;
 
     /** 单段参考音频最短时长，秒。 */
-    private Integer referenceAudioMinDurationSeconds;
+    private java.math.BigDecimal referenceAudioMinDurationSeconds;
 
     /** 单段参考音频最长时长，秒。 */
-    private Integer referenceAudioMaxDurationSeconds;
+    private java.math.BigDecimal referenceAudioMaxDurationSeconds;
 
     /** 单次参考音频总时长上限，秒。 */
-    private Integer referenceAudioMaxTotalDurationSeconds;
+    private java.math.BigDecimal referenceAudioMaxTotalDurationSeconds;
 
     /** 支持的参考音频格式。 */
     private List<String> referenceAudioFormats;
 
     /** 单个参考音频最大文件大小（MB）。 */
-    private Integer referenceAudioMaxFileSizeMb;
+    private java.math.BigDecimal referenceAudioMaxFileSizeMb;
 
     /**
      * 音画同出开关默认值；视频模型必返。
@@ -113,15 +133,17 @@ public class CapabilityVO implements Serializable
     private Integer maxReferenceMaterials;
 
     /** 参考视频单段/合计时长及文件格式约束。 */
-    private Integer referenceVideoMinDurationSeconds;
-    private Integer referenceVideoMaxDurationSeconds;
-    private Integer referenceVideoMaxTotalDurationSeconds;
+    private java.math.BigDecimal referenceVideoMinDurationSeconds;
+    private java.math.BigDecimal referenceVideoMaxDurationSeconds;
+    private java.math.BigDecimal referenceVideoMaxTotalDurationSeconds;
     /** 输入视频总时长与输出视频时长之和上限，秒。 */
-    private Integer maxInputOutputVideoDurationSeconds;
+    private java.math.BigDecimal maxInputOutputVideoDurationSeconds;
     private List<String> referenceVideoFormats;
-    private Integer referenceVideoMaxFileSizeMb;
+    private java.math.BigDecimal referenceVideoMaxFileSizeMb;
     private Integer referenceVideoMinDimensionPixels;
     private Integer referenceVideoMaxDimensionPixels;
+    private Long referenceVideoMinPixels;
+    private Long referenceVideoMaxPixels;
     private Double referenceVideoMinAspectRatio;
     private Double referenceVideoMaxAspectRatio;
     private Double referenceVideoMinFps;
@@ -132,6 +154,37 @@ public class CapabilityVO implements Serializable
 
     /** 是否支持指定音色控制。 */
     private Boolean supportsVoiceControl;
+
+    /** 音频模型的业务操作：synthesis、design 或 clone。 */
+    private String audioOperation;
+
+    /** TTS 文本和音色是否必填。 */
+    private Boolean ttsTextRequired;
+    private Boolean ttsVoiceRequired;
+
+    /** 可选的预置音色、输出格式和采样率。 */
+    private List<String> builtInVoiceOptions;
+    private List<String> audioFormatOptions;
+    private String defaultAudioFormat;
+    private List<Integer> audioSampleRateOptions;
+    private Integer defaultAudioSampleRate;
+
+    /** 语音合成专属能力与控制范围。 */
+    private Boolean supportsAudioStreaming;
+    private Boolean supportsTimestamp;
+    private Integer speechRateMin;
+    private Integer speechRateMax;
+    private Integer loudnessRateMin;
+    private Integer loudnessRateMax;
+    private Integer pitchMin;
+    private Integer pitchMax;
+    private List<String> emotionOptions;
+    private Boolean supportsEmotionScale;
+
+    /** 参考样本型音色的输入约束。 */
+    private Boolean voiceSampleRequired;
+    private List<String> voiceSampleFormats;
+    private java.math.BigDecimal voiceSampleMaxFileSizeMb;
 
     /** 是否允许用户自定义宽高（脱离 sizeOptions），当前项目策略统一为 false */
     private Boolean allowCustomWH;
@@ -159,11 +212,21 @@ public class CapabilityVO implements Serializable
 
     /** H3 等多模态模型的参考图片文件约束。 */
     private List<String> referenceImageFormats;
-    private Integer referenceImageMaxFileSizeMb;
+    private java.math.BigDecimal referenceImageMaxFileSizeMb;
     private Integer referenceImageMinDimensionPixels;
     private Integer referenceImageMaxDimensionPixels;
     private Double referenceImageMinAspectRatio;
     private Double referenceImageMaxAspectRatio;
+
+    /** 单张参考图片的总像素范围。 */
+    private Long referenceImageMinPixels;
+    private Long referenceImageMaxPixels;
+
+    /** 同次请求输入媒体总文件大小（MB）。 */
+    private java.math.BigDecimal maxInputMediaTotalFileSizeMb;
+
+    /** 外部媒体 URL 的最大长度；缺失表示厂商未声明或当前协议不限制。 */
+    private Integer inputMediaMaxUrlLength;
 
     /** 官方接口是否支持 Base64 传图（能力位，依官方文档配置；false/缺省时启用开关不可选） */
     private Boolean supportsBase64Image;
@@ -189,17 +252,48 @@ public class CapabilityVO implements Serializable
     private List<String> inputVideoFormats;
     private List<String> inputAudioFormats;
     private List<String> inputDocumentFormats;
-    private Integer maxInputImageFileSizeMb;
-    private Integer maxInputVideoFileSizeMb;
-    private Integer maxInputAudioFileSizeMb;
-    private Integer maxInputDocumentFileSizeMb;
-    private Integer maxInputVideoDurationSeconds;
-    private Integer maxInputAudioDurationSeconds;
+    private java.math.BigDecimal maxInputImageFileSizeMb;
+    private java.math.BigDecimal maxInputVideoFileSizeMb;
+    private java.math.BigDecimal maxInputAudioFileSizeMb;
+    private java.math.BigDecimal maxInputDocumentFileSizeMb;
+    private java.math.BigDecimal minInputVideoDurationSeconds;
+    private java.math.BigDecimal maxInputVideoDurationSeconds;
+    private java.math.BigDecimal minInputAudioDurationSeconds;
+    private java.math.BigDecimal maxInputAudioDurationSeconds;
+    private java.math.BigDecimal maxInputVideoTotalDurationSeconds;
+    private java.math.BigDecimal maxInputAudioTotalDurationSeconds;
     private Integer maxInputDocumentPages;
+
+    /** 文本多模态模型的图片与视频画面硬约束。 */
+    private Integer inputImageMinDimensionPixels;
+    private Integer inputImageMaxDimensionPixels;
+    private Long inputImageMinPixels;
+    private Long inputImageMaxPixels;
+    private Double inputImageMinAspectRatio;
+    private Double inputImageMaxAspectRatio;
+    private Integer inputVideoMinDimensionPixels;
+    private Integer inputVideoMaxDimensionPixels;
+    private Long inputVideoMinPixels;
+    private Long inputVideoMaxPixels;
+    private Double inputVideoMinAspectRatio;
+    private Double inputVideoMaxAspectRatio;
+    private Double inputVideoMinFps;
+    private Double inputVideoMaxFps;
+
+    /** 图片达到指定数量后收紧单边尺寸，用于原厂公布的分段硬约束。 */
+    private Integer inputImageHighCountThreshold;
+    private Integer inputImageHighCountMaxDimensionPixels;
+
+    /** 非文本内容允许出现的消息角色；空值表示当前协议没有额外角色限制。 */
+    private List<String> inputMediaAllowedMessageRoles;
 
     /** 文本上下文与输出上限。 */
     private Integer contextWindowTokens;
     private Integer maxOutputTokens;
+    private Long minOutputPixels;
+    private Long maxOutputPixels;
+    private Double minOutputAspectRatio;
+    private Double maxOutputAspectRatio;
 
     /** 文本模型思考能力与统一调用参数。 */
     private Boolean supportsReasoning;
@@ -214,5 +308,12 @@ public class CapabilityVO implements Serializable
     private String defaultReasoningLevel;
     private List<String> allowedReasoningLevels;
     private String reasoningApiStyle;
+
+    /** 文本协议的通用运行能力；缺失表示沿用历史兼容行为，显式 false 才拒绝对应请求。 */
+    private Boolean supportsStreaming;
+    private Boolean supportsToolCalling;
+    private Boolean supportsStructuredOutput;
+    private Boolean supportsContextCaching;
+    private Boolean supportsBuiltinTools;
 }
 

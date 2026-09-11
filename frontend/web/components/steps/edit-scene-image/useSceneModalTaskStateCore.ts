@@ -39,7 +39,7 @@ slotHasLoadedImagesForModalImpl,
 syncExternalGeneratingForModalScopeImpl
 } from './sceneModalExternalStatus'
 import {
-isSinglePrimaryImageType,
+isSinglePrimaryImageEditor,
 isTerminalUserTaskStatus,
 mapSessionTaskKind
 } from './sceneModalTaskParsers'
@@ -131,10 +131,9 @@ function clearSceneModalTaskStateIfOwned(
 
 function claimFormImagesForModal(taskId: number, taskType: unknown, completeData: unknown) {
   const pid = Number(ctx.store().currentProjectId)
-  const imageType = ctx.props().imageType
   const options = {
     projectId: Number.isFinite(pid) && pid > 0 ? pid : undefined,
-    singleSelection: isSinglePrimaryImageType(imageType)
+    singleSelection: isSinglePrimaryImageEditor(ctx.props())
   }
   const id = Number(taskId)
   return Number.isFinite(id) && id > 0

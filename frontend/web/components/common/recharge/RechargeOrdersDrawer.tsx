@@ -3,6 +3,7 @@
 import { Button,Drawer,Tabs } from 'antd'
 import type { RechargeOrderRow } from '~/types/business-api'
 import { formatPayStatus } from './rechargeFormat'
+import { rechargeHistoryDrawerOverlayProps } from './rechargeOverlayLifecycle'
 
 /** 订单列表筛选：与接口 payStatus 对应，全部不传 */
 export type RechargeOrderTabKey = 'all' | 'pending' | 'paid' | 'closed'
@@ -48,6 +49,7 @@ export function RechargeOrdersDrawer({
       size={520}
       mask={{ closable: true }}
       rootClassName="recharge-order-drawer"
+      {...rechargeHistoryDrawerOverlayProps(open)}
     >
       <Tabs
         activeKey={orderTab}

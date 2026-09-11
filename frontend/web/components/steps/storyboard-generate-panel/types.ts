@@ -78,6 +78,8 @@ export interface StoryboardGeneratePanelProps {
   referenceImages?: any[]
   /** 分镜视频：参考音频（官方音色 + 上传），展示在文本域上方素材条 */
   referenceAudios?: any[]
+  /** 多参生视频：参考视频（aid_gen_record），展示在文本域上方素材条 */
+  referenceVideos?: any[]
   /** 分镜视频·图生视频：镜头运动 */
   selectedCameraMovement?: PanelSelection
   cameraMovementDesc?: string
@@ -111,12 +113,15 @@ export interface StoryboardGeneratePanelProps {
   onGeneratePrompt?: () => void
   onSavePrompt?: () => void
   onImportReference?: () => void
+  /** 文本域上方素材导入按钮文案；多参视频同时支持图片与视频时使用“导入参考素材” */
+  referenceImportLabel?: string
   onOpenScript?: () => void
   onOpenSelectModal?: (type: PanelSelectModalType) => void
   onRemoveOtherImage?: (index: number) => void
   onRemoveMultiParamAssetReference?: (index: number) => void
   onRemoveReferenceImage?: (index: number) => void
   onRemoveReferenceAudio?: (index: number) => void | Promise<void>
+  onRemoveReferenceVideo?: (index: number) => void
   onPreviewAssetImage?: (img: any) => void
   onPreviewReferenceImage?: (img: { url?: string; thumbnail?: string }) => void
   onCopyPrompt?: () => void
@@ -162,7 +167,9 @@ export type ResolvedStoryboardGeneratePanelProps = StoryboardGeneratePanelProps 
   showStoryboardVideoAssets: boolean
   referenceImages: any[]
   referenceAudios: any[]
+  referenceVideos: any[]
   imageToVideoReferenceImages: any[]
+  referenceImportLabel: string
 }
 
 /** 原 defineExpose 契约（forwardRef + useImperativeHandle） */

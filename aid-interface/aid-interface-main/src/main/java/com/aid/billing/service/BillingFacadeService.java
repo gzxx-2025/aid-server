@@ -21,6 +21,9 @@ public interface BillingFacadeService {
      */
     void prepareBilling(AidMediaTask task, AiModelConfigVo modelConfig, BillingInput billingInput);
 
+    /** 后台公用素材任务：记录上游成本，通过原账户流程冻结零积分。 */
+    void prepareOperatorBilling(AidMediaTask task, AiModelConfigVo modelConfig, BillingInput billingInput, Long adminId);
+
     /**
      * 结算：任务成功后处理最终扣费。
      *

@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "catalogId": "tokendance",
+  "policy": "DENY_WINS",
+  "description": "AID 集成兼容性决策，不代表原厂模型不可用。模型目录更新不得解除这些禁止导入标记；解除须单独审查本策略。",
+  "models": {
+    "glm-4.7": { "reason": "不兼容 AID：结构化业务结果格式不兼容", "importBlocked": true },
+    "mimo-v2.5-pro-ultraspeed": { "reason": "不兼容 AID：业务生成链路未通过验证", "importBlocked": true },
+    "spark-x2.5-1.7b": { "reason": "不兼容 AID：结构化业务结果格式不兼容", "importBlocked": true },
+    "spark-x2.5-4b": { "reason": "不兼容 AID：结构化业务结果格式不兼容", "importBlocked": true },
+    "happyhorse-1.0-video-edit": { "reason": "不兼容 AID：视频编辑链路未通过验证", "importBlocked": true },
+    "mimo-v2.5-tts-voiceclone": { "reason": "不兼容 AID：克隆样本链路未通过验证", "importBlocked": true },
+    "minimax-speech-2.8-hd": { "reason": "不兼容 AID：配音链路未通过验证", "importBlocked": true },
+    "minimax-speech-2.8-turbo": { "reason": "不兼容 AID：配音链路未通过验证", "importBlocked": true },
+    "seed-tts-2.0": { "reason": "不兼容 AID：配音链路未通过验证", "importBlocked": true }
+  }
+}

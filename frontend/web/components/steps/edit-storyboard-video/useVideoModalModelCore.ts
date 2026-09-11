@@ -19,12 +19,17 @@ MODEL_NO_REF_AUDIO_TIP,
 parseReferenceAudioCapability
 } from '~/utils/referenceAudioCapability'
 import {
+  parseReferenceVideoCapability,
+  validateReferenceVideoCount
+} from '~/utils/referenceVideoCapability'
+import {
 buildRecommendedDurationTipText,
 readRecommendedDurationSeconds,
 resolveVideoDurationOption
 } from '~/utils/resolveVideoDurationOption'
 import { fetchUserStoryboardDetailOnce } from '~/utils/storyboardDetailOnce'
 import { mapUserModelListItemToModelOption } from '~/utils/userModelOption'
+import { findModelByReference } from '~/utils/modelReference'
 import type { VideoModalCtx } from './types'
 
 export function useVideoModalModelCore(ctx: VideoModalCtx) {
@@ -110,11 +115,7 @@ export function useVideoModalModelCore(ctx: VideoModalCtx) {
     const code = String(activeVideoModelGet() || '').trim()
     const list = videoRawModelList() || []
     if (!code) return list[0] || null
-    return (
-      list.find((m) => String(m.modelCode || '').trim() === code || String(m.id) === code) ||
-      list[0] ||
-      null
-    )
+    return findModelByReference(list, code)
   }
 
   function selectedImageToVideoModel(): ModelOption {
@@ -162,7 +163,22 @@ export function useVideoModalModelCore(ctx: VideoModalCtx) {
 
   function handleSelectMultiParamVideoModel(model: ModelOption) {
     ctx.multiParamVideoModelDropdownExpanded.set(false)
-    if (!guardSelectVideoModel(model, multiParamList.getRawModelList())) return
+    const rawList = multiParamList.getRawModelList()
+    if (!guardSelectVideoModel(model, rawList)) return
+    const raw =
+      rawList.find(
+        (item) =>
+          String(item.modelCode || '').trim() === String(model.id) ||
+          String(item.id) === String(model.id)
+      ) || null
+    const referenceVideoCheck = validateReferenceVideoCount(
+      parseReferenceVideoCapability(raw),
+      ctx.referenceVideos.get().length
+    )
+    if (referenceVideoCheck.ok === false) {
+      message.warning(referenceVideoCheck.message)
+      return
+    }
     ctx.multiParamVideoModel.set(model.id)
     syncVideoSettingsToModel()
   }

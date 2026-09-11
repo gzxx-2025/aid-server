@@ -36,6 +36,7 @@ NProgress.configure({ showSpinner: false });
 const JobLogPage = lazy(() => import('@/views/monitor/job/log'));
 const UserAuthRolePage = lazy(() => import('@/views/system/user/authRole'));
 const RoleAuthUserPage = lazy(() => import('@/views/system/role/authUser'));
+const TokenDanceOAuthCallback = lazy(() => import('@/views/aid/aimanage/TokenDanceOAuthCallback'));
 
 const WHITE_LIST = ['/login', '/register', '/404', '/401'];
 const ADMIN_ENTRY_CODE_PATTERN = /^[A-Za-z0-9]{8,32}$/;
@@ -278,6 +279,7 @@ const router = createBrowserRouter([
       { path: '404', element: <NotFoundPage /> },
       { path: '401', element: <UnauthorizedPage /> },
       { path: 'redirect/*', element: <RedirectPage /> },
+      { path: 'tokendance/oauth/callback', element: <TokenDanceOAuthCallback /> },
       {
         path: '',
         element: <MainLayout />,

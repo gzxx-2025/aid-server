@@ -38,6 +38,7 @@ import com.aid.aid.service.IAidExtractTaskService;
 import com.aid.aid.service.IAidGenRecordService;
 import com.aid.aid.service.IAidStoryboardService;
 import com.aid.common.core.redis.RedisCache;
+import com.aid.common.error.TaskErrorCode;
 import com.aid.common.error.TaskErrorPresentation;
 import com.aid.common.utils.DateUtils;
 import com.aid.common.utils.image.ImageUrlValidator;
@@ -139,6 +140,9 @@ public class StoryboardEditImageServiceImpl implements IStoryboardEditImageServi
     @Autowired
     private IAiModelConfigService aiModelConfigService;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.aid.model.definition.BusinessModelResolver businessModelResolver;
+
     @Autowired
     private IMediaGenerationService mediaGenerationService;
 
@@ -174,7 +178,7 @@ public class StoryboardEditImageServiceImpl implements IStoryboardEditImageServi
         AidStoryboard storyboard = loadAndCheckStoryboard(request.getStoryboardId(), userId);
 
         AidAiModel model = validateModelInPool(request.getModelCode());
-        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(model.getModelCode());
+        AiModelConfigVo modelConfig = aiModelConfigService.selectForBusiness(model.getModelCode(), FUNC_CODE_IMAGE_EDIT, null);
         if (Objects.isNull(modelConfig))
         {
             log.error("分镜编辑图模型配置缺失: modelCode={}", model.getModelCode());
@@ -256,7 +260,7 @@ public class StoryboardEditImageServiceImpl implements IStoryboardEditImageServi
         validateBasicRequest(request, userId, false);
         AidStoryboard storyboard = loadAndCheckStoryboard(request.getStoryboardId(), userId);
         AidAiModel model = validateModelInPool(request.getModelCode());
-        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(model.getModelCode());
+        AiModelConfigVo modelConfig = aiModelConfigService.selectForBusiness(model.getModelCode(), FUNC_CODE_IMAGE_EDIT, null);
         if (modelConfig == null)
         {
             throw new RuntimeException("模型无效");
@@ -470,53 +474,7 @@ public class StoryboardEditImageServiceImpl implements IStoryboardEditImageServi
      */
     private AidAiModel validateModelInPool(String modelCode)
     {
-        LambdaQueryWrapper<AidAiModelFuncConfig> cfgQuery = Wrappers.lambdaQuery();
-        cfgQuery.select(AidAiModelFuncConfig::getId, AidAiModelFuncConfig::getFuncCode,
-                AidAiModelFuncConfig::getModelIds, AidAiModelFuncConfig::getStatus,
-                AidAiModelFuncConfig::getDelFlag);
-        cfgQuery.eq(AidAiModelFuncConfig::getFuncCode, FUNC_CODE_IMAGE_EDIT);
-        cfgQuery.eq(AidAiModelFuncConfig::getStatus, STATUS_NORMAL);
-        cfgQuery.eq(AidAiModelFuncConfig::getDelFlag, DEL_FLAG_NORMAL);
-        cfgQuery.last("limit 1");
-        AidAiModelFuncConfig cfg = aidAiModelFuncConfigService.getOne(cfgQuery, false);
-        if (Objects.isNull(cfg))
-        {
-            log.error("分镜编辑图功能池未配置: funcCode={}", FUNC_CODE_IMAGE_EDIT);
-            throw new RuntimeException("功能未开放");
-        }
-        List<Long> allowedIds = parseModelIdsJson(cfg.getModelIds());
-        if (CollectionUtil.isEmpty(allowedIds))
-        {
-            log.error("分镜编辑图功能池为空: funcCode={}", FUNC_CODE_IMAGE_EDIT);
-            throw new RuntimeException("功能未开放");
-        }
-
-        LambdaQueryWrapper<AidAiModel> modelQuery = Wrappers.lambdaQuery();
-        modelQuery.select(AidAiModel::getId, AidAiModel::getModelCode,
-                AidAiModel::getModelName, AidAiModel::getModelType,
-                AidAiModel::getStatus, AidAiModel::getDelFlag);
-        modelQuery.eq(AidAiModel::getModelCode, modelCode);
-        modelQuery.eq(AidAiModel::getStatus, STATUS_NORMAL);
-        modelQuery.eq(AidAiModel::getDelFlag, DEL_FLAG_NORMAL);
-        modelQuery.last("limit 1");
-        AidAiModel model = aidAiModelService.getOne(modelQuery, false);
-        if (Objects.isNull(model))
-        {
-            log.info("分镜编辑图模型不存在或已停用: modelCode={}", modelCode);
-            throw new RuntimeException("模型无效");
-        }
-        if (!Objects.equals(MODEL_TYPE_IMAGE, model.getModelType()))
-        {
-            log.info("分镜编辑图模型类型不匹配: modelCode={}, type={}", modelCode, model.getModelType());
-            throw new RuntimeException("模型不符");
-        }
-        if (!allowedIds.contains(model.getId()))
-        {
-            log.info("分镜编辑图模型不在功能池: modelCode={}, modelId={}, pool={}",
-                    modelCode, model.getId(), allowedIds);
-            throw new RuntimeException("模型不符");
-        }
-        return model;
+        return businessModelResolver.resolve(FUNC_CODE_IMAGE_EDIT, modelCode, "image");
     }
 
     /** 模型能力校验（比例 / 清晰度 / 张数 / 输入能力 严格模式） */
@@ -529,37 +487,8 @@ public class StoryboardEditImageServiceImpl implements IStoryboardEditImageServi
         CapabilityVO capability = parseCapabilityJsonStrict(modelConfig.getCapabilityJson(),
                 modelCode, storyboardId, userId);
 
-        List<String> aspectOptions = capability.getAspectRatioOptions();
-        if (CollectionUtil.isEmpty(aspectOptions))
-        {
-            log.info("分镜编辑图比例能力缺失: storyboardId={}, modelCode={}", storyboardId, modelCode);
-            throw new RuntimeException("比例不符");
-        }
-        String requestedAspect = request.getAspectRatio().trim();
-        boolean aspectMatched = Objects.nonNull(
-                ModelCapabilityResolver.matchOption(aspectOptions, requestedAspect));
-        if (!aspectMatched)
-        {
-            log.info("分镜编辑图比例不支持: storyboardId={}, modelCode={}, aspect={}, supported={}",
-                    storyboardId, modelCode, requestedAspect, aspectOptions);
-            throw new RuntimeException("比例不符");
-        }
-
-        List<String> sizeOptions = capability.getSizeOptions();
-        if (CollectionUtil.isEmpty(sizeOptions))
-        {
-            log.info("分镜编辑图清晰度能力缺失: storyboardId={}, modelCode={}", storyboardId, modelCode);
-            throw new RuntimeException("清晰度不符");
-        }
-        String requestedSize = request.getSize().trim();
-        boolean sizeMatched = Objects.nonNull(
-                ModelCapabilityResolver.matchOption(sizeOptions, requestedSize));
-        if (!sizeMatched)
-        {
-            log.info("分镜编辑图清晰度不支持: storyboardId={}, modelCode={}, size={}, supported={}",
-                    storyboardId, modelCode, requestedSize, sizeOptions);
-            throw new RuntimeException("清晰度不符");
-        }
+        ModelCapabilityResolver.validateImageOutputSelection(modelConfig,
+                request.getSize(), request.getAspectRatio());
 
         Integer maxOutput = modelConfig.getMaxOutputCount();
         if (Objects.isNull(maxOutput) || maxOutput <= 0)
@@ -614,55 +543,7 @@ public class StoryboardEditImageServiceImpl implements IStoryboardEditImageServi
         }
     }
 
-    private List<Long> parseModelIdsJson(String modelIdsJson)
-    {
-        List<Long> ordered = new ArrayList<>();
-        if (StrUtil.isBlank(modelIdsJson))
-        {
-            return ordered;
-        }
-        try
-        {
-            List<?> raw = JSONUtil.parseArray(modelIdsJson).toList(Object.class);
-            for (Object item : raw)
-            {
-                if (Objects.isNull(item))
-                {
-                    continue;
-                }
-                Long id = null;
-                if (item instanceof Number)
-                {
-                    id = ((Number) item).longValue();
-                }
-                else
-                {
-                    String s = item.toString().trim();
-                    if (StrUtil.isBlank(s))
-                    {
-                        continue;
-                    }
-                    try
-                    {
-                        id = Long.parseLong(s);
-                    }
-                    catch (NumberFormatException ignore)
-                    {
-                    }
-                }
-                if (Objects.nonNull(id) && id > 0L && !ordered.contains(id))
-                {
-                    ordered.add(id);
-                }
-            }
-        }
-        catch (Exception e)
-        {
-            log.error("解析分镜编辑图功能池modelIds失败: jsonLen={}, err={}",
-                    StrUtil.length(modelIdsJson), e.getMessage());
-        }
-        return ordered;
-    }
+
 
     /** 最终 prompt 拼装（原文 + 比例 + 参考图 URL 清单） */
     private String buildFinalPrompt(String rawPrompt, String aspectRatio, List<String> referenceImages)
@@ -838,6 +719,7 @@ public class StoryboardEditImageServiceImpl implements IStoryboardEditImageServi
             List<Long> recordIds = new ArrayList<>();
             List<Map<String, Object>> items = new ArrayList<>();
             List<Map<String, Object>> failedItems = new ArrayList<>();
+            Throwable firstFailure = null;
 
             for (int i = 0; i < imageCount; i++)
             {
@@ -879,6 +761,10 @@ public class StoryboardEditImageServiceImpl implements IStoryboardEditImageServi
                     failItem.put("message", TaskErrorPresentation.toUserMessage(
                             modelCode, perItemEx.getMessage(), "生成失败"));
                     failedItems.add(failItem);
+                    if (firstFailure == null)
+                    {
+                        firstFailure = perItemEx;
+                    }
                     pushStepProgress(taskId, storyboard.getId(), imageCount, i + 1, items, failedItems);
                 }
             }
@@ -890,7 +776,7 @@ public class StoryboardEditImageServiceImpl implements IStoryboardEditImageServi
                     log.error("分镜编辑图无任何结果: taskId={}, storyboardId={}, failedItems={}",
                             taskId, storyboard.getId(), failedItems);
                     String userFacing = pickFirstUserFacingMessage(failedItems, "生成失败");
-                    throw new BatchAllFailedException(userFacing);
+                    throw new BatchAllFailedException(userFacing, firstFailure);
                 }
             }
 
@@ -983,6 +869,7 @@ public class StoryboardEditImageServiceImpl implements IStoryboardEditImageServi
     {
         MediaImageGenerateRequest imageRequest = new MediaImageGenerateRequest();
         imageRequest.setModelName(modelCode);
+        imageRequest.setBusinessFuncCode(FUNC_CODE_IMAGE_EDIT);
         imageRequest.setUserId(userId);
         imageRequest.setPrompt(finalPrompt);
         imageRequest.setProjectId(storyboard.getProjectId());
@@ -1002,7 +889,7 @@ public class StoryboardEditImageServiceImpl implements IStoryboardEditImageServi
         imageRequest.setBizTaskId(bizTaskId);
         imageRequest.setBizTaskType(TASK_TYPE_STORYBOARD_EDIT_IMAGE);
 
-        AiModelConfigVo defaultModelConfig = aiModelConfigService.selectByModelCode(modelCode);
+        AiModelConfigVo defaultModelConfig = aiModelConfigService.selectForBusiness(modelCode, FUNC_CODE_IMAGE_EDIT, null);
         if (Objects.isNull(defaultModelConfig))
         {
             log.error("分镜编辑图模型配置缺失: modelCode={}", modelCode);
@@ -1024,9 +911,9 @@ public class StoryboardEditImageServiceImpl implements IStoryboardEditImageServi
 
     private static final class BatchAllFailedException extends RuntimeException
     {
-        BatchAllFailedException(String message)
+        BatchAllFailedException(String message, Throwable cause)
         {
-            super(message);
+            super(message, cause);
         }
     }
 
@@ -1051,7 +938,7 @@ public class StoryboardEditImageServiceImpl implements IStoryboardEditImageServi
             String errorMsg = imageResponse.getErrorMessage();
             log.error("分镜编辑图失败: mediaTaskId={}, status={}, error={}",
                     imageResponse.getTaskId(), imageResponse.getStatus(), errorMsg);
-            throw new RuntimeException(StrUtil.isNotBlank(errorMsg) ? errorMsg : "图片生成失败");
+            throw mediaTaskFailure(imageResponse, "图片生成失败");
         }
 
         Long mediaTaskId = imageResponse.getTaskId();
@@ -1097,11 +984,31 @@ public class StoryboardEditImageServiceImpl implements IStoryboardEditImageServi
             {
                 String errorMsg = polled.getErrorMessage();
                 log.error("分镜编辑图异步失败: mediaTaskId={}, error={}", mediaTaskId, errorMsg);
-                throw new RuntimeException(StrUtil.isNotBlank(errorMsg) ? errorMsg : "图片生成失败");
+                throw mediaTaskFailure(polled, "图片生成失败");
             }
         }
         log.error("分镜编辑图异步超时: mediaTaskId={}, timeout={}s", mediaTaskId, IMAGE_POLL_TIMEOUT_SECONDS);
         throw new RuntimeException("图片生成超时");
+    }
+
+    /** 子媒体任务已经归类时，父任务继续携带机器可读错误码与责任方。 */
+    private RuntimeException mediaTaskFailure(MediaTaskResponse response, String fallback)
+    {
+        String errorCode = response == null ? null : response.getErrorCode();
+        if (StrUtil.isNotBlank(errorCode))
+        {
+            try
+            {
+                String userMessage = StrUtil.blankToDefault(response.getUserMessage(), fallback);
+                return TaskErrorPresentation.fromCode(TaskErrorCode.valueOf(errorCode), userMessage);
+            }
+            catch (IllegalArgumentException ignored)
+            {
+                log.warn("分镜编辑图收到未识别的媒体任务错误码: errorCode={}", errorCode);
+            }
+        }
+        String errorMessage = response == null ? null : response.getErrorMessage();
+        return TaskErrorPresentation.toServiceException(errorMessage, fallback);
     }
     /** 落地一条 {@code aid_gen_record}（gen_type=image）。 */
     private Long persistGenRecord(AidStoryboard storyboard, Long userId, Long modelId,

@@ -29,6 +29,9 @@ public class BillingCalcResult {
     /** 错误信息（未命中时） */
     private String errorMessage;
 
+    /** 报价仍依赖提交前核验的素材信息。 */
+    private boolean inputMetadataPending;
+
     /**
      * FIXED模式快速构建
      */

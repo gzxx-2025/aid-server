@@ -17,7 +17,6 @@ type CSSProperties
 } from 'react'
 import { createPortal } from 'react-dom'
 import groupAvtorUrl from '~/assets/img/home/Group-avtor.svg'
-import type { FloatingPanelHandle } from '~/components/common/OpenSourcePanel'
 import { getAidPortalRoot } from '~/utils/portalRoot'
 import { useAuthPublicConfig } from '~/composables/useAuthPublicConfig'
 import { useWechatNotifyPreference } from '~/composables/useWechatNotifyPreference'
@@ -25,7 +24,10 @@ import { useUserStore } from '~/stores/user'
 import { assetUrl } from '~/utils/assetUrl'
 import './UserMenuDropdown.css'
 
-export type { FloatingPanelHandle }
+/** 浮层根节点供触发方判断外部点击。 */
+export interface FloatingPanelHandle {
+  floatingRoot: HTMLElement | null
+}
 
 interface UserMenuDropdownProps {
   open: boolean

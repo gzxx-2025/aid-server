@@ -49,6 +49,10 @@ public class AidAiModelFuncConfig extends BaseEntity implements Serializable
     @Excel(name = "可选模型ID列表JSON数组，如 [1,2,3]")
     private String modelIds;
 
+    /** 业务允许调用的模型能力；旧客户端省略时保留已有绑定。 */
+    @TableField(exist = false)
+    private java.util.List<AidAiBusinessModelBinding> modelBindings;
+
     /** 状态：0启用 1停用 */
     @Excel(name = "状态：0启用 1停用")
     private String status;

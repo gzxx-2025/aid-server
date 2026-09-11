@@ -144,7 +144,7 @@ public class BillingQuoteServiceImpl implements BillingQuoteService
         ModelCapabilityValidator.normalizeImageAspectRatio(modelConfig, media);
         ModelCapabilityValidator.validateImage(modelConfig, media);
         BillingInput input = BillingInputExtractor.fromImageRequest(
-                media, modelConfig.getModelCode(), modelConfig.getMaxOutputCount());
+                media, modelConfig.getModelCode(), modelConfig.getMaxOutputCount(), modelConfig);
         BillingCalcResult result = billingPreHoldCalculationService.calculate(modelConfig, input);
         if (result == null || !result.isMatched())
         {

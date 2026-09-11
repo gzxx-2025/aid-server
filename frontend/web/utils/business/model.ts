@@ -19,15 +19,32 @@ import type {
 
 const modelListByFuncInflight = new Map<string, Promise<UserModelListByFuncGroupVO[]>>()
 const modelListByFuncBurst: ListBurstSlot<UserModelListByFuncGroupVO[]> = { current: null }
+const modelListInflight = new Map<string, Promise<UserModelListItem[]>>()
+const modelListBurst: ListBurstSlot<UserModelListItem[]> = { current: null }
 
 const aidAgentListInflight = new Map<string, Promise<AgentListGroupVO[]>>()
 const aidAgentListBurst: ListBurstSlot<AgentListGroupVO[]> = { current: null }
 
+let modelSessionToken: string | undefined
+let modelSessionGeneration = 0
+function modelRequestKey(body: unknown): string {
+  const token = typeof window === 'undefined' ? '' : window.localStorage.getItem('token') || ''
+  if (token !== modelSessionToken) {
+    modelSessionToken = token
+    modelSessionGeneration++
+    modelListBurst.current = null
+    modelListByFuncBurst.current = null
+  }
+  return `${modelSessionGeneration}:${stableRequestKey(body)}`
+}
+
 /** AI 模型列表：POST /api/user/model/list */
 export async function userModelList(body: UserModelListRequest = {}): Promise<UserModelListItem[]> {
-  const res = await request.post<ApiEnvelope<UserModelListItem[]>>('/api/user/model/list', body)
-  const data = unwrap(res)
-  return Array.isArray(data) ? data : []
+  return runListDedupe(modelRequestKey(body), modelListInflight, modelListBurst, async () => {
+    const res = await request.post<ApiEnvelope<UserModelListItem[]>>('/api/user/model/list', body)
+    const data = unwrap(res)
+    return Array.isArray(data) ? data : []
+  })
 }
 
 /** 按多个功能编码批量查询模型列表：POST /api/user/model/listByFunc */
@@ -45,7 +62,7 @@ export async function userModelListByFuncCodes(
       body.episodeId = Number(scope.episodeId)
     }
   }
-  const key = stableRequestKey(body)
+  const key = modelRequestKey(body)
   return runListDedupe(key, modelListByFuncInflight, modelListByFuncBurst, async () => {
     const res = await request.post<ApiEnvelope<UserModelListByFuncGroupVO[] | UserModelListItem[]>>(
       '/api/user/model/listByFunc',

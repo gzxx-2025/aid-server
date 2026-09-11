@@ -88,7 +88,20 @@ public class ViduVideoReferenceStrategy extends AbstractVideoReferenceStrategy
      */
     private VideoReferencePlan assembleMultiFrame(VideoReferenceContext ctx)
     {
-        List<ResolvedReference> picked = takeRefs(ctx.getReferences(), ctx.getMaxReferenceImages());
+        int configuredTotalMax = ctx.getMaxReferenceImages() > 0 ? ctx.getMaxReferenceImages() : 10;
+        int referenceMax = StrUtil.isNotBlank(ctx.getBaseImageUrl())
+                ? Math.min(9, configuredTotalMax - 1) : configuredTotalMax;
+        long validReferenceCount = ctx.getReferences().stream()
+                .filter(java.util.Objects::nonNull)
+                .filter(ref -> StrUtil.isNotBlank(ref.getUrl()))
+                .count();
+        int requestedTotal = Math.toIntExact(validReferenceCount)
+                + (StrUtil.isNotBlank(ctx.getBaseImageUrl()) ? 1 : 0);
+        if (requestedTotal > configuredTotalMax || validReferenceCount > referenceMax)
+        {
+            throw new com.aid.common.exception.ServiceException("关键帧图片数量超限");
+        }
+        List<ResolvedReference> picked = takeRefs(ctx.getReferences(), referenceMax);
         List<String> urls = new ArrayList<>();
         for (ResolvedReference r : picked)
         {
@@ -112,6 +125,19 @@ public class ViduVideoReferenceStrategy extends AbstractVideoReferenceStrategy
         {
             firstFrame = null;
             keyImages = new ArrayList<>();
+        }
+
+        if (StrUtil.isBlank(firstFrame))
+        {
+            throw new com.aid.common.exception.ServiceException("请提供首帧图片");
+        }
+        if (keyImages.size() < 2)
+        {
+            throw new com.aid.common.exception.ServiceException("至少提供2张关键帧图片");
+        }
+        if (keyImages.size() > 9)
+        {
+            throw new com.aid.common.exception.ServiceException("关键帧图片数量超限");
         }
 
         String legend = buildReferenceLegend(picked);
@@ -151,7 +177,7 @@ public class ViduVideoReferenceStrategy extends AbstractVideoReferenceStrategy
 
     /**
      * 主体调用装配：参考素材 → subjects（同名资产合并图，主体 ≤7、每主体图 ≤3），
-     * 正文 {@code @图片N[name]} → {@code @主体名}（被截断的回退为资产名裸文本），
+     * 正文 {@code @图片N[name]} → {@code @主体名}（非引用型素材回退为资产名裸文本），
      * 残留 {@code @选择标记} 剥 @ 保留枚举值。
      */
     private VideoReferencePlan assembleSubjects(VideoReferenceContext ctx)
@@ -160,20 +186,22 @@ public class ViduVideoReferenceStrategy extends AbstractVideoReferenceStrategy
                 ctx.getMaxReferenceImages() > 0 ? ctx.getMaxReferenceImages() : MAX_SUBJECTS, MAX_SUBJECTS);
         List<ResolvedReference> picked = takeRefs(ctx.getReferences(), effectiveMax);
 
-        // 主体聚合：name → images（保序、同名合并、每主体最多 3 图）；同时记录 原始N → 主体名
+        // 主体聚合：name → images（保序、同名合并、每主体最多 3 图）；同时记录 原始N → 主体名。
         Map<String, List<String>> imagesBySubject = new LinkedHashMap<>();
         Map<Integer, String> subjectNameByN = new LinkedHashMap<>();
         for (ResolvedReference r : picked)
         {
             String subjectName = normalizeSubjectName(r.displayName(), imagesBySubject.size() + 1);
             List<String> images = imagesBySubject.computeIfAbsent(subjectName, k -> new ArrayList<>());
-            if (images.size() < MAX_IMAGES_PER_SUBJECT)
+            if (images.size() >= MAX_IMAGES_PER_SUBJECT)
             {
-                images.add(r.getUrl());
+                log.info("Vidu 单个主体参考图片超限: subject={}, max={}", subjectName, MAX_IMAGES_PER_SUBJECT);
+                throw new com.aid.common.exception.ServiceException("单个主体图片超限");
             }
+            images.add(r.getUrl());
             subjectNameByN.put(r.getOriginalN(), subjectName);
         }
-        // 被截断的引用：正文回退为资产名裸文本
+        // 非引用型素材：正文回退为资产名裸文本。
         Map<Integer, String> droppedNameByN = new LinkedHashMap<>();
         for (ResolvedReference r : ctx.getReferences())
         {
@@ -202,7 +230,7 @@ public class ViduVideoReferenceStrategy extends AbstractVideoReferenceStrategy
         {
             extraOptions.put(ViduConstants.OPTIONS_SUBJECTS, subjects);
         }
-        log.info("Vidu 主体参考装配: subjects={}, 图片总数={}, 截断回退={}",
+        log.info("Vidu 主体参考装配: subjects={}, 图片总数={}, 描述型素材={}",
                 subjects.size(), urls.size(), droppedNameByN.keySet());
         // 参考生视频无首帧概念；urls 仅用于任务快照与参考图计数审计
         return VideoReferencePlan.of(finalPrompt, urls, null, extraOptions);
@@ -250,7 +278,7 @@ public class ViduVideoReferenceStrategy extends AbstractVideoReferenceStrategy
     }
 
     /**
-     * 正文重写：{@code @图片N[name]} → {@code @主体名}（截断的回退资产名裸文本），
+     * 正文重写：{@code @图片N[name]} → {@code @主体名}（非引用型素材回退资产名裸文本），
      * 再剥残留 {@code @选择标记}（如 @中近景 / @平视），最后恢复主体 @ 引用。
      * 用控制符包裹主体名防止其被残留标记清理误剥。
      */

@@ -19,7 +19,7 @@ public class StoryboardVideoFromImageGenerateRequest
 
     /**
      * 前端直传的参考图片 URL（可选，仅单镜头时生效）。
-     * 图生方向仅支持一张参考图：单镜头传了取第 1 张有效 URL（多传忽略其余）；
+     * 图生方向仅支持一张参考图：单镜头多传会在建任务前拒绝；
      * 不传或多镜头则各镜头回落自己的分镜主图 {@code aid_storyboard.final_image_id}；皆无则该镜头报"请选参考图"。
      */
     private List<String> images;
@@ -55,7 +55,7 @@ public class StoryboardVideoFromImageGenerateRequest
      */
     private String resolution;
 
-    /** 目标视频时长（秒，可选）；单个和批量均优先使用本值，为空按模型默认，并按模型档位向上归一化。 */
+    /** 目标视频时长（秒，可选）；显式传值必须命中模型档位，为空时才使用模型默认。 */
     private Integer durationSeconds;
 
     /** 生成数量（可选，默认 1，范围 [1,4]）。仅单镜头生效；多镜头每镜头 1 条，传 &gt;1 报错。 */
@@ -70,6 +70,6 @@ public class StoryboardVideoFromImageGenerateRequest
     /** 用户选择的上传参考音频 ID（可选，仅单镜头生效）。 */
     private List<Long> referenceAudioIds;
 
-    /** 用户补充文本（可选，最大 500 字符，超出截断），拼接到提示词之后。 */
+    /** 用户补充文本（可选，最大 500 字符，超出拒绝），拼接到提示词之后。 */
     private String userInputText;
 }

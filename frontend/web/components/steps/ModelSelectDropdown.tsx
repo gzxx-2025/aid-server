@@ -9,6 +9,7 @@ import { ModelFreeBadge } from '~/components/common/ModelFreeBadge'
 import { ModelBillingRules } from '~/components/common/ModelBillingRules'
 import { shouldShowModelFreeBadge } from '~/utils/modelFreeStatus'
 import type { ModelOption } from '~/types/modelAgentOptions'
+import { resolveSelectedModelOption } from '~/utils/extractAgentModelSelection'
 import './ModelSelectDropdown.css'
 
 // 保持原导入路径兼容：原类型定义在本组件文件，现提升到 types/modelAgentOptions
@@ -37,7 +38,8 @@ function nextFrame(cb: () => void) {
   })
 }
 
-export function ModelSelectDropdown({ value, options, expanded, onToggle, onSelect, onClose }: Props) {
+export function ModelSelectDropdown({ value: suppliedValue, options, expanded, onToggle, onSelect, onClose }: Props) {
+  const value = resolveSelectedModelOption(options, suppliedValue.id, suppliedValue)
   const hasSelectedModel = Boolean(String(value.id || '').trim())
 
   const editorPortalStyle = useCreateEditorPortalStyle()

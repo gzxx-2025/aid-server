@@ -44,8 +44,8 @@ public class AgnesImageReferenceRenderStrategy extends AbstractImageReferenceRen
             allUrls.add(r.getUrl());
         }
         List<String> limitedUrls = limitReferenceUrls(allUrls, ctx, "Agnes");
-        int retainCount = Math.min(limitedUrls.size(), refRefs.size());
-        List<ResolvedImageReference> retained = new ArrayList<>(refRefs.subList(0, retainCount));
+        int retainCount = limitedUrls.size();
+        List<ResolvedImageReference> retained = new ArrayList<>(refRefs);
 
         Map<Integer, String> labelByN = buildEntityLabels(ctx.getReferences());
         for (ResolvedImageReference r : ctx.getReferences())
@@ -74,7 +74,7 @@ public class AgnesImageReferenceRenderStrategy extends AbstractImageReferenceRen
         }
 
         int descCount = ctx.getReferences().size() - retainCount;
-        log.info("Agnes 参考渲染: refTotal={}, 引用图={}, 描述/截断={}, referenceUrls={}",
+        log.info("Agnes 参考渲染: refTotal={}, 引用图={}, 描述型素材={}, referenceUrls={}",
                 ctx.getReferences().size(), retainCount, descCount, referenceUrls.size());
         return ImageReferenceRenderPlan.of(prompt, referenceUrls);
     }

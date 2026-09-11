@@ -28,6 +28,7 @@ import org.springframework.stereotype.Service;
 @Slf4j
 @RequiredArgsConstructor
 @Service
+@org.springframework.transaction.annotation.Transactional(readOnly = true)
 public class AiModelConfigServiceImpl implements IAiModelConfigService {
 
     private final IAidAiModelService aidAiModelService;
@@ -35,11 +36,25 @@ public class AiModelConfigServiceImpl implements IAiModelConfigService {
     private final IAidUserAiConfigService aidUserAiConfigService;
     private final OfficialGatewayConfigProvider officialGatewayConfigProvider;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.aid.tokendance.credential.TokenDanceCredentialStore tokenDanceCredentialStore;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.aid.model.definition.ModelDefinitionService modelDefinitions;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.aid.model.definition.ModelInvocationResolver invocationResolver;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.aid.model.definition.ModelBusinessBindingService modelBusinessBindings;
+
     private static final String STATUS_NORMAL = "0";
     private static final String DEL_FLAG_NORMAL = "0";
 
     @Override
     public AiModelConfigVo selectByModelCode(String modelCode) {
+        com.aid.aid.domain.AidAiModelAlias alias = modelDefinitions.alias(modelCode);
+        if (alias != null) return resolveAlias(alias, getCurrentUserIdSafe());
         AidAiModel model = aidAiModelService.getOne(
             Wrappers.<AidAiModel>lambdaQuery()
                 .eq(AidAiModel::getModelCode, modelCode)
@@ -53,6 +68,8 @@ public class AiModelConfigServiceImpl implements IAiModelConfigService {
 
     @Override
     public AiModelConfigVo selectByModelCodeForUser(String modelCode, Long userId) {
+        com.aid.aid.domain.AidAiModelAlias alias = modelDefinitions.alias(modelCode);
+        if (alias != null) return resolveAlias(alias, userId);
         AidAiModel model = aidAiModelService.getOne(
             Wrappers.<AidAiModel>lambdaQuery()
                 .eq(AidAiModel::getModelCode, modelCode)
@@ -95,6 +112,8 @@ public class AiModelConfigServiceImpl implements IAiModelConfigService {
 
     @Override
     public AiModelConfigVo selectByModelId(Long modelId) {
+        com.aid.aid.domain.AidAiModelAlias alias = modelDefinitions.alias(modelId);
+        if (alias != null) return resolveAlias(alias, getCurrentUserIdSafe());
         AidAiModel model = aidAiModelService.getById(modelId);
         if (model == null || !STATUS_NORMAL.equals(model.getStatus()) || !DEL_FLAG_NORMAL.equals(model.getDelFlag())) {
             return null;
@@ -111,6 +130,17 @@ public class AiModelConfigServiceImpl implements IAiModelConfigService {
 
     /** 按指定用户组装模型、供应商及用户覆盖配置。 */
     private AiModelConfigVo buildConfigVo(AidAiModel model, Long userId) {
+        return buildConfigVo(model, userId, false);
+    }
+
+    @Override
+    public AiModelConfigVo selectTaskCredentials(Long modelId, String modelCode, Long userId) {
+        AidAiModel model = aidAiModelService.getById(modelId);
+        if (model == null || !java.util.Objects.equals(model.getModelCode(), modelCode)) return null;
+        return buildConfigVo(model, userId, true);
+    }
+
+    private AiModelConfigVo buildConfigVo(AidAiModel model, Long userId, boolean existingTask) {
         if (model == null) {
             return null;
         }
@@ -120,7 +150,7 @@ public class AiModelConfigServiceImpl implements IAiModelConfigService {
             log.error("模型对应的服务商不存在, modelId={}, providerId={}", model.getId(), model.getProviderId());
             throw new ServiceException("模型配置异常");
         }
-        if (!STATUS_NORMAL.equals(provider.getStatus())) {
+        if (!existingTask && !STATUS_NORMAL.equals(provider.getStatus())) {
             log.error("模型对应的服务商已停用, providerId={}", provider.getId());
             throw new ServiceException("模型已停用");
         }
@@ -128,6 +158,15 @@ public class AiModelConfigServiceImpl implements IAiModelConfigService {
         String effectiveBaseUrl = provider.getBaseUrl();
         String effectiveApiKey = provider.getApiKey();
         String effectiveApiSecret = provider.getApiSecret();
+        boolean tokenDance = "tokendance".equalsIgnoreCase(StrUtil.trim(provider.getProviderCode()));
+        Integer credentialVersion = null;
+        if (tokenDance) {
+            com.aid.tokendance.credential.ResolvedTokenDanceCredential credential =
+                    tokenDanceCredentialStore.requireActive(provider.getId());
+            effectiveApiKey = credential.getApiKey();
+            credentialVersion = credential.getCredentialVersion();
+            effectiveApiSecret = null;
+        }
 
         // 官方统一网关开启后，全局厂商出站改走官方地址与官方密钥（协议仍遵循原厂商）；
         // 例外模型或例外厂商（官方网关暂不支持的）仍走自有厂商网关
@@ -141,7 +180,7 @@ public class AiModelConfigServiceImpl implements IAiModelConfigService {
             }
         }
 
-        if (userId != null) {
+        if (userId != null && !tokenDance) {
             AidUserAiConfig userConfig = aidUserAiConfigService.getOne(
                 Wrappers.<AidUserAiConfig>lambdaQuery()
                     .eq(AidUserAiConfig::getUserId, userId)
@@ -172,7 +211,9 @@ public class AiModelConfigServiceImpl implements IAiModelConfigService {
         AiModelConfigVo vo = new AiModelConfigVo();
         // 模型字段
         vo.setId(model.getId());
+        vo.setConfigVersion(model.getConfigVersion());
         vo.setProviderId(model.getProviderId());
+        vo.setCredentialVersion(credentialVersion);
         vo.setModelCode(model.getModelCode());
         // 真实上游模型名：优先 real_model_code，为空回退 model_code
         String effectiveRealModelCode = StrUtil.isNotBlank(model.getRealModelCode())
@@ -232,12 +273,47 @@ public class AiModelConfigServiceImpl implements IAiModelConfigService {
         // 模型级 extra_body（合并时覆盖厂商级同名 key）
         vo.setModelExtraBodyJson(model.getExtraBody());
 
-        return vo;
+        return existingTask ? vo : invocationResolver.select(vo, null);
+    }
+
+    @Override
+    public AiModelConfigVo selectByModelCode(String modelCode, String capabilityCode) {
+        return invocationResolver.select(selectByModelCode(modelCode), capabilityCode);
+    }
+
+    @Override
+    public AiModelConfigVo selectByModelId(Long modelId, String capabilityCode) {
+        return invocationResolver.select(selectByModelId(modelId), capabilityCode);
+    }
+
+    @Override
+    public AiModelConfigVo selectForBusiness(String modelCode, String funcCode, String capabilityCode) {
+        AiModelConfigVo config = selectByModelCode(modelCode);
+        if (config == null) return null;
+        String selected = modelBusinessBindings.capability(config.getId(), funcCode, capabilityCode);
+        config.setBusinessFuncCode(funcCode);
+        config.setBindingCode(null);
+        invocationResolver.select(config, selected);
+        config.setBusinessDefaultsJson(null);
+        modelBusinessBindings.forFunction(funcCode).stream()
+                .filter(b -> java.util.Objects.equals(b.getModelId(), config.getId())
+                        && java.util.Objects.equals(b.getCapabilityCode(), config.getCapabilityCode()))
+                .findFirst().ifPresent(b -> config.setBusinessDefaultsJson(b.getDefaultsJson()));
+        if (config.getResolvedDefinition() != null) com.aid.model.definition.ModelSchemaPresentation.apply(config,
+                com.aid.model.definition.ModelSchemaPresentation.withBusinessDefaults(config.getResolvedDefinition(), config.getBusinessDefaultsJson()));
+        return config;
+    }
+
+    private AiModelConfigVo resolveAlias(com.aid.aid.domain.AidAiModelAlias alias, Long userId) {
+        AidAiModel model = aidAiModelService.getById(alias.getModelId());
+        if (model == null || !STATUS_NORMAL.equals(model.getStatus()) || !DEL_FLAG_NORMAL.equals(model.getDelFlag())) return null;
+        return invocationResolver.select(buildConfigVo(model, userId), alias.getCapabilityCode(), alias.getBindingCode());
     }
 
     /** 可灵使用运营方或用户显式配置的上游地址，统一网关未声明兼容前不得透明改写。 */
     private boolean supportsOfficialGateway(AidAiModel model, AidAiProvider provider) {
         return !isKlingProvider(provider)
+            && !"tokendance".equalsIgnoreCase(StrUtil.trim(provider.getProviderCode()))
             && !MinimaxH3Constants.PROTOCOL_VIDEO.equalsIgnoreCase(StrUtil.trim(model.getProtocol()));
     }
 

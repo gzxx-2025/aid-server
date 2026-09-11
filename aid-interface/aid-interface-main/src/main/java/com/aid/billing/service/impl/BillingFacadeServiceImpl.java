@@ -1,5 +1,6 @@
 package com.aid.billing.service.impl;
 
+import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.text.CharSequenceUtil;
 import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -31,6 +32,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * 计费门面服务实现：规则解析+金额计算 → 委托账户执行层操作。
@@ -59,6 +61,7 @@ public class BillingFacadeServiceImpl implements BillingFacadeService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void prepareBilling(AidMediaTask task, AiModelConfigVo modelConfig, BillingInput billingInput) {
+        if (billingInput.isInputMetadataPending()) throw new ServiceException("素材尚未完成核验");
         BillingCalcResult calcResult = billingPreHoldCalculationService.calculate(modelConfig, billingInput);
         if (!calcResult.isMatched()) {
             log.error("预扣计费失败, modelCode={}, error={}", modelConfig.getModelCode(), calcResult.getErrorMessage());
@@ -94,6 +97,9 @@ public class BillingFacadeServiceImpl implements BillingFacadeService {
     public boolean settleBilling(AidMediaTask task, Map<String, Object> usageData) {
         // 解析快照，按 meterType 分发结算逻辑
         BillingSnapshot snapshot = parseSnapshot(task.getBillingSnapshotJson());
+        if (snapshot != null && "PROVIDER".equals(snapshot.getPayerType())) {
+            return settleOperatorBilling(task, snapshot, usageData);
+        }
         MeterType meterType = snapshot != null ? MeterType.of(snapshot.getMeterType()) : null;
         log.info("结算分发: taskId={}, meterType={}", task.getId(), meterType);
 
@@ -247,6 +253,79 @@ public class BillingFacadeServiceImpl implements BillingFacadeService {
         }
 
         return true;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void prepareOperatorBilling(AidMediaTask task, AiModelConfigVo modelConfig, BillingInput billingInput, Long adminId) {
+        if (billingInput.isInputMetadataPending()) throw new ServiceException("素材尚未完成核验");
+        if (adminId == null || adminId <= 0 || !Objects.equals(task.getUserId(), -adminId)) {
+            throw new ServiceException("计费身份无效");
+        }
+        BillingCalcResult calculation = billingPreHoldCalculationService.calculate(modelConfig, billingInput);
+        if (!calculation.isMatched() || calculation.getSnapshot() == null || calculation.getSnapshot().getBaseAmount() == null) {
+            throw new ServiceException("计费规则缺失");
+        }
+        BillingSnapshot snapshot = calculation.getSnapshot();
+        snapshot.setPayerType("PROVIDER");
+        snapshot.setPayerAdminId(adminId);
+        snapshot.setProviderEstimatedCostCny(snapshot.getBaseAmount());
+        snapshot.setPreHoldAmount(BigDecimal.ZERO);
+        task.setBillingSnapshotJson(JSONUtil.toJsonStr(snapshot));
+        task.setBillingParamJson(JSONUtil.toJsonStr(billingInput.getParams()));
+        mediaBillingService.prepareBilling(task, copyWithAmount(modelConfig, BigDecimal.ZERO));
+    }
+
+    private boolean settleOperatorBilling(AidMediaTask task, BillingSnapshot snapshot, Map<String, Object> usageData) {
+        if (snapshot.getPayerAdminId() == null || !Objects.equals(task.getUserId(), -snapshot.getPayerAdminId())
+                || task.getFrozenAmount() == null || task.getFrozenAmount().signum() != 0) {
+            throw new ServiceException("计费身份无效");
+        }
+        if (!mediaBillingService.settleBilling(task)) return false;
+        // 成本与用户积分分开：复用冻结价格及 Token 用量解析，但不进行用户补扣或退款。
+        if ("TOKEN".equals(snapshot.getMeterType())) {
+            BillingSnapshot costSnapshot = JSONUtil.toBean(JSONUtil.toJsonStr(snapshot), BillingSnapshot.class);
+            costSnapshot.setIsFree(false);
+            BillingCalcResult calculation = billingAmountCalculator.calculateSettleAmount(BigDecimal.ZERO,
+                    JSONUtil.toJsonStr(costSnapshot), usageData);
+            if (calculation.getSnapshot() != null) {
+                Boolean userFree = snapshot.getIsFree();
+                BeanUtil.copyProperties(calculation.getSnapshot(), snapshot);
+                snapshot.setIsFree(userFree);
+                snapshot.setPreHoldAmount(BigDecimal.ZERO);
+            }
+        } else if ("SKU_PACKAGE".equals(snapshot.getMeterType())) {
+            snapshot.setProviderActualCostCny(snapshot.getProviderEstimatedCostCny());
+        } else if ("PER_CHAR".equals(snapshot.getMeterType()) && usageData != null && usageData.get("usage_characters") != null) {
+            try {
+                BigDecimal chars = new BigDecimal(String.valueOf(usageData.get("usage_characters")));
+                BillingRule rule = billingRuleResolver.parseRule(copySnapshotConfig(snapshot));
+                if (chars.signum() >= 0 && chars.scale() <= 0 && rule != null && rule.getSkus() != null) {
+                    snapshot.setProviderActualCharacters(chars.longValueExact());
+                    rule.getSkus().stream().filter(sku -> Objects.equals(sku.getSkuCode(), snapshot.getSkuCode()))
+                            .filter(sku -> sku.getPricePerChar() != null && sku.getPricePerChar().signum() >= 0).findFirst()
+                            .ifPresent(sku -> snapshot.setProviderActualCostCny(chars.multiply(sku.getPricePerChar())
+                                    .add(snapshot.getFixedSurcharge() == null ? BigDecimal.ZERO : snapshot.getFixedSurcharge())));
+                }
+            } catch (RuntimeException ignored) {
+                log.info("站长音频实际用量未确认, taskId={}", task.getId());
+            }
+        }
+        snapshot.setActualAmount(BigDecimal.ZERO);
+        snapshot.setRefundAmount(BigDecimal.ZERO);
+        snapshot.setTextSettleDone(true);
+        snapshot.setSettleTime(LocalDateTime.now().format(DATETIME_FORMATTER));
+        task.setActualCost(BigDecimal.ZERO);
+        task.setBillingSnapshotJson(JSONUtil.toJsonStr(snapshot));
+        return true;
+    }
+
+    private AiModelConfigVo copySnapshotConfig(BillingSnapshot snapshot) {
+        AiModelConfigVo config = new AiModelConfigVo();
+        config.setModelCode(snapshot.getModelName());
+        config.setBillingMode(snapshot.getBillingMode());
+        config.setBillingRuleJson(snapshot.getBillingRuleJson());
+        return config;
     }
 
     private boolean allowsExtraCharge(BillingSnapshot snapshot) {

@@ -9,7 +9,7 @@ import {
 } from '~/utils/scriptFileUpload'
 
 export interface ImportScriptFilePickerOptions {
-  acceptAssetType: 'image' | 'video' | 'script' | 'all'
+  acceptAssetType: 'image' | 'video' | 'media' | 'script' | 'all'
   multiple: boolean
   /** 解析当前选中节点对应的项目数字 ID（供剧本上传） */
   getProjectId: () => string | null
@@ -26,7 +26,10 @@ export interface ImportScriptFilePickerOptions {
 export function openImportScriptFilePicker(opts: ImportScriptFilePickerOptions) {
   const input = document.createElement('input')
   input.type = 'file'
-  if (opts.acceptAssetType === 'video') {
+  if (opts.acceptAssetType === 'media') {
+    input.accept = 'image/*,video/*'
+    input.multiple = true
+  } else if (opts.acceptAssetType === 'video') {
     input.accept = 'video/*'
   } else if (opts.acceptAssetType === 'image') {
     input.accept = 'image/*'
@@ -38,6 +41,55 @@ export function openImportScriptFilePicker(opts: ImportScriptFilePickerOptions) 
     const files = e.target.files as FileList | null
     if (!files?.length) return
     void (async () => {
+      if (opts.acceptAssetType === 'media') {
+        const allFiles = Array.from(files)
+        const imageFiles = allFiles.filter((file) => file.type.startsWith('image/'))
+        const videoFiles = allFiles.filter((file) => file.type.startsWith('video/'))
+        const items: any[] = []
+        if (imageFiles.length) {
+          const { uploadImagesToOssWithToast } = await import('~/utils/ossUpload')
+          const urls = await uploadImagesToOssWithToast(imageFiles)
+          if (!urls) return
+          urls.forEach((url, index) => {
+            const file = imageFiles[index]!
+            const name = file.name.replace(/\.[^/.]+$/, '') || `图片${index + 1}`
+            items.push({
+              id: `local-img-${Date.now()}-${index}`,
+              type: 'image',
+              url,
+              thumbnail: url,
+              name,
+              title: name,
+              updatedAt: new Date().toISOString()
+            })
+          })
+        }
+        if (videoFiles.length) {
+          const { uploadVideoToOssWithToast } = await import('~/utils/ossUpload')
+          for (let index = 0; index < videoFiles.length; index += 1) {
+            const file = videoFiles[index]!
+            const url = await uploadVideoToOssWithToast(file)
+            if (!url) continue
+            const name = file.name.replace(/\.[^/.]+$/, '') || `视频${index + 1}`
+            items.push({
+              id: `local-video-${Date.now()}-${index}`,
+              type: 'video',
+              url,
+              name,
+              title: name,
+              updatedAt: new Date().toISOString()
+            })
+          }
+        }
+        if (!items.length) {
+          message.error('仅支持导入图片或视频文件')
+          return
+        }
+        if (!(await opts.emitImportMultiple(items))) return
+        opts.closeModal()
+        message.success(`已导入 ${items.length} 项素材`)
+        return
+      }
       if (opts.acceptAssetType === 'video') {
         const file = files[0]
         if (!file.type.startsWith('video/')) {

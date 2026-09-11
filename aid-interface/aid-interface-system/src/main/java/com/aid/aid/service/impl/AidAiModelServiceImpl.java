@@ -22,6 +22,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import com.aid.aid.service.support.ModelBillingActivationValidator;
+import com.aid.aid.service.support.ModelConfigurationMerge;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
@@ -122,7 +123,8 @@ public class AidAiModelServiceImpl extends ServiceImpl<AidAiModelMapper, AidAiMo
         }
         // 按生成模式过滤（对 model_type 大类做进一步细分）
         if (StrUtil.isNotBlank(aidAiModel.getGenerateMode())) {
-            wrapper.eq(AidAiModel::getGenerateMode, aidAiModel.getGenerateMode());
+            wrapper.apply("(EXISTS (SELECT 1 FROM aid_ai_model_capability c WHERE c.model_id = aid_ai_model.id AND c.generate_mode = {0}) "
+                    + "OR (NOT EXISTS (SELECT 1 FROM aid_ai_model_capability c WHERE c.model_id = aid_ai_model.id) AND generate_mode = {0}))", aidAiModel.getGenerateMode());
         }
         // 按状态过滤
         if (StrUtil.isNotBlank(aidAiModel.getStatus())) {
@@ -157,11 +159,13 @@ public class AidAiModelServiceImpl extends ServiceImpl<AidAiModelMapper, AidAiMo
     @Override
     public int insertAidAiModel(AidAiModel aidAiModel)
     {
+        ModelConfigurationMerge.validate(aidAiModel.getCapabilityJson());
+        ModelConfigurationMerge.validate(aidAiModel.getBillingRuleJson());
+        aidAiModel.setConfigVersion(0L);
         validateModelCodeNotBlank(aidAiModel.getModelCode());
         validateAndNormalizeApiSuffix(aidAiModel);
         ModelBillingActivationValidator.validateIfRequiredAndEnabled(aidAiModel);
-        // 模型身份由「真实模型 + 模型代码」共同决定，模型代码全表唯一即可保证身份唯一，
-        // 同一真实模型下允许多个模型代码（不同生成模式）同时启用
+        // 模型代码用于稳定引用；真实模型身份及能力由模型定义服务统一校验。
         validateModelCodeUnique(aidAiModel.getModelCode(), null);
         aidAiModel.setCreateTime(DateUtils.getNowDate());
         aidAiModel.setCreateBy(currentUsername());
@@ -190,13 +194,26 @@ public class AidAiModelServiceImpl extends ServiceImpl<AidAiModelMapper, AidAiMo
                 Wrappers.<AidAiModel>lambdaQuery()
                         .select(AidAiModel::getId, AidAiModel::getStatus, AidAiModel::getBillingMode,
                                 AidAiModel::getBillingRuleJson, AidAiModel::getCostCredits,
-                                AidAiModel::getCapabilityJson)
+                                AidAiModel::getCapabilityJson, AidAiModel::getConfigVersion)
                         .eq(AidAiModel::getId, aidAiModel.getId())
                         .last("limit 1"),
                 false);
         if (Objects.isNull(before)) {
             log.error("AidAiModel 更新失败：记录不存在, id={}", aidAiModel.getId());
             throw new ServiceException("模型不存在");
+        }
+        long expectedVersion = before.getConfigVersion() == null ? 0L : before.getConfigVersion();
+        if (aidAiModel.getConfigVersion() != null && aidAiModel.getConfigVersion() != expectedVersion) {
+            log.info("模型配置版本已变化: id={}", aidAiModel.getId());
+            throw new ServiceException("配置已更新请刷新");
+        }
+        if (aidAiModel.getCapabilityJson() != null) {
+            aidAiModel.setCapabilityJson(ModelConfigurationMerge.merge(
+                    before.getCapabilityJson(), aidAiModel.getCapabilityJson()));
+        }
+        if (aidAiModel.getBillingRuleJson() != null) {
+            aidAiModel.setBillingRuleJson(ModelConfigurationMerge.merge(
+                    before.getBillingRuleJson(), aidAiModel.getBillingRuleJson()));
         }
         AidAiModel effective = mergeBillingFields(before, aidAiModel);
         // 明确声明严格计费的模型，只要保存后的有效配置仍为启用态，就持续校验；因此已启用后清空
@@ -205,7 +222,15 @@ public class AidAiModelServiceImpl extends ServiceImpl<AidAiModelMapper, AidAiMo
         aidAiModel.setUpdateTime(DateUtils.getNowDate());
         aidAiModel.setUpdateBy(currentUsername());
         try {
-            return this.updateById(aidAiModel) ? 1 : 0;
+            aidAiModel.setConfigVersion(Math.addExact(expectedVersion, 1L));
+            boolean updated = this.update(aidAiModel, Wrappers.<AidAiModel>lambdaUpdate()
+                    .eq(AidAiModel::getId, aidAiModel.getId())
+                    .eq(AidAiModel::getConfigVersion, expectedVersion));
+            if (!updated) {
+                log.info("模型配置并发保存冲突: id={}", aidAiModel.getId());
+                throw new ServiceException("配置已更新请刷新");
+            }
+            return 1;
         } catch (DuplicateKeyException e) {
             log.error("AidAiModel 更新触发唯一键冲突, id={}, modelCode={}",
                     aidAiModel.getId(), aidAiModel.getModelCode(), e);

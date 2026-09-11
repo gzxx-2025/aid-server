@@ -63,7 +63,9 @@ export const StoryboardGeneratePanel = forwardRef<
     showStoryboardVideoAssets: rawProps.showStoryboardVideoAssets ?? true,
     referenceImages: rawProps.referenceImages ?? [],
     referenceAudios: rawProps.referenceAudios ?? [],
-    imageToVideoReferenceImages: rawProps.imageToVideoReferenceImages ?? []
+    referenceVideos: rawProps.referenceVideos ?? [],
+    imageToVideoReferenceImages: rawProps.imageToVideoReferenceImages ?? [],
+    referenceImportLabel: rawProps.referenceImportLabel ?? '导入参考图'
   }
   /** 事件回调 / 异步流程内一律读最新 props，避免闭包捕获旧值 */
   const propsRef = useRef(props)
@@ -125,6 +127,17 @@ export const StoryboardGeneratePanel = forwardRef<
       })),
     [props.referenceAudios]
   )
+  const referenceVideoStripItems = useMemo(
+    () =>
+      (props.referenceVideos ?? []).map((video: any, index: number) => ({
+        ...video,
+        kind: 'video' as const,
+        id: video.id ?? video.referenceVideoRecordId ?? `video-${index}`,
+        title: video.title || video.name,
+        name: video.name || video.title
+      })),
+    [props.referenceVideos]
+  )
 
   /** 图生/宫格：图片 + 音频混排素材条 */
   const storyboardVideoStripItems = useMemo(
@@ -135,13 +148,14 @@ export const StoryboardGeneratePanel = forwardRef<
     [storyboardVideoReferenceList, referenceAudioStripItems]
   )
 
-  /** 多参：资产图 + 音频混排素材条 */
+  /** 多参：资产图 + 视频 + 音频混排素材条 */
   const multiParamStripItems = useMemo(
     () => [
       ...multiParamAssetReferenceList.map((img: any) => ({ ...img, kind: 'image' as const })),
+      ...referenceVideoStripItems,
       ...referenceAudioStripItems
     ],
-    [multiParamAssetReferenceList, referenceAudioStripItems]
+    [multiParamAssetReferenceList, referenceVideoStripItems, referenceAudioStripItems]
   )
 
   function onStoryboardVideoStripRemove(index: number) {
@@ -533,7 +547,7 @@ export const StoryboardGeneratePanel = forwardRef<
               images={multiParamStripItems}
               showAdder
               showAdderText
-              adderText="导入参考图"
+              adderText={props.referenceImportLabel}
               onRemove={onMultiParamStripRemove}
               onPreview={(img) => props.onPreviewAssetImage?.(img)}
               onOpenAdder={() => props.onImportReference?.()}

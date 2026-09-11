@@ -29,6 +29,7 @@ import {
 } from '~/utils/storyboardPromptAssetRef'
 import { buildStoryboardVideoResolutionField } from '~/utils/storyboardVideoGenerateParams'
 import { buildGenerateReferenceAudioFields } from '~/utils/storyboardVideoReferenceAudioWire'
+import { buildGenerateReferenceVideoFields } from '~/utils/storyboardVideoReferenceVideoWire'
 
 const starWhiteIcon = assetUrl(starWhiteIconRaw)
 
@@ -113,6 +114,7 @@ function buildVideoQuoteRequest(ctx: VideoModalCtx): BillingQuoteRequest | null 
         ...(Object.keys(referenceOverrides).length ? { referenceOverrides } : {}),
         ...common,
         ...buildGenerateReferenceAudioFields(ctx.referenceAudios.value),
+        ...buildGenerateReferenceVideoFields(ctx.referenceVideos.value),
         ...(ctx.multiParamShootingTechnique.value?.value?.trim()
           ? { userInputText: ctx.multiParamShootingTechnique.value.value.trim().slice(0, 500) }
           : {})
@@ -460,6 +462,8 @@ export function VideoConfigPanel({ ctx }: { ctx: VideoModalCtx }) {
                   activeVideoSettingKey={ctx.activeMultiParamSettingKey.value}
                   onActiveVideoSettingKeyChange={(v) => ctx.activeMultiParamSettingKey.set(v)}
                   referenceAudios={ctx.referenceAudios.value}
+                  referenceVideos={ctx.referenceVideos.value}
+                  referenceImportLabel="导入参考素材"
                   imageToVideoNineGridEnabled={ctx.nineGridEnabled.value}
                   imageToVideoReferenceImages={ctx.referenceImages.value}
                   imageToVideoSelectedCameraMovement={ctx.selectedCameraMovement.value}
@@ -474,6 +478,7 @@ export function VideoConfigPanel({ ctx }: { ctx: VideoModalCtx }) {
                   onOpenSelectModal={ctx.openSelectAssetModal}
                   onRemoveMultiParamAssetReference={ctx.removeMultiParamAssetReference}
                   onRemoveReferenceAudio={(i) => ctx.removeReferenceAudioAt(i)}
+                  onRemoveReferenceVideo={ctx.removeReferenceVideoAt}
                   onRemoveOtherImage={ctx.removeOtherImage}
                   onPreviewAssetImage={ctx.previewAssetImage}
                   onCopyPrompt={ctx.copyMultiParamPrompt}

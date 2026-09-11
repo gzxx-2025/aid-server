@@ -7,6 +7,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.math.BigDecimal;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -145,6 +146,7 @@ public final class AiConfigJsonValidator
         validateJsonObjectIfPresent("param_mapping_json", model.getParamMappingJson());
         validateJsonObjectIfPresent("extra_body", model.getExtraBody());
         ModelBillingRuleValidator.validate(model);
+        validateMediaCapability(model.getCapabilityJson());
         validateTextCapability(model);
         validateViduModelCallback(model);
         validateConfigurableVideoAudioField(model);
@@ -334,7 +336,9 @@ public final class AiConfigJsonValidator
         boolean deliverable = REFERENCE_AUDIO_PROVIDER_CODES.contains(normalizeCode(providerCode))
                 || REFERENCE_AUDIO_PROTOCOLS.contains(normalizeCode(model.getProtocol()))
                 || isAgnes25Model(model, providerCode)
-                || isWan3DashscopeModel(model);
+                || isWan3DashscopeModel(model)
+                || ("tokendance".equals(normalizeCode(providerCode)) && Set.of("tokendance:seedance:generations",
+                    "tokendance:wan3:video-synthesis", "tokendance:minimax:video_generation_v2").contains(normalizeCode(model.getProtocol())));
         if (!deliverable)
         {
             return "服务商未实现参考音频下发: providerCode=" + providerCode + ", protocol=" + model.getProtocol();
@@ -350,12 +354,12 @@ public final class AiConfigJsonValidator
         {
             return "maxReferenceAudios 必须为-1或正整数";
         }
-        int minSeconds = capability.path("referenceAudioMinDurationSeconds").asInt(0);
-        int maxSeconds = capability.path("referenceAudioMaxDurationSeconds").asInt(0);
-        int maxTotalSeconds = capability.path("referenceAudioMaxTotalDurationSeconds").asInt(0);
-        if (minSeconds < 0 || maxSeconds < 0 || maxTotalSeconds < 0
-                || (minSeconds > 0 && maxSeconds > 0 && maxSeconds < minSeconds)
-                || (minSeconds > 0 && maxTotalSeconds > 0 && maxTotalSeconds < minSeconds))
+        BigDecimal minSeconds = referenceAudioSeconds(capability, "referenceAudioMinDurationSeconds");
+        BigDecimal maxSeconds = referenceAudioSeconds(capability, "referenceAudioMaxDurationSeconds");
+        BigDecimal maxTotalSeconds = referenceAudioSeconds(capability, "referenceAudioMaxTotalDurationSeconds");
+        if (minSeconds.signum() < 0 || maxSeconds.signum() < 0 || maxTotalSeconds.signum() < 0
+                || (minSeconds.signum() > 0 && maxSeconds.signum() > 0 && maxSeconds.compareTo(minSeconds) < 0)
+                || (minSeconds.signum() > 0 && maxTotalSeconds.signum() > 0 && maxTotalSeconds.compareTo(minSeconds) < 0))
         {
             return "时长区间非法: min=" + minSeconds + ", max=" + maxSeconds + ", total=" + maxTotalSeconds;
         }
@@ -388,6 +392,13 @@ public final class AiConfigJsonValidator
             return "格式无法解析时长: " + unsupported + ", 可选=" + ReferenceAudioLimiter.probeableFormats();
         }
         return null;
+    }
+
+    private static BigDecimal referenceAudioSeconds(JsonNode capability, String key) {
+        JsonNode value = capability.get(key);
+        if (value == null || value.isNull()) return BigDecimal.ZERO;
+        if (!value.isNumber()) throw new ServiceException("音频时长配置无效");
+        return value.decimalValue();
     }
 
     /** Agnes 仅 Video 2.5 两款请求构造器实现结构化参考音频，不能按整个供应商放行。 */
@@ -440,9 +451,7 @@ public final class AiConfigJsonValidator
         String trimmed = raw.trim();
         if (!trimmed.startsWith("{") || !trimmed.endsWith("}"))
         {
-            // 不打 raw 全文，避免把可能的密钥 / 长串日志噪音；只截前 80 字便于排查
-            String preview = trimmed.length() > 80 ? trimmed.substring(0, 80) + "..." : trimmed;
-            throw structuredError(fieldName, "顶层非 JSON 对象", preview);
+            throw structuredError(fieldName, "顶层非 JSON 对象", "length=" + trimmed.length());
         }
         try
         {
@@ -450,8 +459,60 @@ public final class AiConfigJsonValidator
         }
         catch (Exception e)
         {
-            String preview = trimmed.length() > 80 ? trimmed.substring(0, 80) + "..." : trimmed;
-            throw structuredError(fieldName, e.getMessage(), preview);
+            throw structuredError(fieldName, e.getClass().getSimpleName(), "length=" + trimmed.length());
+        }
+    }
+
+    /** 校验已定义的媒体硬约束，同时保留未知扩展字段。 */
+    private static void validateMediaCapability(String raw) {
+        if (StrUtil.isBlank(raw)) return;
+        try {
+            JsonNode root = OBJECT_MAPPER.readTree(raw);
+            validateMediaCapabilityObject(root);
+            JsonNode scenes = root.path("sceneRules");
+            if (!scenes.isMissingNode() && !scenes.isObject()) throw new IllegalArgumentException("场景配置无效");
+            if (scenes.isObject()) {
+                var values = scenes.elements();
+                while (values.hasNext()) {
+                    JsonNode scene = values.next();
+                    if (!scene.isObject()) throw new IllegalArgumentException("场景配置无效");
+                    validateMediaCapabilityObject(scene);
+                }
+            }
+        } catch (Exception ex) {
+            log.info("媒体能力结构无效: {}", ex.getClass().getSimpleName());
+            throw new ServiceException("媒体能力配置无效");
+        }
+    }
+
+    private static void validateMediaCapabilityObject(JsonNode capability) {
+        for (String prefix : List.of("referenceImage", "referenceVideo", "referenceAudio")) {
+            for (String suffix : List.of("MinDurationSeconds", "MaxDurationSeconds", "MaxTotalDurationSeconds", "MaxFileSizeMb",
+                    "MinDimensionPixels", "MaxDimensionPixels", "MinPixels", "MaxPixels", "MinWidth", "MaxWidth",
+                    "MinHeight", "MaxHeight", "MinAspectRatio", "MaxAspectRatio", "MinFps", "MaxFps")) {
+                JsonNode value = capability.get(prefix + suffix);
+                if (value != null && (!value.isNumber() || value.decimalValue().signum() < 0)) {
+                    throw new IllegalArgumentException("素材限制无效");
+                }
+            }
+            for (String suffix : List.of("DurationSeconds", "DimensionPixels", "Pixels", "Width", "Height", "AspectRatio", "Fps")) {
+                JsonNode min = capability.get(prefix + "Min" + suffix);
+                JsonNode max = capability.get(prefix + "Max" + suffix);
+                if (min != null && max != null && max.decimalValue().signum() > 0
+                        && min.decimalValue().compareTo(max.decimalValue()) > 0) throw new IllegalArgumentException("素材区间无效");
+            }
+            JsonNode formats = capability.get(prefix + "Formats");
+            if (formats != null) {
+                if (!formats.isArray()) throw new IllegalArgumentException("素材格式无效");
+                for (JsonNode format : formats) {
+                    if (!format.isTextual() || format.asText().isBlank()
+                            || "*".equals(format.asText()) && formats.size() != 1) throw new IllegalArgumentException("素材格式无效");
+                }
+            }
+        }
+        for (String field : List.of("maxInputMediaTotalFileSizeMb", "maxInputOutputVideoDurationSeconds")) {
+            JsonNode value = capability.get(field);
+            if (value != null && (!value.isNumber() || value.decimalValue().signum() < 0)) throw new IllegalArgumentException("素材限制无效");
         }
     }
 
@@ -507,7 +568,16 @@ public final class AiConfigJsonValidator
             for (String field : List.of("maxInputImageFileSizeMb", "maxInputVideoFileSizeMb",
                     "maxInputAudioFileSizeMb", "maxInputDocumentFileSizeMb",
                     "maxInputVideoDurationSeconds", "maxInputAudioDurationSeconds",
-                    "maxInputDocumentPages", "contextWindowTokens", "maxOutputTokens",
+                    "maxInputVideoTotalDurationSeconds", "maxInputAudioTotalDurationSeconds",
+                    "maxInputMediaTotalFileSizeMb"))
+            {
+                JsonNode value = capability.get(field);
+                if (value != null && (!value.isNumber() || value.decimalValue().signum() < 0))
+                {
+                    throw new IllegalArgumentException(field + "非法");
+                }
+            }
+            for (String field : List.of("maxInputDocumentPages", "contextWindowTokens", "maxOutputTokens",
                     "defaultReasoningBudgetTokens", "maxReasoningBudgetTokens"))
             {
                 JsonNode value = capability.get(field);
@@ -568,7 +638,13 @@ public final class AiConfigJsonValidator
                 || capability.path("supports" + modality.substring(0, 1)
                         + modality.substring(1).toLowerCase(Locale.ROOT) + "Input").asBoolean(false);
         JsonNode value = capability.get(countField);
-        int count = value != null && value.isIntegralNumber() ? value.asInt() : 0;
+        // 未声明上限与显式禁止是不同状态；官方未公开数量限制的目录不能伪造为零。
+        // 非法类型已由上面的字段校验拒绝，显式零值仍与已开启的输入模态冲突。
+        if (value == null)
+        {
+            return;
+        }
+        int count = value.asInt();
         if (declared && count == 0)
         {
             throw new IllegalArgumentException(countField + "未配置");

@@ -4,7 +4,7 @@ import { resolveModelSupportsAudio } from '~/utils/modelCapability'
 
 export type UserModelOptionSource = Pick<
   UserModelListItem,
-  'id' | 'modelCode' | 'modelName' | 'providerName' | 'providerLogo' | 'capability' | 'isFree' | 'billing'
+  'id' | 'modelCode' | 'modelName' | 'providerName' | 'providerLogo' | 'capability' | 'isFree' | 'billing' | 'legacyModelCodes' | 'legacyModelIds' | 'capabilityCode'
 >
 
 export interface MapUserModelOptionConfig {
@@ -25,6 +25,9 @@ export function mapUserModelListItemToModelOption(
   return {
     id: code || String(item.id),
     serverModelId: Number.isFinite(sid) && sid > 0 ? sid : undefined,
+    legacyModelCodes: item.legacyModelCodes,
+    legacyModelIds: item.legacyModelIds,
+    capabilityCode: item.capabilityCode ?? undefined,
     name: item.modelName || code || '未命名模型',
     icon: logo || undefined,
     iconBg: config.iconBg ?? DEFAULT_ICON_BG,

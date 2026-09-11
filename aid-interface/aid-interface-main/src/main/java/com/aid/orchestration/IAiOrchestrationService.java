@@ -1,7 +1,11 @@
 package com.aid.orchestration;
 
 import com.aid.aid.domain.AidAiModelFuncConfig;
+import com.aid.orchestration.dto.ModelPoolBindingChangeRequest;
+import com.aid.orchestration.dto.ModelPoolBindingQueryRequest;
 import com.aid.orchestration.dto.RetireResourceRequest;
+import com.aid.orchestration.vo.ModelPoolBindingChangeVO;
+import com.aid.orchestration.vo.ModelPoolBindingSnapshotVO;
 import com.aid.orchestration.vo.OrchestrationImpactVO;
 
 /**
@@ -14,6 +18,15 @@ public interface IAiOrchestrationService
 
     /** 校验功能配置没有智能体、矩阵或项目级活动引用。 */
     void validateFunctionConfigsRemovable(Long[] ids);
+
+    /** 查询模型与模型池的当前关系。 */
+    ModelPoolBindingSnapshotVO getModelPoolBindings(ModelPoolBindingQueryRequest request);
+
+    /** 批量把模型绑定到模型池。 */
+    ModelPoolBindingChangeVO bindModelsToPools(ModelPoolBindingChangeRequest request, String operator);
+
+    /** 批量从模型池移除模型。 */
+    ModelPoolBindingChangeVO unbindModelsFromPools(ModelPoolBindingChangeRequest request, String operator);
 
     OrchestrationImpactVO previewModelRetirement(Long modelId);
 

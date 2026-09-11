@@ -54,4 +54,10 @@ public class UserProjectUpdateRequest {
 
     /** 默认创作模式(i2v图生视频, multi多参生视频) */
     private String defaultCreationMode;
+
+    /** 是否允许查看已发布流程快照；为空表示不修改 */
+    private Boolean allowPreview;
+
+    /** 是否允许复制已发布流程快照；为空表示不修改 */
+    private Boolean allowCopy;
 }

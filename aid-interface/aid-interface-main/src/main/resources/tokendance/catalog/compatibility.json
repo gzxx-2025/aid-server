@@ -1,0 +1,116 @@
+{
+  "schemaVersion": 1,
+  "minimumAppVersion": "2.0.1",
+  "capabilityContractVersion": 1,
+  "billingContractVersion": 1,
+  "requiredFeatures": [
+    "tokendance.catalog.v1",
+    "capability.contract.v1",
+    "billing.contract.v1"
+  ],
+  "protocols": {
+    "openai:chat-completions": {
+      "minimumAppVersion": "2.0.1",
+      "requiredFeatures": [
+        "protocol:openai:chat-completions"
+      ]
+    },
+    "openai:responses": {
+      "minimumAppVersion": "2.0.1",
+      "requiredFeatures": [
+        "protocol:openai:responses"
+      ]
+    },
+    "anthropic:messages": {
+      "minimumAppVersion": "2.0.1",
+      "requiredFeatures": [
+        "protocol:anthropic:messages"
+      ]
+    },
+    "ark:image-generations": {
+      "minimumAppVersion": "2.0.1",
+      "requiredFeatures": [
+        "protocol:ark:image-generations"
+      ]
+    },
+    "openai:image-generations": {
+      "minimumAppVersion": "2.0.1",
+      "requiredFeatures": [
+        "protocol:openai:image-generations"
+      ]
+    },
+    "seedance:generations": {
+      "minimumAppVersion": "2.0.1",
+      "requiredFeatures": [
+        "protocol:seedance:generations"
+      ]
+    },
+    "kling:text2video": {
+      "minimumAppVersion": "2.0.1",
+      "requiredFeatures": [
+        "protocol:kling:text2video"
+      ]
+    },
+    "kling:image2video": {
+      "minimumAppVersion": "2.0.1",
+      "requiredFeatures": [
+        "protocol:kling:image2video"
+      ]
+    },
+    "kling:omni-video": {
+      "minimumAppVersion": "2.0.1",
+      "requiredFeatures": [
+        "protocol:kling:omni-video"
+      ]
+    },
+    "wan3:video-synthesis": {
+      "minimumAppVersion": "2.0.1",
+      "requiredFeatures": [
+        "protocol:wan3:video-synthesis"
+      ]
+    },
+    "happyhorse:video-synthesis": {
+      "minimumAppVersion": "2.0.1",
+      "requiredFeatures": [
+        "protocol:happyhorse:video-synthesis"
+      ]
+    },
+    "minimax:video_generation_v2": {
+      "minimumAppVersion": "2.0.1",
+      "requiredFeatures": [
+        "protocol:minimax:video_generation_v2"
+      ]
+    },
+    "minimax:t2a_v2": {
+      "minimumAppVersion": "2.0.1",
+      "requiredFeatures": [
+        "protocol:minimax:t2a_v2"
+      ]
+    },
+    "minimax:t2a_v2_ws": {
+      "minimumAppVersion": "2.0.1",
+      "requiredFeatures": [
+        "protocol:minimax:t2a_v2_ws"
+      ]
+    },
+    "minimax:voice_clone": {
+      "minimumAppVersion": "2.0.1",
+      "requiredFeatures": [
+        "protocol:minimax:voice_clone"
+      ]
+    },
+    "ark:tts": {
+      "minimumAppVersion": "2.0.1",
+      "requiredFeatures": [
+        "protocol:ark:tts"
+      ]
+    },
+    "ark:tts_ws": {
+      "minimumAppVersion": "2.0.1",
+      "requiredFeatures": [
+        "protocol:ark:tts_ws"
+      ]
+    }
+  },
+  "models": {}
+}

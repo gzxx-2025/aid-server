@@ -1,8 +1,7 @@
 import React from 'react';
-import { Button, Collapse, Input, Select, Space } from 'antd';
+import { Button, Input, Select, Space } from 'antd';
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import { COMMON_PROVIDERS, commonParamNamesByType } from './constants';
-import { buildParamMappingJsonObject } from './helpers';
 import type { ParamMapping } from './types';
 
 interface Props {
@@ -49,21 +48,6 @@ export default function ParamMappingEditor({ modelType, rows, onChange }: Props)
             </div>
           ))}
         </div>
-      )}
-      {rows.length > 0 && (
-        <Collapse
-          ghost
-          style={{ marginTop: 8 }}
-          items={[{
-            key: 'preview',
-            label: <span style={{ fontSize: 12, color: '#94a3b8' }}>查看生成的 paramMappingJson（只读预览）</span>,
-            children: (
-              <pre className="readonly-preview">
-                {JSON.stringify(buildParamMappingJsonObject(rows), null, 2)}
-              </pre>
-            )
-          }]}
-        />
       )}
     </div>
   );

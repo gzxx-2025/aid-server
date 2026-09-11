@@ -48,10 +48,14 @@ function formatVideoTime(value: number): string {
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(milliseconds).padStart(3, '0')}`
 }
 
-export function CaptureVideoFrameModal({
+/** 关闭即释放整段会话，重开不能复用被 cleanup 清空 src 的 video 与旧解码回调。 */
+export function CaptureVideoFrameModal(props: CaptureVideoFrameModalProps) {
+  if (!props.open) return null
+  return <CaptureVideoFrameSession key={`${props.projectId}:${props.episodeId ?? ''}`} {...props} />
+}
+
+function CaptureVideoFrameSession({
   open,
-  projectId,
-  episodeId = null,
   zIndex = 1200,
   onOpenChange,
   onCaptured
@@ -62,13 +66,16 @@ export function CaptureVideoFrameModal({
     [panels]
   )
 
-  const [selectedVideoId, setSelectedVideoId] = useState('')
+  const [selectedVideoId, setSelectedVideoId] = useState(() => videos[0]?.id || '')
   const selectedVideo = videos.find((video) => video.id === selectedVideoId) || null
 
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const videoStripRef = useRef<HTMLElement | null>(null)
   const [duration, setDuration] = useState(0)
   const [currentTime, setCurrentTime] = useState(0)
+  // 用户选帧意图与异步播放/seek 事件分开，暂停事件不能覆盖尚未完成的首尾帧定位。
+  const captureTimeRef = useRef(0)
+  const pendingSeekRef = useRef(false)
   const [videoReady, setVideoReadyState] = useState(false)
   const videoReadyRef = useRef(false)
   const [videoError, setVideoErrorState] = useState(false)
@@ -89,7 +96,6 @@ export function CaptureVideoFrameModal({
   const timelineFrameGenerationRef = useRef(0)
   const playbackAnimationFrameRef = useRef<number | null>(null)
   const openRef = useRef(open)
-  openRef.current = open
 
   function setVideoReady(value: boolean) {
     videoReadyRef.current = value
@@ -118,7 +124,7 @@ export function CaptureVideoFrameModal({
       playbackAnimationFrameRef.current = null
       return
     }
-    setCurrentTime(Math.max(0, video.currentTime || 0))
+    onTimeUpdate()
     playbackAnimationFrameRef.current = window.requestAnimationFrame(syncPlaybackProgressFrame)
   }
 
@@ -129,13 +135,18 @@ export function CaptureVideoFrameModal({
 
   function syncSelectedVideo() {
     const currentExists = videos.some((video) => video.id === selectedVideoId)
-    if (!currentExists) setSelectedVideoId(videos[0]?.id || '')
+    if (!currentExists) {
+      resetVideoState()
+      setSelectedVideoId(videos[0]?.id || '')
+    }
     requestAnimationFrame(updateScrollState)
   }
   function resetVideoState() {
     stopPlaybackProgressAnimation()
     setDuration(0)
     setCurrentTime(0)
+    captureTimeRef.current = 0
+    pendingSeekRef.current = false
     setVideoReady(false)
     setVideoError(false)
     setIsPlaying(false)
@@ -146,16 +157,17 @@ export function CaptureVideoFrameModal({
   function selectVideo(id: string) {
     if (selectedVideoId === id) return
     videoRef.current?.pause()
+    resetVideoState()
     setSelectedVideoId(id)
   }
   function onLoadedMetadata() {
     const video = videoRef.current
     if (!video) return
     setDuration(Number.isFinite(video.duration) ? Math.max(0, video.duration) : 0)
-    setCurrentTime(Math.max(0, video.currentTime || 0))
+    captureTimeRef.current = Math.max(0, video.currentTime || 0)
+    setCurrentTime(captureTimeRef.current)
     setVideoReady(video.videoWidth > 0 && video.videoHeight > 0)
     setVideoError(false)
-    void refreshTimelineFrames()
   }
   async function refreshTimelineFrames() {
     const sourceUrl = selectedVideo?.url || ''
@@ -185,8 +197,9 @@ export function CaptureVideoFrameModal({
   }
   function onTimeUpdate() {
     const video = videoRef.current
-    if (!video || video.seeking) return
-    setCurrentTime(Math.max(0, video.currentTime || 0))
+    if (!video || video.seeking || pendingSeekRef.current) return
+    captureTimeRef.current = Math.max(0, video.currentTime || 0)
+    setCurrentTime(captureTimeRef.current)
   }
   function onVideoPlay() {
     setIsPlaying(true)
@@ -226,10 +239,14 @@ export function CaptureVideoFrameModal({
     const video = videoRef.current
     if (!video || !videoReadyRef.current) return
     const safeValue = Math.min(Math.max(0, value), duration || 0)
+    pendingSeekRef.current = true
+    captureTimeRef.current = safeValue
     video.pause()
     setIsPlaying(false)
     setCurrentTime(safeValue)
     video.currentTime = safeValue
+    // 已在目标时间时浏览器不一定发送 seeked。
+    if (!video.seeking) pendingSeekRef.current = false
   }
   function onScrubInput(event: ChangeEvent<HTMLInputElement>) {
     setVideoTime(Number(event.target.value))
@@ -246,17 +263,18 @@ export function CaptureVideoFrameModal({
   async function confirmCapture() {
     const video = videoRef.current
     const source = selectedVideo
-    if (confirming || !video || !source || !videoReady || videoError) return
+    if (confirmingRef.current || !video || !source || !videoReady || videoError) return
 
     setConfirming(true)
     try {
       video.pause()
-      const capturedAt = clampVideoFrameTime(currentTime, duration)
+      const capturedAt = clampVideoFrameTime(captureTimeRef.current, duration)
       const capturedAtMs = Math.max(0, Math.floor(capturedAt * 1000))
       const name = formatVideoFrameName(source.label, capturedAtMs, new Date())
       const file = await captureVideoUrlFrame(source.url, capturedAt, name)
+      if (!openRef.current) return
       const url = await uploadImageToOssWithToast(file)
-      if (!url) return
+      if (!url || !openRef.current) return
       onCaptured({
         url,
         name,
@@ -267,7 +285,7 @@ export function CaptureVideoFrameModal({
       onOpenChange(false)
     } catch (error) {
       console.error('[capture-video-frame] capture failed', error)
-      message.error('截帧失败，请稍后重试')
+      if (openRef.current) message.error('截帧失败，请稍后重试')
     } finally {
       setConfirming(false)
     }
@@ -276,17 +294,6 @@ export function CaptureVideoFrameModal({
   function closeModal() {
     if (confirmingRef.current) return
     onOpenChange(false)
-  }
-
-  function cleanupVideo() {
-    const video = videoRef.current
-    if (video) {
-      video.pause()
-      video.removeAttribute('src')
-      video.load()
-    }
-    setSelectedVideoId('')
-    resetVideoState()
   }
 
   function updateScrollState() {
@@ -321,63 +328,33 @@ export function CaptureVideoFrameModal({
   }
 
   useEffect(() => {
-    if (open) {
-      syncSelectedVideo()
-      return
-    }
-    cleanupVideo()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open])
-
-  const scopeMountedRef = useRef(false)
-  useEffect(() => {
-    // 原 watch([projectId, episodeId]) 非 immediate：跳过首次执行
-    if (!scopeMountedRef.current) {
-      scopeMountedRef.current = true
-      return
-    }
-    if (openRef.current) {
-      cleanupVideo()
-      syncSelectedVideo()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId, episodeId])
-
-  const videosMountedRef = useRef(false)
-  useEffect(() => {
-    // 原 watch(videos) 非 immediate：跳过首次执行
-    if (!videosMountedRef.current) {
-      videosMountedRef.current = true
-      return
-    }
-    if (openRef.current) syncSelectedVideo()
+    syncSelectedVideo()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [videos])
 
-  const selectedIdMountedRef = useRef(false)
   useEffect(() => {
-    // 原 watch(selectedVideoId) 非 immediate：跳过首次执行
-    if (!selectedIdMountedRef.current) {
-      selectedIdMountedRef.current = true
-      return
-    }
-    resetVideoState()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedVideoId])
-
-  useEffect(() => {
+    openRef.current = true
     if (typeof ResizeObserver !== 'undefined') {
       resizeObserverRef.current = new ResizeObserver(updateScrollState)
       if (videoStripRef.current) resizeObserverRef.current.observe(videoStripRef.current)
     }
     window.addEventListener('resize', updateScrollState)
     return () => {
-      cleanupVideo()
+      openRef.current = false
+      timelineFrameGenerationRef.current += 1
+      stopPlaybackProgressAnimation()
+      videoRef.current?.pause()
       resizeObserverRef.current?.disconnect()
       window.removeEventListener('resize', updateScrollState)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => {
+    if (videoReady && !videoError) void refreshTimelineFrames()
+    return () => { timelineFrameGenerationRef.current += 1 }
+    // 元数据就绪与源地址共同驱动；不依赖仅触发一次的 loadedmetadata 事件启动任务。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedVideo?.url, videoReady, videoError])
 
   return (
     <Modal
@@ -455,6 +432,10 @@ export function CaptureVideoFrameModal({
                   onClick={togglePlayback}
                   onLoadedMetadata={onLoadedMetadata}
                   onTimeUpdate={onTimeUpdate}
+                  onSeeked={() => {
+                    pendingSeekRef.current = false
+                    onTimeUpdate()
+                  }}
                   onPlay={onVideoPlay}
                   onPause={onVideoPause}
                   onEnded={onVideoEnded}

@@ -69,7 +69,18 @@ public final class MediaTaskPayloadSanitizer {
      * @return 可安全写入 request_json 的 JSON
      */
     public static String serializeRequest(Object request) {
-        String json = JSONUtil.toJsonStr(request);
+        String json;
+        if (request instanceof com.aid.media.dto.MediaVideoGenerateRequest) {
+            // Hutool 不保证遵循 Jackson 的 JsonIgnore；内部可信对象只活在当前解析链路。
+            cn.hutool.json.JSONObject payload = JSONUtil.parseObj(request);
+            payload.remove("resolvedReferenceVideos");
+            json = payload.toString();
+        } else {
+            json = JSONUtil.toJsonStr(request);
+        }
+        if (request instanceof com.aid.media.dto.MediaTextGenerateRequest) {
+            json = com.aid.media.provider.ReasoningContentSanitizer.sanitizeJson(json);
+        }
         if (containsEmbeddedBinary(json)) {
             log.error("媒体任务请求包含内嵌文件，拒绝写入数据库, payloadChars={}", StrUtil.length(json));
             throw new ServiceException("禁止Base64入参");
@@ -158,8 +169,13 @@ public final class MediaTaskPayloadSanitizer {
                 }
             }
             if (Objects.equals(mediaType, MediaType.AUDIO.name())) {
-                // 配音正文已落在业务表；终态只保留 audioFormat 等生成参数供 OSS 后缀与资产快照使用。
-                objectNode.remove("ttsText");
+                // 音色工作台没有配音业务表，发布样本仍需短原文。优化后的试听文本不可冒用输入原文。
+                boolean keepVoiceSample = "operator_voice".equals(objectNode.path("bizTaskType").asText())
+                        && objectNode.path("userId").asLong() < 0
+                        && !objectNode.path("options").path("optimizeTextPreview").asBoolean(false)
+                        && objectNode.path("ttsText").isTextual()
+                        && objectNode.path("ttsText").asText().length() <= 500;
+                if (!keepVoiceSample) objectNode.remove("ttsText");
             }
             objectNode.put("payloadCompacted", true);
             return OBJECT_MAPPER.writeValueAsString(objectNode);

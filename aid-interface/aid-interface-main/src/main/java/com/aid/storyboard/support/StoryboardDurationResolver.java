@@ -11,15 +11,18 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import com.aid.domain.vo.AiModelConfigVo;
+import com.aid.common.exception.ServiceException;
 
 import cn.hutool.core.collection.CollectionUtil;
 import cn.hutool.core.util.StrUtil;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * 解析分镜建议时长并按视频模型能力归一化。
  *
  * @author 视觉AID
  */
+@Slf4j
 public final class StoryboardDurationResolver
 {
     public static final String SOURCE_STORYBOARD_SUGGESTION = "STORYBOARD_SUGGESTION";
@@ -132,7 +135,10 @@ public final class StoryboardDurationResolver
     public static Resolution resolve(Integer requestDuration, Integer recommendedDuration,
             boolean useRecommendation, boolean single, AiModelConfigVo modelConfig)
     {
-        Integer requested = positiveOrNull(requestDuration);
+        // 显式入参即使在批量推荐模式下不作为最终值，也不能携带
+        // 非法或超出官方档位的数值后被静默忽略。
+        Integer requested = requestDuration == null
+                ? null : normalizeExplicitRequest(requestDuration, modelConfig);
         Integer recommended = positiveOrNull(recommendedDuration);
         Integer candidate;
         String source;
@@ -157,7 +163,38 @@ public final class StoryboardDurationResolver
             candidate = resolveModelDefaultCandidate(modelConfig);
             source = SOURCE_MODEL_DEFAULT;
         }
-        return new Resolution(normalize(candidate, modelConfig), Objects.nonNull(candidate) ? source : null);
+        Integer normalized = SOURCE_REQUEST.equals(source)
+                ? normalizeExplicitRequest(candidate, modelConfig)
+                : normalize(candidate, modelConfig);
+        return new Resolution(normalized, Objects.nonNull(candidate) ? source : null);
+    }
+
+    /** 显式用户时长必须精确命中模型档位，禁止替用户向上取整或压回最大档。 */
+    private static Integer normalizeExplicitRequest(Integer candidate, AiModelConfigVo modelConfig)
+    {
+        if (Objects.isNull(candidate))
+        {
+            return null;
+        }
+        // 自适应时长不是负数秒数，只允许模型明确声明的 -1 哨兵。
+        // 不让它进入默认/建议时长归一化，更不能把 -1 当计费秒数。
+        if (candidate == -1 && declaresAdaptiveDuration(modelConfig))
+        {
+            return candidate;
+        }
+        if (candidate <= 0)
+        {
+            log.info("分镜视频时长无效: actual={}", candidate);
+            throw new ServiceException("视频时长无效");
+        }
+        Integer positiveCandidate = candidate;
+        List<Integer> allowed = readDurationOptions(modelConfig);
+        if (CollectionUtil.isNotEmpty(allowed) && !allowed.contains(positiveCandidate))
+        {
+            log.info("分镜视频时长未命中模型档位: actual={}, allowed={}", positiveCandidate, allowed);
+            throw new ServiceException("视频时长不支持");
+        }
+        return positiveCandidate;
     }
 
     /**
@@ -285,6 +322,22 @@ public final class StoryboardDurationResolver
     private static Integer positiveOrNull(Integer value)
     {
         return Objects.nonNull(value) && value > 0 ? value : null;
+    }
+
+    private static boolean declaresAdaptiveDuration(AiModelConfigVo config)
+    {
+        if (config == null || StrUtil.isBlank(config.getCapabilityJson())) return false;
+        try
+        {
+            JsonNode values = OBJECT_MAPPER.readTree(config.getCapabilityJson()).path(CAPABILITY_DURATION_OPTIONS);
+            if (!values.isArray()) return false;
+            for (JsonNode value : values)
+            {
+                if (value.isIntegralNumber() && value.intValue() == -1) return true;
+            }
+        }
+        catch (Exception ignored) { }
+        return false;
     }
 
     /**

@@ -14,13 +14,20 @@ aid:
   captchaType: math
   # 系统升级（AID产品版本，发布构建时注入；更新清单地址等动态配置存于 aid_config(category=system_upgrade)）
   upgrade:
-    current-version: 2.0.1
+    current-version: 2.1.0
     manifest-public-key: 9Ez/VMofgjCU0CNmE6Jq8LKLNyfDQqbbvNTTGV5BYrk=
   billing:
     text:
       # 多调用文本任务默认逐次先冻后结；false 仅回退新计费周期，已创建周期仍使用快照中的归属。
       # 配置值无法解析为布尔值时启动失败，避免静默切换计费口径。
       rolling-enabled: ${AID_BILLING_TEXT_ROLLING_ENABLED:true}
+  # TokenDance 账户 OAuth、余额和充值接口。App URL 固定为 aidstudio.com.cn，Key 默认名称为视觉AID；
+  # 授权回调由后台页面生成，凭证仅在受保护的服务端数据库保存。
+  tokendance:
+    account:
+      portal-base-url: ${AID_TOKENDANCE_PORTAL_BASE_URL:https://tokendance.space}
+      http-timeout-millis: ${AID_TOKENDANCE_HTTP_TIMEOUT_MILLIS:20000}
+      balance-cache-millis: ${AID_TOKENDANCE_BALANCE_CACHE_MILLIS:3000}
   # 媒体任务补偿调度（aid.chat.media.compensation.*）
   chat:
     media:

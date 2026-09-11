@@ -208,7 +208,10 @@ class KlingPricingContractTest {
             capabilities.put(matcher.group(1), MAPPER.readTree(matcher.group(2)));
         }
         assertEquals(9, capabilities.size());
-        assertEquals(9, Pattern.compile(Pattern.quote("\"defaultAudio\":false")).matcher(initSql).results().count());
+        assertEquals(9, capabilities.values().stream()
+                .filter(capability -> capability.has("defaultAudio")
+                        && !capability.path("defaultAudio").asBoolean())
+                .count());
         assertEquals(9, Pattern.compile(Pattern.quote("\"defaultAudio\":false")).matcher(migrationSql).results().count());
         for (JsonNode capability : capabilities.values()) {
             assertTrue(capability.has("defaultAudio"));

@@ -254,3 +254,28 @@
   height: 16px;
   object-fit: contain;
 }
+
+.home-new-index .work-img--empty {
+  padding: 18%;
+  object-fit: contain;
+  background: rgba(20, 24, 34, 0.92);
+}
+
+.home-new-index .works-grid.is-refreshing {
+  opacity: 0.65;
+  pointer-events: none;
+  transition: opacity 0.18s ease;
+}
+
+.home-new-index .gallery-feedback {
+  display: grid;
+  min-height: 180px;
+  place-items: center;
+  color: rgba(232, 237, 255, 0.62);
+  font-size: 14px;
+  text-align: center;
+}
+
+.home-new-index .gallery-feedback--error {
+  color: #ff9aa4;
+}

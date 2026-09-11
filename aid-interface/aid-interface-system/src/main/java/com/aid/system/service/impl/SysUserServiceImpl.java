@@ -324,6 +324,7 @@ public class SysUserServiceImpl implements ISysUserService
         userProfile.setTotalConsumption(new java.math.BigDecimal("0.00"));
         userProfile.setWechatNotifyEnabled(0);
         userProfile.setBalanceReminderAvailable(0);
+        userProfile.setPublishEnabled(1);
         userProfile.setDelFlag("0");
         userProfile.setCreateBy(StrUtil.isBlank(creator) ? "system" : creator);
         userProfile.setCreateTime(new Date());

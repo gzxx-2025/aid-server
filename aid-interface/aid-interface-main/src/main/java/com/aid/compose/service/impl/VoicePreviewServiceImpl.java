@@ -65,6 +65,9 @@ public class VoicePreviewServiceImpl implements VoicePreviewService {
     /** Redis 缓存：试听用户级频控计数 */
     private final RedisCache redisCache;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.aid.model.definition.ModelInvocationResolver invocationResolver;
+
     @Override
     public VoicePreviewResult preview(VoicePreviewRequest request) {
         if (Objects.isNull(request) || StrUtil.isBlank(request.getText())) {
@@ -85,12 +88,15 @@ public class VoicePreviewServiceImpl implements VoicePreviewService {
 
         MediaAudioGenerateRequest req = new MediaAudioGenerateRequest();
         req.setModelName(modelConfig.getModelCode());
+        req.setCapabilityCode(modelConfig.getCapabilityCode());
         req.setTtsText(text);
         req.setVoiceCode(request.getTimbreCode());
         // 情感透传：编码校验通过后随请求下发，试听效果与正式配音同一口径
         applyEmotion(req, request, modelConfig);
         // 试听模式：provider 同步合成后直接回 base64、不上传对象存储（试听不落库）
         req.setPreviewMode(true);
+
+        invocationResolver.normalize(modelConfig, req);
 
         ProviderSubmitResult submitResult = client.submit(modelConfig, req);
         if (Objects.isNull(submitResult)) {
@@ -238,7 +244,7 @@ public class VoicePreviewServiceImpl implements VoicePreviewService {
             log.info("试听模型ID为空");
             throw new RuntimeException("参数有误");
         }
-        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelId(voiceModelId);
+        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelId(voiceModelId, "audio");
         if (Objects.isNull(modelConfig) || StrUtil.isBlank(modelConfig.getModelCode())) {
             log.error("试听模型不存在, voiceModelId={}", voiceModelId);
             throw new RuntimeException("模型异常");
@@ -253,6 +259,11 @@ public class VoicePreviewServiceImpl implements VoicePreviewService {
      * @return 音频 provider
      */
     private AudioProviderClient resolveAudioClient(AiModelConfigVo modelConfig) {
+        if (modelConfig.getCapabilityCode() != null) {
+            var candidates = audioProviderClients.stream().filter(client -> client.supportsProtocol(modelConfig.getProtocol())).toList();
+            if (candidates.size() != 1) throw new com.aid.common.exception.ServiceException("音频协议不可用");
+            return candidates.get(0);
+        }
         String providerCode = modelConfig.getProviderCode();
         if (StrUtil.isNotBlank(providerCode)) {
             List<AudioProviderClient> byCode = audioProviderClients.stream()

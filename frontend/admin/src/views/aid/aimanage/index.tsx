@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, message } from 'antd';
 import {
   listProvider, getProvider, addProvider, updateProvider, updateProviderStatus, delProvider,
-  listModel, getModel, addModel, updateModel
+  listModel, getModel, addModel, updateModel, getModelPoolBindings, bindModelsToPools, unbindModelsFromPools,
+  type ModelPoolBindingSnapshot
 } from '@/api/aid/aimanage';
 import {
   getModelRetirementImpact,
@@ -12,14 +13,20 @@ import {
 import { cleanExpiredVoices } from '@/api/aid/voicelibrary';
 import ProviderPanel from './ProviderPanel';
 import ModelTable from './ModelTable';
-import OfficialGatewayCard from './OfficialGatewayCard';
+import TokenDanceRecommendedCard from './TokenDanceRecommendedCard';
+import { isTokenDanceProvider } from './recommendedProvider';
+import TokenDanceAccountModal from './TokenDanceAccountModal';
+import TokenDanceCatalogModal from './TokenDanceCatalogModal';
 import ProviderDialog from './ProviderDialog';
 import ModelDialog from './ModelDialog';
 import SyncVoiceModal from './SyncVoiceModal';
 import RealModelOverviewDrawer from './RealModelOverviewDrawer';
+import ModelPoolBindingModal, { type ModelPoolBindingMode } from './ModelPoolBindingModal';
 import RetirementModal from '@/views/aid/orchestration/RetirementModal';
 import type { Model, Provider } from './types';
 import './style.less';
+
+const EMPTY_POOL_SNAPSHOT: ModelPoolBindingSnapshot = { pools: [], models: [] };
 
 /**
  * AI 管理主页：服务商 + 模型列表 + MiniMax 音色同步入口
@@ -31,12 +38,19 @@ import './style.less';
  */
 export default function AimanagePage() {
   const [providerList, setProviderList] = useState<Provider[]>([]);
-  const [providerLoading, setProviderLoading] = useState(false);
+  const [providerLoading, setProviderLoading] = useState(true);
   const [activeProvider, setActiveProvider] = useState<Provider | null>(null);
   const [allModels, setAllModels] = useState<Model[]>([]);
-  const [modelList, setModelList] = useState<Model[]>([]);
-  const [modelLoading, setModelLoading] = useState(false);
-  const [modelQuery, setModelQuery] = useState<any>({ modelType: null, generateMode: null, inputRequirement: null, keyword: '' });
+  const [poolSnapshot, setPoolSnapshot] = useState<ModelPoolBindingSnapshot>(EMPTY_POOL_SNAPSHOT);
+  const [poolSnapshotReady, setPoolSnapshotReady] = useState(false);
+  const [selectedModelIds, setSelectedModelIds] = useState<number[]>([]);
+  const [poolBindingMode, setPoolBindingMode] = useState<ModelPoolBindingMode | null>(null);
+  const [poolBindingSubmitting, setPoolBindingSubmitting] = useState(false);
+  const poolBindingSubmitRef = useRef<Promise<void> | null>(null);
+  const [tokenDanceAction, setTokenDanceAction] = useState<'account' | 'catalog' | null>(null);
+  const tokenDanceProvider = providerList.find(isTokenDanceProvider) || null;
+  const providerLoadRef = useRef<Promise<void> | null>(null);
+  const [modelQuery, setModelQuery] = useState<any>({ modelType: null, generateMode: null, inputRequirement: null, poolId: null, keyword: '' });
   const [providerDlg, setProviderDlg] = useState<{ open: boolean; title: string; data?: any }>({ open: false, title: '' });
   const [modelDlg, setModelDlg] = useState<{ open: boolean; title: string; data?: any }>({ open: false, title: '' });
   const [retireState, setRetireState] = useState<{
@@ -53,38 +67,87 @@ export default function AimanagePage() {
     return map;
   }, [allModels]);
 
-  const loadProviders = async () => {
+  const loadProviderSnapshot = useCallback(async () => {
     setProviderLoading(true);
     try {
-      const res: any = await listProvider({ pageNum: 1, pageSize: 999 });
-      const list = res.rows || [];
+      const [res, res2, poolRes]: any[] = await Promise.all([
+        listProvider({ pageNum: 1, pageSize: 999 }),
+        listModel({ pageNum: 1, pageSize: 9999 }),
+        getModelPoolBindings().catch(() => null)
+      ]);
+      const list: Provider[] = [...(res.rows || [])].sort((a, b) => Number(isTokenDanceProvider(b)) - Number(isTokenDanceProvider(a)));
       setProviderList(list);
-      const res2: any = await listModel({ pageNum: 1, pageSize: 9999 });
       setAllModels(res2.rows || []);
-      if (list.length > 0 && !activeProvider) setActiveProvider(list[0]);
+      if (poolRes?.data) {
+        setPoolSnapshot(poolRes.data);
+        setPoolSnapshotReady(true);
+      } else {
+        setPoolSnapshotReady(false);
+      }
+      setActiveProvider((current) => list.find((provider) => provider.id === current?.id) || list[0] || null);
     } finally { setProviderLoading(false); }
+  }, []);
+
+  const loadProviders = useCallback((): Promise<void> => {
+    if (providerLoadRef.current) return providerLoadRef.current;
+    const pending = loadProviderSnapshot();
+    providerLoadRef.current = pending;
+    void pending.finally(() => {
+      if (providerLoadRef.current === pending) providerLoadRef.current = null;
+    }).catch(() => undefined);
+    return pending;
+  }, [loadProviderSnapshot]);
+
+  // 写操作完成后的刷新必须晚于旧快照请求；并发刷新仍合并到同一个新请求。
+  const refreshProviders = async () => {
+    const pending = providerLoadRef.current;
+    if (pending) await pending.catch(() => undefined);
+    await loadProviders();
   };
 
-  const loadModels = async () => {
-    if (!activeProvider) return;
-    setModelLoading(true);
-    try {
-      const res: any = await listModel({ pageNum: 1, pageSize: 999, providerId: activeProvider.id });
-      let rows: Model[] = res.rows || [];
+  const modelList = useMemo(() => {
+      let rows = allModels.filter((model) => model.providerId === activeProvider?.id);
       if (modelQuery.modelType) rows = rows.filter((m) => m.modelType === modelQuery.modelType);
       if (modelQuery.generateMode) rows = rows.filter((m) => m.generateMode === modelQuery.generateMode);
       // 输入要求（后端推导标签）：区分纯文本/图片可选/图片必传/视频必传
       if (modelQuery.inputRequirement) rows = rows.filter((m) => m.inputRequirement === modelQuery.inputRequirement);
+      if (modelQuery.poolId != null) {
+        const membership = new Map(poolSnapshot.models.map((model) => [model.id, model.poolIds]));
+        rows = rows.filter((model) => {
+          const poolIds = membership.get(model.id!) || [];
+          return modelQuery.poolId === 'unbound' ? poolIds.length === 0 : poolIds.includes(Number(modelQuery.poolId));
+        });
+      }
       if (modelQuery.keyword) {
         const kw = modelQuery.keyword.toLowerCase();
         rows = rows.filter((m) => (m.modelCode || '').toLowerCase().includes(kw) || (m.realModelCode || '').toLowerCase().includes(kw) || (m.modelName || '').toLowerCase().includes(kw));
       }
-      setModelList(rows);
-    } finally { setModelLoading(false); }
-  };
+      return rows;
+  }, [allModels, activeProvider?.id, modelQuery, poolSnapshot.models]);
 
-  useEffect(() => { loadProviders(); }, []);
-  useEffect(() => { loadModels(); }, [activeProvider, modelQuery]);
+  const selectedModels = useMemo(
+    () => allModels.filter((model) => model.id != null && selectedModelIds.includes(model.id)),
+    [allModels, selectedModelIds]
+  );
+
+  useEffect(() => { void loadProviders().catch(() => undefined); }, [loadProviders]);
+
+  useEffect(() => {
+    const existingIds = new Set(allModels.map((model) => model.id).filter((id): id is number => id != null));
+    setSelectedModelIds((ids) => ids.filter((id) => existingIds.has(id)));
+  }, [allModels]);
+
+  useEffect(() => {
+    setSelectedModelIds([]);
+  }, [activeProvider?.id]);
+
+  useEffect(() => {
+    const visibleIds = new Set(modelList.map((model) => model.id).filter((id): id is number => id != null));
+    setSelectedModelIds((ids) => {
+      const next = ids.filter((id) => visibleIds.has(id));
+      return next.length === ids.length ? ids : next;
+    });
+  }, [modelList]);
 
   const handleAddProvider = () => setProviderDlg({ open: true, title: '新增服务商', data: { status: '0' } });
   const handleEditProvider = async () => {
@@ -102,7 +165,7 @@ export default function AimanagePage() {
         await delProvider(activeProvider.id);
         message.success('删除成功');
         setActiveProvider(null);
-        loadProviders();
+        await refreshProviders();
       }
     });
   };
@@ -110,7 +173,7 @@ export default function AimanagePage() {
     if (values.id) { await updateProvider(values); message.success('修改成功'); }
     else { await addProvider(values); message.success('新增成功'); }
     setProviderDlg({ open: false, title: '' });
-    loadProviders();
+    await refreshProviders();
   };
 
   /** 行内开关直接启停服务商：只提交 id + status，其余字段不动 */
@@ -134,11 +197,22 @@ export default function AimanagePage() {
   const handleToggleModelStatus = async (row: Model, enabled: boolean) => {
     if (row.id == null) return;
     const status = enabled ? '0' : '1';
-    await updateModel({ id: row.id, modelCode: row.modelCode, status });
+    let current = row;
+    if (current.configVersion == null) {
+      const currentResponse: any = await getModel(row.id);
+      current = currentResponse.data;
+    }
+    await updateModel({
+      id: row.id,
+      modelCode: current.modelCode,
+      status,
+      configVersion: current.configVersion
+    });
+    const refreshedResponse: any = await getModel(row.id);
+    const refreshed: Model = refreshedResponse.data;
     message.success(enabled ? `已启用【${row.modelName}】` : `已停用【${row.modelName}】`);
-    // 同步当前表格与模型汇总，避免刷新页面造成闪烁
-    setModelList((prev) => prev.map((item) => (item.id === row.id ? { ...item, status } : item)));
-    setAllModels((prev) => prev.map((item) => (item.id === row.id ? { ...item, status } : item)));
+    // 权威回读包含服务端递增后的 configVersion，后续更新不得复用旧版本。
+    setAllModels((prev) => prev.map((item) => (item.id === row.id ? { ...item, ...refreshed } : item)));
   };
   const handleDeleteModel = async (row: Model) => {
     if (row.id == null) return;
@@ -149,6 +223,47 @@ export default function AimanagePage() {
     } catch {
       setRetireState({ open: false, loading: false, submitting: false });
     }
+  };
+
+  const handleOpenPoolBinding = (mode: ModelPoolBindingMode) => {
+    if (selectedModels.length === 0) {
+      message.warning('请先选择模型');
+      return;
+    }
+    if (mode === 'bind' && new Set(selectedModels.map((model) => model.modelType)).size > 1) {
+      message.warning('请先选择同类模型');
+      return;
+    }
+    setPoolBindingMode(mode);
+  };
+
+  const handlePoolBindingSubmit = (poolIds: number[]) => {
+    if (!poolBindingMode || poolBindingSubmitRef.current) return poolBindingSubmitRef.current || Promise.resolve();
+    const operation = poolBindingMode;
+    const task = (async () => {
+      setPoolBindingSubmitting(true);
+      try {
+        const pendingLoad = providerLoadRef.current;
+        if (pendingLoad) await pendingLoad;
+        const response: any = operation === 'bind'
+          ? await bindModelsToPools(selectedModelIds, poolIds)
+          : await unbindModelsFromPools(selectedModelIds, poolIds);
+        const result = response.data;
+        if (result?.snapshot) setPoolSnapshot(result.snapshot);
+        message.success(result?.changedRelationCount > 0
+          ? `已${operation === 'bind' ? '绑定' : '移出'} ${result.changedRelationCount} 个关系`
+          : '当前关系无需变更');
+        setPoolBindingMode(null);
+        setSelectedModelIds([]);
+      } finally {
+        setPoolBindingSubmitting(false);
+      }
+    })();
+    poolBindingSubmitRef.current = task;
+    void task.finally(() => {
+      if (poolBindingSubmitRef.current === task) poolBindingSubmitRef.current = null;
+    }).catch(() => undefined);
+    return task;
   };
 
   const replacementModelOptions = useMemo(() => {
@@ -175,7 +290,7 @@ export default function AimanagePage() {
       await retireModel(retireState.row.id, replacementCode);
       message.success(replacementCode ? '模型引用已替换并完成下线' : '模型引用已清理并完成下线');
       setRetireState({ open: false, loading: false, submitting: false });
-      await Promise.all([loadModels(), loadProviders()]);
+      await refreshProviders();
     } finally {
       setRetireState((state) => state.open ? { ...state, submitting: false } : state);
     }
@@ -217,23 +332,38 @@ export default function AimanagePage() {
 
   return (
     <>
-      <OfficialGatewayCard models={allModels} providers={providerList} />
+      <TokenDanceRecommendedCard
+        provider={tokenDanceProvider}
+        loading={providerLoading}
+        modelCount={tokenDanceProvider ? modelCounts[tokenDanceProvider.id] || 0 : 0}
+        enabledModelCount={allModels.filter((model) => model.providerId === tokenDanceProvider?.id && model.status === '0').length}
+        onOpen={setTokenDanceAction}
+        onSelect={() => {
+          if (!tokenDanceProvider) return;
+          setActiveProvider(tokenDanceProvider);
+          setModelQuery({ modelType: null, generateMode: null, inputRequirement: null, poolId: null, keyword: '' });
+          setSelectedModelIds([]);
+        }}
+      />
+      <TokenDanceAccountModal open={tokenDanceAction === 'account'} provider={tokenDanceProvider} onClose={() => setTokenDanceAction(null)} />
+      <TokenDanceCatalogModal open={tokenDanceAction === 'catalog'} provider={tokenDanceProvider} onClose={() => setTokenDanceAction(null)} onImported={refreshProviders} />
       <div className="aimanage">
       <ProviderPanel
         list={providerList}
         loading={providerLoading}
         active={activeProvider}
         modelCounts={modelCounts}
-        onSelect={(p) => { setActiveProvider(p); setModelQuery({ modelType: null, generateMode: null, inputRequirement: null, keyword: '' }); }}
+        onSelect={(p) => { setActiveProvider(p); setModelQuery({ modelType: null, generateMode: null, inputRequirement: null, poolId: null, keyword: '' }); setSelectedModelIds([]); }}
         onAdd={handleAddProvider}
         onEdit={handleEditProvider}
         onDelete={handleDeleteProvider}
         onToggleStatus={handleToggleProviderStatus}
+        onTokenDanceAction={setTokenDanceAction}
       />
       <ModelTable
         provider={activeProvider}
         list={modelList}
-        loading={modelLoading}
+        loading={providerLoading}
         query={modelQuery}
         onQueryChange={setModelQuery}
         onAdd={handleAddModel}
@@ -243,6 +373,20 @@ export default function AimanagePage() {
         onSyncVoice={handleOpenSync}
         onCleanExpired={handleCleanExpired}
         onOpenOverview={() => setOverviewOpen(true)}
+        poolSnapshot={poolSnapshot}
+        poolSnapshotReady={poolSnapshotReady}
+        selectedModelIds={selectedModelIds}
+        onSelectionChange={setSelectedModelIds}
+        onOpenPoolBinding={handleOpenPoolBinding}
+      />
+      <ModelPoolBindingModal
+        open={poolBindingMode != null}
+        mode={poolBindingMode || 'bind'}
+        models={selectedModels}
+        snapshot={poolSnapshot}
+        submitting={poolBindingSubmitting}
+        onCancel={() => setPoolBindingMode(null)}
+        onSubmit={(poolIds) => { void handlePoolBindingSubmit(poolIds); }}
       />
       <ProviderDialog
         open={providerDlg.open}
@@ -261,7 +405,7 @@ export default function AimanagePage() {
           if (values.id) { await updateModel(values); message.success('修改成功'); }
           else { await addModel(values); message.success('新增成功'); }
           setModelDlg({ open: false, title: '' });
-          loadModels();
+          await refreshProviders();
         }}
       />
       <RetirementModal
@@ -281,7 +425,7 @@ export default function AimanagePage() {
       <RealModelOverviewDrawer
         open={overviewOpen}
         onClose={() => setOverviewOpen(false)}
-        onStatusChanged={() => { loadModels(); loadProviders(); }}
+        onStatusChanged={() => { void refreshProviders().catch(() => undefined); }}
       />
       </div>
     </>

@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Button, Input, Switch, Tooltip, message } from 'antd';
-import { ApiOutlined, PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, ExperimentOutlined, DollarCircleOutlined, UnorderedListOutlined } from '@ant-design/icons';
+import { Button, Input, Switch, Tag, Tooltip, message } from 'antd';
+import { ApiOutlined, PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, ExperimentOutlined, DollarCircleOutlined, UnorderedListOutlined, SafetyCertificateOutlined, DatabaseOutlined } from '@ant-design/icons';
 import type { Provider, ProviderOperationCapabilities } from './types';
 import { getProviderOperationCapabilities } from '@/api/aid/aimanage';
 import ProviderOperationsModal from './ProviderOperationsModal';
+import { isTokenDanceProvider } from './recommendedProvider';
 import {
   createProviderCapabilityScope,
   ownsProviderCapabilities,
@@ -24,10 +25,12 @@ interface Props {
   onDelete: () => void;
   /** 行内开关：直接启用/停用服务商，无需进入编辑弹窗 */
   onToggleStatus: (p: Provider, enabled: boolean) => Promise<void>;
+  /** 推荐区与侧栏共用一个弹窗入口。 */
+  onTokenDanceAction: (action: 'account' | 'catalog') => void;
 }
 
 export default function ProviderPanel(props: Props) {
-  const { list, loading, active, modelCounts, onSelect, onAdd, onEdit, onDelete, onToggleStatus } = props;
+  const { list, loading, active, modelCounts, onSelect, onAdd, onEdit, onDelete, onToggleStatus, onTokenDanceAction } = props;
   const [kw, setKw] = useState('');
   const [testing, setTesting] = useState(false);
   const [testOpen, setTestOpen] = useState(false);
@@ -40,6 +43,7 @@ export default function ProviderPanel(props: Props) {
   const [operationsTab, setOperationsTab] = useState<'balance' | 'tasks'>('balance');
   const activeCapabilityScope = createProviderCapabilityScope(active);
   const activeCapabilityScopeKey = providerCapabilityScopeKey(activeCapabilityScope);
+  const isTokenDance = isTokenDanceProvider(active);
 
   useEffect(() => {
     let alive = true;
@@ -110,7 +114,7 @@ export default function ProviderPanel(props: Props) {
   }, [list, kw]);
 
   return (
-    <div className="aimanage-sidebar">
+    <div className="aimanage-sidebar" aria-busy={loading}>
       <div className="aimanage-sidebar__header">
         <ApiOutlined /> AI大模型服务商
         <span className="provider-total">{list.length}</span>
@@ -125,7 +129,7 @@ export default function ProviderPanel(props: Props) {
           return (
             <div
               key={p.id}
-              className={`aimanage-sidebar__item ${isActive ? 'active' : ''} ${enabled ? '' : 'stopped'}`}
+              className={`aimanage-sidebar__item ${isActive ? 'active' : ''} ${enabled ? '' : 'stopped'} ${isTokenDanceProvider(p) ? 'recommended-provider' : ''}`}
               onClick={() => onSelect(p)}
             >
               <div className="provider-row">
@@ -143,6 +147,7 @@ export default function ProviderPanel(props: Props) {
                   </span>
                 )}
                 <span className="provider-name">{p.providerName}</span>
+                {isTokenDanceProvider(p) && <Tag color="blue" bordered={false} style={{ margin: 0 }}>推荐</Tag>}
                 {/* 启停开关：阻止冒泡，避免切换时误选中该行 */}
                 <span onClick={(e) => e.stopPropagation()} style={{ flexShrink: 0 }}>
                   <Tooltip title={enabled ? '点击停用' : '点击启用'}>
@@ -164,9 +169,11 @@ export default function ProviderPanel(props: Props) {
                 <div className="provider-actions" onClick={(e) => e.stopPropagation()}>
                   <Button size="small" icon={<EditOutlined />} onClick={onEdit}>编辑</Button>
                   <Button size="small" icon={<ExperimentOutlined />} loading={testing} onClick={handleTest}>测试</Button>
-                  {activeOperations.balance && <Button size="small" icon={<DollarCircleOutlined />} onClick={() => openOperations('balance')}>余额</Button>}
+                  {isTokenDance && <Button size="small" icon={<SafetyCertificateOutlined />} onClick={() => onTokenDanceAction('account')}>账户</Button>}
+                  {isTokenDance && <Button size="small" icon={<DatabaseOutlined />} onClick={() => onTokenDanceAction('catalog')}>目录</Button>}
+                  {!isTokenDance && activeOperations.balance && <Button size="small" icon={<DollarCircleOutlined />} onClick={() => openOperations('balance')}>余额</Button>}
                   {activeOperations.upstreamTasks && <Button size="small" icon={<UnorderedListOutlined />} onClick={() => openOperations('tasks')}>任务</Button>}
-                  <Button size="small" icon={<DeleteOutlined />} onClick={onDelete}>删除</Button>
+                  {!isTokenDance && <Button danger size="small" icon={<DeleteOutlined />} onClick={onDelete}>删除</Button>}
                 </div>
               )}
             </div>

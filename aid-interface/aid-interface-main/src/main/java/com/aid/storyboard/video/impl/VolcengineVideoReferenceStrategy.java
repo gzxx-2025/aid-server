@@ -5,6 +5,7 @@ import java.util.List;
 import org.springframework.stereotype.Component;
 
 import com.aid.media.constants.VolcengineConstants;
+import com.aid.common.exception.ServiceException;
 import com.aid.storyboard.video.AbstractVideoReferenceStrategy;
 import com.aid.storyboard.video.ResolvedReference;
 import com.aid.storyboard.video.VideoReferenceContext;
@@ -33,14 +34,23 @@ public class VolcengineVideoReferenceStrategy extends AbstractVideoReferenceStra
     @Override
     public VideoReferencePlan assemble(VideoReferenceContext ctx)
     {
+        String capabilityCode = ctx.getModelConfig() == null
+                ? null : StrUtil.trim(ctx.getModelConfig().getCapabilityCode());
+        if ("image_to_video".equalsIgnoreCase(capabilityCode))
+        {
+            String firstFrame = pickSingleFrame(ctx);
+            String finalPrompt = composePrompt(ctx.getVideoPrompt(), null, ctx.getUserInputText());
+            return VideoReferencePlan.of(finalPrompt, List.of(), firstFrame);
+        }
+
         List<ResolvedReference> picked = takeRefs(ctx.getReferences(), ctx.getMaxReferenceImages());
 
         if (!supportsMultiImage(ctx.getModelConfig()) && picked.size() > 1)
         {
-            log.warn("Seedance 参考装配: 模型 {} 不支持多图参考，{} 张裁剪为 1 张",
+            log.info("Seedance 参考装配: 模型 {} 不支持多图参考，actual={}",
                     ctx.getModelConfig() == null ? null : ctx.getModelConfig().getModelCode(),
                     picked.size());
-            picked = picked.subList(0, 1);
+            throw new ServiceException("模型不支持多图");
         }
 
         List<String> urls = new java.util.ArrayList<>();

@@ -1,0 +1,922 @@
+{
+  "schemaVersion": 1,
+  "verifiedAt": "2026-09-09",
+  "sourcePriority": [
+    "LOCAL_VENDOR_OFFICIAL_CAPTURE",
+    "TOKENDANCE_AI_INTEGRATION_INDEX",
+    "VENDOR_OFFICIAL_ONLINE",
+    "VENDOR_FOCUSED_WEB_SEARCH",
+    "TOKENDANCE_CHANNEL_FALLBACK"
+  ],
+  "sourcePolicy": {
+    "combineLocalAndTokenDanceIndex": true,
+    "requireOriginalVendorWhenAvailable": true,
+    "allowTokenDanceFallbackWhenOriginalMissing": true,
+    "originalVendorSourcesOnly": true,
+    "excludedSourceKinds": ["PRIVATE_PROVIDER", "UNVERIFIED_THIRD_PARTY_GATEWAY"]
+  },
+  "profiles": [
+    {
+      "modelIds": ["minimax-h3-max"],
+      "evidence": [{"title": "TokenDance MiniMax Video Generation V2 协议", "url": "https://tokendance.space/docs/protocol-minimax-video-generation-v2"}],
+      "capability": {
+        "sizeOptions": ["480P", "768P"],
+        "supportsAspectRatio": true,
+        "aspectRatioOptions": ["16:9", "21:9", "4:3", "1:1", "3:4", "9:16"],
+        "defaultAspectRatio": "16:9",
+        "inputImageRole": "first_frame",
+        "allowedScenes": ["textToVideo", "imageToVideo", "startEndToVideo"],
+        "sceneRules": {
+          "textToVideo": {"requiredInputs": ["text"], "allowedInputs": ["text"]},
+          "imageToVideo": {"requiredInputs": ["firstFrame"], "allowedInputs": ["text", "firstFrame"], "aspectRatioFollowInput": true},
+          "startEndToVideo": {"requiredInputs": ["firstFrame", "lastFrame"], "allowedInputs": ["text", "firstFrame", "lastFrame"], "aspectRatioFollowInput": true}
+        },
+        "durationOptions": [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+        "minReferenceImages": 0,
+        "maxReferenceImages": 2,
+        "supportsFirstFrame": true,
+        "supportsLastFrame": true,
+        "supportsAudio": false
+      },
+      "protocolCapabilities": {},
+      "unresolved": ["CHANNEL_VARIANT_HAS_NO_ORIGINAL_VENDOR_SPEC", "REFERENCE_IMAGE_FILE_LIMITS_MISSING"]
+    },
+    {
+      "modelIds": ["glm-4.7", "glm-5", "glm-5.1"],
+      "evidence": [
+        {"title": "Z.ai 模型能力总览", "url": "https://docs.z.ai/guides/overview/overview"},
+        {"title": "Z.ai 思考模式", "url": "https://docs.z.ai/guides/capabilities/thinking-mode"},
+        {"title": "Z.ai 核心参数", "url": "https://docs.z.ai/guides/overview/concept-param"}
+      ],
+      "capability": {
+        "maxOutputTokens": 131072,
+        "supportsStreaming": true,
+        "supportsToolCalling": true,
+        "supportsStructuredOutput": true,
+        "supportsContextCaching": true,
+        "supportsReasoning": true,
+        "supportsReasoningDisable": true,
+        "supportsReasoningContent": true,
+        "defaultReasoningEnabled": true,
+        "reasoningApiStyle": "OPENAI"
+      },
+      "protocolCapabilities": {},
+      "unresolved": []
+    },
+    {
+      "modelIds": ["glm-4.5-air"],
+      "evidence": [
+        {"title": "Z.ai 模型能力总览", "url": "https://docs.z.ai/guides/overview/overview"},
+        {"title": "Z.ai 核心参数", "url": "https://docs.z.ai/guides/overview/concept-param"}
+      ],
+      "capability": {
+        "maxOutputTokens": 98304,
+        "supportsStreaming": true,
+        "supportsToolCalling": true,
+        "supportsStructuredOutput": true,
+        "supportsContextCaching": true,
+        "supportsReasoning": true,
+        "supportsReasoningDisable": true,
+        "supportsReasoningContent": true,
+        "reasoningApiStyle": "OPENAI"
+      },
+      "protocolCapabilities": {},
+      "unresolved": []
+    },
+    {
+      "modelIds": ["glm-4.6v"],
+      "evidence": [
+        {"title": "Z.ai GLM-4.6V", "url": "https://docs.z.ai/guides/vlm/glm-4.6v"},
+        {"title": "Z.ai 核心参数", "url": "https://docs.z.ai/guides/overview/concept-param"}
+      ],
+      "capability": {
+        "maxOutputTokens": 32768,
+        "supportsStreaming": true,
+        "supportsToolCalling": true,
+        "supportsStructuredOutput": true,
+        "supportsContextCaching": true,
+        "supportsReasoning": true,
+        "supportsReasoningDisable": true,
+        "supportsReasoningContent": true,
+        "reasoningApiStyle": "OPENAI"
+      },
+      "protocolCapabilities": {},
+      "unresolved": ["MEDIA_COUNT_AND_FILE_LIMITS_NOT_PUBLISHED"]
+    },
+    {
+      "modelIds": ["glm-5v-turbo"],
+      "evidence": [
+        {"title": "Z.ai 模型能力总览", "url": "https://docs.z.ai/guides/overview/overview"},
+        {"title": "Z.ai 核心参数", "url": "https://docs.z.ai/guides/overview/concept-param"}
+      ],
+      "capability": {
+        "maxOutputTokens": 131072,
+        "supportsStreaming": true,
+        "supportsToolCalling": true,
+        "supportsStructuredOutput": true,
+        "supportsContextCaching": true,
+        "supportsReasoning": true,
+        "supportsReasoningDisable": true,
+        "supportsReasoningContent": true,
+        "reasoningApiStyle": "OPENAI"
+      },
+      "protocolCapabilities": {},
+      "unresolved": ["MEDIA_COUNT_AND_FILE_LIMITS_NOT_PUBLISHED"]
+    },
+    {
+      "modelIds": ["glm-5.2", "glm-5.3"],
+      "evidence": [{"title": "Z.ai 开发者文档", "url": "https://docs.z.ai/"}],
+      "capability": {
+        "supportsStreaming": true,
+        "supportsToolCalling": true,
+        "supportsStructuredOutput": true,
+        "supportsContextCaching": true,
+        "supportsReasoning": true,
+        "supportsReasoningDisable": true,
+        "supportsReasoningContent": true,
+        "defaultReasoningEnabled": true,
+        "reasoningApiStyle": "OPENAI"
+      },
+      "protocolCapabilities": {},
+      "unresolved": ["EXACT_VENDOR_MODEL_PAGE_NOT_INDEXED"]
+    },
+    {
+      "modelIds": ["glm-5.3-flash"],
+      "evidence": [{"title": "Z.ai 开发者文档", "url": "https://docs.z.ai/"}],
+      "capability": {
+        "supportsStreaming": true,
+        "supportsToolCalling": true,
+        "supportsStructuredOutput": true,
+        "supportsContextCaching": true,
+        "supportsReasoning": true,
+        "supportsReasoningDisable": true,
+        "supportsReasoningContent": true,
+        "reasoningApiStyle": "OPENAI"
+      },
+      "protocolCapabilities": {},
+      "unresolved": ["EXACT_VENDOR_MODEL_PAGE_NOT_INDEXED", "MEDIA_COUNT_AND_FILE_LIMITS_NOT_PUBLISHED"]
+    },
+    {
+      "modelIds": ["qwen3-max"],
+      "evidence": [{"title": "阿里云百炼文本模型列表", "url": "https://help.aliyun.com/zh/model-studio/text-generation-model/"}],
+      "capability": {
+        "supportsStreaming": true,
+        "supportsToolCalling": true,
+        "supportsStructuredOutput": true,
+        "supportsBuiltinTools": true,
+        "supportsReasoning": false
+      },
+      "protocolCapabilities": {},
+      "unresolved": []
+    },
+    {
+      "modelIds": ["qwen3.6-max-preview"],
+      "evidence": [
+        {"title": "阿里云百炼文本模型列表", "url": "https://help.aliyun.com/zh/model-studio/text-generation-model/"},
+        {"title": "阿里云百炼深度思考", "url": "https://help.aliyun.com/zh/model-studio/deep-thinking"}
+      ],
+      "capability": {
+        "supportsStreaming": true,
+        "supportsToolCalling": true,
+        "supportsStructuredOutput": true,
+        "supportsBuiltinTools": true,
+        "supportsReasoning": true,
+        "supportsReasoningDisable": true,
+        "supportsReasoningContent": true,
+        "supportsReasoningBudget": true,
+        "reasoningApiStyle": "QWEN"
+      },
+      "protocolCapabilities": {},
+      "unresolved": []
+    },
+    {
+      "modelIds": ["qwen3-vl-plus"],
+      "evidence": [
+        {"title": "阿里云百炼视觉理解", "url": "https://help.aliyun.com/zh/model-studio/vision-model/"},
+        {"title": "阿里云百炼 OpenAI Chat Completions", "url": "https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions"}
+      ],
+      "capability": {
+        "maxInputVideos": 64,
+        "maxInputVideoFileSizeMb": 2048,
+        "minInputVideoDurationSeconds": 2,
+        "maxInputVideoDurationSeconds": 3600,
+        "inputImageMaxPixels": 16777216,
+        "inputVideoMaxPixels": 2048000,
+        "inputImageFormats": ["jpeg", "jpg", "png", "webp", "bmp", "tiff"],
+        "inputVideoFormats": ["mp4", "avi", "mkv", "mov", "flv", "wmv"],
+        "supportsStreaming": true,
+        "supportsToolCalling": true,
+        "supportsStructuredOutput": true,
+        "supportsReasoning": true,
+        "supportsReasoningDisable": true,
+        "supportsReasoningContent": true,
+        "supportsReasoningBudget": true,
+        "reasoningApiStyle": "QWEN"
+      },
+      "protocolCapabilities": {},
+      "unresolved": ["IMAGE_FILE_COUNT_LIMIT_NOT_PUBLISHED"]
+    },
+    {
+      "modelIds": ["qwen3.5-plus", "qwen3.5-flash", "qwen3.6-plus", "qwen3.5-35b-a3b"],
+      "evidence": [
+        {"title": "阿里云 Qwen3.6 Plus 模型模态", "url": "https://help.aliyun.com/zh/model-studio/qwen3-6-plus"},
+        {"title": "阿里云百炼视觉理解", "url": "https://help.aliyun.com/zh/model-studio/vision-model/"},
+        {"title": "阿里云百炼 OpenAI Chat Completions", "url": "https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions"},
+        {"title": "阿里云百炼深度思考", "url": "https://help.aliyun.com/zh/model-studio/deep-thinking"}
+      ],
+      "capability": {
+        "inputModalities": ["TEXT", "IMAGE", "VIDEO"],
+        "allowedInputs": ["text", "image", "video"],
+        "supportsTextInput": true,
+        "supportsImageInput": true,
+        "supportsVideoInput": true,
+        "maxInputImages": 256,
+        "maxInputVideos": 64,
+        "maxInputVideoFileSizeMb": 2048,
+        "minInputVideoDurationSeconds": 2,
+        "maxInputVideoDurationSeconds": 7200,
+        "inputImageMaxPixels": 16777216,
+        "inputVideoMaxPixels": 2048000,
+        "inputImageFormats": ["jpeg", "jpg", "png", "webp", "bmp", "tiff"],
+        "inputVideoFormats": ["mp4", "avi", "mkv", "mov", "flv", "wmv"],
+        "supportsStreaming": true,
+        "supportsToolCalling": true,
+        "supportsStructuredOutput": true,
+        "supportsBuiltinTools": true,
+        "supportsReasoning": true,
+        "supportsReasoningDisable": true,
+        "supportsReasoningContent": true,
+        "supportsReasoningBudget": true,
+        "reasoningApiStyle": "QWEN"
+      },
+      "protocolCapabilities": {},
+      "unresolved": []
+    },
+    {
+      "modelIds": ["qwen3.7-plus"],
+      "evidence": [
+        {"title": "阿里云百炼视觉理解", "url": "https://help.aliyun.com/zh/model-studio/vision-model/"},
+        {"title": "阿里云百炼 OpenAI Chat Completions", "url": "https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions"},
+        {"title": "阿里云百炼 Responses API", "url": "https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-responses"},
+        {"title": "TokenDance Anthropic Messages", "url": "https://tokendance.space/docs/protocol-anthropic-messages"}
+      ],
+      "capability": {
+        "contextWindowTokens": 1000000,
+        "maxOutputTokens": 65536,
+        "maxInputImages": 2048,
+        "maxInputVideos": 64,
+        "maxInputVideoFileSizeMb": 2048,
+        "minInputVideoDurationSeconds": 2,
+        "maxInputVideoDurationSeconds": 7200,
+        "inputImageMaxPixels": 16777216,
+        "inputVideoMaxPixels": 2048000,
+        "inputImageFormats": ["jpeg", "jpg", "png", "webp", "bmp", "tiff"],
+        "inputVideoFormats": ["mp4", "avi", "mkv", "mov", "flv", "wmv"],
+        "supportsStreaming": true,
+        "supportsToolCalling": true,
+        "supportsStructuredOutput": true,
+        "supportsBuiltinTools": true,
+        "supportsReasoning": true,
+        "supportsReasoningDisable": true,
+        "supportsReasoningContent": true,
+        "supportsReasoningBudget": true,
+        "reasoningApiStyle": "QWEN",
+        "inputMediaAllowedMessageRoles": ["user"]
+      },
+      "protocolCapabilities": {},
+      "unresolved": []
+    },
+    {
+      "modelIds": ["qwen3.7-max"],
+      "evidence": [
+        {"title": "TokenDance qwen3.7-max 模型详情", "url": "https://tokendance.space/portal/api/models/qwen3.7-max"},
+        {"title": "阿里云百炼 Anthropic Messages", "url": "https://help.aliyun.com/zh/model-studio/anthropic-api-messages"},
+        {"title": "阿里云百炼 Responses API", "url": "https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-responses"}
+      ],
+      "capability": {
+        "contextWindowTokens": 1000000,
+        "maxOutputTokens": 65536,
+        "supportsStreaming": true,
+        "supportsToolCalling": true,
+        "supportsStructuredOutput": true,
+        "supportsBuiltinTools": true,
+        "supportsReasoning": true,
+        "supportsReasoningDisable": true,
+        "supportsReasoningContent": true,
+        "supportsReasoningBudget": true,
+        "reasoningApiStyle": "QWEN"
+      },
+      "protocolCapabilities": {},
+      "unresolved": []
+    },
+    {
+      "modelIds": ["qwen3.8-max", "qwen3.8-flash", "qwen3.8-max-0902"],
+      "evidence": [
+        {"title": "阿里云百炼 Qwen3.8 Max 模型信息", "url": "https://help.aliyun.com/zh/model-studio/qwen3-8-max"},
+        {"title": "阿里云百炼视觉理解", "url": "https://help.aliyun.com/zh/model-studio/vision-model/"},
+        {"title": "阿里云百炼 OpenAI Chat Completions", "url": "https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions"},
+        {"title": "阿里云百炼 Responses API", "url": "https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-responses"},
+        {"title": "阿里云百炼 Anthropic Messages", "url": "https://help.aliyun.com/zh/model-studio/anthropic-api-messages"}
+      ],
+      "capability": {
+        "inputModalities": ["TEXT", "IMAGE", "VIDEO"],
+        "outputModalities": ["TEXT"],
+        "allowedInputs": ["text", "image", "video"],
+        "supportsTextInput": true,
+        "supportsImageInput": true,
+        "supportsVideoInput": true,
+        "supportsAudioInput": false,
+        "supportsDocumentInput": false,
+        "contextWindowTokens": 1000000,
+        "maxOutputTokens": 131072,
+        "maxReasoningBudgetTokens": 262144,
+        "maxInputImages": 2048,
+        "maxInputVideos": 64,
+        "maxInputVideoFileSizeMb": 2048,
+        "minInputVideoDurationSeconds": 2,
+        "maxInputVideoDurationSeconds": 7200,
+        "inputImageMaxPixels": 16777216,
+        "inputVideoMaxPixels": 2048000,
+        "inputImageFormats": ["jpeg", "jpg", "png", "webp", "bmp", "tiff"],
+        "inputVideoFormats": ["mp4", "avi", "mkv", "mov", "flv", "wmv"],
+        "supportsStreaming": true,
+        "supportsToolCalling": true,
+        "supportsStructuredOutput": true,
+        "supportsBuiltinTools": true,
+        "supportsReasoning": true,
+        "supportsReasoningDisable": true,
+        "supportsReasoningContent": true,
+        "supportsReasoningBudget": true,
+        "defaultReasoningEnabled": true,
+        "defaultReasoningLevel": "xhigh",
+        "allowedReasoningLevels": ["low", "medium", "xhigh"],
+        "reasoningApiStyle": "QWEN",
+        "inputMediaAllowedMessageRoles": ["user"]
+      },
+      "protocolCapabilities": {
+        "openai:responses": {
+          "inputModalities": ["TEXT", "IMAGE"],
+          "allowedInputs": ["text", "image"],
+          "supportsVideoInput": false,
+          "supportsAudioInput": false,
+          "maxInputVideos": 0,
+          "inputVideoFormats": []
+        }
+      },
+      "unresolved": []
+    },
+    {
+      "modelIds": ["qwen3-30b-a3b-instruct-2507"],
+      "evidence": [{"title": "阿里云百炼文本模型列表", "url": "https://help.aliyun.com/zh/model-studio/text-generation-model/"}],
+      "capability": {
+        "supportsStreaming": true,
+        "supportsToolCalling": true,
+        "supportsStructuredOutput": true,
+        "supportsReasoning": false
+      },
+      "protocolCapabilities": {},
+      "unresolved": []
+    },
+    {
+      "modelIds": ["deepseek-v3.2"],
+      "evidence": [
+        {"title": "DeepSeek API 文档", "url": "https://api-docs.deepseek.com/zh-cn/"},
+        {"title": "阿里云百炼深度思考模型参数", "url": "https://help.aliyun.com/zh/model-studio/deep-thinking"}
+      ],
+      "capability": {
+        "supportsStreaming": true,
+        "supportsToolCalling": true,
+        "supportsReasoning": true,
+        "supportsReasoningDisable": true,
+        "supportsReasoningContent": true,
+        "reasoningApiStyle": "DEEPSEEK"
+      },
+      "protocolCapabilities": {},
+      "unresolved": []
+    },
+    {
+      "modelIds": ["deepseek-chat-v3-0324"],
+      "evidence": [{"title": "DeepSeek API 文档", "url": "https://api-docs.deepseek.com/zh-cn/"}],
+      "capability": {
+        "supportsStreaming": true,
+        "supportsToolCalling": true,
+        "supportsReasoning": false
+      },
+      "protocolCapabilities": {},
+      "unresolved": []
+    },
+    {
+      "modelIds": ["deepseek-v4-flash", "deepseek-v4-pro", "deepseek-v4-flash-0731", "deepseek-v4-pro-0813"],
+      "evidence": [
+        {"title": "DeepSeek 模型与价格", "url": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/"},
+        {"title": "DeepSeek 思考模式", "url": "https://api-docs.deepseek.com/zh-cn/guides/thinking_mode/"},
+        {"title": "DeepSeek Responses API", "url": "https://api-docs.deepseek.com/zh-cn/guides/responses_api/"},
+        {"title": "DeepSeek Anthropic API", "url": "https://api-docs.deepseek.com/zh-cn/guides/anthropic_api/"}
+      ],
+      "capability": {
+        "contextWindowTokens": 1048576,
+        "maxOutputTokens": 393216,
+        "supportsStreaming": true,
+        "supportsToolCalling": true,
+        "supportsStructuredOutput": true,
+        "supportsContextCaching": true,
+        "supportsReasoning": true,
+        "supportsReasoningDisable": true,
+        "supportsReasoningContent": true,
+        "allowedReasoningLevels": ["low", "high", "max"],
+        "defaultReasoningLevel": "high",
+        "defaultReasoningEnabled": true,
+        "reasoningApiStyle": "DEEPSEEK"
+      },
+      "protocolCapabilities": {
+        "anthropic:messages": {
+          "supportsReasoningDisable": false,
+          "supportsStructuredOutput": false
+        }
+      },
+      "unresolved": []
+    },
+    {
+      "modelIds": ["deepseek-v4-flash-vision-exp"],
+      "evidence": [
+        {"title": "DeepSeek 模型与价格", "url": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/"},
+        {"title": "DeepSeek 图像理解", "url": "https://api-docs.deepseek.com/zh-cn/guides/vision/"},
+        {"title": "DeepSeek Responses API", "url": "https://api-docs.deepseek.com/zh-cn/guides/responses_api/"},
+        {"title": "DeepSeek Anthropic API", "url": "https://api-docs.deepseek.com/zh-cn/guides/anthropic_api/"}
+      ],
+      "capability": {
+        "contextWindowTokens": 1048576,
+        "maxOutputTokens": 393216,
+        "supportsStreaming": true,
+        "supportsToolCalling": true,
+        "supportsStructuredOutput": true,
+        "supportsContextCaching": true,
+        "supportsReasoning": true,
+        "supportsReasoningDisable": true,
+        "supportsReasoningContent": true,
+        "allowedReasoningLevels": ["low", "high", "max"],
+        "defaultReasoningLevel": "high",
+        "defaultReasoningEnabled": true,
+        "reasoningApiStyle": "DEEPSEEK",
+        "supportsImageInput": true,
+        "maxInputImages": 600,
+        "inputImageFormats": ["jpeg", "png", "gif", "webp"],
+        "maxInputImageFileSizeMb": 32,
+        "maxInputMediaTotalFileSizeMb": 64,
+        "inputMediaMaxUrlLength": 8192,
+        "inputImageMaxDimensionPixels": 8192,
+        "inputImageHighCountThreshold": 15,
+        "inputImageHighCountMaxDimensionPixels": 4096
+      },
+      "protocolCapabilities": {
+        "openai:chat-completions": {
+          "inputMediaAllowedMessageRoles": ["user"]
+        },
+        "openai:responses": {
+          "inputMediaAllowedMessageRoles": ["user", "developer", "function", "tool"]
+        },
+        "anthropic:messages": {
+          "inputMediaAllowedMessageRoles": ["user"],
+          "supportsReasoningDisable": false,
+          "supportsStructuredOutput": false
+        }
+      },
+      "unresolved": []
+    },
+    {
+      "modelIds": ["minimax-m2.5", "minimax-m2.7"],
+      "evidence": [
+        {"title": "MiniMax 接口概览", "url": "https://platform.minimaxi.com/docs/api-reference/api-overview"},
+        {"title": "MiniMax 模型发布记录", "url": "https://platform.minimaxi.com/docs/release-notes/models"}
+      ],
+      "capability": {
+        "supportsStreaming": true,
+        "supportsToolCalling": true,
+        "supportsReasoning": true,
+        "supportsReasoningContent": true
+      },
+      "protocolCapabilities": {},
+      "unresolved": ["THINKING_DISABLE_BEHAVIOR_NOT_CONFIRMED"]
+    },
+    {
+      "modelIds": ["minimax-m3"],
+      "evidence": [{"title": "MiniMax 开放平台文档", "url": "https://platform.minimaxi.com/docs/"}],
+      "capability": {
+        "supportsStreaming": true,
+        "supportsToolCalling": true,
+        "supportsReasoning": true,
+        "supportsReasoningContent": true
+      },
+      "protocolCapabilities": {},
+      "unresolved": ["EXACT_VENDOR_MODEL_PAGE_NOT_INDEXED", "MEDIA_COUNT_AND_FILE_LIMITS_NOT_PUBLISHED"]
+    },
+    {
+      "modelIds": ["kimi-k2.5"],
+      "evidence": [{"title": "MoonshotAI Kimi K2.5", "url": "https://github.com/MoonshotAI/Kimi-K2.5"}],
+      "capability": {
+        "supportsStreaming": true,
+        "supportsToolCalling": true,
+        "supportsReasoning": true,
+        "supportsReasoningDisable": true,
+        "supportsReasoningContent": true
+      },
+      "protocolCapabilities": {},
+      "unresolved": ["MEDIA_COUNT_AND_FILE_LIMITS_NOT_PUBLISHED"]
+    },
+    {
+      "modelIds": ["kimi-k2.6"],
+      "evidence": [
+        {"title": "TokenDance Kimi 模型使用指南", "url": "https://tokendance.space/docs/kimi-thinking-models.md"},
+        {"title": "Kimi 官方模型参数", "url": "https://platform.kimi.com/docs/api/models-overview"}
+      ],
+      "capability": {
+        "supportsStreaming": true,
+        "supportsToolCalling": true,
+        "supportsReasoning": true,
+        "supportsReasoningDisable": true,
+        "supportsReasoningContent": true
+      },
+      "protocolCapabilities": {},
+      "unresolved": ["MEDIA_COUNT_AND_FILE_LIMITS_NOT_PUBLISHED"]
+    },
+    {
+      "modelIds": ["kimi-k2.7-code"],
+      "evidence": [{"title": "Kimi 官方模型参数", "url": "https://platform.kimi.com/docs/api/models-overview"}],
+      "capability": {
+        "supportsStreaming": true,
+        "supportsToolCalling": true,
+        "supportsReasoning": true,
+        "supportsReasoningDisable": false,
+        "defaultReasoningEnabled": true,
+        "supportsReasoningContent": true
+      },
+      "protocolCapabilities": {},
+      "unresolved": ["MEDIA_COUNT_AND_FILE_LIMITS_NOT_PUBLISHED", "PRESERVED_THINKING_ROUNDTRIP_VERIFICATION_REQUIRED"]
+    },
+    {
+      "modelIds": ["kimi-k3"],
+      "evidence": [{"title": "Kimi 官方模型参数", "url": "https://platform.kimi.com/docs/api/models-overview"}],
+      "capability": {
+        "supportsStreaming": true,
+        "supportsToolCalling": true,
+        "supportsReasoning": true,
+        "supportsReasoningDisable": false,
+        "defaultReasoningEnabled": true,
+        "supportsReasoningContent": true
+      },
+      "protocolCapabilities": {
+        "openai:chat-completions": {"allowedReasoningLevels": ["low", "high", "max"], "defaultReasoningLevel": "max"}
+      },
+      "unresolved": ["MEDIA_COUNT_AND_FILE_LIMITS_NOT_PUBLISHED", "PRESERVED_THINKING_ROUNDTRIP_VERIFICATION_REQUIRED"]
+    },
+    {
+      "modelIds": ["step-3.5-flash"],
+      "evidence": [{"title": "阶跃星辰开放平台", "url": "https://platform.stepfun.com/"}],
+      "capability": {
+        "supportsStreaming": true,
+        "supportsToolCalling": true,
+        "supportsStructuredOutput": true,
+        "supportsReasoning": true,
+        "supportsReasoningContent": true
+      },
+      "protocolCapabilities": {},
+      "unresolved": ["THINKING_DISABLE_BEHAVIOR_NOT_CONFIRMED"]
+    },
+    {
+      "modelIds": ["step-3.7-flash"],
+      "evidence": [{"title": "阶跃星辰开放平台", "url": "https://platform.stepfun.com/"}],
+      "capability": {
+        "supportsStreaming": true,
+        "supportsToolCalling": true,
+        "supportsStructuredOutput": true,
+        "supportsReasoning": true,
+        "supportsReasoningContent": true,
+        "allowedReasoningLevels": ["low", "medium", "high"]
+      },
+      "protocolCapabilities": {},
+      "unresolved": ["MEDIA_COUNT_AND_FILE_LIMITS_NOT_PUBLISHED"]
+    },
+    {
+      "modelIds": ["seed-2.0-pro", "seed-2.0-lite", "seed-2.0-mini", "seed-2.0-code"],
+      "evidence": [
+        {"title": "火山方舟模型列表", "url": "https://www.volcengine.com/docs/82379/1330310"},
+        {"title": "火山方舟深度思考", "url": "https://www.volcengine.com/docs/82379/1449737"}
+      ],
+      "capability": {
+        "maxOutputTokens": 131072,
+        "supportsStreaming": true,
+        "supportsToolCalling": true,
+        "supportsStructuredOutput": true,
+        "supportsReasoning": true,
+        "supportsReasoningDisable": true,
+        "supportsReasoningContent": true,
+        "reasoningApiStyle": "OPENAI"
+      },
+      "protocolCapabilities": {},
+      "unresolved": ["MEDIA_COUNT_AND_FILE_LIMITS_NOT_PUBLISHED"]
+    },
+    {
+      "modelIds": ["seed-evolving", "seed-2.1-turbo", "seed-2.1-pro"],
+      "evidence": [
+        {"title": "火山方舟模型列表", "url": "https://www.volcengine.com/docs/82379/1330310"},
+        {"title": "火山方舟深度思考", "url": "https://www.volcengine.com/docs/82379/1449737"}
+      ],
+      "capability": {
+        "maxOutputTokens": 262144,
+        "supportsStreaming": true,
+        "supportsToolCalling": true,
+        "supportsStructuredOutput": true,
+        "supportsReasoning": true,
+        "supportsReasoningDisable": true,
+        "supportsReasoningContent": true,
+        "reasoningApiStyle": "OPENAI"
+      },
+      "protocolCapabilities": {},
+      "unresolved": ["MEDIA_COUNT_AND_FILE_LIMITS_NOT_PUBLISHED"]
+    },
+    {
+      "modelIds": ["mimo-v2.5", "mimo-v2.5-pro", "mimo-v2.5-pro-ultraspeed"],
+      "evidence": [
+        {"title": "小米 MiMo 2.5 发布说明", "url": "https://platform.xiaomimimo.com/docs/en-US/news/v2.5-tts-release"},
+        {"title": "小米 MiMo 思考内容传递", "url": "https://platform.xiaomimimo.com/docs/en-US/usage-guide/passing-back-reasoning_content"}
+      ],
+      "capability": {
+        "supportsStreaming": true,
+        "supportsToolCalling": true,
+        "supportsReasoning": true,
+        "supportsReasoningDisable": true,
+        "supportsReasoningContent": true,
+        "defaultReasoningEnabled": true
+      },
+      "protocolCapabilities": {},
+      "unresolved": ["MEDIA_COUNT_AND_FILE_LIMITS_NOT_PUBLISHED"]
+    },
+    {
+      "modelIds": ["hy3-preview", "hy3"],
+      "evidence": [
+        {"title": "腾讯混元 OpenAI 思考深度参数", "url": "https://cloud.tencent.com/document/product/1823/130930"},
+        {"title": "腾讯混元 OpenAI 协议字段说明", "url": "https://cloud.tencent.com/document/product/1823/135872"},
+        {"title": "腾讯混元模型迁移说明", "url": "https://cloud.tencent.com/document/product/1729/131925"},
+        {"title": "腾讯混元 ChatCompletions API", "url": "https://cloud.tencent.com/document/api/1729/105701"}
+      ],
+      "capability": {
+        "supportsStreaming": true,
+        "supportsToolCalling": true,
+        "supportsReasoning": true,
+        "supportsReasoningDisable": true,
+        "supportsReasoningContent": true,
+        "allowedReasoningLevels": ["low", "high"],
+        "defaultReasoningLevel": "low"
+      },
+      "protocolCapabilities": {},
+      "unresolved": ["CHANNEL_REASONING_MAPPING_RUNTIME_VERIFICATION_REQUIRED"]
+    },
+    {
+      "modelIds": ["hy4-preview"],
+      "evidence": [{"title": "腾讯混元开发文档", "url": "https://cloud.tencent.com/document/product/1729"}],
+      "capability": {
+        "supportsStreaming": true,
+        "supportsToolCalling": true,
+        "supportsReasoning": true,
+        "supportsReasoningContent": true
+      },
+      "protocolCapabilities": {},
+      "unresolved": ["EXACT_VENDOR_MODEL_PAGE_NOT_INDEXED", "THINKING_DISABLE_BEHAVIOR_NOT_CONFIRMED"]
+    },
+    {
+      "modelIds": ["longcat-2.0"],
+      "evidence": [{"title": "美团 LongCat 2.0 官方仓库", "url": "https://github.com/meituan-longcat/LongCat-2.0"}],
+      "capability": {
+        "supportsStreaming": true,
+        "supportsToolCalling": true,
+        "supportsReasoning": true,
+        "supportsReasoningContent": true
+      },
+      "protocolCapabilities": {},
+      "unresolved": ["THINKING_DISABLE_BEHAVIOR_NOT_CONFIRMED"]
+    },
+    {
+      "modelIds": ["happyhorse-1.0-t2v"],
+      "evidence": [{"title": "阿里云百炼 HappyHorse 文生视频 API", "url": "https://help.aliyun.com/en/model-studio/happyhorse-text-to-video-api-reference"}],
+      "capability": {
+        "maxPromptCharacters": 5000,
+        "maxPromptCharactersCjk": 2500,
+        "sizeOptions": ["720P", "1080P"],
+        "durationOptions": [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+        "defaultDurationSeconds": 5,
+        "aspectRatioOptions": ["16:9", "9:16", "1:1", "4:3", "3:4", "4:5", "5:4", "9:21", "21:9"],
+        "defaultAspectRatio": "16:9",
+        "supportsAudio": true,
+        "defaultAudio": true,
+        "upstreamAudioField": "none",
+        "audioModeOptions": ["native"],
+        "outputFormatOptions": ["mp4"],
+        "defaultOutputFormat": "mp4",
+        "outputFpsOptions": [24],
+        "defaultOutputFps": 24
+      },
+      "protocolCapabilities": {},
+      "unresolved": []
+    },
+    {
+      "modelIds": ["happyhorse-1.0-i2v"],
+      "evidence": [{"title": "阿里云百炼 HappyHorse 图生视频 API", "url": "https://help.aliyun.com/en/model-studio/happyhorse-image-to-video-api-reference"}],
+      "capability": {
+        "maxPromptCharacters": 5000,
+        "maxPromptCharactersCjk": 2500,
+        "sizeOptions": ["720P", "1080P"],
+        "durationOptions": [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+        "defaultDurationSeconds": 5,
+        "minReferenceImages": 1,
+        "maxReferenceImages": 1,
+        "referenceImageFormats": ["jpeg", "jpg", "png", "webp"],
+        "referenceImageMaxFileSizeMb": 20,
+        "referenceImageMinDimensionPixels": 300,
+        "referenceImageMinAspectRatio": 0.4,
+        "referenceImageMaxAspectRatio": 2.5,
+        "supportsBase64Image": true,
+        "supportsFirstFrame": true,
+        "supportsAspectRatio": false,
+        "videoScenario": "first_frame",
+        "inputImageRole": "first_frame",
+        "allowedScenes": ["imageToVideo"],
+        "strictSceneRules": true,
+        "sceneRules": {
+          "imageToVideo": {
+            "requiredInputs": ["firstFrame"],
+            "allowedInputs": ["text", "firstFrame"],
+            "supportsAspectRatio": false
+          }
+        },
+        "supportsAudio": true,
+        "defaultAudio": true,
+        "upstreamAudioField": "none",
+        "audioModeOptions": ["native"],
+        "outputFormatOptions": ["mp4"],
+        "defaultOutputFormat": "mp4",
+        "outputFpsOptions": [24],
+        "defaultOutputFps": 24
+      },
+      "protocolCapabilities": {},
+      "unresolved": []
+    },
+    {
+      "modelIds": ["happyhorse-1.1-t2v"],
+      "evidence": [{"title": "阿里云百炼 HappyHorse 文生视频 API", "url": "https://help.aliyun.com/en/model-studio/happyhorse-text-to-video-api-reference"}],
+      "capability": {
+        "maxPromptCharacters": 5000,
+        "maxPromptCharactersCjk": 2500,
+        "sizeOptions": ["480P", "720P", "1080P"],
+        "durationOptions": [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+        "defaultDurationSeconds": 5,
+        "aspectRatioOptions": ["16:9", "9:16", "1:1", "4:3", "3:4", "4:5", "5:4", "9:21", "21:9"],
+        "defaultAspectRatio": "16:9",
+        "supportsAudio": true,
+        "defaultAudio": true,
+        "upstreamAudioField": "none",
+        "audioModeOptions": ["native"],
+        "outputFormatOptions": ["mp4"],
+        "defaultOutputFormat": "mp4",
+        "outputFpsOptions": [24],
+        "defaultOutputFps": 24
+      },
+      "protocolCapabilities": {},
+      "unresolved": []
+    },
+    {
+      "modelIds": ["happyhorse-1.1-i2v"],
+      "evidence": [{"title": "阿里云百炼 HappyHorse 图生视频 API", "url": "https://help.aliyun.com/en/model-studio/happyhorse-image-to-video-api-reference"}],
+      "capability": {
+        "maxPromptCharacters": 5000,
+        "maxPromptCharactersCjk": 2500,
+        "sizeOptions": ["480P", "720P", "1080P"],
+        "durationOptions": [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+        "defaultDurationSeconds": 5,
+        "minReferenceImages": 1,
+        "maxReferenceImages": 1,
+        "referenceImageFormats": ["jpeg", "jpg", "png", "webp"],
+        "referenceImageMaxFileSizeMb": 20,
+        "referenceImageMinDimensionPixels": 300,
+        "referenceImageMinAspectRatio": 0.4,
+        "referenceImageMaxAspectRatio": 2.5,
+        "supportsBase64Image": true,
+        "supportsFirstFrame": true,
+        "supportsAspectRatio": false,
+        "videoScenario": "first_frame",
+        "inputImageRole": "first_frame",
+        "allowedScenes": ["imageToVideo"],
+        "strictSceneRules": true,
+        "sceneRules": {
+          "imageToVideo": {
+            "requiredInputs": ["firstFrame"],
+            "allowedInputs": ["text", "firstFrame"],
+            "supportsAspectRatio": false
+          }
+        },
+        "supportsAudio": true,
+        "defaultAudio": true,
+        "upstreamAudioField": "none",
+        "audioModeOptions": ["native"],
+        "outputFormatOptions": ["mp4"],
+        "defaultOutputFormat": "mp4",
+        "outputFpsOptions": [24],
+        "defaultOutputFps": 24
+      },
+      "protocolCapabilities": {},
+      "unresolved": []
+    },
+    {
+      "modelIds": ["happyhorse-1.0-r2v", "happyhorse-1.1-r2v"],
+      "evidence": [
+        {"title": "本地阿里云百炼 HappyHorse 参考生视频官方文档快照", "url": "https://help.aliyun.com/en/model-studio/happyhorse-reference-to-video-api-reference"},
+        {"title": "阿里云百炼 HappyHorse 参考生视频 API", "url": "https://help.aliyun.com/en/model-studio/happyhorse-reference-to-video-api-reference"}
+      ],
+      "capability": {
+        "maxPromptCharacters": 5000,
+        "maxPromptCharactersCjk": 2500,
+        "minReferenceImages": 1,
+        "maxReferenceImages": 9,
+        "referenceImageFormats": ["jpeg", "jpg", "png", "webp"],
+        "referenceImageMaxFileSizeMb": 20,
+        "referenceImageMinDimensionPixels": 400,
+        "supportsBase64Image": true,
+        "audioModeOptions": ["native"],
+        "outputFpsOptions": [24],
+        "defaultOutputFps": 24
+      },
+      "protocolCapabilities": {},
+      "unresolved": []
+    },
+    {
+      "modelIds": ["happyhorse-1.0-video-edit"],
+      "evidence": [{"title": "阿里云百炼 HappyHorse 视频编辑 API", "url": "https://help.aliyun.com/en/model-studio/happyhorse-video-edit-api-reference"}],
+      "capability": {
+        "maxPromptCharacters": 5000,
+        "maxPromptCharactersCjk": 2500,
+        "sizeOptions": ["720P", "1080P"],
+        "durationOptions": [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+        "supportsVideoInput": true,
+        "minReferenceVideos": 1,
+        "maxReferenceVideos": 1,
+        "maxReferenceImages": 0,
+        "referenceVideoFormats": ["mp4", "mov"],
+        "referenceVideoMaxFileSizeMb": 100,
+        "referenceVideoMinDurationSeconds": 3,
+        "referenceVideoMaxDurationSeconds": 15,
+        "referenceVideoMinDimensionPixels": 360,
+        "referenceVideoMaxDimensionPixels": 4096,
+        "referenceVideoMinAspectRatio": 0.4,
+        "referenceVideoMaxAspectRatio": 2.5,
+        "referenceVideoMinFps": 8,
+        "referenceVideoMaxFps": 60,
+        "supportsAudio": true,
+        "defaultAudio": true,
+        "upstreamAudioField": "none",
+        "audioModeOptions": ["native"],
+        "outputFormatOptions": ["mp4"],
+        "defaultOutputFormat": "mp4",
+        "outputFpsOptions": [24],
+        "defaultOutputFps": 24
+      },
+      "protocolCapabilities": {},
+      "unresolved": []
+    },
+    {
+      "modelIds": ["dots-3-note-preview"],
+      "evidence": [{"title": "小红书 hi-lab 官方仓库", "url": "https://github.com/rednote-hilab"}],
+      "capability": {
+        "supportsStreaming": true,
+        "supportsToolCalling": true,
+        "supportsReasoning": true,
+        "supportsReasoningContent": true
+      },
+      "protocolCapabilities": {},
+      "unresolved": ["EXACT_VENDOR_MODEL_PAGE_NOT_FOUND", "MEDIA_COUNT_AND_FILE_LIMITS_NOT_PUBLISHED"]
+    },
+    {
+      "modelIds": ["ling-3.0-flash"],
+      "evidence": [{"title": "Ling 官方模型仓库", "url": "https://github.com/inclusionAI/Ling"}],
+      "capability": {
+        "supportsStreaming": true,
+        "supportsToolCalling": true,
+        "supportsReasoning": true,
+        "supportsReasoningDisable": true,
+        "supportsReasoningContent": true
+      },
+      "protocolCapabilities": {},
+      "unresolved": ["EXACT_VENDOR_MODEL_PAGE_NOT_FOUND"]
+    },
+    {
+      "modelIds": ["spark-x2.5-1.7b", "spark-x2.5-4b"],
+      "evidence": [{"title": "讯飞开放平台大模型文档", "url": "https://www.xfyun.cn/doc/spark/"}],
+      "capability": {
+        "supportsStreaming": true,
+        "supportsToolCalling": true,
+        "supportsReasoning": true,
+        "supportsReasoningContent": true
+      },
+      "protocolCapabilities": {},
+      "unresolved": ["EXACT_VENDOR_MODEL_PAGE_NOT_FOUND", "THINKING_DISABLE_BEHAVIOR_NOT_CONFIRMED"]
+    }
+  ]
+}

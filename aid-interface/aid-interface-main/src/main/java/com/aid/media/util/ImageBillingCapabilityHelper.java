@@ -33,6 +33,11 @@ public final class ImageBillingCapabilityHelper {
             return GLOBAL_MAX_OUTPUT_COUNT;
         }
         String code = modelCode.toLowerCase(Locale.ROOT);
+        // TokenDance 目录模型必须由导入的 maxOutputCount 表达已核验上限；目录未给出时，
+        // 不能因为本地编码里包含 seedream/wan 等字样而套用其他直连供应商的经验值。
+        if (code.startsWith("td_")) {
+            return GLOBAL_MAX_OUTPUT_COUNT;
+        }
         if (code.equals("jimeng-image-ultra")) {
             return 1;
         }

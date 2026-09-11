@@ -98,7 +98,7 @@ public class AgnesImageProviderClient implements ImageProviderClient {
         Map<String, Object> body = buildRequestBody(model, request, modelConfig);
         String json;
         try {
-            json = MAPPER.writeValueAsString(body);
+            json = MAPPER.writeValueAsString(com.aid.model.definition.ModelConfiguredRequestBody.apply(modelConfig, body, request));
         } catch (Exception e) {
             log.error("Agnes 图片请求体序列化失败, model={}", model, e);
             return ProviderSubmitResult.builder().rawResponse("序列化失败").build();
@@ -168,7 +168,7 @@ public class AgnesImageProviderClient implements ImageProviderClient {
             // manifest 缺失 / 解析失败 → 退回现状逻辑：此处对 prompt 兜底清洗（submit 在 hasManifest=true 时跳过了早清洗，
             // 若 manifest 实际解析失败会落到本分支，必须在这里清洗，否则原始 @图片N[name] + 映射段会带噪声下发上游）。
             images = resolveReferenceImages(request, modelConfig);
-            // 按「本次真正下发的张数」清洗：能力位丢弃/截断后，正文不得再引用请求体里不存在的图片N
+            // 按已校验的真实下发张数清洗，正文不得引用请求体里不存在的图片N。
             finalPrompt = ReferencePromptSanitizer.sanitize(
                     request == null ? "" : request.getPrompt(), images.size(), 0);
         }
@@ -237,7 +237,7 @@ public class AgnesImageProviderClient implements ImageProviderClient {
             addUrls(result, options.get("referenceImages"));
             addUrls(result, options.get("images"));
         }
-        // 统一上限：读 capability_json.maxReferenceImages，缺省回退 Provider 安全上限；超限截断 + warn
+        // 统一上限：读 capability_json.maxReferenceImages，缺省回退 Provider 安全上限；超限直接拒绝。
         return ReferenceImageLimiter.limit(result, modelConfig, MAX_REFERENCE_IMAGES, "Agnes");
     }
 

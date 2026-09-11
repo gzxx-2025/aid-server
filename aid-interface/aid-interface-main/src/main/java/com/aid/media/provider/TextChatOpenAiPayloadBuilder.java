@@ -24,14 +24,34 @@ public final class TextChatOpenAiPayloadBuilder {
      * 业务含义：组装多轮与单轮 prompt，与方舟/DashScope 兼容网关共用同一套语义。
      */
     public static List<Map<String, Object>> buildMessageMaps(AiModelConfigVo modelConfig, MediaTextGenerateRequest request) {
+        return buildMessageMaps(modelConfig, request, false);
+    }
+
+    /** 仅已接通完整工具结果的协议显式开启。 */
+    public static List<Map<String, Object>> buildMessageMaps(AiModelConfigVo modelConfig, MediaTextGenerateRequest request,
+                                                            boolean toolMessages) {
         List<Map<String, Object>> list = new ArrayList<>();
         if (request != null && CollectionUtil.isNotEmpty(request.getMessages())) {
             for (MediaTextGenerateRequest.TextMessageItem item : request.getMessages()) {
                 if (item == null || StringUtils.isBlank(item.getContent())
-                        && CollectionUtil.isEmpty(item.getParts())) {
+                        && CollectionUtil.isEmpty(item.getParts())
+                        && !(toolMessages && (CollectionUtil.isNotEmpty(item.getToolCalls()) || "tool".equals(item.getRole())))) {
                     continue;
                 }
-                list.add(message(normalizeRole(item.getRole()), item));
+                String role = toolMessages && ("tool".equals(item.getRole()) || "developer".equals(item.getRole()))
+                        ? item.getRole() : normalizeRole(item.getRole());
+                Map<String, Object> value = message(role, item);
+                if (toolMessages) {
+                    if (CollectionUtil.isNotEmpty(item.getToolCalls())) {
+                        List<Map<String, Object>> calls = new ArrayList<>();
+                        for (var call : item.getToolCalls()) calls.add(Map.of("id", call.getId(), "type", "function",
+                                "function", Map.of("name", call.getName(), "arguments", call.getArguments())));
+                        value.put("tool_calls", calls);
+                    }
+                    if (item.getToolCallId() != null) value.put("tool_call_id", item.getToolCallId());
+                    if (item.getReasoningContent() != null) value.put("reasoning_content", item.getReasoningContent());
+                }
+                list.add(value);
             }
         }
         if (request != null && StringUtils.isNotBlank(request.getPrompt())) {

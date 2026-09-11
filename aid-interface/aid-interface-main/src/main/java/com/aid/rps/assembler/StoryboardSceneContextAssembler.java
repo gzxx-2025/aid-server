@@ -104,7 +104,9 @@ public class StoryboardSceneContextAssembler
         for (AidStoryboard storyboard : storyboards)
         {
             String snapshotName = snapshotNameByStoryboard.get(storyboard.getId());
-            AidRolePropScene scene = activeSceneById.get(storyboard.getSourceSceneId());
+            // 无场景的新建分镜会得到不可变空 Map，不能以 null 作为查询键。
+            AidRolePropScene scene = storyboard.getSourceSceneId() == null
+                    ? null : activeSceneById.get(storyboard.getSourceSceneId());
             if (scene == null && StrUtil.isNotBlank(snapshotName))
             {
                 scene = sceneByNameKey.get(AssetNameNormalizer.normalize(snapshotName));

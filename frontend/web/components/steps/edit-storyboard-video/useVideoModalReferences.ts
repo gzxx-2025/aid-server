@@ -21,7 +21,7 @@ const MAX_IMAGE_TO_VIDEO_REFERENCE_COUNT = 1
 /** 参考图 / 多参素材桶 / 首尾帧 / 各选择弹窗回调（原 setup 素材段逻辑） */
 export function useVideoModalReferences(ctx: VideoModalCtx): void {
   /** 原 referenceImage computed（首图读写包装） */
-  const { applyDefaultStoryboardReferenceImages, cleanStoryboardScriptTabLabel, collectMultiParamAssetImages, collectReferenceImageUrls, currentPanelStoryboardImages, handleImportReference, handleMultiParamImportReference, inferMultiParamAssetType, mapMultiParamReferenceImportItem, normalizeImageToVideoReferenceItems, referenceImageGet, referenceStepTabName, resetStoryboardReferenceState, resolveBaseImageRecordId, resolveDefaultStoryboardReferenceImage, resolveSceneCoverImageUrl, setReferenceImage, storyboardScriptAssetGroups, syncResolvedPromptAssetsToImportReferences, validateImageToVideoReferenceImages, validateMultiParamAssetImages } = createVideoModalReferenceCore(ctx)
+  const { applyDefaultStoryboardReferenceImages, cleanStoryboardScriptTabLabel, collectMultiParamAssetImages, collectReferenceImageUrls, currentPanelStoryboardImages, handleImportReference, handleMultiParamImportReference, inferMultiParamAssetType, mapMultiParamReferenceImportItem, normalizeImageToVideoReferenceItems, referenceImageGet, referenceStepTabName, resetStoryboardReferenceState, resolveBaseImageRecordId, resolveDefaultStoryboardReferenceImage, resolveSceneCoverImageUrl, setReferenceImage, storyboardScriptAssetGroups, syncResolvedPromptAssetsToImportReferences, validateImageToVideoReferenceImages, validateMultiParamReferenceMedia } = createVideoModalReferenceCore(ctx)
   function appendMultiParamAssetImages(type: 'scene' | 'character' | 'prop' | 'other', list: any[]) {
     if (!list.length) return
     if (type === 'scene') {
@@ -37,10 +37,13 @@ export function useVideoModalReferences(ctx: VideoModalCtx): void {
 
   function onSelectMultiParamReferenceConfirm(items: any[]) {
     if (!items?.length) return
-    const { images, audios } = splitReferenceConfirmItems(items)
+    const { images, audios, videos } = splitReferenceConfirmItems(items)
     ctx.applyImportedReferenceAudios(audios)
+    ctx.applyImportedReferenceVideos(videos)
     if (!images.length) {
-      if (audios.length) message.success(`已导入 ${audios.length} 条参考音频`)
+      if (videos.length || audios.length) {
+        message.success(`已导入 ${videos.length} 个参考视频、${audios.length} 条参考音频`)
+      }
       return
     }
     const list = images.map(mapMultiParamReferenceImportItem)
@@ -54,9 +57,7 @@ export function useVideoModalReferences(ctx: VideoModalCtx): void {
         ctx.getActiveStoryboardPanel()?.applyParamDraftAssets(type, assets)
       }
       message.success(
-        audios.length
-          ? `已导入 ${list.length} 张参考图、${audios.length} 条参考音频`
-          : `已导入 ${list.length} 张参考图`
+        `已导入 ${list.length} 张参考图、${videos.length} 个参考视频、${audios.length} 条参考音频`
       )
       return
     }
@@ -64,9 +65,7 @@ export function useVideoModalReferences(ctx: VideoModalCtx): void {
       appendMultiParamAssetImages(type, assets)
     }
     message.success(
-      audios.length
-        ? `已导入 ${list.length} 张参考图、${audios.length} 条参考音频`
-        : `已导入 ${list.length} 张参考图`
+      `已导入 ${list.length} 张参考图、${videos.length} 个参考视频、${audios.length} 条参考音频`
     )
   }
 
@@ -389,7 +388,7 @@ export function useVideoModalReferences(ctx: VideoModalCtx): void {
     collectReferenceImageUrls,
     collectMultiParamAssetImages,
     validateImageToVideoReferenceImages,
-    validateMultiParamAssetImages,
+    validateMultiParamReferenceMedia,
     normalizeImageToVideoReferenceItems,
     resolveBaseImageRecordId,
     handleImportReference,

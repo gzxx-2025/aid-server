@@ -38,9 +38,15 @@ export interface ProviderOperationCapabilities {
   productTypes?: string[];
   taskSearchTypes?: string[];
   balanceDelayNotice?: string;
+  balanceKind?: 'money' | 'credits' | 'resourcePackages';
+  balanceUnit?: string;
+  supportsTimeRange?: boolean;
+  recentDays?: number;
 }
 
 export interface Model {
+  businessBindings?: import('./ModelBusinessBindingEditor').BusinessModelBinding[];
+  capabilities?: import('./modelDefinition').ModelCapabilityDefinition[];
   id?: number;
   providerId?: number;
   modelCode: string;
@@ -61,6 +67,8 @@ export interface Model {
   billingMode?: 'FIXED' | 'SKU';
   billingRuleJson?: string | null;
   billingVersion?: number;
+  /** 模型配置乐观锁版本；更新时原样提交，由服务端 CAS 递增。 */
+  configVersion?: number;
   /** 是否免费；缺省为正常计费 */
   isFree?: boolean;
   meterType?: string;
@@ -95,6 +103,8 @@ export interface Model {
 /** 输入图片计费配置（积分/张；unitPrice 空或 0 = 不计费） */
 export interface InputPricingImage {
   unitPrice?: number | null;
+  /** 前 N 张不计费；0 表示从首张开始计费。 */
+  freeCount?: number | null;
   /** 计费张数上限（空 = 不限） */
   maxCount?: number | null;
 }
@@ -123,12 +133,14 @@ export interface Sku {
   meterType?: string | null;
   enabled: boolean;
   priority: number;
-  match: Record<string, any>;
+  match: Record<string, unknown>;
   price?: number | null;
   /** 每秒单价（PER_SECOND 口径专用；缺省时后端用 price ÷ match.durationMax 反推） */
   pricePerSecond?: number | null;
   /** 每字符单价（PER_CHAR 口径专用，TTS 配音） */
   pricePerChar?: number | null;
+  /** 每次固定附加成本，可与按字符等用量价格叠加。 */
+  fixedSurcharge?: number | null;
   inputPricePerMillion?: number | null;
   outputPricePerMillion?: number | null;
   cachedInputPricePerMillion?: number | null;
@@ -140,6 +152,8 @@ export interface Sku {
 }
 
 export interface SkuEditData {
+  /** 原计费配置无法解析；禁止结构化编辑器静默重建为空规则。 */
+  parseError?: boolean;
   /** 编辑器不展示的原始计费规则；保存时作为无损构建基底。 */
   preservedBillingRule?: Record<string, unknown>;
   charToTokenRatio: number;
@@ -156,9 +170,16 @@ export interface SceneRule {
   supportsSizePreset?: boolean;
   supportsDuration?: boolean;
   aspectRatioFollowInput?: boolean;
+  requiredInputs?: string[];
+  requiredAnyOf?: string[];
+  allowedInputs?: string[];
 }
 
 export interface CapabilityModel {
+  /** 原能力配置无法解析；禁止结构化编辑器静默覆盖。 */
+  parseError?: boolean;
+  /** 原始完整能力对象，作为无损构建基线；不直接展示给管理员。 */
+  sourceCapability?: Record<string, any>;
   /** 图形编辑器不管理的原始能力字段；保存时无损合并回 capabilityJson。 */
   preservedCapability?: Record<string, any>;
   supportsReasoning?: boolean;
@@ -167,6 +188,11 @@ export interface CapabilityModel {
   supportsReasoningBudget?: boolean;
   defaultReasoningEnabled?: boolean;
   reasoningApiStyle?: string;
+  supportsStreaming?: boolean;
+  supportsToolCalling?: boolean;
+  supportsStructuredOutput?: boolean;
+  supportsContextCaching?: boolean;
+  supportsBuiltinTools?: boolean;
   outputTokenApiField?: string;
   allowedReasoningLevels?: string[];
   defaultReasoningLevel?: string;
@@ -186,14 +212,97 @@ export interface CapabilityModel {
   maxInputVideoFileSizeMb?: number | null;
   maxInputAudioFileSizeMb?: number | null;
   maxInputDocumentFileSizeMb?: number | null;
+  /** All input media combined, in MB. This is independent from each file limit. */
+  maxInputMediaTotalFileSizeMb?: number | null;
+  inputMediaMaxUrlLength?: number | null;
+  minInputVideoDurationSeconds?: number | null;
   maxInputVideoDurationSeconds?: number | null;
+  maxInputVideoTotalDurationSeconds?: number | null;
+  minInputAudioDurationSeconds?: number | null;
   maxInputAudioDurationSeconds?: number | null;
+  maxInputAudioTotalDurationSeconds?: number | null;
   maxInputDocumentPages?: number | null;
+  inputImageMinDimensionPixels?: number | null;
+  inputImageMaxDimensionPixels?: number | null;
+  inputImageMinPixels?: number | null;
+  inputImageMaxPixels?: number | null;
+  inputImageMinAspectRatio?: number | null;
+  inputImageMaxAspectRatio?: number | null;
+  inputVideoMinDimensionPixels?: number | null;
+  inputVideoMaxDimensionPixels?: number | null;
+  inputVideoMinPixels?: number | null;
+  inputVideoMaxPixels?: number | null;
+  inputVideoMinAspectRatio?: number | null;
+  inputVideoMaxAspectRatio?: number | null;
+  inputVideoMinFps?: number | null;
+  inputVideoMaxFps?: number | null;
+  inputImageHighCountThreshold?: number | null;
+  inputImageHighCountMaxDimensionPixels?: number | null;
+  inputMediaAllowedMessageRoles?: string[];
   contextWindowTokens?: number | null;
   maxOutputTokens?: number | null;
+  /** Generated image pixel range (width * height). */
+  minOutputPixels?: number | null;
+  maxOutputPixels?: number | null;
+  /** Generated image width / height range. */
+  minOutputAspectRatio?: number | null;
+  maxOutputAspectRatio?: number | null;
+  /** 非中日韩提示词最大字符数。 */
+  maxPromptCharacters?: number | null;
+  /** 包含中日韩文字时的提示词最大字符数；留空时沿用通用上限。 */
+  maxPromptCharactersCjk?: number | null;
+  durationMin?: number | null;
+  durationMax?: number | null;
+  strictSceneRules?: boolean;
   sizeOptions: string[];
   aspectRatioOptions: string[];
   durationOptions: number[];
+  /** 官方声明的输出容器/文件格式及默认值。 */
+  outputFormatOptions: string[];
+  defaultOutputFormat?: string | null;
+  /** 视频输出帧率枚举及默认值，与参考视频输入帧率限制分开维护。 */
+  outputFpsOptions: number[];
+  defaultOutputFps?: number | null;
+  /** 视频音频模式枚举，例如 off/native/original。 */
+  audioModeOptions: string[];
+  /** supportsAudio=true 时未显式选择的默认开关；null 表示沿用历史兼容语义。 */
+  defaultAudio?: boolean | null;
+  supportsBgm?: boolean;
+  supportsVoiceId?: boolean;
+  audioTypes: string[];
+  supportsVoiceControl?: boolean;
+  /** 音频模型的真实业务操作，不与视频音画同出混用。 */
+  audioOperation?: 'synthesis' | 'design' | 'clone' | string | null;
+  ttsTextRequired?: boolean;
+  ttsVoiceRequired?: boolean;
+  builtInVoiceOptions: string[];
+  audioFormatOptions: string[];
+  defaultAudioFormat?: string | null;
+  audioSampleRateOptions: number[];
+  defaultAudioSampleRate?: number | null;
+  supportsAudioStreaming?: boolean;
+  supportsTimestamp?: boolean;
+  speechRateMin?: number | null;
+  speechRateMax?: number | null;
+  loudnessRateMin?: number | null;
+  loudnessRateMax?: number | null;
+  pitchMin?: number | null;
+  pitchMax?: number | null;
+  emotionOptions: string[];
+  supportsEmotionScale?: boolean;
+  voiceSampleRequired?: boolean;
+  voiceSampleFormats: string[];
+  voiceSampleMaxFileSizeMb?: number | null;
+  supportsElements?: boolean;
+  maxElements?: number | null;
+  elementTypeRequired?: boolean;
+  /** 已接入视频协议使用的结构化场景标识。 */
+  klingScenario?: string | null;
+  videoScenario?: string | null;
+  /** Seedance Generations 允许显式下发的任务类型。空数组表示该模型不支持该参数。 */
+  seedanceTaskTypeOptions: string[];
+  /** 允许生成的结构化业务场景。 */
+  allowedScenes: string[];
   allowCustomWH: boolean;
   /**
    * 单次最多参考图张数（capabilityJson.maxReferenceImages）。
@@ -207,6 +316,16 @@ export interface CapabilityModel {
    * 后端在建任务/扣费前按此值拦截缺图请求。仅 image / video 类型有意义。
    */
   minReferenceImages?: number | null;
+  /** 参考图片格式、文件和画面硬约束。 */
+  referenceImageFormats?: string[];
+  referenceImageMaxFileSizeMb?: number | null;
+  referenceImageMinDimensionPixels?: number | null;
+  referenceImageMaxDimensionPixels?: number | null;
+  /** Total pixels of one image (width * height), not an edge length. */
+  referenceImageMinPixels?: number | null;
+  referenceImageMaxPixels?: number | null;
+  referenceImageMinAspectRatio?: number | null;
+  referenceImageMaxAspectRatio?: number | null;
   /**
    * 官方接口是否支持 Base64 传图（能力位，依官方文档配置）。
    * false 时"启用 Base64 传图"开关不可选（该接口只允许 URL 传图）。
@@ -229,8 +348,12 @@ export interface CapabilityModel {
   upstreamResolutionMap?: Record<string, string>;
   /** 是否支持外部参考音频输入（仅 video，缺省 false）。 */
   supportsReferenceAudio?: boolean;
+  /** 单次最少参考音频数量。 */
+  minReferenceAudios?: number | null;
   /** 参考音频下发前是否必须开启音画同出（缺省 true）。 */
   referenceAudioRequiresGeneratedAudio?: boolean;
+  /** 参考音频是否必须同时携带图片或视频素材。 */
+  referenceAudioRequiresVisualInput?: boolean;
   /** 单次最多参考音频数量。 */
   maxReferenceAudios?: number | null;
   /** 单段参考音频最短时长（秒）。 */
@@ -239,14 +362,42 @@ export interface CapabilityModel {
   referenceAudioMaxDurationSeconds?: number | null;
   /** 单次参考音频总时长上限（秒）。 */
   referenceAudioMaxTotalDurationSeconds?: number | null;
+  /** 单个参考音频最大文件大小。 */
+  referenceAudioMaxFileSizeMb?: number | null;
   /** 支持的参考音频格式。 */
   referenceAudioFormats: string[];
+  /** 是否允许参考视频输入。 */
+  supportsVideoInput?: boolean;
+  /** 单次最少/最多参考视频数量。 */
+  minReferenceVideos?: number | null;
+  maxReferenceVideos?: number | null;
+  /** 参考视频格式、文件、时长和画面硬约束。 */
+  referenceVideoFormats?: string[];
+  referenceVideoMaxFileSizeMb?: number | null;
+  referenceVideoMinDurationSeconds?: number | null;
+  referenceVideoMaxDurationSeconds?: number | null;
+  referenceVideoMaxTotalDurationSeconds?: number | null;
+  referenceVideoMinDimensionPixels?: number | null;
+  referenceVideoMaxDimensionPixels?: number | null;
+  /** 单个参考视频总像素范围（宽×高）。 */
+  referenceVideoMinPixels?: number | null;
+  referenceVideoMaxPixels?: number | null;
+  referenceVideoMinAspectRatio?: number | null;
+  referenceVideoMaxAspectRatio?: number | null;
+  referenceVideoMinFps?: number | null;
+  referenceVideoMaxFps?: number | null;
+  /** 图、视频、音频合计数量，以及输入输出视频合计时长。 */
+  maxReferenceMaterials?: number | null;
+  maxInputOutputVideoDurationSeconds?: number | null;
   sceneRules: {
     textOnly: SceneRule;
     textToImage: SceneRule;
     imageToImage: SceneRule;
     textToVideo: SceneRule;
     imageToVideo: SceneRule;
+    startEndToVideo: SceneRule;
+    referenceToVideo: SceneRule;
+    videoToVideo: SceneRule;
   };
 }
 

@@ -1,14 +1,16 @@
 'use client'
 
-import { DeploymentUnitOutlined, SearchOutlined } from '@ant-design/icons'
-import { Button, Dropdown, message, Modal } from 'antd'
+import { DeploymentUnitOutlined, ExportOutlined, SearchOutlined } from '@ant-design/icons'
+import { InfiniteScrollLoadFooter } from '~/components/common/InfiniteScrollLoadFooter'
+import { PageLoadingOverlay } from '~/components/common/PageLoadingOverlay'
+import { Button, Dropdown, message, Modal, Tooltip } from 'antd'
 import { useRouter,useSearchParams } from 'next/navigation'
-import type { SyntheticEvent } from 'react'
+import type { CSSProperties,SyntheticEvent } from 'react'
 import { useCallback,useEffect,useMemo,useRef,useState } from 'react'
 import deleteWhiteIcon from '~/assets/img/home/delete-white.svg'
 import editWhiteIcon from '~/assets/img/home/edit-white.svg'
 import { useEnterCreateFlowOverlay } from '~/composables/useEnterCreateFlowOverlay'
-import { useWindowedList } from '~/composables/useWindowedList'
+import { useInfiniteScrollPagination } from '~/composables/useInfiniteScrollPagination'
 import { useCreationStore } from '~/stores/creation'
 import type { CreationStep,Work } from '~/types'
 import type { UserProjectRow } from '~/types/business-api'
@@ -16,8 +18,10 @@ import { assetUrl } from '~/utils/assetUrl'
 import {
 userEpisodeCreate,
 userProjectDelete,
-userProjectList
+userProjectList,
+userProjectUnpublish
 } from '~/utils/businessApi'
+import { API_DEFAULT_PAGE_SIZE } from '~/utils/business/shared'
 import { buildOpenProjectFlowQuery,resolveCreateFlowEntryPath } from '~/utils/createFlowProjectContext'
 import { CREATE_FLOW_STEP_ORDER,CREATE_SERIES_EPISODE_LIST_PATH } from '~/utils/createFlowRoutes'
 import { emptyImageIconUrl } from '~/utils/emptyImageIcon'
@@ -31,7 +35,16 @@ import {
 hydrateCreationStoreFromProjectDetail,
 resetProjectDetailHydrateCache
 } from '~/utils/hydrateCreationStoreFromProjectDetail'
+import {
+auditStatusBadgeLabel,
+auditStatusBadgeTone,
+isProjectPublicLockError,
+isProjectPublished,
+projectPublicLockUserHint,
+type AuditBadgeTone
+} from '~/utils/projectAudit'
 import WorksLibraryAddCard from './WorksLibraryAddCard'
+import WorksLibraryPublishedAction from './WorksLibraryPublishedAction'
 import './WorksLibraryPanel.css'
 
 type WorkCategory = WorksPageTab
@@ -39,6 +52,7 @@ type WorkCategory = WorksPageTab
 const workCoverPlaceholderUrl = assetUrl(emptyImageIconUrl)
 const deleteWhiteUrl = assetUrl(deleteWhiteIcon)
 const editWhiteUrl = assetUrl(editWhiteIcon)
+const WORKS_SCROLL_LOAD_THRESHOLD_PX = 240
 
 export interface WorksLibraryPanelProps {
   /** 独立「我的作品」页：打开创建作品弹窗；携带当前列表 Tab 以预选电影/剧集 */
@@ -48,7 +62,10 @@ export interface WorksLibraryPanelProps {
 type WorkListItem = Work & {
   category: WorkCategory
   episodeCount?: number
+  isPublished: boolean
   hasCover: boolean
+  auditStatusLabel?: string | null
+  auditStatusTone?: AuditBadgeTone | null
 }
 
 const typeTabs: { label: string; value: WorkCategory }[] = [
@@ -95,7 +112,16 @@ function mapProjectToWorkItem(row: UserProjectRow): WorkListItem {
     currentStep: toCurrentStep(row.status, row.currentStep),
     category,
     episodeCount,
+    isPublished: isProjectPublished(row.isPublic),
+    auditStatusLabel: auditStatusBadgeLabel(row.status),
+    auditStatusTone: auditStatusBadgeTone(row.status),
   }
+}
+
+function auditBadgeClass(tone?: AuditBadgeTone | null): string {
+  if (tone === 'reviewing') return 'works-lib-card__cover-badge--reviewing'
+  if (tone === 'failed') return 'works-lib-card__cover-badge--failed'
+  return ''
 }
 
 function formatCompactNumber(n: number): string {
@@ -141,8 +167,6 @@ export function WorksLibraryPanel({ onOpenCreate }: WorksLibraryPanelProps) {
     const href = buildWorksPageHref(searchQueryString, tab)
     router.replace(href, { scroll: false })
   }
-
-  const [myWorks, setMyWorks] = useState<WorkListItem[]>([])
 
   /** 列表刷新代际：封面 img 重建 + 缓存图补标 is-loaded */
   const [workListRevision, setWorkListRevision] = useState(0)
@@ -199,33 +223,60 @@ export function WorksLibraryPanel({ onOpenCreate }: WorksLibraryPanelProps) {
   /** 卡片添加分集进行中的作品 id */
   const [addingEpisodeProjectId, setAddingEpisodeProjectId] = useState<number | null>(null)
 
-  const latestFetchTokenRef = useRef(0)
   const workTypeRef = useRef(workType)
   workTypeRef.current = workType
   const searchQueryRef = useRef(searchQuery)
   searchQueryRef.current = searchQuery
 
-  const fetchWorkList = useCallback(async () => {
-    const fetchToken = ++latestFetchTokenRef.current
-    try {
-      const { rows } = await userProjectList({
-        projectType: workTypeRef.current === 'film' ? 'movie' : 'series',
-        projectName: searchQueryRef.current.trim() || undefined
-      })
-      if (fetchToken !== latestFetchTokenRef.current) return
+  const fetchWorkPage = useCallback(async (pageNum: number, pageSize: number) => {
+    const { total, rows } = await userProjectList({
+      projectType: workTypeRef.current === 'film' ? 'movie' : 'series',
+      projectName: searchQueryRef.current.trim() || undefined,
+      pageNum,
+      pageSize
+    })
+    return {
+      rows: rows.map(mapProjectToWorkItem),
+      hasMore: pageNum * pageSize < total
+    }
+  }, [])
+
+  const {
+    items: myWorks,
+    setItems: setMyWorks,
+    loading: listRequestLoading,
+    loadingMore: listLoadingMore,
+    hasMore: listHasMore,
+    initialLoaded: listInitialLoaded,
+    appendTick: workListAppendTick,
+    reload: fetchWorkList,
+    setLoadMoreTrigger
+  } = useInfiniteScrollPagination<WorkListItem>(worksLibGridRef, fetchWorkPage, {
+    pageSize: API_DEFAULT_PAGE_SIZE,
+    threshold: WORKS_SCROLL_LOAD_THRESHOLD_PX,
+    onError: (_error, { reset }) => {
+      message.error(reset ? '查询项目列表失败，请稍后重试' : '加载更多作品失败，请稍后重试')
+    }
+  })
+  const listLoading = listRequestLoading || !listInitialLoaded
+
+  const previousWorkCountRef = useRef(0)
+  const [appendedFromIndex, setAppendedFromIndex] = useState<number | null>(null)
+  useEffect(() => {
+    if (workListAppendTick > 0) setAppendedFromIndex(previousWorkCountRef.current)
+    previousWorkCountRef.current = myWorks.length
+  }, [workListAppendTick, myWorks.length])
+
+  useEffect(() => {
+    if (listLoading) {
+      previousWorkCountRef.current = 0
+      setAppendedFromIndex(null)
       setCoverLoadedById({})
       setWorkListRevision((v) => v + 1)
-      setMyWorks(rows.map(mapProjectToWorkItem))
-      // 原 nextTick：等 DOM 更新后补检缓存图
-      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
-      syncCoverLoadedFromCache()
-    } catch (_error) {
-      if (fetchToken !== latestFetchTokenRef.current) return
-      setCoverLoadedById({})
-      setMyWorks([])
-      message.error('查询项目列表失败，请稍后重试')
+      return
     }
-  }, [syncCoverLoadedFromCache])
+    requestAnimationFrame(syncCoverLoadedFromCache)
+  }, [listLoading, myWorks.length, syncCoverLoadedFromCache])
 
   async function addEpisodeFromCard(work: WorkListItem) {
     const projectId = Number(work.id)
@@ -243,6 +294,10 @@ export function WorksLibraryPanel({ onOpenCreate }: WorksLibraryPanelProps) {
       message.success('已新增一集')
       await fetchWorkList()
     } catch (e: unknown) {
+      if (isProjectPublicLockError(e)) {
+        message.error(projectPublicLockUserHint())
+        return
+      }
       const err = e as { msg?: string; message?: string }
       message.error(err?.msg || err?.message || '新增失败')
     } finally {
@@ -284,6 +339,80 @@ export function WorksLibraryPanel({ onOpenCreate }: WorksLibraryPanelProps) {
     void openWork(work)
   }
 
+  const publishNavigatingProjectIdRef = useRef<number | null>(null)
+
+  /** 从作品卡片返回当前创作步骤，再由成品预览执行发布。 */
+  async function publishToCasePlazaFromCard(work: WorkListItem) {
+    const projectId = Number(work.id)
+    if (!Number.isFinite(projectId) || projectId <= 0) {
+      message.error('项目ID无效')
+      return
+    }
+    if (publishNavigatingProjectIdRef.current != null) return
+    publishNavigatingProjectIdRef.current = projectId
+    beginEnterCreateFlowOverlay()
+    try {
+      resetProjectDetailHydrateCache(projectId)
+      const projectTypeGuess = work.category === 'series' ? 'series' : 'movie'
+      const query = buildOpenProjectFlowQuery(projectId, {
+        embedded: false,
+        projectType: projectTypeGuess
+      })
+      const entryPath = await resolveCreateFlowEntryPath(projectId, projectTypeGuess)
+      router.push(`${entryPath}?${serializeFlowQuery(query)}`)
+      await hydrateCreationStoreFromProjectDetail(useCreationStore.getState(), projectId, {
+        force: true
+      })
+      const projectType = useCreationStore.getState().currentProjectType
+      if (projectType && projectType !== projectTypeGuess) {
+        const nextQuery = buildOpenProjectFlowQuery(projectId, {
+          embedded: false,
+          projectType
+        })
+        const nextEntryPath = await resolveCreateFlowEntryPath(projectId, projectType)
+        router.replace(`${nextEntryPath}?${serializeFlowQuery(nextQuery)}`)
+      }
+    } catch {
+      endEnterCreateFlowOverlay()
+      message.error('获取项目详情失败，请稍后重试')
+    } finally {
+      publishNavigatingProjectIdRef.current = null
+    }
+  }
+
+  const [unpublishingProjectId, setUnpublishingProjectId] = useState<number | null>(null)
+  const unpublishDialogProjectIdRef = useRef<number | null>(null)
+
+  function cancelPublishWork(work: WorkListItem) {
+    const projectId = Number(work.id)
+    if (!Number.isFinite(projectId) || projectId <= 0) return
+    if (unpublishingProjectId !== null || unpublishDialogProjectIdRef.current !== null) return
+    unpublishDialogProjectIdRef.current = projectId
+    Modal.confirm({
+      title: '确认取消发布？',
+      content: '取消后作品将从案例广场下架，您可继续修改内容。',
+      okText: '取消发布',
+      cancelText: '取消',
+      onOk: async () => {
+        setUnpublishingProjectId(projectId)
+        try {
+          await userProjectUnpublish({ id: projectId })
+          message.success('已取消发布')
+          await fetchWorkList()
+        } catch (error: unknown) {
+          const detail = error as { msg?: string; message?: string }
+          message.error(detail?.msg || detail?.message || '取消发布失败')
+          throw error
+        } finally {
+          setUnpublishingProjectId(null)
+        }
+      },
+      afterClose: () => {
+        unpublishDialogProjectIdRef.current = null
+      }
+    })
+  }
+
   const filteredWorks = useMemo(() => {
     let list = myWorks.filter((w) => w.category === workType)
     if (searchQuery.trim()) {
@@ -294,31 +423,6 @@ export function WorksLibraryPanel({ onOpenCreate }: WorksLibraryPanelProps) {
     }
     return list
   }, [myWorks, workType, searchQuery])
-
-  /** 长列表分窗渲染，触底扩大窗口，避免一次挂载过多封面图 */
-  const [worksWindowStart, setWorksWindowStart] = useState(0)
-  const [worksWindowSize, setWorksWindowSize] = useState(48)
-  const { windowedItems: windowedWorks, total: windowedWorksTotal } = useWindowedList(
-    filteredWorks,
-    {
-      windowStart: worksWindowStart,
-      windowSize: worksWindowSize
-    }
-  )
-
-  useEffect(() => {
-    setWorksWindowStart(0)
-    setWorksWindowSize(48)
-  }, [filteredWorks])
-
-  function onWorksGridScroll() {
-    const el = worksLibGridRef.current
-    if (!el) return
-    const remain = el.scrollHeight - el.scrollTop - el.clientHeight
-    if (remain > 240) return
-    if (worksWindowSize >= windowedWorksTotal) return
-    setWorksWindowSize(Math.min(windowedWorksTotal, worksWindowSize + 48))
-  }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const statItems = useMemo(() => {
@@ -425,10 +529,12 @@ export function WorksLibraryPanel({ onOpenCreate }: WorksLibraryPanelProps) {
 
   return (
     <div
+      aria-busy={listLoading}
       className={`works-page home-new-sub-page works-library-figma${
         workType === 'series' ? ' works-library-figma--series-tab' : ''
       }`}
     >
+      {listLoading && <PageLoadingOverlay label="正在加载我的作品…" />}
       <div className="page-content works-library-figma__inner">
         <header className="works-lib-header">
           <h1 className="works-lib-header__title">我的作品</h1>
@@ -494,14 +600,25 @@ export function WorksLibraryPanel({ onOpenCreate }: WorksLibraryPanelProps) {
           </div>
         </section>
 
-        <div ref={worksLibGridRef} className="works-lib-grid" onScroll={onWorksGridScroll}>
+        <div ref={worksLibGridRef} className="works-lib-grid">
           <WorksLibraryAddCard label="新建作品" onClick={goToCreate} />
-          {windowedWorks.map(({ item: work, index: workIdx }) => (
+          {filteredWorks.map((work, workIdx) => (
             <article
               key={work.id}
               className={`works-lib-card${
                 work.category === 'series' ? ' works-lib-card--series' : ''
+              }${
+                appendedFromIndex !== null && workIdx >= appendedFromIndex
+                  ? ' works-lib-card--appended'
+                  : ''
               }`}
+              style={
+                appendedFromIndex !== null && workIdx >= appendedFromIndex
+                  ? ({
+                      '--works-append-order': Math.min(workIdx - appendedFromIndex, 8)
+                    } as CSSProperties)
+                  : undefined
+              }
             >
               <div
                 className={`works-lib-card__cover${
@@ -540,6 +657,15 @@ export function WorksLibraryPanel({ onOpenCreate }: WorksLibraryPanelProps) {
                     </span>
                   </div>
                 ) : null}
+                {work.auditStatusLabel ? (
+                  <span
+                    className={`works-lib-card__cover-badge ${auditBadgeClass(
+                      work.auditStatusTone
+                    )}`.trimEnd()}
+                  >
+                    {work.auditStatusLabel}
+                  </span>
+                ) : null}
                 <div className="works-lib-card__cover-actions">
                   <button
                     type="button"
@@ -572,18 +698,25 @@ export function WorksLibraryPanel({ onOpenCreate }: WorksLibraryPanelProps) {
                       <span className="works-lib-card__ep-label">
                         集数 <em>{work.episodeCount ?? 0}</em>
                       </span>
-                      <button
-                        type="button"
-                        className="works-lib-card__ep-add works-lib-card__ep-add--primary"
-                        disabled={addingEpisodeProjectId === Number(work.id)}
-                        aria-label="添加集"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          void addEpisodeFromCard(work)
-                        }}
-                      >
-                        +
-                      </button>
+                      {work.isPublished ? (
+                        <WorksLibraryPublishedAction
+                          loading={unpublishingProjectId === Number(work.id)}
+                          onCancel={() => cancelPublishWork(work)}
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          className="works-lib-card__ep-add works-lib-card__ep-add--primary"
+                          disabled={addingEpisodeProjectId === Number(work.id)}
+                          aria-label="添加集"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            void addEpisodeFromCard(work)
+                          }}
+                        >
+                          +
+                        </button>
+                      )}
                     </div>
                   </div>
                 ) : (
@@ -593,12 +726,47 @@ export function WorksLibraryPanel({ onOpenCreate }: WorksLibraryPanelProps) {
                       <span className="works-lib-card__updated">
                         最后更新 {formatDate(work.updatedAt)}
                       </span>
+                      {work.isPublished ? (
+                        <WorksLibraryPublishedAction
+                          loading={unpublishingProjectId === Number(work.id)}
+                          onCancel={() => cancelPublishWork(work)}
+                        />
+                      ) : (
+                        <Tooltip
+                          title="发布至案例广场"
+                          placement="top"
+                          classNames={{ root: 'works-lib-publish-tooltip' }}
+                        >
+                          <button
+                            type="button"
+                            className="works-lib-card__open"
+                            aria-label="发布至案例广场"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              void publishToCasePlazaFromCard(work)
+                            }}
+                          >
+                            <ExportOutlined />
+                          </button>
+                        </Tooltip>
+                      )}
                     </div>
                   </>
                 )}
               </div>
             </article>
           ))}
+          {myWorks.length > 0 ? (
+            <div ref={setLoadMoreTrigger} className="works-lib-list-footer">
+              <InfiniteScrollLoadFooter
+                loading={listLoadingMore}
+                hasMore={listHasMore}
+                hasItems
+                loadingText="正在加载更多作品…"
+                endText="已加载全部作品"
+              />
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

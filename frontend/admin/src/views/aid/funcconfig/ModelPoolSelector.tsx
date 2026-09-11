@@ -64,11 +64,12 @@ function ModelTags({ m, providerName }: { m: PoolModel; providerName?: string })
           {getLabelByValue(INPUT_REQUIREMENT_OPTIONS, m.inputRequirement)}
         </Tag>
       )}
-      {m.generateMode && (
+      {!m.capabilities?.length && m.generateMode && (
         <Tag style={{ borderRadius: 6, margin: 0 }} color="blue">
           {getLabelByValue(GENERATE_MODE_OPTIONS, m.generateMode)}
         </Tag>
       )}
+      {m.capabilities?.map((capability: { code: string; label: string; enabled: boolean }) => capability.enabled && <Tag key={capability.code}>{capability.label}</Tag>)}
       {providerName && (
         <Tag style={{ borderRadius: 6, margin: 0, color: '#64748b', background: '#f8fafc', borderColor: '#e2e8f0' }}>
           {providerName}
@@ -100,7 +101,7 @@ export default function ModelPoolSelector({ pool, selected, onChange, providerNa
     return pool
       .filter((m) => !selectedIds.has(m.id))
       .filter((m) => !filter.modelType || m.modelType === filter.modelType)
-      .filter((m) => !filter.generateMode || m.generateMode === filter.generateMode)
+      .filter((m) => !filter.generateMode || (m.capabilities?.length ? m.capabilities.some((capability: { generateMode: string }) => capability.generateMode === filter.generateMode) : m.generateMode === filter.generateMode))
       .filter((m) => !filter.inputRequirement || m.inputRequirement === filter.inputRequirement)
       .filter((m) => filter.providerId == null || m.providerId === filter.providerId)
       .filter((m) => {

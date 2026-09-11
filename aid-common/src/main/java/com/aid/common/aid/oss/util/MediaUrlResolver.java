@@ -156,7 +156,7 @@ public class MediaUrlResolver
         String siteDomain = UPLOAD_MODE_LOCAL.equalsIgnoreCase(properties.getUploadMode())
                 ? properties.getLocalDomain()
                 : properties.getEffectiveCdnDomain();
-        if (StrUtil.isNotBlank(siteDomain) && url.startsWith(stripTrailingSlash(siteDomain)))
+        if (matchesTrustedPrefix(url, siteDomain))
         {
             return true;
         }
@@ -177,17 +177,35 @@ public class MediaUrlResolver
         {
             return false;
         }
-        String lowerUrl = url.toLowerCase();
         // 逐个比对白名单前缀：去空白、去末尾 /、忽略空项
         for (String entry : whitelist.split(","))
         {
-            String prefix = stripTrailingSlash(StrUtil.trim(entry)).toLowerCase();
-            if (StrUtil.isNotBlank(prefix) && lowerUrl.startsWith(prefix))
+            String prefix = stripTrailingSlash(StrUtil.trim(entry));
+            if (matchesTrustedPrefix(url, prefix))
             {
                 return true;
             }
         }
         return false;
+    }
+
+    /** 域名白名单按 URI 来源比较，不能把可信域名的同名前缀当作可信主机。 */
+    private boolean matchesTrustedPrefix(String value, String configured) {
+        if (StrUtil.isBlank(value) || StrUtil.isBlank(configured)) return false;
+        try {
+            URI actual = URI.create(value).normalize();
+            URI trusted = URI.create(configured.trim()).normalize();
+            if (actual.getHost() == null || trusted.getHost() == null || actual.getUserInfo() != null
+                    || actual.getScheme() == null || !actual.getScheme().equalsIgnoreCase(trusted.getScheme())
+                    || !("http".equalsIgnoreCase(actual.getScheme()) || "https".equalsIgnoreCase(actual.getScheme()))
+                    || !actual.getHost().equalsIgnoreCase(trusted.getHost())) return false;
+            int actualPort = actual.getPort() >= 0 ? actual.getPort() : ("https".equalsIgnoreCase(actual.getScheme()) ? 443 : 80);
+            int trustedPort = trusted.getPort() >= 0 ? trusted.getPort() : ("https".equalsIgnoreCase(trusted.getScheme()) ? 443 : 80);
+            if (actualPort != trustedPort) return false;
+            String prefix = StrUtil.blankToDefault(trusted.getPath(), "").replaceAll("/+$", "");
+            String path = StrUtil.blankToDefault(actual.getPath(), "");
+            return prefix.isEmpty() || path.equals(prefix) || path.startsWith(prefix + "/");
+        } catch (IllegalArgumentException ex) { return false; }
     }
 
     /**

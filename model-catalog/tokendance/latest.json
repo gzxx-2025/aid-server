@@ -1,20 +1,20 @@
 {
-  "bundle": {
-    "mirrors": [
-      "https://raw.githubusercontent.com/gzxx-2025/aid-server/master/model-catalog/tokendance/tokendance-catalog-2026.09.09.2.json"
-    ],
-    "sha256": "db6d962ee48e00fdfdce330edbb151eaaa7b5bb8dfde7ca2f6c288d841f85d92",
-    "size": 1397871,
-    "url": "https://gitee.com/gzxx-2025/aid-server/raw/master/model-catalog/tokendance/tokendance-catalog-2026.09.09.2.json"
-  },
-  "catalogId": "tokendance",
-  "catalogVersion": "2026.09.09.2",
-  "minimumAppVersion": "2.0.1",
-  "publishedAt": "2026-09-09T04:44:20Z",
   "schemaVersion": 1,
+  "catalogId": "tokendance",
+  "catalogVersion": "2026.09.10.2",
+  "publishedAt": "2026-09-10T14:02:41Z",
+  "minimumAppVersion": "2.0.1",
+  "bundle": {
+    "url": "https://gitee.com/gzxx-2025/aid-server/raw/master/model-catalog/tokendance/tokendance-catalog-2026.09.10.2.json",
+    "mirrors": [
+      "https://raw.githubusercontent.com/gzxx-2025/aid-server/master/model-catalog/tokendance/tokendance-catalog-2026.09.10.2.json"
+    ],
+    "sha256": "b50623e7a82158f848125211f8025ae7610ce9b0ffed8490419456bbac081e6d",
+    "size": 1424454
+  },
   "signature": {
     "algorithm": "Ed25519",
-    "payload": "eyJidW5kbGUiOnsibWlycm9ycyI6WyJodHRwczovL3Jhdy5naXRodWJ1c2VyY29udGVudC5jb20vZ3p4eC0yMDI1L2FpZC1zZXJ2ZXIvbWFzdGVyL21vZGVsLWNhdGFsb2cvdG9rZW5kYW5jZS90b2tlbmRhbmNlLWNhdGFsb2ctMjAyNi4wOS4wOS4yLmpzb24iXSwic2hhMjU2IjoiZGI2ZDk2MmVlNDhlMDBmZGZkY2UzMzBlZGJiMTUxZWFhYTdiNWJiOGRmZGU3Y2EyZjZjMjg4ZDg0MWY4NWQ5MiIsInNpemUiOjEzOTc4NzEsInVybCI6Imh0dHBzOi8vZ2l0ZWUuY29tL2d6eHgtMjAyNS9haWQtc2VydmVyL3Jhdy9tYXN0ZXIvbW9kZWwtY2F0YWxvZy90b2tlbmRhbmNlL3Rva2VuZGFuY2UtY2F0YWxvZy0yMDI2LjA5LjA5LjIuanNvbiJ9LCJjYXRhbG9nSWQiOiJ0b2tlbmRhbmNlIiwiY2F0YWxvZ1ZlcnNpb24iOiIyMDI2LjA5LjA5LjIiLCJtaW5pbXVtQXBwVmVyc2lvbiI6IjIuMC4xIiwicHVibGlzaGVkQXQiOiIyMDI2LTA5LTA5VDA0OjQ0OjIwWiIsInNjaGVtYVZlcnNpb24iOjF9",
-    "value": "G6pFD2d2XpiRopai8U7KN6QKekuHP2wsrBDSlJJ8S/PEOGwVaifZLwQ+LzBIjND8eLp4q+Y3H4Wk1l2h4iJaCw=="
+    "payload": "eyJidW5kbGUiOnsibWlycm9ycyI6WyJodHRwczovL3Jhdy5naXRodWJ1c2VyY29udGVudC5jb20vZ3p4eC0yMDI1L2FpZC1zZXJ2ZXIvbWFzdGVyL21vZGVsLWNhdGFsb2cvdG9rZW5kYW5jZS90b2tlbmRhbmNlLWNhdGFsb2ctMjAyNi4wOS4xMC4yLmpzb24iXSwic2hhMjU2IjoiYjUwNjIzZTdhODIxNThmODQ4MTI1MjExZjgwMjVhZTc2MTBjZTliMGZmZWQ4NDkwNDE5NDU2YmJhYzA4MWU2ZCIsInNpemUiOjE0MjQ0NTQsInVybCI6Imh0dHBzOi8vZ2l0ZWUuY29tL2d6eHgtMjAyNS9haWQtc2VydmVyL3Jhdy9tYXN0ZXIvbW9kZWwtY2F0YWxvZy90b2tlbmRhbmNlL3Rva2VuZGFuY2UtY2F0YWxvZy0yMDI2LjA5LjEwLjIuanNvbiJ9LCJjYXRhbG9nSWQiOiJ0b2tlbmRhbmNlIiwiY2F0YWxvZ1ZlcnNpb24iOiIyMDI2LjA5LjEwLjIiLCJtaW5pbXVtQXBwVmVyc2lvbiI6IjIuMC4xIiwicHVibGlzaGVkQXQiOiIyMDI2LTA5LTEwVDE0OjAyOjQxWiIsInNjaGVtYVZlcnNpb24iOjF9",
+    "value": "2vyEphSkToqTV5Su7G3j1Dyx8uTryhTsEWflFEZOIt4yvCdvkkAJ2Hcnt8AA28WvSpQcQ/9Ol5w20+tRx8iVAA=="
   }
 }

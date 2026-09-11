@@ -45,6 +45,13 @@ public class MediaTaskResponse {
     // 文本生成结果：TEXT 类型任务成功时返回助手输出全文。
     private String textContent;
 
+    /** 本轮函数调用；思考上下文只在首次同步结果中返回，历史查询不恢复。 */
+    @lombok.ToString.Exclude
+    private MediaTextGenerateRequest.TextMessageItem toolMessage;
+
+    /** true 表示带有本次工具续轮完整上下文；历史查询为 false，不可据此重新调用模型。 */
+    private Boolean toolContextAvailable;
+
     // 错误信息：任务失败时返回。
     private String errorMessage;
     // 错误码（机器可读，对应 TaskErrorCode 枚举）。

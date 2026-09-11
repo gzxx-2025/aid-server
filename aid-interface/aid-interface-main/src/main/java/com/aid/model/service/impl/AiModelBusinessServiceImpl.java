@@ -68,6 +68,12 @@ public class AiModelBusinessServiceImpl implements IAiModelBusinessService
     private static final String MODEL_TYPE_VIDEO = "video";
 
     private final IAidAiModelService aiModelService;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.aid.model.definition.ModelDefinitionService modelDefinitions;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.aid.model.definition.ModelBusinessBindingService modelBusinessBindings;
     private final IAidAiProviderService aiProviderService;
     /** 按功能编码查模型时需要读功能配置 */
     private final IAidAiModelFuncConfigService aiModelFuncConfigService;
@@ -157,14 +163,12 @@ public class AiModelBusinessServiceImpl implements IAiModelBusinessService
             modelWrapper.eq(AidAiModel::getModelType, modelType);
         }
         // 按生成模式细分筛选（对 modelType 大类做进一步过滤）
-        if (StrUtil.isNotBlank(generateMode))
-        {
-            modelWrapper.eq(AidAiModel::getGenerateMode, generateMode);
-        }
         modelWrapper.in(AidAiModel::getProviderId, availableProviderIds);
         // 按优先级降序排列
         modelWrapper.orderByDesc(AidAiModel::getPriority);
         List<AidAiModel> models = aiModelService.list(modelWrapper);
+        modelDefinitions.preload(models);
+        models = models.stream().map(model -> modelDefinitions.project(model, generateMode)).filter(Objects::nonNull).toList();
 
         if (CollectionUtil.isEmpty(models))
         {
@@ -269,6 +273,7 @@ public class AiModelBusinessServiceImpl implements IAiModelBusinessService
         modelWrapper.eq(AidAiModel::getStatus, STATUS_NORMAL);
         modelWrapper.eq(AidAiModel::getDelFlag, DEL_FLAG_NORMAL);
         List<AidAiModel> models = aiModelService.list(modelWrapper);
+        modelDefinitions.preload(models);
         if (CollectionUtil.isEmpty(models))
         {
             log.info("功能配置匹配到的模型全部无效: funcCode={}, modelIds={}", funcCode, orderedModelIds);
@@ -298,6 +303,10 @@ public class AiModelBusinessServiceImpl implements IAiModelBusinessService
         // 全局价格折算系数：一次请求只查一次配置，循环内复用
         BigDecimal globalFactor = billingDetailQueryService.readGlobalPriceFactor();
         List<AiModelVO> result = new ArrayList<>();
+        var businessBindings = modelBusinessBindings.forFunction(funcCode);
+        // preload 会把旧 capability_json 转为内存能力。只有已落入能力子表的模型，
+        // 才必须具备显式业务能力绑定；否则历史模型会被误判成“模型池全部失效”。
+        Set<Long> structuredModelIds = modelDefinitions.structuredModelIds(orderedModelIds);
         for (Long id : orderedModelIds)
         {
             AidAiModel model = modelById.get(id);
@@ -311,7 +320,19 @@ public class AiModelBusinessServiceImpl implements IAiModelBusinessService
                 // 模型对应的供应商已停用 / 已删除，视为该模型不可用
                 continue;
             }
-            result.add(buildModelVo(model,
+            var defaults = businessBindings.stream()
+                    .filter(binding -> Objects.equals(binding.getModelId(), model.getId()) && Boolean.TRUE.equals(binding.getDefaultCapability()))
+                    .toList();
+            if (structuredModelIds.contains(model.getId()) && defaults.size() != 1) continue;
+            String selectedCapability = defaults.isEmpty()
+                    ? com.aid.model.definition.LegacyModelDefinitionConverter.businessCode(
+                            model, funcCode, funcConfig.getGenerateMode())
+                    : defaults.get(0).getCapabilityCode();
+            AidAiModel projected = model.getCapabilities().isEmpty()
+                    ? model : modelDefinitions.project(model, selectedCapability,
+                            defaults.isEmpty() ? null : defaults.get(0).getDefaultsJson());
+            if (projected == null) continue;
+            result.add(buildModelVo(projected,
                     providerNameMap.get(model.getProviderId()),
                     providerLogoMap.get(model.getProviderId()),
                     globalFactor));
@@ -334,6 +355,15 @@ public class AiModelBusinessServiceImpl implements IAiModelBusinessService
         AiModelVO vo = new AiModelVO();
         vo.setId(model.getId());
         vo.setModelCode(model.getModelCode());
+        var legacy = model.getLegacyAliases() == null ? modelDefinitions.aliasesForModel(model.getId()) : model.getLegacyAliases();
+        vo.setLegacyModelCodes(legacy.stream().map(com.aid.aid.domain.AidAiModelAlias::getLegacyModelCode).toList());
+        vo.setLegacyModelIds(legacy.stream().map(com.aid.aid.domain.AidAiModelAlias::getLegacyModelId).toList());
+        vo.setCapabilityCode(model.getSelectedCapabilityCode());
+        if (model.getCapabilities() != null) model.getCapabilities().stream()
+                .filter(d -> Objects.equals(d.getCode(), model.getSelectedCapabilityCode())).findFirst().ifPresent(d -> {
+                    vo.setParameterSchema(d.getParameters());
+                    vo.setParameterRules(d.getRules());
+                });
         vo.setModelName(model.getModelName());
         vo.setModelType(model.getModelType());
         vo.setGenerateMode(model.getGenerateMode());
@@ -460,15 +490,15 @@ public class AiModelBusinessServiceImpl implements IAiModelBusinessService
             }
             if (Objects.isNull(cap.getReferenceAudioMinDurationSeconds()))
             {
-                cap.setReferenceAudioMinDurationSeconds(0);
+                cap.setReferenceAudioMinDurationSeconds(java.math.BigDecimal.ZERO);
             }
             if (Objects.isNull(cap.getReferenceAudioMaxDurationSeconds()))
             {
-                cap.setReferenceAudioMaxDurationSeconds(0);
+                cap.setReferenceAudioMaxDurationSeconds(java.math.BigDecimal.ZERO);
             }
             if (Objects.isNull(cap.getReferenceAudioMaxTotalDurationSeconds()))
             {
-                cap.setReferenceAudioMaxTotalDurationSeconds(0);
+                cap.setReferenceAudioMaxTotalDurationSeconds(java.math.BigDecimal.ZERO);
             }
             if (Objects.isNull(cap.getReferenceAudioFormats()))
             {

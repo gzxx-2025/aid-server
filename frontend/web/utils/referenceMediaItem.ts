@@ -2,7 +2,7 @@
  * 分镜视频弹窗：参考图/参考音频统一媒体项
  */
 
-export type ReferenceMediaKind = 'image' | 'audio'
+export type ReferenceMediaKind = 'image' | 'audio' | 'video'
 export type ReferenceAudioSource = 'voice_sample' | 'upload'
 
 export interface ReferenceMediaItem {
@@ -14,13 +14,38 @@ export interface ReferenceMediaItem {
   audioSource?: ReferenceAudioSource
   durationMs?: number
   audioFormat?: string
+  /** 参考视频对应的 aid_gen_record.id；生成请求只提交该 ID，不传裸 URL */
+  referenceVideoRecordId?: number
+  durationSeconds?: number
   id?: string | number
   thumbnail?: string
   title?: string
+  source?: string
 }
 
 export function isReferenceAudioItem(item: ReferenceMediaItem | null | undefined): boolean {
   return item?.kind === 'audio'
+}
+
+export function isReferenceVideoItem(item: ReferenceMediaItem | null | undefined): boolean {
+  return item?.kind === 'video'
+}
+
+/** 多参视频出片：按选择顺序收集并去重 aid_gen_record.id。 */
+export function collectReferenceVideoRecordIds(
+  items: ReferenceMediaItem[] | null | undefined
+): number[] {
+  if (!Array.isArray(items) || !items.length) return []
+  const ids: number[] = []
+  const seen = new Set<number>()
+  for (const item of items) {
+    if (item?.kind !== 'video') continue
+    const id = Number(item.referenceVideoRecordId)
+    if (!Number.isFinite(id) || id <= 0 || seen.has(id)) continue
+    seen.add(id)
+    ids.push(id)
+  }
+  return ids
 }
 
 /** 出片用：仅收集自定义上传的 referenceAudioIds */

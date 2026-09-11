@@ -8,14 +8,12 @@ import {
   requireLogin
 } from '~/utils/authLoginNavigation'
 import { isAuthRequiredPath } from '~/utils/authRequiredPath'
-
-const MOBILE_ONLY_PATH = '/mobile'
-
-function isMobileUserAgent(ua: string): boolean {
-  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|Windows Phone/i.test(
-    ua
-  )
-}
+import {
+  MOBILE_ONLY_PATH,
+  isMobileUserAgent,
+  shouldForceMobileOnlyPath,
+  shouldLeaveMobileOnlyPath
+} from '~/utils/mobileOnlyNavigation'
 
 function isMobileClient(): boolean {
   if (typeof window === 'undefined') return false
@@ -25,7 +23,7 @@ function isMobileClient(): boolean {
 
 /**
  * 客户端路由守卫，与原 Nuxt 全局中间件对齐：
- * - 移动端仅限制需要登录的工作区；公开链接保持原路径可读
+ * - 移动端强制 /mobile，桌面访问 /mobile 回首页（静态导出下以本守卫为准）
  * - auth：需登录路由未登录时打开登录弹窗并离开受保护路由（不再跳 /login）
  */
 export function RouteGuard({ children }: { children: React.ReactNode }) {
@@ -41,10 +39,13 @@ export function RouteGuard({ children }: { children: React.ReactNode }) {
   }, [router])
 
   useEffect(() => {
-    // 移动端工作区使用专用入口。
     const mobile = isMobileClient()
-    if (mobile && isAuthRequiredPath(pathname)) {
+    if (mobile && shouldForceMobileOnlyPath(pathname)) {
       router.replace(MOBILE_ONLY_PATH)
+      return
+    }
+    if (shouldLeaveMobileOnlyPath(pathname, mobile)) {
+      router.replace('/')
       return
     }
 

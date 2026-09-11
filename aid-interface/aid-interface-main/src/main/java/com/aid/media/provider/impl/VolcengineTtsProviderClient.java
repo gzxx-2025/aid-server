@@ -9,6 +9,10 @@ import cn.hutool.http.HttpResponse;
 import cn.hutool.json.JSONUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.aid.common.constant.HttpConstants;
+import com.aid.common.error.ErrorNormalizer;
+import com.aid.common.error.TaskErrorCode;
+import com.aid.common.error.TaskErrorResult;
+import com.aid.common.error.TaskErrorSnapshot;
 import com.aid.common.utils.ProviderEndpointUtils;
 import com.aid.common.oss.entity.UploadResult;
 import com.aid.common.oss.factory.OssFactory;
@@ -16,6 +20,7 @@ import com.aid.domain.vo.AiModelConfigVo;
 import com.aid.media.constants.VolcengineTtsConstants;
 import com.aid.media.dto.MediaAudioGenerateRequest;
 import com.aid.media.provider.AudioProviderClient;
+import com.aid.media.provider.ProviderErrorSanitizer;
 import com.aid.media.provider.ProviderResponseHelper;
 import com.aid.media.provider.ProviderSubmitResult;
 import com.aid.media.provider.ProviderTaskResult;
@@ -76,7 +81,7 @@ public class VolcengineTtsProviderClient implements AudioProviderClient {
 
         String requestId = IdUtil.fastSimpleUUID();
         Map<String, Object> body = buildRequestBody(modelConfig, request);
-        String json = JSONUtil.toJsonStr(body);
+        String json = JSONUtil.toJsonStr(com.aid.model.definition.ModelConfiguredRequestBody.apply(modelConfig, body, request));
         String url = buildSubmitUrl(modelConfig);
         String resourceId = resolveResourceId(modelConfig);
         // 音频格式：决定 OSS 落库后缀（默认 mp3）。
@@ -105,7 +110,7 @@ public class VolcengineTtsProviderClient implements AudioProviderClient {
         if (StrUtil.isNotBlank(parsed.errorLine)) {
             log.error("VolcengineTts 合成上游错误帧, code={}, message={}, model={}",
                     parsed.errorCode, parsed.errorMessage, modelConfig.getModelCode());
-            return ProviderSubmitResult.builder().rawResponse(parsed.errorLine).build();
+            return errorResult(parsed);
         }
         if (Objects.isNull(parsed.audio) || parsed.audio.length == 0) {
             log.error("VolcengineTts 合成未返回音频分片, model={}, responseLen={}",
@@ -289,7 +294,7 @@ public class VolcengineTtsProviderClient implements AudioProviderClient {
      * @param body 完整响应体
      * @return 解析结果（音频字节 / 错误信息）
      */
-    private StreamParseResult parseStream(String body) {
+    static StreamParseResult parseStream(String body) {
         StreamParseResult result = new StreamParseResult();
         if (StrUtil.isBlank(body)) {
             return result;
@@ -312,12 +317,22 @@ public class VolcengineTtsProviderClient implements AudioProviderClient {
                 continue;
             }
             Integer code = ProviderResponseHelper.readInt(node, VolcengineTtsConstants.RESP_CODE);
+            JsonNode header = node.path("header");
+            if (Objects.isNull(code) && header.isObject()) {
+                code = ProviderResponseHelper.readInt(header, VolcengineTtsConstants.RESP_CODE);
+            }
+            if (Objects.isNull(code) && header.isObject()) {
+                code = ProviderResponseHelper.readInt(header, "status_code");
+            }
             if (Objects.isNull(code)) {
                 continue;
             }
             if (code == VolcengineTtsConstants.STREAM_CODE_CHUNK) {
                 // 数据分片：解码 base64 累加
                 String data = ProviderResponseHelper.readText(node, VolcengineTtsConstants.RESP_DATA);
+                if (StrUtil.isBlank(data)) {
+                    data = ProviderResponseHelper.readText(node, "payload");
+                }
                 if (StrUtil.isNotBlank(data)) {
                     try {
                         buffer.write(Base64.getDecoder().decode(data));
@@ -332,6 +347,9 @@ public class VolcengineTtsProviderClient implements AudioProviderClient {
                 // 其它 code 视为错误帧
                 result.errorCode = code;
                 result.errorMessage = ProviderResponseHelper.readText(node, VolcengineTtsConstants.RESP_MESSAGE);
+                if (StrUtil.isBlank(result.errorMessage) && header.isObject()) {
+                    result.errorMessage = ProviderResponseHelper.readText(header, VolcengineTtsConstants.RESP_MESSAGE);
+                }
                 result.errorLine = line;
                 break;
             }
@@ -341,7 +359,7 @@ public class VolcengineTtsProviderClient implements AudioProviderClient {
     }
 
     /** 流式解析结果载体。 */
-    private static final class StreamParseResult {
+    static final class StreamParseResult {
         /** 拼接后的完整音频字节 */
         private byte[] audio;
         /** 错误码（错误帧时非空） */
@@ -350,6 +368,29 @@ public class VolcengineTtsProviderClient implements AudioProviderClient {
         private String errorMessage;
         /** 错误帧原文（错误帧时非空，供主链路解析展示） */
         private String errorLine;
+
+        byte[] audio() { return audio; }
+        Integer errorCode() { return errorCode; }
+        String errorMessage() { return errorMessage; }
+        String errorLine() { return errorLine; }
+        String errorText() {
+            String message = ProviderErrorSanitizer.safeMessage(errorMessage, "上游语音合成失败");
+            return errorCode == null ? message : "code=" + errorCode + ", message=" + message;
+        }
+    }
+
+    /** 在展示脱敏前保留可恢复语义，但持久化内容只包含标准错误码和安全文案。 */
+    static ProviderSubmitResult errorResult(StreamParseResult parsed) {
+        String errorSource = StrUtil.blankToDefault(parsed.errorLine, parsed.errorMessage);
+        String normalized = StrUtil.trimToEmpty(errorSource).toLowerCase(java.util.Locale.ROOT);
+        TaskErrorResult error = normalized.contains("requested resource not granted")
+                || normalized.contains("resource not granted")
+                ? TaskErrorResult.of(TaskErrorCode.UPSTREAM_SERVICE_NOT_OPEN, errorSource)
+                : ErrorNormalizer.classifyByMessage(errorSource);
+        return ProviderSubmitResult.builder()
+                .rawResponse(parsed.errorText())
+                .errorDetailJson(TaskErrorSnapshot.write(error))
+                .build();
     }
     /**
      * 解析下发上游的音频格式：wav 一律降级为 pcm。

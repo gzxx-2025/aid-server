@@ -24,8 +24,16 @@ public class ProviderSubmitResult {
     @ToString.Exclude
     private String directReasoning;
 
+    /** 本轮助手函数调用及续轮上下文；思考字段不得持久化。 */
+    @ToString.Exclude
+    private com.aid.media.dto.MediaTextGenerateRequest.TextMessageItem toolMessage;
+
     // 厂商原始响应内容。
     private String rawResponse;
+
+    /** 已归一化的任务错误，不以短文案替代恢复动作和来源信息。 */
+    @ToString.Exclude
+    private String errorDetailJson;
 
     /**
      * 同步直出图片 URL 列表（图片 provider 填充，兼容老 directUrl）。

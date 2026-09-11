@@ -3,6 +3,7 @@
 import { useEffect,useRef } from 'react'
 import type { ModelOption } from '~/components/steps/ModelSelectDropdown'
 import type { UserModelListItem } from '~/types/business-api'
+import { findModelByReference } from '~/utils/modelReference'
 import {
 buildAspectRatioSelectOptions,
 buildCountSelectOptions,
@@ -45,18 +46,14 @@ export function useModelGenerateSettings(options: UseModelGenerateSettingsOption
     const selected = o.getSelectedModel()
     const code = String(selected?.id || '').trim()
     const sid = selected?.serverModelId
-    return (
-      o.getRawModelList().find(
-        (m) =>
-          (sid != null && Number(m.id) === sid) ||
-          String(m.modelCode || '').trim() === code
-      ) ?? null
-    )
+    return findModelByReference(o.getRawModelList(), code) ?? findModelByReference(o.getRawModelList(), sid)
   }
 
   const selectedRawModel = resolveSelectedRawModel()
 
-  const capabilitySnapshot: ModelCapabilitySnapshot = parseModelCapability(selectedRawModel)
+  const settings = getGenerationSettings()
+  const parameters = { size: settings.quality.toUpperCase(), expectedImageCount: settings.count, options: { aspectRatio: settings.aspectRatio } }
+  const capabilitySnapshot: ModelCapabilitySnapshot = parseModelCapability(selectedRawModel, parameters)
 
   const aspectRatioSelectOptions = buildAspectRatioSelectOptions(capabilitySnapshot)
   const countSelectOptions = buildCountSelectOptions(capabilitySnapshot)
@@ -64,7 +61,8 @@ export function useModelGenerateSettings(options: UseModelGenerateSettingsOption
 
   function syncSettingsToModel() {
     const o = optionsRef.current
-    const snapshot = parseModelCapability(resolveSelectedRawModel())
+    const current = o.getGenerationSettings()
+    const snapshot = parseModelCapability(resolveSelectedRawModel(), { size: current.quality.toUpperCase(), expectedImageCount: current.count, options: { aspectRatio: current.aspectRatio } })
     o.setGenerationSettings(
       coerceGenerationSettings(o.getGenerationSettings(), snapshot, { include3k: o.include3k })
     )
@@ -73,17 +71,18 @@ export function useModelGenerateSettings(options: UseModelGenerateSettingsOption
   /** 原 watch(selectedRawModel)：模型切换后按新 capability 收敛设置（非 immediate，首帧跳过） */
   const syncRef = useRef(syncSettingsToModel)
   syncRef.current = syncSettingsToModel
-  const prevRawModelRef = useRef<UserModelListItem | null | undefined>(undefined)
+  const constraintKey = JSON.stringify([selectedRawModel?.id, selectedRawModel?.capabilityCode, capabilitySnapshot])
+  const prevRawModelRef = useRef<string | undefined>(undefined)
   useEffect(() => {
     if (prevRawModelRef.current === undefined) {
-      prevRawModelRef.current = selectedRawModel
+      prevRawModelRef.current = constraintKey
       return
     }
-    if (prevRawModelRef.current === selectedRawModel) return
-    prevRawModelRef.current = selectedRawModel
+    if (prevRawModelRef.current === constraintKey) return
+    prevRawModelRef.current = constraintKey
     syncRef.current()
      
-  }, [selectedRawModel])
+  }, [constraintKey])
 
   return {
     capabilitySnapshot,

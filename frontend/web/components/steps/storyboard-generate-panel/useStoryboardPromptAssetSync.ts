@@ -14,8 +14,10 @@ collectLocalStripImageAssets,
 diffPromptAssetsByIdentity,
 extractPromptAudioRefIdentityKeysFromHtml,
 extractPromptAssetRefIdentityKeysFromHtml,
+extractPromptVideoRefIdentityKeysFromHtml,
 findAudioIndexesLostFromPrompt,
 findStripIndexesLostFromPrompt,
+findVideoIndexesLostFromPrompt,
 promptAssetItemKey
 } from '~/utils/storyboardPromptAssetStripSync'
 import { type PromptParamGroup,type PromptParamType } from '~/utils/storyboardPromptParamRef'
@@ -152,6 +154,7 @@ function getMainPromptEditor() {
 const prevLocalStripImageAssetsRef = useRef<PromptAssetItem[]>([])
 const prevPromptAssetRefIdentityKeysRef = useRef<Set<string>>(new Set())
 const prevPromptAudioRefIdentityKeysRef = useRef<Set<string>>(new Set())
+const prevPromptVideoRefIdentityKeysRef = useRef<Set<string>>(new Set())
 const promptStripSyncGuardRef = useRef(false)
 /** 首次同步只种子快照，避免 remount/冷启动把条上旧图整批 upsert 回描述框 */
 const stripAssetSyncSeededRef = useRef(false)
@@ -195,6 +198,7 @@ function refreshPromptAssetRefKeySnapshot(html?: string) {
   const raw = html ?? getActivePromptEditor()?.getHtml?.() ?? propsRef.current!.prompt ?? ''
   prevPromptAssetRefIdentityKeysRef.current = extractPromptAssetRefIdentityKeysFromHtml(raw || '')
   prevPromptAudioRefIdentityKeysRef.current = extractPromptAudioRefIdentityKeysFromHtml(raw || '')
+  prevPromptVideoRefIdentityKeysRef.current = extractPromptVideoRefIdentityKeysFromHtml(raw || '')
 }
 
 /** 参考图条 → 描述框：删除联动 + 仅同步新导入项（修复「清空后导入一张却回填多张」） */
@@ -314,6 +318,31 @@ function syncStripAudiosFromPromptRefDiff(html: string) {
   })()
 }
 
+/** 描述框 → 参考视频条：删除 @视频 后同步移除请求记录。 */
+function syncStripVideosFromPromptRefDiff(html: string) {
+  const p = propsRef.current!
+  if (p.mode !== 'imageToVideo' || !enablePromptAssetRefsOf(p) || paramSettingsOpenRef.current) return
+  const nextKeys = extractPromptVideoRefIdentityKeysFromHtml(html || '')
+  if (p.suppressPromptReactiveSync || promptStripSyncGuardRef.current) {
+    prevPromptVideoRefIdentityKeysRef.current = nextKeys
+    return
+  }
+  const indexes = findVideoIndexesLostFromPrompt({
+    videos: p.referenceVideos ?? [],
+    prevKeys: prevPromptVideoRefIdentityKeysRef.current,
+    nextKeys
+  })
+  prevPromptVideoRefIdentityKeysRef.current = nextKeys
+  if (!indexes.length || !p.onRemoveReferenceVideo) return
+  promptStripSyncGuardRef.current = true
+  try {
+    for (const index of indexes) p.onRemoveReferenceVideo(index)
+  } finally {
+    promptStripSyncGuardRef.current = false
+    refreshPromptAssetRefKeySnapshot()
+  }
+}
+
 function plainHasPromptImageAssetPlaceholder(plain: string): boolean {
   return /@图片\d*(?:\[[^\]]+\])?/.test(plain)
 }
@@ -362,6 +391,7 @@ function syncStoryboardVideoPromptWithoutImageRefs() {
     prevLocalStripImageAssetsRef,
     prevPromptAssetRefIdentityKeysRef,
     prevPromptAudioRefIdentityKeysRef,
+    prevPromptVideoRefIdentityKeysRef,
     promptStripSyncGuardRef,
     stripAssetSyncSeededRef,
     snapshotLocalStripImageAssets,
@@ -372,6 +402,7 @@ function syncStoryboardVideoPromptWithoutImageRefs() {
     syncStoryboardPromptAssetRefsInEditor,
     syncStripImagesFromPromptRefDiff,
     syncStripAudiosFromPromptRefDiff,
+    syncStripVideosFromPromptRefDiff,
     plainHasPromptImageAssetPlaceholder,
     storyboardVideoReferenceList,
     storyboardVideoReferenceListRef,

@@ -1,0 +1,323 @@
+{
+  "schemaVersion": 1,
+  "verifiedAt": "2026-09-08",
+  "purpose": "PREHOLD_ESTIMATE_ONLY",
+  "defaultActivationPolicy": "MANUAL_REVIEW_REQUIRED",
+  "autoActivationAllowed": false,
+  "settlementUsageField": "completion_tokens",
+  "roundingMode": "HALF_UP",
+  "formula": "roundHalfUp(width * height * framesPerSecond * (outputSeconds + billedInputVideoSeconds) / tokenDivisor)",
+  "inputVideoRule": "billedInputVideoSeconds is zero without input video; otherwise at least ceil(outputSeconds * minimumInputSecondsNumerator / minimumInputSecondsDenominator)",
+  "requiredActivationChecks": [
+    "PROVIDER_USAGE_SETTLEMENT_REQUIRED",
+    "PROTOCOL_RUNTIME_VERIFICATION_REQUIRED",
+    "PRICING_COVERAGE_REQUIRED"
+  ],
+  "evidence": [
+    {
+      "title": "火山方舟 Seedance 模型能力与输出尺寸",
+      "url": "https://docs.volcengine.com/docs/82379/2607688"
+    },
+    {
+      "title": "火山方舟模型服务计量入口",
+      "url": "https://www.volcengine.com/product/ark"
+    }
+  ],
+  "models": [
+    {
+      "modelId": "seedance-2.0",
+      "protocol": "seedance:generations",
+      "evidenceStatus": "VERIFIED",
+      "catalogSourceUrl": "https://tokendance.space/portal/api/models/seedance-2.0",
+      "billingItemId": "seedance:generations:completion_tokens",
+      "supportedCatalogResolutions": [
+        "480p",
+        "720p",
+        "1080p",
+        "4k"
+      ],
+      "videoTokenEstimate": {
+        "strategy": "PIXEL_FPS",
+        "framesPerSecond": 24,
+        "tokenDivisor": 1024,
+        "autoDurationMaxSeconds": 15,
+        "inputVideoMaxSeconds": 15,
+        "fallbackResolution": "4K",
+        "minimumInputSecondsNumerator": 2,
+        "minimumInputSecondsDenominator": 3,
+        "dimensions": {
+          "480P": {
+            "16:9": [864, 496],
+            "9:16": [496, 864],
+            "4:3": [752, 560],
+            "3:4": [560, 752],
+            "1:1": [640, 640],
+            "21:9": [992, 432],
+            "default": [992, 432]
+          },
+          "720P": {
+            "16:9": [1280, 720],
+            "9:16": [720, 1280],
+            "4:3": [1112, 834],
+            "3:4": [834, 1112],
+            "1:1": [960, 960],
+            "21:9": [1470, 630],
+            "default": [1112, 834]
+          },
+          "1080P": {
+            "16:9": [1920, 1080],
+            "9:16": [1080, 1920],
+            "4:3": [1664, 1248],
+            "3:4": [1248, 1664],
+            "1:1": [1440, 1440],
+            "21:9": [2206, 946],
+            "default": [2206, 946]
+          },
+          "4K": {
+            "16:9": [3840, 2160],
+            "9:16": [2160, 3840],
+            "4:3": [3326, 2494],
+            "3:4": [2494, 3326],
+            "1:1": [2880, 2880],
+            "21:9": [4398, 1886],
+            "default": [3326, 2494]
+          }
+        }
+      },
+      "verificationVectors": [
+        {
+          "resolution": "480P",
+          "aspectRatio": "16:9",
+          "outputSeconds": 5,
+          "inputVideoSeconds": 0,
+          "expectedCompletionTokens": 50220
+        },
+        {
+          "resolution": "480P",
+          "aspectRatio": "16:9",
+          "outputSeconds": 5,
+          "inputVideoSeconds": 2,
+          "expectedCompletionTokens": 90396
+        },
+        {
+          "resolution": "4K",
+          "aspectRatio": "16:9",
+          "outputSeconds": 5,
+          "inputVideoSeconds": 0,
+          "expectedCompletionTokens": 972000
+        }
+      ],
+      "unresolved": [
+        "ADAPTIVE_RATIO_REQUIRES_CONSERVATIVE_DIMENSION_FALLBACK",
+        "SUCCESSFUL_TASK_MUST_SETTLE_FROM_PROVIDER_USAGE"
+      ]
+    },
+    {
+      "modelId": "seedance-2.0-fast",
+      "protocol": "seedance:generations",
+      "evidenceStatus": "VERIFIED",
+      "catalogSourceUrl": "https://tokendance.space/portal/api/models/seedance-2.0-fast",
+      "billingItemId": "seedance:generations:completion_tokens",
+      "supportedCatalogResolutions": [
+        "480p",
+        "720p"
+      ],
+      "videoTokenEstimate": {
+        "strategy": "PIXEL_FPS",
+        "framesPerSecond": 24,
+        "tokenDivisor": 1024,
+        "autoDurationMaxSeconds": 15,
+        "inputVideoMaxSeconds": 15,
+        "fallbackResolution": "720P",
+        "minimumInputSecondsNumerator": 2,
+        "minimumInputSecondsDenominator": 3,
+        "dimensions": {
+          "480P": {
+            "16:9": [864, 496],
+            "9:16": [496, 864],
+            "4:3": [752, 560],
+            "3:4": [560, 752],
+            "1:1": [640, 640],
+            "21:9": [992, 432],
+            "default": [992, 432]
+          },
+          "720P": {
+            "16:9": [1280, 720],
+            "9:16": [720, 1280],
+            "4:3": [1112, 834],
+            "3:4": [834, 1112],
+            "1:1": [960, 960],
+            "21:9": [1470, 630],
+            "default": [1112, 834]
+          }
+        }
+      },
+      "verificationVectors": [
+        {
+          "resolution": "480P",
+          "aspectRatio": "16:9",
+          "outputSeconds": 5,
+          "inputVideoSeconds": 0,
+          "expectedCompletionTokens": 50220
+        },
+        {
+          "resolution": "720P",
+          "aspectRatio": "16:9",
+          "outputSeconds": 5,
+          "inputVideoSeconds": 2,
+          "expectedCompletionTokens": 194400
+        }
+      ],
+      "unresolved": [
+        "ADAPTIVE_RATIO_REQUIRES_CONSERVATIVE_DIMENSION_FALLBACK",
+        "SUCCESSFUL_TASK_MUST_SETTLE_FROM_PROVIDER_USAGE"
+      ]
+    },
+    {
+      "modelId": "seedance-2.0-mini",
+      "protocol": "seedance:generations",
+      "evidenceStatus": "VERIFIED",
+      "catalogSourceUrl": "https://tokendance.space/portal/api/models/seedance-2.0-mini",
+      "billingItemId": "seedance:generations:completion_tokens",
+      "supportedCatalogResolutions": [
+        "480p",
+        "720p"
+      ],
+      "videoTokenEstimate": {
+        "strategy": "PIXEL_FPS",
+        "framesPerSecond": 24,
+        "tokenDivisor": 1024,
+        "autoDurationMaxSeconds": 15,
+        "inputVideoMaxSeconds": 15,
+        "fallbackResolution": "720P",
+        "minimumInputSecondsNumerator": 2,
+        "minimumInputSecondsDenominator": 3,
+        "dimensions": {
+          "480P": {
+            "16:9": [864, 496],
+            "9:16": [496, 864],
+            "4:3": [752, 560],
+            "3:4": [560, 752],
+            "1:1": [640, 640],
+            "21:9": [992, 432],
+            "default": [992, 432]
+          },
+          "720P": {
+            "16:9": [1280, 720],
+            "9:16": [720, 1280],
+            "4:3": [1112, 834],
+            "3:4": [834, 1112],
+            "1:1": [960, 960],
+            "21:9": [1470, 630],
+            "default": [1112, 834]
+          }
+        }
+      },
+      "verificationVectors": [
+        {
+          "resolution": "480P",
+          "aspectRatio": "16:9",
+          "outputSeconds": 5,
+          "inputVideoSeconds": 0,
+          "expectedCompletionTokens": 50220
+        },
+        {
+          "resolution": "720P",
+          "aspectRatio": "16:9",
+          "outputSeconds": 5,
+          "inputVideoSeconds": 2,
+          "expectedCompletionTokens": 194400
+        }
+      ],
+      "unresolved": [
+        "ADAPTIVE_RATIO_REQUIRES_CONSERVATIVE_DIMENSION_FALLBACK",
+        "SUCCESSFUL_TASK_MUST_SETTLE_FROM_PROVIDER_USAGE"
+      ]
+    },
+    {
+      "modelId": "seedance-2.5",
+      "protocol": "seedance:generations",
+      "evidenceStatus": "VERIFIED",
+      "catalogSourceUrl": "https://tokendance.space/portal/api/models/seedance-2.5",
+      "billingItemId": "seedance:generations:completion_tokens",
+      "supportedCatalogResolutions": [
+        "480p",
+        "720p",
+        "1080p"
+      ],
+      "videoTokenEstimate": {
+        "strategy": "PIXEL_FPS",
+        "framesPerSecond": 24,
+        "tokenDivisor": 1024,
+        "autoDurationMaxSeconds": 30,
+        "inputVideoMaxSeconds": 30,
+        "fallbackResolution": "720P",
+        "minimumInputSecondsNumerator": 2,
+        "minimumInputSecondsDenominator": 3,
+        "dimensions": {
+          "480P": {
+            "16:9": [854, 480],
+            "9:16": [480, 854],
+            "4:3": [752, 560],
+            "3:4": [560, 752],
+            "1:1": [640, 640],
+            "21:9": [992, 432],
+            "default": [992, 432]
+          },
+          "720P": {
+            "16:9": [1280, 720],
+            "9:16": [720, 1280],
+            "4:3": [1112, 834],
+            "3:4": [834, 1112],
+            "1:1": [960, 960],
+            "21:9": [1470, 630],
+            "default": [1112, 834]
+          },
+          "1080P": {
+            "16:9": [1920, 1080],
+            "9:16": [1080, 1920],
+            "4:3": [1664, 1248],
+            "3:4": [1248, 1664],
+            "1:1": [1440, 1440],
+            "21:9": [2206, 946],
+            "default": [2206, 946]
+          }
+        }
+      },
+      "verificationVectors": [
+        {
+          "resolution": "480P",
+          "aspectRatio": "16:9",
+          "outputSeconds": 5,
+          "inputVideoSeconds": 0,
+          "expectedCompletionTokens": 48038
+        },
+        {
+          "resolution": "480P",
+          "aspectRatio": "16:9",
+          "outputSeconds": 5,
+          "inputVideoSeconds": 2,
+          "expectedCompletionTokens": 86468
+        },
+        {
+          "resolution": "480P",
+          "aspectRatio": "16:9",
+          "outputSeconds": 5,
+          "inputVideoSeconds": 5,
+          "expectedCompletionTokens": 96075
+        },
+        {
+          "resolution": "720P",
+          "aspectRatio": "16:9",
+          "outputSeconds": 5,
+          "inputVideoSeconds": 0,
+          "expectedCompletionTokens": 108000
+        }
+      ],
+      "unresolved": [
+        "ADAPTIVE_RATIO_REQUIRES_CONSERVATIVE_DIMENSION_FALLBACK",
+        "SUCCESSFUL_TASK_MUST_SETTLE_FROM_PROVIDER_USAGE"
+      ]
+    }
+  ]
+}

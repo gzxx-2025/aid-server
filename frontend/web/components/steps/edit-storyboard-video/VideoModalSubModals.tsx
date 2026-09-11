@@ -69,9 +69,12 @@ export function VideoModalSubModals({
         open={ctx.selectMultiParamReferenceModalOpen.value}
         type="multiParamReference"
         enableVoiceTab
+        enableReferenceVideo
         videoModel={ctx.activeVideoRawModel()}
         projectId={projectId}
         episodeId={episodeId}
+        storyboardId={Number(ctx.currentStoryboardId()) || 0}
+        existingReferenceVideoCount={ctx.referenceVideos.value.length}
         stepTabName={ctx.referenceStepTabName()}
         stepPanelImages={ctx.currentPanelStoryboardImages()}
         storyboardScriptGroups={ctx.storyboardScriptAssetGroups()}

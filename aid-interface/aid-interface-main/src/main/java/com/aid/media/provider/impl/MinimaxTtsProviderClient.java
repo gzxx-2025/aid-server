@@ -76,7 +76,7 @@ public class MinimaxTtsProviderClient implements AudioProviderClient
         validateRequest(request);
 
         Map<String, Object> body = buildSubmitBody(modelConfig, request);
-        String json = JSONUtil.toJsonStr(body);
+        String json = JSONUtil.toJsonStr(com.aid.model.definition.ModelConfiguredRequestBody.apply(modelConfig, body, request));
         String url = buildSubmitUrl(modelConfig);
         // 音频格式：决定 OSS 落库后缀（默认 mp3）
         String format = StrUtil.isNotBlank(request.getAudioFormat())

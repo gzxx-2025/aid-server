@@ -1,6 +1,8 @@
 'use client'
 
 import { HtmlShellClass } from '@/components/app/HtmlShellClass'
+import { PageLoadingOverlay } from '~/components/common/PageLoadingOverlay'
+import { useRouteNavigation } from '~/hooks/useRouteNavigation'
 import { Modal,message } from 'antd'
 import { usePathname,useRouter } from 'next/navigation'
 import { useEffect,useRef,useState,type ReactNode } from 'react'
@@ -22,6 +24,12 @@ import './HomeNewShell.css'
 export function HomeNewShell({ children }: { children: ReactNode }) {
   const pathname = usePathname() ?? ''
   const router = useRouter()
+  const { navigate, isPending: navigationPending } = useRouteNavigation()
+  useEffect(() => {
+    router.prefetch('/works')
+    router.prefetch('/assets')
+    router.prefetch('/')
+  }, [router])
   const token = useUserStore((s) => s.token)
   const { anyPaymentEnabled, loadPublicConfig } = useAuthPublicConfig()
   const { openTutorial } = useHomeSidebarExtraNav()
@@ -58,7 +66,7 @@ export function HomeNewShell({ children }: { children: ReactNode }) {
       })
       return
     }
-    router.push('/')
+    navigate('/')
   }
 
   function goWorks() {
@@ -66,7 +74,7 @@ export function HomeNewShell({ children }: { children: ReactNode }) {
       requireLogin({ redirect: '/works' })
       return
     }
-    router.push('/works')
+    navigate('/works')
   }
 
   function goAssets() {
@@ -74,7 +82,7 @@ export function HomeNewShell({ children }: { children: ReactNode }) {
       requireLogin({ redirect: '/assets' })
       return
     }
-    router.push('/assets')
+    navigate('/assets')
   }
 
   function toggleUserMenu() {
@@ -201,6 +209,7 @@ export function HomeNewShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="home-layout-root">
+      {navigationPending && <PageLoadingOverlay label="页面切换中…" />}
       <HtmlShellClass classes="home-page-shell app-shell-create layout-home-new" />
       <div className="home-new-page">
         <HomeNewSidebar

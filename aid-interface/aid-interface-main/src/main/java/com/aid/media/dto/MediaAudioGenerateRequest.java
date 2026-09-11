@@ -10,8 +10,27 @@ import java.util.Map;
 @Data
 public class MediaAudioGenerateRequest {
 
+    /** 服务端报价确认用的配置指纹，不接受外部直接传入。 */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private String expectedModelConfigurationHash;
+
+    /** 后台已验证的参考样本对象地址，不接受外部直接传入。 */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private String trustedReferenceSampleUrl;
+
     /** 指定模型名称（可选，对应 aid_ai_model.model_code，如 seed-tts-2.0 / seed-tts-1.0 / seed-icl-2.0）；为空时走 AUDIO 类型默认模型 */
     private String modelName;
+
+    /** 本次业务调用的能力；专用业务接口由 Service 填写。 */
+    private String capabilityCode;
+
+    /** 业务 Service 指定的功能池，不接受客户端覆盖。 */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private String businessFuncCode;
+
+    /** 归一化后的调用配置标识，参与请求幂等。 */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private String invocationIdentity;
 
     /** 项目ID（可选），用于按项目归类任务 */
     private Long projectId;

@@ -60,7 +60,7 @@ public class GenericOpenAiCompatibleTextProviderClient implements TextProviderCl
         // 结构化输出：模型声明支持且消息含 JSON 关键词时注入 response_format=json_object，避免格式错误
         mergedOptions = com.aid.media.provider.StructuredOutputSupport
                 .applyJsonModeIfSupported(modelConfig, messages, mergedOptions);
-        String body = TextChatOpenAiPayloadBuilder.buildChatCompletionsJsonBody(model, messages, true, mergedOptions);
+        String body = com.aid.model.definition.ModelConfiguredRequestBody.applyJson(modelConfig, TextChatOpenAiPayloadBuilder.buildChatCompletionsJsonBody(model, messages, true, mergedOptions), request);
         Map<String, String> extraHeaders = OpenAiCompatiblePayloadResolver.parseExtraHeaders(
                 modelConfig.getExtraHeadersJson());
         log.info("OpenAI 兼容流式提交, providerCode={}, model={}, messagesSize={}, extraOptionsKeys={}",
@@ -100,7 +100,7 @@ public class GenericOpenAiCompatibleTextProviderClient implements TextProviderCl
         // 结构化输出：模型声明支持且消息含 JSON 关键词时注入 response_format=json_object，避免格式错误
         mergedOptions = com.aid.media.provider.StructuredOutputSupport
                 .applyJsonModeIfSupported(modelConfig, messages, mergedOptions);
-        String body = TextChatOpenAiPayloadBuilder.buildChatCompletionsJsonBody(model, messages, false, mergedOptions);
+        String body = com.aid.model.definition.ModelConfiguredRequestBody.applyJson(modelConfig, TextChatOpenAiPayloadBuilder.buildChatCompletionsJsonBody(model, messages, false, mergedOptions), request);
         Map<String, String> extraHeaders = OpenAiCompatiblePayloadResolver.parseExtraHeaders(
                 modelConfig.getExtraHeadersJson());
         log.info("OpenAI 兼容非流式(NON_STREAM), providerCode={}, model={}, messagesSize={}",

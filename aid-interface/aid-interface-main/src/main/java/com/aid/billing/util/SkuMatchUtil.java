@@ -2,6 +2,7 @@ package com.aid.billing.util;
 
 import java.util.Collection;
 import java.util.Map;
+import java.math.BigDecimal;
 
 /**
  * SKU匹配工具：根据命中的条件Map和实际参数Map判断是否匹配。
@@ -24,6 +25,7 @@ public final class SkuMatchUtil {
         if (matchConditions == null || matchConditions.isEmpty()) {
             return true;
         }
+        if (actualParams == null) return false;
         for (Map.Entry<String, Object> entry : matchConditions.entrySet()) {
             String key = entry.getKey();
             Object matchValue = entry.getValue();
@@ -44,6 +46,10 @@ public final class SkuMatchUtil {
                 if (matchConditions.containsKey(minKey)) {
                     continue;
                 }
+                if (!checkRange(actualParams.get(key.substring(0, key.length() - 3)), null, matchValue)) {
+                    return false;
+                }
+                continue;
             }
 
             // 等值匹配：忽略大小写。清晰度/生成模式等枚举在不同来源大小写不统一
@@ -67,6 +73,11 @@ public final class SkuMatchUtil {
     }
 
     private static boolean equalsIgnoreCase(Object expected, Object actual) {
+        if (expected == null || actual == null) return false;
+        if (expected instanceof Number || actual instanceof Number) {
+            try { return new BigDecimal(String.valueOf(expected)).compareTo(new BigDecimal(String.valueOf(actual))) == 0; }
+            catch (NumberFormatException ex) { return false; }
+        }
         return String.valueOf(expected).equalsIgnoreCase(String.valueOf(actual));
     }
 
@@ -77,23 +88,18 @@ public final class SkuMatchUtil {
         if (actual == null) {
             return false;
         }
-        double actualNum = toDouble(actual);
-        if (min != null && actualNum < toDouble(min)) {
+        try {
+            BigDecimal actualNum = new BigDecimal(String.valueOf(actual));
+            if (min != null && actualNum.compareTo(new BigDecimal(String.valueOf(min))) < 0) {
+                return false;
+            }
+            if (max != null && actualNum.compareTo(new BigDecimal(String.valueOf(max))) > 0) {
+                return false;
+            }
+            return true;
+        } catch (NumberFormatException ex) {
+            // NaN、Infinity 和非数值参数均不命中计费档位，不允许绕过区间。
             return false;
         }
-        if (max != null && actualNum > toDouble(max)) {
-            return false;
-        }
-        return true;
-    }
-
-    /**
-     * 将Object转为double
-     */
-    private static double toDouble(Object value) {
-        if (value instanceof Number) {
-            return ((Number) value).doubleValue();
-        }
-        return Double.parseDouble(String.valueOf(value));
     }
 }

@@ -7,6 +7,7 @@ import com.aid.media.dto.MediaVideoGenerateRequest;
 import com.aid.media.dto.ReferenceAudioInput;
 import com.aid.media.provider.MinimaxH3VideoRequestBuilder;
 import com.aid.media.provider.ProviderTaskResult;
+import com.aid.media.provider.ProviderSubmitResult;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 
@@ -20,6 +21,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class MinimaxH3VideoProviderClientTest {
+
+    @Test
+    void preservesSanitizedHttpFailureForUnifiedErrorClassification() {
+        ProviderSubmitResult result = MinimaxH3VideoProviderClient.parseSubmitResponse(
+                404, "{\"error\":{\"message\":\"model not found\"}}");
+
+        assertEquals(null, result.getProviderTaskId());
+        assertEquals("HTTP 404: model not found", result.getRawResponse());
+    }
 
     @Test
     void baseUrlAllowsProxyOriginsButRejectsUnsafeGatewayShapes() {
@@ -205,6 +215,15 @@ class MinimaxH3VideoProviderClientTest {
         assertEquals("SUCCEEDED", firstFrameZeroOmission.getStatus());
         assertEquals(0, firstFrameZeroOmission.getInputVideoSeconds());
         assertEquals(1, firstFrameZeroOmission.getInputImageCount());
+
+        ProviderTaskResult unifiedFirstFrame = MinimaxH3VideoProviderClient.parseQueryResponse(200,
+            "{\"task\":{\"id\":\"t7\",\"model\":\"MiniMax-H3\","
+                + "\"task_type\":\"generation\",\"modality\":\"video\",\"status\":\"succeeded\","
+                + "\"content\":{\"url\":\"https://cdn.test/out.mp4\"},"
+                + "\"usage\":{\"output_seconds\":6}}}",
+            "t7", "image_to_video");
+        assertEquals("SUCCEEDED", unifiedFirstFrame.getStatus());
+        assertEquals(1, unifiedFirstFrame.getInputImageCount());
     }
 
     @SuppressWarnings("unchecked")

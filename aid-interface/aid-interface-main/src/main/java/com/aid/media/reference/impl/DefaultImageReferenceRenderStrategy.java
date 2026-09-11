@@ -33,7 +33,7 @@ public class DefaultImageReferenceRenderStrategy extends AbstractImageReferenceR
     {
         String prompt = stripMappingSection(ctx.getOriginalPrompt());
 
-        // 引用类型 URL（按 N 顺序）→ 统一上限截断
+        // 引用类型 URL（按 N 顺序）→ 统一上限校验
         List<ResolvedImageReference> refs = pickReferenceType(ctx.getReferences());
         List<String> urls = new ArrayList<>();
         for (ResolvedImageReference r : refs)

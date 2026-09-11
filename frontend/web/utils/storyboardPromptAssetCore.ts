@@ -1,13 +1,13 @@
 /** 分镜图描述框内 @图片N[name] 资产引用 */
 
-export type PromptAssetType = 'scene' | 'character' | 'prop' | 'other' | 'audio'
+export type PromptAssetType = 'scene' | 'character' | 'prop' | 'other' | 'audio' | 'video'
 
 export interface PromptAssetItem {
   assetId: string
   assetType: PromptAssetType
   /** API 占位 name（不含 @） */
   name: string
-  /** @图片N / @音频N 中的 N */
+  /** @图片N / @音频N / @视频N 中的 N（各媒体类型独立编号） */
   imageIndex: number
   url?: string
   /** 展示用，如 @场景1 / @音频-法海 */
@@ -32,7 +32,8 @@ const TYPE_LABEL: Record<PromptAssetType, string> = {
   character: '角色',
   prop: '道具',
   other: '其他',
-  audio: '音频'
+  audio: '音频',
+  video: '视频'
 }
 
 function stripAt(s: string): string {
@@ -167,8 +168,10 @@ export function buildPromptAssetsFromResolve(
   )
 }
 
-function promptAssetMediaKind(asset: Pick<PromptAssetItem, 'assetType'>): 'audio' | 'image' {
-  return asset.assetType === 'audio' ? 'audio' : 'image'
+function promptAssetMediaKind(asset: Pick<PromptAssetItem, 'assetType'>): 'audio' | 'video' | 'image' {
+  if (asset.assetType === 'audio') return 'audio'
+  if (asset.assetType === 'video') return 'video'
+  return 'image'
 }
 
 function promptAssetStableIdentity(asset: PromptAssetItem): string {
@@ -179,7 +182,7 @@ function promptAssetStableIdentity(asset: PromptAssetItem): string {
 
 function isProvisionalPromptAssetId(value: unknown): boolean {
   const id = String(value || '').trim()
-  return !id || /^(?:resolved|placeholder|audio-placeholder)-/.test(id)
+  return !id || /^(?:resolved|placeholder|audio-placeholder|video-placeholder)-/.test(id)
 }
 
 /** 仅按稳定身份去重；同名资产必须保留，序号冲突则在各媒体命名空间内顺延。 */
@@ -187,7 +190,8 @@ export function dedupePromptAssets(assets: PromptAssetItem[]): PromptAssetItem[]
   const seen = new Set<string>()
   const usedIndexes = {
     image: new Set<number>(),
-    audio: new Set<number>()
+    audio: new Set<number>(),
+    video: new Set<number>()
   }
   const result: PromptAssetItem[] = []
   for (const item of assets) {
@@ -328,6 +332,12 @@ export function formatAudioApiPlaceholder(audioIndex: number, name: string): str
   return `@音频${n}[${full}]`
 }
 
+export function formatVideoApiPlaceholder(videoIndex: number, name: string): string {
+  const n = Math.max(1, Math.floor(Number(videoIndex) || 1))
+  const safeName = normalizePromptAssetPlaceholderName(name, '未命名视频')
+  return `@视频${n}[${safeName}]`
+}
+
 /** 将参考音频媒体项转为可点击的 prompt 资产（供文本域 @音频 chip） */
 export function collectPromptAudioAssetsFromMedia(
   audios: Array<{
@@ -356,6 +366,35 @@ export function collectPromptAudioAssetsFromMedia(
     })
   })
   return list
+}
+
+/** 将参考视频媒体项转为可点击的 prompt 资产（供文本域 @视频 chip）。 */
+export function collectPromptVideoAssetsFromMedia(
+  videos: Array<{
+    id?: string | number
+    name?: string
+    title?: string
+    url?: string
+    thumbnail?: string
+    referenceVideoRecordId?: number
+  }>
+): PromptAssetItem[] {
+  return (videos || []).map((video, index) => {
+    const name = normalizePromptAssetPlaceholderName(
+      video?.name || video?.title,
+      `参考视频${index + 1}`
+    )
+    return {
+      assetId: String(
+        video?.referenceVideoRecordId ?? video?.id ?? `video-${index}-${name}`
+      ),
+      assetType: 'video',
+      name,
+      imageIndex: index + 1,
+      url: String(video?.url || video?.thumbnail || '').trim() || undefined,
+      label: `@${name}`
+    }
+  })
 }
 
 /** 资产库内记录（aid_role_prop_scene_form_image）使用数字 ID */
@@ -476,6 +515,7 @@ export function splitResolvedPromptAssetsToReferenceBuckets(
     other: [] as StoryboardReferenceImageItem[]
   }
   for (const asset of assets) {
+    if (asset.assetType === 'audio' || asset.assetType === 'video') continue
     const item = promptAssetToReferenceImageItem(asset)
     if (!item) continue
     let type: PromptAssetType = asset.assetType
@@ -511,11 +551,18 @@ export function buildStoryboardVideoReferenceOverrides(
 }
 
 export function promptAssetRefToPlaceholder(v: PromptAssetRefValue): string {
+  if (v.assetType === 'audio') return formatAudioApiPlaceholder(v.imageIndex, v.name)
+  if (v.assetType === 'video') return formatVideoApiPlaceholder(v.imageIndex, v.name)
   return formatAssetApiPlaceholder(v.imageIndex, v.name)
 }
 
 export function promptAssetItemToRefValue(item: PromptAssetItem): PromptAssetRefValue {
-  const fallbackName = item.assetType === 'audio' ? '音频-未命名' : '参考图'
+  const fallbackName =
+    item.assetType === 'audio'
+      ? '音频-未命名'
+      : item.assetType === 'video'
+        ? '未命名视频'
+        : '参考图'
   const name = normalizePromptAssetPlaceholderName(item.name || item.label, fallbackName)
   const labelName = normalizePromptAssetPlaceholderName(item.label || name, name)
   return {

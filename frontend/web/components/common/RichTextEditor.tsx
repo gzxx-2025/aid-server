@@ -43,6 +43,7 @@ import {
   dedupePromptAssets,
   formatAssetApiPlaceholder,
   formatAudioApiPlaceholder,
+  formatVideoApiPlaceholder,
   isEmptyPromptAssetUrl,
   plainTextLengthForPrompt,
   promptAssetItemToRefValue,
@@ -226,10 +227,10 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
     const pickerPromptAssets = useMemo(() => {
       const all = dedupePromptAssets(props.promptAssets)
       const selected = all.find((a) => a.assetId === pickerSelectedAssetId)
-      if (selected?.assetType === 'audio') {
-        return all.filter((a) => a.assetType === 'audio')
+      if (selected?.assetType === 'audio' || selected?.assetType === 'video') {
+        return all.filter((a) => a.assetType === selected.assetType)
       }
-      return all.filter((a) => a.assetType !== 'audio')
+      return all.filter((a) => a.assetType !== 'audio' && a.assetType !== 'video')
        
     }, [props.promptAssets, pickerSelectedAssetId])
 
@@ -930,6 +931,8 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
             const apiPlaceholder =
               item.assetType === 'audio'
                 ? formatAudioApiPlaceholder(item.imageIndex, item.name)
+                : item.assetType === 'video'
+                  ? formatVideoApiPlaceholder(item.imageIndex, item.name)
                 : formatAssetApiPlaceholder(item.imageIndex, item.name)
             const plainRange =
               findPlainTagQuillRange(quill, apiPlaceholder) ||

@@ -1,0 +1,3475 @@
+{
+  "schemaVersion": 1,
+  "catalogSnapshotDate": "2026-09-08",
+  "verifiedAt": "2026-09-08",
+  "defaultActivationPolicy": "MANUAL_REVIEW_REQUIRED",
+  "requiredActivationChecks": [
+    "PROTOCOL_RUNTIME_VERIFICATION_REQUIRED",
+    "PRICING_COVERAGE_REQUIRED",
+    "CREDENTIAL_REQUIRED"
+  ],
+  "models": [
+    {
+      "modelId": "minimax-h3-max",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "glm-4.7",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "glm-5",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "qwen3-max",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "deepseek-v3.2",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "minimax-m2.5",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "kimi-k2.5",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "minimax-m2.7",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "glm-4.5-air",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "glm-4.6v",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "step-3.5-flash",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "seed-2.0-pro",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "seed-2.0-lite",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "seed-2.0-mini",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "glm-5v-turbo",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "seedream-5.0-lite",
+      "evidenceStatus": "VERIFIED",
+      "verifiedAt": "2026-09-09",
+      "evidence": [
+        {
+          "title": "TokenDance Seedream 系列最佳实践",
+          "url": "https://tokendance.space/docs/ark-image-generations.md"
+        },
+        {
+          "title": "火山方舟图片生成接口",
+          "url": "https://docs.volcengine.com/docs/82379/1520757"
+        }
+      ],
+      "activationBlockers": [
+        "PROTOCOL_RUNTIME_VERIFICATION_REQUIRED",
+        "PRICING_COVERAGE_REQUIRED"
+      ],
+      "protocols": {
+        "ark:image-generations": {
+          "coverageStatus": "COMPLETE",
+          "capability": {
+            "inputModalities": ["TEXT", "IMAGE"],
+            "outputModalities": ["IMAGE"],
+            "supportsStreaming": true,
+            "supportsBuiltinTools": false,
+            "sizeOptions": ["2K", "3K", "4K"],
+            "supportsAspectRatio": true,
+            "aspectRatioOptions": ["1:1", "4:3", "3:4", "16:9", "9:16", "3:2", "2:3", "21:9"],
+            "allowCustomWH": true,
+            "minOutputPixels": 3686400,
+            "maxOutputPixels": 16777216,
+            "minReferenceImages": 0,
+            "maxReferenceImages": 14,
+            "referenceImageFormats": ["jpeg", "png", "webp", "bmp", "tiff", "gif", "heic", "heif"],
+            "referenceImageMaxFileSizeMb": 30,
+            "referenceImageMinDimensionPixels": 15,
+            "referenceImageMaxPixels": 36000000,
+            "referenceImageMinAspectRatio": 0.0625,
+            "referenceImageMaxAspectRatio": 16,
+            "supportsBase64Image": true,
+            "outputFormatOptions": ["png", "jpeg"],
+            "defaultOutputFormat": "png"
+          },
+          "requirements": [],
+          "unresolved": []
+        },
+        "openai:image-generations": {
+          "coverageStatus": "COMPLETE",
+          "capability": {
+            "inputModalities": ["TEXT"],
+            "outputModalities": ["IMAGE"],
+            "supportsImageInput": false,
+            "supportsStreaming": false,
+            "supportsBuiltinTools": false,
+            "sizeOptions": ["2K", "3K", "4K"],
+            "allowCustomWH": true,
+            "minOutputPixels": 3686400,
+            "maxOutputPixels": 16777216,
+            "supportsAspectRatio": true,
+            "aspectRatioOptions": ["1:1", "4:3", "3:4", "16:9", "9:16", "3:2", "2:3", "21:9"],
+            "minReferenceImages": 0,
+            "maxReferenceImages": 0,
+            "supportsBase64Image": false,
+            "outputFormatOptions": ["png", "jpeg"],
+            "defaultOutputFormat": "png"
+          },
+          "requirements": [],
+          "unresolved": []
+        }
+      }
+    },
+    {
+      "modelId": "qwen3.6-max-preview",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "glm-5.1",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "qwen3-vl-plus",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "kimi-k2.6",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "qwen3.5-plus",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "qwen3.5-flash",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "happyhorse-1.0-video-edit",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "happyhorse-1.0-i2v",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "happyhorse-1.0-t2v",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "happyhorse-1.0-r2v",
+      "evidenceStatus": "VERIFIED",
+      "verifiedAt": "2026-09-08",
+      "evidence": [
+        {
+          "title": "TokenDance AI 接入索引",
+          "url": "https://tokendance.space/docs/ai-integration"
+        },
+        {
+          "title": "阿里云百炼 HappyHorse 参考生视频 API",
+          "url": "https://help.aliyun.com/en/model-studio/happyhorse-reference-to-video-api-reference"
+        }
+      ],
+      "activationBlockers": [
+        "PROTOCOL_RUNTIME_VERIFICATION_REQUIRED",
+        "PRICING_COVERAGE_REQUIRED"
+      ],
+      "protocols": {
+        "happyhorse:video-synthesis": {
+          "coverageStatus": "COMPLETE",
+          "capability": {
+            "inputModalities": [
+              "TEXT",
+              "IMAGE"
+            ],
+            "outputModalities": [
+              "VIDEO"
+            ],
+            "allowedScenes": [
+              "referenceToVideo"
+            ],
+            "strictSceneRules": true,
+            "sceneRules": {
+              "referenceToVideo": {
+                "requiredInputs": [
+                  "text",
+                  "image"
+                ],
+                "allowedInputs": [
+                  "text",
+                  "image"
+                ]
+              }
+            },
+            "maxPromptCharacters": 5000,
+            "maxPromptCharactersCjk": 2500,
+            "sizeOptions": [
+              "720P",
+              "1080P"
+            ],
+            "defaultSize": "1080P",
+            "aspectRatioOptions": [
+              "16:9",
+              "9:16",
+              "3:4",
+              "4:3",
+              "4:5",
+              "5:4",
+              "1:1",
+              "9:21",
+              "21:9"
+            ],
+            "defaultAspectRatio": "16:9",
+            "durationOptions": [
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15
+            ],
+            "defaultDurationSeconds": 5,
+            "outputFormatOptions": [
+              "mp4"
+            ],
+            "defaultOutputFormat": "mp4",
+            "outputFpsOptions": [
+              24
+            ],
+            "defaultOutputFps": 24,
+            "supportsAudio": true,
+            "defaultAudio": true,
+            "upstreamAudioField": "none",
+            "minReferenceImages": 1,
+            "maxReferenceImages": 9,
+            "referenceImageFormats": [
+              "jpeg",
+              "jpg",
+              "png",
+              "webp"
+            ],
+            "referenceImageMaxFileSizeMb": 20,
+            "referenceImageMinDimensionPixels": 400,
+            "supportsBase64Image": true
+          },
+          "requirements": [
+            {
+              "code": "PROMPT_REQUIRED",
+              "kind": "REQUIRED",
+              "field": "prompt",
+              "minCount": 1
+            },
+            {
+              "code": "PROMPT_LIMIT_BY_LANGUAGE",
+              "kind": "CONDITIONAL_MAX",
+              "field": "promptCharacters",
+              "cases": [
+                {
+                  "when": "CHINESE",
+                  "max": 2500
+                },
+                {
+                  "when": "NON_CHINESE",
+                  "max": 5000
+                }
+              ]
+            }
+          ],
+          "unresolved": []
+        }
+      }
+    },
+    {
+      "modelId": "deepseek-v4-pro",
+      "evidenceStatus": "VERIFIED",
+      "verifiedAt": "2026-09-08",
+      "evidence": [
+        {
+          "title": "DeepSeek API 文档",
+          "url": "https://api-docs.deepseek.com/zh-cn/"
+        }
+      ],
+      "activationBlockers": [
+        "PROTOCOL_RUNTIME_VERIFICATION_REQUIRED",
+        "PRICING_COVERAGE_REQUIRED"
+      ],
+      "protocols": {
+        "anthropic:messages": {
+          "coverageStatus": "COMPLETE",
+          "capability": {
+            "inputModalities": [
+              "TEXT"
+            ],
+            "outputModalities": [
+              "TEXT"
+            ],
+            "supportsImageInput": false,
+            "supportsAudioInput": false,
+            "supportsDocumentInput": false,
+            "contextWindowTokens": 1048576,
+            "maxOutputTokens": 393216,
+            "supportsReasoning": true,
+            "supportsReasoningDisable": true,
+            "supportsReasoningContent": true
+          },
+          "requirements": [],
+          "unresolved": []
+        },
+        "openai:chat-completions": {
+          "coverageStatus": "COMPLETE",
+          "capability": {
+            "inputModalities": [
+              "TEXT"
+            ],
+            "outputModalities": [
+              "TEXT"
+            ],
+            "supportsImageInput": false,
+            "supportsAudioInput": false,
+            "supportsDocumentInput": false,
+            "contextWindowTokens": 1048576,
+            "maxOutputTokens": 393216,
+            "supportsReasoning": true,
+            "supportsReasoningDisable": true,
+            "supportsReasoningContent": true
+          },
+          "requirements": [],
+          "unresolved": []
+        },
+        "openai:responses": {
+          "coverageStatus": "COMPLETE",
+          "capability": {
+            "inputModalities": [
+              "TEXT"
+            ],
+            "outputModalities": [
+              "TEXT"
+            ],
+            "supportsImageInput": false,
+            "supportsAudioInput": false,
+            "supportsDocumentInput": false,
+            "contextWindowTokens": 1048576,
+            "maxOutputTokens": 393216,
+            "supportsReasoning": true,
+            "supportsReasoningDisable": true,
+            "supportsReasoningContent": true
+          },
+          "requirements": [],
+          "unresolved": []
+        }
+      }
+    },
+    {
+      "modelId": "qwen3.6-plus",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "mimo-v2.5-pro",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "seedance-2.0",
+      "evidenceStatus": "VERIFIED",
+      "verifiedAt": "2026-09-08",
+      "evidence": [
+        {
+          "title": "火山方舟 Seedance 模型能力与使用限制",
+          "url": "https://docs.volcengine.com/docs/82379/2607688"
+        }
+      ],
+      "activationBlockers": [
+        "PROTOCOL_RUNTIME_VERIFICATION_REQUIRED",
+        "PRICING_COVERAGE_REQUIRED"
+      ],
+      "protocols": {
+        "seedance:generations": {
+          "coverageStatus": "COMPLETE",
+          "capability": {
+            "inputModalities": [
+              "TEXT",
+              "IMAGE",
+              "VIDEO",
+              "AUDIO"
+            ],
+            "outputModalities": [
+              "VIDEO"
+            ],
+            "sizeOptions": [
+              "480P",
+              "720P",
+              "1080P",
+              "4K"
+            ],
+            "aspectRatioOptions": [
+              "21:9",
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16",
+              "adaptive"
+            ],
+            "durationOptions": [
+              -1,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15
+            ],
+            "outputFormatOptions": [
+              "mp4"
+            ],
+            "defaultOutputFormat": "mp4",
+            "outputFpsOptions": [24],
+            "defaultOutputFps": 24,
+            "supportsAudio": true,
+            "minReferenceImages": 0,
+            "maxReferenceImages": 9,
+            "referenceImageFormats": [
+              "jpeg",
+              "png",
+              "webp",
+              "bmp",
+              "tiff",
+              "gif",
+              "heic",
+              "heif"
+            ],
+            "referenceImageMaxFileSizeMb": 30,
+            "referenceImageMinDimensionPixels": 300,
+            "referenceImageMaxDimensionPixels": 6000,
+            "referenceImageMinAspectRatio": 0.4,
+            "referenceImageMaxAspectRatio": 2.5,
+            "supportsBase64Image": true,
+            "supportsVideoInput": true,
+            "maxReferenceVideos": 3,
+            "referenceVideoFormats": [
+              "mp4",
+              "mov"
+            ],
+            "referenceVideoMaxFileSizeMb": 200,
+            "referenceVideoMinDurationSeconds": 2,
+            "referenceVideoMaxDurationSeconds": 15,
+            "referenceVideoMaxTotalDurationSeconds": 15,
+            "referenceVideoMinDimensionPixels": 300,
+            "referenceVideoMaxDimensionPixels": 6000,
+            "referenceVideoMinPixels": 407696,
+            "referenceVideoMaxPixels": 8295044,
+            "referenceVideoMinAspectRatio": 0.4,
+            "referenceVideoMaxAspectRatio": 2.5,
+            "referenceVideoMinFps": 24,
+            "referenceVideoMaxFps": 60,
+            "supportsReferenceAudio": true,
+            "referenceAudioRequiresVisualInput": true,
+            "maxReferenceAudios": 3,
+            "referenceAudioFormats": [
+              "wav",
+              "mp3"
+            ],
+            "referenceAudioMaxFileSizeMb": 15,
+            "referenceAudioMinDurationSeconds": 2,
+            "referenceAudioMaxDurationSeconds": 15,
+            "referenceAudioMaxTotalDurationSeconds": 15,
+            "maxReferenceMaterials": 15,
+            "maxInputMediaTotalFileSizeMb": 64
+          },
+          "requirements": [
+            {
+              "code": "PROMPT_REQUIRED",
+              "kind": "REQUIRED",
+              "field": "prompt",
+              "minCount": 1
+            },
+            {
+              "code": "VIDEO_TOTAL_PIXELS_RANGE",
+              "kind": "RANGE",
+              "field": "referenceVideoPixels",
+              "min": 407696,
+              "max": 8295044
+            },
+            {
+              "code": "REFERENCE_AUDIO_DEPENDS_ON_VISUAL",
+              "kind": "REQUIRES_ANY",
+              "when": {
+                "modality": "AUDIO"
+              },
+              "thenAny": [
+                {
+                  "modality": "IMAGE"
+                },
+                {
+                  "modality": "VIDEO"
+                }
+              ]
+            }
+          ],
+          "unresolved": []
+        }
+      }
+    },
+    {
+      "modelId": "mimo-v2.5",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "seedance-2.0-fast",
+      "evidenceStatus": "VERIFIED",
+      "verifiedAt": "2026-09-08",
+      "evidence": [
+        {
+          "title": "火山方舟 Seedance 模型能力与使用限制",
+          "url": "https://docs.volcengine.com/docs/82379/2607688"
+        }
+      ],
+      "activationBlockers": [
+        "PROTOCOL_RUNTIME_VERIFICATION_REQUIRED",
+        "PRICING_COVERAGE_REQUIRED"
+      ],
+      "protocols": {
+        "seedance:generations": {
+          "coverageStatus": "COMPLETE",
+          "capability": {
+            "inputModalities": [
+              "TEXT",
+              "IMAGE",
+              "VIDEO",
+              "AUDIO"
+            ],
+            "outputModalities": [
+              "VIDEO"
+            ],
+            "sizeOptions": [
+              "480P",
+              "720P"
+            ],
+            "aspectRatioOptions": [
+              "21:9",
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16",
+              "adaptive"
+            ],
+            "durationOptions": [
+              -1,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15
+            ],
+            "outputFormatOptions": [
+              "mp4"
+            ],
+            "defaultOutputFormat": "mp4",
+            "outputFpsOptions": [24],
+            "defaultOutputFps": 24,
+            "supportsAudio": true,
+            "minReferenceImages": 0,
+            "maxReferenceImages": 9,
+            "referenceImageFormats": [
+              "jpeg",
+              "png",
+              "webp",
+              "bmp",
+              "tiff",
+              "gif",
+              "heic",
+              "heif"
+            ],
+            "referenceImageMaxFileSizeMb": 30,
+            "referenceImageMinDimensionPixels": 300,
+            "referenceImageMaxDimensionPixels": 6000,
+            "referenceImageMinAspectRatio": 0.4,
+            "referenceImageMaxAspectRatio": 2.5,
+            "supportsBase64Image": true,
+            "supportsVideoInput": true,
+            "maxReferenceVideos": 3,
+            "referenceVideoFormats": [
+              "mp4",
+              "mov"
+            ],
+            "referenceVideoMaxFileSizeMb": 200,
+            "referenceVideoMinDurationSeconds": 2,
+            "referenceVideoMaxDurationSeconds": 15,
+            "referenceVideoMaxTotalDurationSeconds": 15,
+            "referenceVideoMinDimensionPixels": 300,
+            "referenceVideoMaxDimensionPixels": 6000,
+            "referenceVideoMinPixels": 407696,
+            "referenceVideoMaxPixels": 8295044,
+            "referenceVideoMinAspectRatio": 0.4,
+            "referenceVideoMaxAspectRatio": 2.5,
+            "referenceVideoMinFps": 24,
+            "referenceVideoMaxFps": 60,
+            "supportsReferenceAudio": true,
+            "referenceAudioRequiresVisualInput": true,
+            "maxReferenceAudios": 3,
+            "referenceAudioFormats": [
+              "wav",
+              "mp3"
+            ],
+            "referenceAudioMaxFileSizeMb": 15,
+            "referenceAudioMinDurationSeconds": 2,
+            "referenceAudioMaxDurationSeconds": 15,
+            "referenceAudioMaxTotalDurationSeconds": 15,
+            "maxReferenceMaterials": 15,
+            "maxInputMediaTotalFileSizeMb": 64
+          },
+          "requirements": [
+            {
+              "code": "PROMPT_REQUIRED",
+              "kind": "REQUIRED",
+              "field": "prompt",
+              "minCount": 1
+            },
+            {
+              "code": "VIDEO_TOTAL_PIXELS_RANGE",
+              "kind": "RANGE",
+              "field": "referenceVideoPixels",
+              "min": 407696,
+              "max": 8295044
+            },
+            {
+              "code": "REFERENCE_AUDIO_DEPENDS_ON_VISUAL",
+              "kind": "REQUIRES_ANY",
+              "when": {
+                "modality": "AUDIO"
+              },
+              "thenAny": [
+                {
+                  "modality": "IMAGE"
+                },
+                {
+                  "modality": "VIDEO"
+                }
+              ]
+            }
+          ],
+          "unresolved": []
+        }
+      }
+    },
+    {
+      "modelId": "deepseek-chat-v3-0324",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "mimo-v2.5-tts",
+      "evidenceStatus": "VERIFIED",
+      "verifiedAt": "2026-09-08",
+      "evidence": [
+        {
+          "title": "MiMo TTS API",
+          "url": "https://mimo.mi.com/static/docs/api/audio/tts.md"
+        },
+        {
+          "title": "MiMo V2.5 语音合成指南",
+          "url": "https://mimo.mi.com/static/docs/quick-start/usage-guide/audio/speech-synthesis-v2.5.md"
+        }
+      ],
+      "activationBlockers": [
+        "PROTOCOL_RUNTIME_VERIFICATION_REQUIRED",
+        "PRICING_COVERAGE_REQUIRED"
+      ],
+      "protocols": {
+        "openai:chat-completions": {
+          "coverageStatus": "COMPLETE",
+          "capability": {
+            "inputModalities": [
+              "TEXT"
+            ],
+            "outputModalities": [
+              "AUDIO"
+            ],
+            "audioOperation": "synthesis",
+            "ttsTextRequired": true,
+            "ttsVoiceRequired": true,
+            "builtInVoiceOptions": ["mimo_default", "冰糖", "茉莉", "苏打", "白桦", "Mia", "Chloe", "Milo", "Dean"],
+            "audioFormatOptions": ["wav", "mp3", "pcm", "pcm16"],
+            "defaultAudioFormat": "mp3",
+            "audioSampleRateOptions": [24000],
+            "defaultAudioSampleRate": 24000,
+            "supportsAudioStreaming": false,
+            "supportsTimestamp": false,
+            "supportsEmotionScale": false,
+            "maxPromptCharacters": 10000
+          },
+          "requirements": [
+            {
+              "code": "BUILT_IN_VOICE_ONLY",
+              "kind": "ENUM_SOURCE",
+              "field": "voice",
+              "source": "OFFICIAL_BUILT_IN_VOICES"
+            }
+          ],
+          "unresolved": []
+        }
+      }
+    },
+    {
+      "modelId": "mimo-v2.5-tts-voicedesign",
+      "evidenceStatus": "VERIFIED",
+      "verifiedAt": "2026-09-08",
+      "evidence": [
+        {
+          "title": "MiMo TTS API",
+          "url": "https://mimo.mi.com/static/docs/api/audio/tts.md"
+        },
+        {
+          "title": "MiMo V2.5 语音合成指南",
+          "url": "https://mimo.mi.com/static/docs/quick-start/usage-guide/audio/speech-synthesis-v2.5.md"
+        }
+      ],
+      "activationBlockers": [
+        "PROTOCOL_RUNTIME_VERIFICATION_REQUIRED",
+        "PRICING_COVERAGE_REQUIRED"
+      ],
+      "protocols": {
+        "openai:chat-completions": {
+          "coverageStatus": "COMPLETE",
+          "capability": {
+            "inputModalities": [
+              "TEXT"
+            ],
+            "outputModalities": [
+              "AUDIO"
+            ],
+            "audioOperation": "design",
+            "ttsTextRequired": true,
+            "ttsVoiceRequired": false,
+            "audioFormatOptions": ["wav", "mp3", "pcm", "pcm16"],
+            "defaultAudioFormat": "mp3",
+            "audioSampleRateOptions": [24000],
+            "defaultAudioSampleRate": 24000,
+            "supportsAudioStreaming": false,
+            "supportsTimestamp": false,
+            "supportsEmotionScale": false,
+            "maxPromptCharacters": 10000
+          },
+          "requirements": [
+            {
+              "code": "VOICE_DESIGN_USER_MESSAGE_REQUIRED",
+              "kind": "REQUIRED",
+              "field": "userMessage"
+            },
+            {
+              "code": "VOICE_FIELD_FORBIDDEN",
+              "kind": "FORBIDDEN",
+              "field": "voice"
+            }
+          ],
+          "unresolved": []
+        }
+      }
+    },
+    {
+      "modelId": "mimo-v2.5-tts-voiceclone",
+      "evidenceStatus": "VERIFIED",
+      "verifiedAt": "2026-09-08",
+      "evidence": [
+        {
+          "title": "MiMo TTS API",
+          "url": "https://mimo.mi.com/static/docs/api/audio/tts.md"
+        },
+        {
+          "title": "MiMo V2.5 语音合成指南",
+          "url": "https://mimo.mi.com/static/docs/quick-start/usage-guide/audio/speech-synthesis-v2.5.md"
+        }
+      ],
+      "activationBlockers": [
+        "PROTOCOL_RUNTIME_VERIFICATION_REQUIRED",
+        "PRICING_COVERAGE_REQUIRED"
+      ],
+      "protocols": {
+        "openai:chat-completions": {
+          "coverageStatus": "COMPLETE",
+          "capability": {
+            "inputModalities": [
+              "TEXT"
+            ],
+            "outputModalities": [
+              "AUDIO"
+            ],
+            "audioOperation": "clone",
+            "ttsTextRequired": true,
+            "ttsVoiceRequired": true,
+            "audioFormatOptions": ["wav", "mp3", "pcm", "pcm16"],
+            "defaultAudioFormat": "mp3",
+            "audioSampleRateOptions": [24000],
+            "defaultAudioSampleRate": 24000,
+            "supportsAudioStreaming": false,
+            "supportsTimestamp": false,
+            "supportsEmotionScale": false,
+            "voiceSampleRequired": true,
+            "voiceSampleFormats": ["mp3", "wav"],
+            "voiceSampleMaxFileSizeMb": 7.5,
+            "maxPromptCharacters": 10000
+          },
+          "requirements": [
+            {
+              "code": "VOICE_SAMPLE_REQUIRED",
+              "kind": "REQUIRED",
+              "field": "voiceSampleBase64"
+            },
+            {
+              "code": "VOICE_SAMPLE_FORMAT",
+              "kind": "ENUM",
+              "field": "voiceSampleFormat",
+              "values": [
+                "mp3",
+                "wav"
+              ]
+            },
+            {
+              "code": "ENCODED_SAMPLE_MAX_MIB",
+              "kind": "MAX",
+              "field": "voiceSampleBase64Bytes",
+              "max": 10485760
+            }
+          ],
+          "unresolved": []
+        }
+      }
+    },
+    {
+      "modelId": "qwen3.7-plus",
+      "evidenceStatus": "VERIFIED",
+      "verifiedAt": "2026-09-09",
+      "evidence": [
+        {
+          "title": "阿里云百炼视觉理解",
+          "url": "https://help.aliyun.com/zh/model-studio/vision-model/"
+        }
+      ],
+      "activationBlockers": [
+        "PROTOCOL_RUNTIME_VERIFICATION_REQUIRED",
+        "PRICING_COVERAGE_REQUIRED"
+      ],
+      "protocols": {
+        "anthropic:messages": {
+          "coverageStatus": "COMPLETE",
+          "capability": {
+            "inputModalities": [
+              "TEXT",
+              "IMAGE",
+              "VIDEO"
+            ],
+            "outputModalities": [
+              "TEXT"
+            ],
+            "supportsImageInput": true,
+            "supportsAudioInput": false,
+            "supportsDocumentInput": false,
+            "contextWindowTokens": 1000000,
+            "maxOutputTokens": 65536,
+            "supportsReasoning": true,
+            "supportsReasoningDisable": true,
+            "supportsReasoningContent": true
+          },
+          "requirements": [],
+          "unresolved": []
+        },
+        "openai:chat-completions": {
+          "coverageStatus": "COMPLETE",
+          "capability": {
+            "inputModalities": [
+              "TEXT",
+              "IMAGE",
+              "VIDEO"
+            ],
+            "outputModalities": [
+              "TEXT"
+            ],
+            "supportsImageInput": true,
+            "supportsAudioInput": false,
+            "supportsDocumentInput": false,
+            "contextWindowTokens": 1000000,
+            "maxOutputTokens": 65536,
+            "supportsReasoning": true,
+            "supportsReasoningDisable": true,
+            "supportsReasoningContent": true
+          },
+          "requirements": [],
+          "unresolved": []
+        },
+        "openai:responses": {
+          "coverageStatus": "COMPLETE",
+          "capability": {
+            "inputModalities": [
+              "TEXT",
+              "IMAGE",
+              "VIDEO"
+            ],
+            "outputModalities": [
+              "TEXT"
+            ],
+            "supportsImageInput": true,
+            "supportsAudioInput": false,
+            "supportsDocumentInput": false,
+            "contextWindowTokens": 1000000,
+            "maxOutputTokens": 65536,
+            "supportsReasoning": true,
+            "supportsReasoningDisable": true,
+            "supportsReasoningContent": true
+          },
+          "requirements": [],
+          "unresolved": []
+        }
+      }
+    },
+    {
+      "modelId": "qwen3.7-max",
+      "evidenceStatus": "VERIFIED",
+      "verifiedAt": "2026-09-08",
+      "evidence": [
+        {
+          "title": "阿里云百炼千问模型文档",
+          "url": "https://help.aliyun.com/zh/model-studio/"
+        }
+      ],
+      "activationBlockers": [
+        "PROTOCOL_RUNTIME_VERIFICATION_REQUIRED",
+        "PRICING_COVERAGE_REQUIRED"
+      ],
+      "protocols": {
+        "anthropic:messages": {
+          "coverageStatus": "COMPLETE",
+          "capability": {
+            "inputModalities": [
+              "TEXT"
+            ],
+            "outputModalities": [
+              "TEXT"
+            ],
+            "supportsImageInput": false,
+            "supportsAudioInput": false,
+            "supportsDocumentInput": false,
+            "contextWindowTokens": 1000000,
+            "maxOutputTokens": 65536,
+            "supportsReasoning": true,
+            "supportsReasoningDisable": true,
+            "supportsReasoningContent": true
+          },
+          "requirements": [],
+          "unresolved": []
+        },
+        "openai:chat-completions": {
+          "coverageStatus": "COMPLETE",
+          "capability": {
+            "inputModalities": [
+              "TEXT"
+            ],
+            "outputModalities": [
+              "TEXT"
+            ],
+            "supportsImageInput": false,
+            "supportsAudioInput": false,
+            "supportsDocumentInput": false,
+            "contextWindowTokens": 1000000,
+            "maxOutputTokens": 65536,
+            "supportsReasoning": true,
+            "supportsReasoningDisable": true,
+            "supportsReasoningContent": true
+          },
+          "requirements": [],
+          "unresolved": []
+        },
+        "openai:responses": {
+          "coverageStatus": "COMPLETE",
+          "capability": {
+            "inputModalities": [
+              "TEXT"
+            ],
+            "outputModalities": [
+              "TEXT"
+            ],
+            "supportsImageInput": false,
+            "supportsAudioInput": false,
+            "supportsDocumentInput": false,
+            "contextWindowTokens": 1000000,
+            "maxOutputTokens": 65536,
+            "supportsReasoning": true,
+            "supportsReasoningDisable": true,
+            "supportsReasoningContent": true
+          },
+          "requirements": [],
+          "unresolved": []
+        }
+      }
+    },
+    {
+      "modelId": "minimax-speech-2.8-hd",
+      "evidenceStatus": "VERIFIED",
+      "verifiedAt": "2026-09-08",
+      "evidence": [
+        {
+          "title": "MiniMax Speech 2.8 API",
+          "url": "https://platform.minimaxi.com/docs/api-reference/speech-t2a-http"
+        }
+      ],
+      "activationBlockers": [
+        "PROTOCOL_RUNTIME_VERIFICATION_REQUIRED",
+        "PRICING_COVERAGE_REQUIRED"
+      ],
+      "protocols": {
+        "minimax:t2a_v2": {
+          "coverageStatus": "COMPLETE",
+          "capability": {
+            "inputModalities": [
+              "TEXT"
+            ],
+            "outputModalities": [
+              "AUDIO"
+            ],
+            "audioOperation": "synthesis",
+            "ttsTextRequired": true,
+            "ttsVoiceRequired": true,
+            "audioFormatOptions": ["mp3", "wav", "flac"],
+            "defaultAudioFormat": "mp3",
+            "audioSampleRateOptions": [8000, 16000, 22050, 24000, 32000, 44100],
+            "defaultAudioSampleRate": 32000,
+            "supportsAudioStreaming": false,
+            "supportsTimestamp": true,
+            "speechRateMin": -50,
+            "speechRateMax": 100,
+            "loudnessRateMin": -50,
+            "loudnessRateMax": 100,
+            "pitchMin": -12,
+            "pitchMax": 12,
+            "emotionOptions": ["happy", "sad", "angry", "fearful", "disgusted", "surprised", "calm", "fluent"],
+            "supportsEmotionScale": false,
+            "maxPromptCharacters": 10000
+          },
+          "requirements": [],
+          "unresolved": []
+        },
+        "minimax:t2a_v2_ws": {
+          "coverageStatus": "COMPLETE",
+          "capability": {
+            "inputModalities": [
+              "TEXT"
+            ],
+            "outputModalities": [
+              "AUDIO"
+            ],
+            "audioOperation": "synthesis",
+            "ttsTextRequired": true,
+            "ttsVoiceRequired": true,
+            "audioFormatOptions": ["mp3", "pcm", "flac"],
+            "defaultAudioFormat": "mp3",
+            "audioSampleRateOptions": [8000, 16000, 22050, 24000, 32000, 44100],
+            "defaultAudioSampleRate": 32000,
+            "supportsAudioStreaming": false,
+            "supportsTimestamp": true,
+            "speechRateMin": -50,
+            "speechRateMax": 100,
+            "loudnessRateMin": -50,
+            "loudnessRateMax": 100,
+            "pitchMin": -12,
+            "pitchMax": 12,
+            "emotionOptions": ["happy", "sad", "angry", "fearful", "disgusted", "surprised", "calm", "fluent"],
+            "supportsEmotionScale": false,
+            "maxPromptCharacters": 10000
+          },
+          "requirements": [],
+          "unresolved": []
+        },
+        "minimax:voice_clone": {
+          "coverageStatus": "COMPLETE",
+          "capability": {
+            "inputModalities": [
+              "TEXT"
+            ],
+            "outputModalities": [
+              "AUDIO"
+            ],
+            "audioOperation": "clone",
+            "ttsTextRequired": true,
+            "ttsVoiceRequired": true,
+            "audioFormatOptions": ["mp3"],
+            "defaultAudioFormat": "mp3",
+            "supportsAudioStreaming": false,
+            "supportsTimestamp": false,
+            "supportsEmotionScale": false,
+            "maxPromptCharacters": 1000
+          },
+          "requirements": [],
+          "unresolved": []
+        }
+      }
+    },
+    {
+      "modelId": "minimax-speech-2.8-turbo",
+      "evidenceStatus": "VERIFIED",
+      "verifiedAt": "2026-09-08",
+      "evidence": [
+        {
+          "title": "MiniMax Speech 2.8 API",
+          "url": "https://platform.minimaxi.com/docs/api-reference/speech-t2a-http"
+        }
+      ],
+      "activationBlockers": [
+        "PROTOCOL_RUNTIME_VERIFICATION_REQUIRED",
+        "PRICING_COVERAGE_REQUIRED"
+      ],
+      "protocols": {
+        "minimax:t2a_v2": {
+          "coverageStatus": "COMPLETE",
+          "capability": {
+            "inputModalities": [
+              "TEXT"
+            ],
+            "outputModalities": [
+              "AUDIO"
+            ],
+            "audioOperation": "synthesis",
+            "ttsTextRequired": true,
+            "ttsVoiceRequired": true,
+            "audioFormatOptions": ["mp3", "wav", "flac"],
+            "defaultAudioFormat": "mp3",
+            "audioSampleRateOptions": [8000, 16000, 22050, 24000, 32000, 44100],
+            "defaultAudioSampleRate": 32000,
+            "supportsAudioStreaming": false,
+            "supportsTimestamp": true,
+            "speechRateMin": -50,
+            "speechRateMax": 100,
+            "loudnessRateMin": -50,
+            "loudnessRateMax": 100,
+            "pitchMin": -12,
+            "pitchMax": 12,
+            "emotionOptions": ["happy", "sad", "angry", "fearful", "disgusted", "surprised", "calm", "fluent"],
+            "supportsEmotionScale": false,
+            "maxPromptCharacters": 10000
+          },
+          "requirements": [],
+          "unresolved": []
+        },
+        "minimax:t2a_v2_ws": {
+          "coverageStatus": "COMPLETE",
+          "capability": {
+            "inputModalities": [
+              "TEXT"
+            ],
+            "outputModalities": [
+              "AUDIO"
+            ],
+            "audioOperation": "synthesis",
+            "ttsTextRequired": true,
+            "ttsVoiceRequired": true,
+            "audioFormatOptions": ["mp3", "pcm", "flac"],
+            "defaultAudioFormat": "mp3",
+            "audioSampleRateOptions": [8000, 16000, 22050, 24000, 32000, 44100],
+            "defaultAudioSampleRate": 32000,
+            "supportsAudioStreaming": false,
+            "supportsTimestamp": true,
+            "speechRateMin": -50,
+            "speechRateMax": 100,
+            "loudnessRateMin": -50,
+            "loudnessRateMax": 100,
+            "pitchMin": -12,
+            "pitchMax": 12,
+            "emotionOptions": ["happy", "sad", "angry", "fearful", "disgusted", "surprised", "calm", "fluent"],
+            "supportsEmotionScale": false,
+            "maxPromptCharacters": 10000
+          },
+          "requirements": [],
+          "unresolved": []
+        },
+        "minimax:voice_clone": {
+          "coverageStatus": "COMPLETE",
+          "capability": {
+            "inputModalities": [
+              "TEXT"
+            ],
+            "outputModalities": [
+              "AUDIO"
+            ],
+            "audioOperation": "clone",
+            "ttsTextRequired": true,
+            "ttsVoiceRequired": true,
+            "audioFormatOptions": ["mp3"],
+            "defaultAudioFormat": "mp3",
+            "supportsAudioStreaming": false,
+            "supportsTimestamp": false,
+            "supportsEmotionScale": false,
+            "maxPromptCharacters": 1000
+          },
+          "requirements": [],
+          "unresolved": []
+        }
+      }
+    },
+    {
+      "modelId": "step-3.7-flash",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "hy3-preview",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "kimi-k2.7-code",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "mimo-v2.5-pro-ultraspeed",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "glm-5.2",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "happyhorse-1.1-r2v",
+      "evidenceStatus": "VERIFIED",
+      "verifiedAt": "2026-09-08",
+      "evidence": [
+        {
+          "title": "阿里云百炼 HappyHorse 参考生视频 API",
+          "url": "https://help.aliyun.com/en/model-studio/happyhorse-reference-to-video-api-reference"
+        }
+      ],
+      "activationBlockers": [
+        "PROTOCOL_RUNTIME_VERIFICATION_REQUIRED",
+        "PRICING_COVERAGE_REQUIRED"
+      ],
+      "protocols": {
+        "happyhorse:video-synthesis": {
+          "coverageStatus": "COMPLETE",
+          "capability": {
+            "inputModalities": [
+              "TEXT",
+              "IMAGE"
+            ],
+            "outputModalities": [
+              "VIDEO"
+            ],
+            "allowedScenes": [
+              "referenceToVideo"
+            ],
+            "strictSceneRules": true,
+            "sceneRules": {
+              "referenceToVideo": {
+                "requiredInputs": [
+                  "text",
+                  "image"
+                ],
+                "allowedInputs": [
+                  "text",
+                  "image"
+                ]
+              }
+            },
+            "maxPromptCharacters": 5000,
+            "maxPromptCharactersCjk": 2500,
+            "sizeOptions": [
+              "480P",
+              "720P",
+              "1080P"
+            ],
+            "defaultSize": "1080P",
+            "aspectRatioOptions": [
+              "16:9",
+              "9:16",
+              "3:4",
+              "4:3",
+              "4:5",
+              "5:4",
+              "1:1",
+              "9:21",
+              "21:9"
+            ],
+            "defaultAspectRatio": "16:9",
+            "durationOptions": [
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15
+            ],
+            "defaultDurationSeconds": 5,
+            "outputFormatOptions": [
+              "mp4"
+            ],
+            "defaultOutputFormat": "mp4",
+            "outputFpsOptions": [
+              24
+            ],
+            "defaultOutputFps": 24,
+            "supportsAudio": true,
+            "defaultAudio": true,
+            "upstreamAudioField": "none",
+            "minReferenceImages": 1,
+            "maxReferenceImages": 9,
+            "referenceImageFormats": [
+              "jpeg",
+              "jpg",
+              "png",
+              "webp"
+            ],
+            "referenceImageMaxFileSizeMb": 20,
+            "referenceImageMinDimensionPixels": 400,
+            "supportsBase64Image": true
+          },
+          "requirements": [
+            {
+              "code": "PROMPT_REQUIRED",
+              "kind": "REQUIRED",
+              "field": "prompt",
+              "minCount": 1
+            },
+            {
+              "code": "PROMPT_LIMIT_BY_LANGUAGE",
+              "kind": "CONDITIONAL_MAX",
+              "field": "promptCharacters",
+              "cases": [
+                {
+                  "when": "CHINESE",
+                  "max": 2500
+                },
+                {
+                  "when": "NON_CHINESE",
+                  "max": 5000
+                }
+              ]
+            }
+          ],
+          "unresolved": []
+        }
+      }
+    },
+    {
+      "modelId": "seed-evolving",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "seed-2.1-turbo",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "minimax-m3",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "seed-2.1-pro",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "wan3.0-video",
+      "evidenceStatus": "VERIFIED",
+      "verifiedAt": "2026-09-08",
+      "evidence": [
+        {
+          "title": "阿里云百炼模型与 API 文档",
+          "url": "https://help.aliyun.com/zh/model-studio/"
+        }
+      ],
+      "activationBlockers": [
+        "PROTOCOL_RUNTIME_VERIFICATION_REQUIRED",
+        "PRICING_COVERAGE_REQUIRED"
+      ],
+      "protocols": {
+        "wan3:video-synthesis": {
+          "coverageStatus": "COMPLETE",
+          "capability": {
+            "inputModalities": [
+              "TEXT",
+              "IMAGE",
+              "VIDEO",
+              "AUDIO"
+            ],
+            "outputModalities": [
+              "VIDEO"
+            ],
+            "sizeOptions": [
+              "480P",
+              "720P",
+              "1080P"
+            ],
+            "defaultSize": "1080P",
+            "aspectRatioOptions": [
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16",
+              "adaptive"
+            ],
+            "defaultAspectRatio": "adaptive",
+            "durationOptions": [
+              -1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16,
+              17,
+              18,
+              19,
+              20,
+              21,
+              22,
+              23,
+              24,
+              25,
+              26,
+              27,
+              28,
+              29,
+              30
+            ],
+            "defaultDurationSeconds": 5,
+            "outputFormatOptions": ["mp4"],
+            "defaultOutputFormat": "mp4",
+            "outputFpsOptions": [30],
+            "defaultOutputFps": 30,
+            "maxPromptCharacters": 20000,
+            "supportsTextInput": true,
+            "supportsImageInput": true,
+            "supportsMultiImageInput": true,
+            "supportsVideoInput": true,
+            "supportsAudioInput": true,
+            "supportsSizePreset": true,
+            "supportsAspectRatio": true,
+            "supportsDuration": true,
+            "supportsAudio": true,
+            "defaultAudio": true,
+            "upstreamAudioField": "audio",
+            "minReferenceImages": 0,
+            "maxReferenceImages": 10,
+            "referenceImageFormats": ["jpeg", "jpg", "png", "bmp", "webp"],
+            "referenceImageMaxFileSizeMb": 20,
+            "referenceImageMinDimensionPixels": 240,
+            "referenceImageMaxDimensionPixels": 8000,
+            "referenceImageMinAspectRatio": 0.125,
+            "referenceImageMaxAspectRatio": 8,
+            "supportsBase64Image": true,
+            "maxReferenceVideos": 5,
+            "referenceVideoFormats": ["mp4", "mov"],
+            "referenceVideoMaxFileSizeMb": 100,
+            "referenceVideoMinDurationSeconds": 1,
+            "referenceVideoMaxDurationSeconds": 15,
+            "referenceVideoMaxTotalDurationSeconds": 15,
+            "referenceVideoMinDimensionPixels": 240,
+            "referenceVideoMaxDimensionPixels": 4096,
+            "referenceVideoMinAspectRatio": 0.125,
+            "referenceVideoMaxAspectRatio": 8,
+            "referenceVideoMinFps": 16,
+            "supportsReferenceAudio": true,
+            "maxReferenceAudios": 5,
+            "referenceAudioFormats": ["wav", "mp3"],
+            "referenceAudioMaxFileSizeMb": 15,
+            "referenceAudioMinDurationSeconds": 1,
+            "referenceAudioMaxDurationSeconds": 15,
+            "referenceAudioMaxTotalDurationSeconds": 15,
+            "maxReferenceMaterials": 20,
+            "maxInputOutputVideoDurationSeconds": 30,
+            "allowedScenes": [
+              "textToVideo",
+              "imageToVideo",
+              "startEndToVideo",
+              "referenceToVideo",
+              "videoToVideo"
+            ],
+            "strictSceneRules": true,
+            "sceneRules": {
+              "textToVideo": {
+                "allowedInputs": ["text"]
+              },
+              "imageToVideo": {
+                "requiredInputs": ["firstFrame"],
+                "allowedInputs": ["text", "firstFrame"]
+              },
+              "startEndToVideo": {
+                "requiredInputs": ["firstFrame", "lastFrame"],
+                "allowedInputs": ["text", "firstFrame", "lastFrame"]
+              },
+              "referenceToVideo": {
+                "requiredAnyOf": ["image", "video", "audio"],
+                "allowedInputs": ["text", "image", "video", "audio"]
+              },
+              "videoToVideo": {
+                "requiredInputs": ["video"],
+                "allowedInputs": ["text", "image", "video", "audio"]
+              }
+            }
+          },
+          "requirements": [
+            {
+              "code": "REFERENCE_AND_FRAME_INPUTS_MUTUALLY_EXCLUSIVE",
+              "kind": "MUTUALLY_EXCLUSIVE",
+              "groups": [
+                ["reference_image", "reference_video", "reference_audio"],
+                ["first_frame", "last_frame"]
+              ]
+            },
+            {
+              "code": "VIDEO_INPUT_OUTPUT_TOTAL_MAX",
+              "kind": "SUM_MAX",
+              "fields": ["referenceVideoDurationSeconds", "duration"],
+              "max": 30
+            }
+          ],
+          "unresolved": []
+        }
+      }
+    },
+    {
+      "modelId": "qwen3.8-max",
+      "evidenceStatus": "VERIFIED",
+      "verifiedAt": "2026-09-09",
+      "evidence": [
+        {
+          "title": "阿里云百炼 Qwen3.8 Max 模型信息",
+          "url": "https://help.aliyun.com/zh/model-studio/qwen3-8-max"
+        },
+        {
+          "title": "阿里云百炼 OpenAI Chat Completions 与 Responses API",
+          "url": "https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-responses"
+        }
+      ],
+      "activationBlockers": [
+        "PROTOCOL_RUNTIME_VERIFICATION_REQUIRED",
+        "PRICING_COVERAGE_REQUIRED"
+      ],
+      "protocols": {
+        "openai:chat-completions": {
+          "coverageStatus": "COMPLETE",
+          "capability": {},
+          "requirements": [],
+          "unresolved": []
+        },
+        "openai:responses": {
+          "coverageStatus": "COMPLETE",
+          "capability": {},
+          "requirements": [],
+          "unresolved": []
+        }
+      }
+    },
+    {
+      "modelId": "seedance-2.0-mini",
+      "evidenceStatus": "VERIFIED",
+      "verifiedAt": "2026-09-08",
+      "evidence": [
+        {
+          "title": "火山方舟 Seedance 模型能力与使用限制",
+          "url": "https://docs.volcengine.com/docs/82379/2607688"
+        }
+      ],
+      "activationBlockers": [
+        "PROTOCOL_RUNTIME_VERIFICATION_REQUIRED",
+        "PRICING_COVERAGE_REQUIRED"
+      ],
+      "protocols": {
+        "seedance:generations": {
+          "coverageStatus": "COMPLETE",
+          "capability": {
+            "inputModalities": [
+              "TEXT",
+              "IMAGE",
+              "VIDEO",
+              "AUDIO"
+            ],
+            "outputModalities": [
+              "VIDEO"
+            ],
+            "sizeOptions": [
+              "480P",
+              "720P"
+            ],
+            "aspectRatioOptions": [
+              "21:9",
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16",
+              "adaptive"
+            ],
+            "durationOptions": [
+              -1,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15
+            ],
+            "outputFormatOptions": [
+              "mp4"
+            ],
+            "defaultOutputFormat": "mp4",
+            "outputFpsOptions": [24],
+            "defaultOutputFps": 24,
+            "supportsAudio": true,
+            "minReferenceImages": 0,
+            "maxReferenceImages": 9,
+            "referenceImageFormats": [
+              "jpeg",
+              "png",
+              "webp",
+              "bmp",
+              "tiff",
+              "gif",
+              "heic",
+              "heif"
+            ],
+            "referenceImageMaxFileSizeMb": 30,
+            "referenceImageMinDimensionPixels": 300,
+            "referenceImageMaxDimensionPixels": 6000,
+            "referenceImageMinAspectRatio": 0.4,
+            "referenceImageMaxAspectRatio": 2.5,
+            "supportsBase64Image": true,
+            "supportsVideoInput": true,
+            "maxReferenceVideos": 3,
+            "referenceVideoFormats": [
+              "mp4",
+              "mov"
+            ],
+            "referenceVideoMaxFileSizeMb": 200,
+            "referenceVideoMinDurationSeconds": 2,
+            "referenceVideoMaxDurationSeconds": 15,
+            "referenceVideoMaxTotalDurationSeconds": 15,
+            "referenceVideoMinDimensionPixels": 300,
+            "referenceVideoMaxDimensionPixels": 6000,
+            "referenceVideoMinPixels": 407696,
+            "referenceVideoMaxPixels": 8295044,
+            "referenceVideoMinAspectRatio": 0.4,
+            "referenceVideoMaxAspectRatio": 2.5,
+            "referenceVideoMinFps": 24,
+            "referenceVideoMaxFps": 60,
+            "supportsReferenceAudio": true,
+            "referenceAudioRequiresVisualInput": true,
+            "maxReferenceAudios": 3,
+            "referenceAudioFormats": [
+              "wav",
+              "mp3"
+            ],
+            "referenceAudioMaxFileSizeMb": 15,
+            "referenceAudioMinDurationSeconds": 2,
+            "referenceAudioMaxDurationSeconds": 15,
+            "referenceAudioMaxTotalDurationSeconds": 15,
+            "maxReferenceMaterials": 15,
+            "maxInputMediaTotalFileSizeMb": 64
+          },
+          "requirements": [
+            {
+              "code": "PROMPT_REQUIRED",
+              "kind": "REQUIRED",
+              "field": "prompt",
+              "minCount": 1
+            },
+            {
+              "code": "VIDEO_TOTAL_PIXELS_RANGE",
+              "kind": "RANGE",
+              "field": "referenceVideoPixels",
+              "min": 407696,
+              "max": 8295044
+            },
+            {
+              "code": "REFERENCE_AUDIO_DEPENDS_ON_VISUAL",
+              "kind": "REQUIRES_ANY",
+              "when": {
+                "modality": "AUDIO"
+              },
+              "thenAny": [
+                {
+                  "modality": "IMAGE"
+                },
+                {
+                  "modality": "VIDEO"
+                }
+              ]
+            }
+          ],
+          "unresolved": []
+        }
+      }
+    },
+    {
+      "modelId": "longcat-2.0",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "hy3",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "kling-3.0",
+      "evidenceStatus": "VERIFIED",
+      "verifiedAt": "2026-09-08",
+      "evidence": [
+        {
+          "title": "可灵开放平台 API 文档",
+          "url": "https://klingai.com/document-api"
+        }
+      ],
+      "activationBlockers": [
+        "PROTOCOL_RUNTIME_VERIFICATION_REQUIRED",
+        "PRICING_COVERAGE_REQUIRED"
+      ],
+      "protocols": {
+        "kling:text2video": {
+          "coverageStatus": "COMPLETE",
+          "capability": {
+            "inputModalities": [
+              "TEXT"
+            ],
+            "outputModalities": [
+              "VIDEO"
+            ],
+            "sizeOptions": [
+              "720P",
+              "1080P",
+              "4K"
+            ],
+            "aspectRatioOptions": ["16:9", "9:16", "1:1"],
+            "durationOptions": [
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15
+            ],
+            "outputFormatOptions": [
+              "mp4"
+            ],
+            "defaultOutputFormat": "mp4",
+            "maxPromptCharacters": 2500,
+            "supportsAudio": false,
+            "defaultAudio": false,
+            "minReferenceImages": 0,
+            "maxReferenceImages": 0
+          },
+          "requirements": [],
+          "unresolved": []
+        },
+        "kling:image2video": {
+          "coverageStatus": "COMPLETE",
+          "capability": {
+            "inputModalities": [
+              "TEXT",
+              "IMAGE"
+            ],
+            "outputModalities": [
+              "VIDEO"
+            ],
+            "sizeOptions": [
+              "720P",
+              "1080P",
+              "4K"
+            ],
+            "durationOptions": [
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15
+            ],
+            "outputFormatOptions": [
+              "mp4"
+            ],
+            "defaultOutputFormat": "mp4",
+            "maxPromptCharacters": 2500,
+            "supportsAudio": false,
+            "defaultAudio": false,
+            "minReferenceImages": 1,
+            "maxReferenceImages": 2,
+            "referenceImageFormats": [
+              "jpg",
+              "jpeg",
+              "png"
+            ],
+            "referenceImageMaxFileSizeMb": 50,
+            "referenceImageMinDimensionPixels": 300,
+            "referenceImageMinAspectRatio": 0.4,
+            "referenceImageMaxAspectRatio": 2.5,
+            "supportsBase64Image": false,
+            "supportsFirstFrame": true,
+            "supportsLastFrame": true,
+            "supportsAspectRatio": false,
+            "allowedScenes": ["imageToVideo", "startEndToVideo"],
+            "strictSceneRules": true,
+            "sceneRules": {
+              "imageToVideo": {
+                "requiredInputs": ["firstFrame"],
+                "allowedInputs": ["text", "firstFrame"],
+                "supportsAspectRatio": false
+              },
+              "startEndToVideo": {
+                "requiredInputs": ["firstFrame", "lastFrame"],
+                "allowedInputs": ["text", "firstFrame", "lastFrame"],
+                "supportsAspectRatio": false
+              }
+            }
+          },
+          "requirements": [
+            {
+              "code": "SCENE_IMAGE_COUNT",
+              "kind": "SCENE_DEPENDENT",
+              "field": "referenceImageCount",
+              "scenes": {
+                "FIRST_FRAME": {
+                  "min": 1,
+                  "max": 1
+                },
+                "FIRST_LAST_FRAME": {
+                  "min": 2,
+                  "max": 2
+                },
+                "SUBJECTS": {
+                  "min": 1,
+                  "max": 2
+                }
+              }
+            }
+          ],
+          "unresolved": []
+        }
+      }
+    },
+    {
+      "modelId": "happyhorse-1.1-t2v",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "kimi-k3",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "seedream-5.0-pro",
+      "evidenceStatus": "VERIFIED",
+      "verifiedAt": "2026-09-08",
+      "evidence": [
+        {
+          "title": "火山方舟图片生成模型文档",
+          "url": "https://www.volcengine.com/docs/82379"
+        }
+      ],
+      "activationBlockers": [
+        "PROTOCOL_RUNTIME_VERIFICATION_REQUIRED",
+        "PRICING_COVERAGE_REQUIRED"
+      ],
+      "protocols": {
+        "ark:image-generations": {
+          "coverageStatus": "COMPLETE",
+          "capability": {
+            "inputModalities": [
+              "TEXT",
+              "IMAGE"
+            ],
+            "outputModalities": [
+              "IMAGE"
+            ],
+        "sizeOptions": [
+          "1K",
+          "2K"
+        ],
+        "outputPixelEstimateBySize": {
+          "1K": 1048576,
+          "2K": 4194304
+        },
+        "supportsAspectRatio": true,
+        "aspectRatioOptions": ["1:1", "4:3", "3:4", "16:9", "9:16", "3:2", "2:3", "21:9"],
+        "allowCustomWH": true,
+            "minOutputPixels": 921600,
+            "maxOutputPixels": 4624220,
+            "maxOutputCount": 1,
+            "outputFormatOptions": ["png", "jpeg"],
+            "defaultOutputFormat": "png",
+            "minReferenceImages": 0,
+            "maxReferenceImages": 10,
+            "referenceImageFormats": [
+              "jpeg",
+              "png",
+              "webp",
+              "bmp",
+              "tiff",
+              "gif",
+              "heic",
+              "heif"
+            ],
+            "referenceImageMaxFileSizeMb": 30,
+            "referenceImageMinDimensionPixels": 15,
+            "referenceImageMaxPixels": 36000000,
+            "referenceImageMinAspectRatio": 0.0625,
+            "referenceImageMaxAspectRatio": 16,
+            "supportsBase64Image": true
+          },
+          "requirements": [
+            {
+              "code": "OUTPUT_PIXEL_RANGE",
+              "kind": "RANGE",
+              "field": "outputPixels",
+              "min": 921600,
+              "max": 4624220
+            },
+            {
+              "code": "SINGLE_OUTPUT_ONLY",
+              "kind": "MAX",
+              "field": "outputCount",
+              "max": 1
+            }
+          ],
+          "unresolved": []
+        }
+      }
+    },
+    {
+      "modelId": "qwen3.5-35b-a3b",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "qwen3-30b-a3b-instruct-2507",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "deepseek-v4-flash-0731",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "deepseek-v4-flash",
+      "evidenceStatus": "VERIFIED",
+      "verifiedAt": "2026-09-08",
+      "evidence": [
+        {
+          "title": "DeepSeek API 文档",
+          "url": "https://api-docs.deepseek.com/zh-cn/"
+        }
+      ],
+      "activationBlockers": [
+        "PROTOCOL_RUNTIME_VERIFICATION_REQUIRED",
+        "PRICING_COVERAGE_REQUIRED"
+      ],
+      "protocols": {
+        "anthropic:messages": {
+          "coverageStatus": "COMPLETE",
+          "capability": {
+            "inputModalities": [
+              "TEXT"
+            ],
+            "outputModalities": [
+              "TEXT"
+            ],
+            "supportsImageInput": false,
+            "supportsAudioInput": false,
+            "supportsDocumentInput": false,
+            "contextWindowTokens": 1048576,
+            "maxOutputTokens": 393216,
+            "supportsReasoning": true,
+            "supportsReasoningDisable": true,
+            "supportsReasoningContent": true
+          },
+          "requirements": [],
+          "unresolved": []
+        },
+        "openai:chat-completions": {
+          "coverageStatus": "COMPLETE",
+          "capability": {
+            "inputModalities": [
+              "TEXT"
+            ],
+            "outputModalities": [
+              "TEXT"
+            ],
+            "supportsImageInput": false,
+            "supportsAudioInput": false,
+            "supportsDocumentInput": false,
+            "contextWindowTokens": 1048576,
+            "maxOutputTokens": 393216,
+            "supportsReasoning": true,
+            "supportsReasoningDisable": true,
+            "supportsReasoningContent": true
+          },
+          "requirements": [],
+          "unresolved": []
+        },
+        "openai:responses": {
+          "coverageStatus": "COMPLETE",
+          "capability": {
+            "inputModalities": [
+              "TEXT"
+            ],
+            "outputModalities": [
+              "TEXT"
+            ],
+            "supportsImageInput": false,
+            "supportsAudioInput": false,
+            "supportsDocumentInput": false,
+            "contextWindowTokens": 1048576,
+            "maxOutputTokens": 393216,
+            "supportsReasoning": true,
+            "supportsReasoningDisable": true,
+            "supportsReasoningContent": true
+          },
+          "requirements": [],
+          "unresolved": []
+        }
+      }
+    },
+    {
+      "modelId": "happyhorse-1.1-i2v",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "minimax-h3",
+      "evidenceStatus": "VERIFIED",
+      "verifiedAt": "2026-09-08",
+      "evidence": [
+        {
+          "title": "MiniMax 视频生成 V2 创建任务",
+          "url": "https://platform.minimaxi.com/docs/api-reference/video-generation-v2-create"
+        }
+      ],
+      "activationBlockers": [
+        "PROTOCOL_RUNTIME_VERIFICATION_REQUIRED",
+        "PRICING_COVERAGE_REQUIRED"
+      ],
+      "protocols": {
+        "minimax:video_generation_v2": {
+          "coverageStatus": "COMPLETE",
+          "capability": {
+            "inputModalities": [
+              "TEXT",
+              "IMAGE",
+              "VIDEO",
+              "AUDIO"
+            ],
+            "outputModalities": [
+              "VIDEO"
+            ],
+            "maxPromptCharacters": 7000,
+            "sizeOptions": [
+              "768P",
+              "2K"
+            ],
+            "aspectRatioOptions": [
+              "adaptive",
+              "21:9",
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16"
+            ],
+            "durationOptions": [
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15
+            ],
+            "outputFormatOptions": [
+              "mp4"
+            ],
+            "defaultOutputFormat": "mp4",
+            "minReferenceImages": 0,
+            "maxReferenceImages": 9,
+            "referenceImageFormats": [
+              "jpg",
+              "jpeg",
+              "png",
+              "webp",
+              "heic",
+              "heif"
+            ],
+            "referenceImageMaxFileSizeMb": 30,
+            "referenceImageMinDimensionPixels": 256,
+            "referenceImageMaxDimensionPixels": 5760,
+            "referenceImageMinAspectRatio": 0.4,
+            "referenceImageMaxAspectRatio": 2.5,
+            "supportsBase64Image": true,
+            "supportsVideoInput": true,
+            "maxReferenceVideos": 3,
+            "referenceVideoFormats": [
+              "mp4",
+              "mov"
+            ],
+            "referenceVideoMaxFileSizeMb": 50,
+            "referenceVideoMinDurationSeconds": 2,
+            "referenceVideoMaxDurationSeconds": 15,
+            "referenceVideoMaxTotalDurationSeconds": 15,
+            "referenceVideoMinDimensionPixels": 256,
+            "referenceVideoMaxDimensionPixels": 5760,
+            "referenceVideoMinAspectRatio": 0.4,
+            "referenceVideoMaxAspectRatio": 2.5,
+            "referenceVideoMinFps": 23.976,
+            "referenceVideoMaxFps": 60,
+            "supportsReferenceAudio": true,
+            "referenceAudioRequiresGeneratedAudio": false,
+            "maxReferenceAudios": 3,
+            "referenceAudioFormats": [
+              "wav",
+              "mp3"
+            ],
+            "referenceAudioMaxFileSizeMb": 15,
+            "referenceAudioMinDurationSeconds": 2,
+            "referenceAudioMaxDurationSeconds": 15,
+            "referenceAudioMaxTotalDurationSeconds": 15,
+            "maxReferenceMaterials": 15,
+            "maxInputMediaTotalFileSizeMb": 64
+          },
+          "requirements": [
+            {
+              "code": "PROMPT_REQUIRED",
+              "kind": "REQUIRED",
+              "field": "prompt",
+              "minCount": 1
+            },
+            {
+              "code": "FRAME_AND_REFERENCE_ROLES_MUTEX",
+              "kind": "MUTEX",
+              "leftRoles": [
+                "first_frame",
+                "last_frame"
+              ],
+              "rightRoles": [
+                "reference_image",
+                "reference_video",
+                "reference_audio"
+              ]
+            },
+            {
+              "code": "TEXT_TO_VIDEO_RATIO",
+              "kind": "REQUIRED_ENUM",
+              "scene": "TEXT_TO_VIDEO",
+              "field": "aspectRatio",
+              "values": [
+                "21:9",
+                "16:9",
+                "4:3",
+                "1:1",
+                "3:4",
+                "9:16"
+              ]
+            },
+            {
+              "code": "IMAGE_TO_VIDEO_RATIO",
+              "kind": "FORCE_VALUES",
+              "scene": "FIRST_OR_LAST_FRAME",
+              "values": {
+                "aspectRatio": "adaptive"
+              }
+            }
+          ],
+          "unresolved": []
+        }
+      }
+    },
+    {
+      "modelId": "seedance-2.5",
+      "evidenceStatus": "VERIFIED",
+      "verifiedAt": "2026-09-08",
+      "evidence": [
+        {
+          "title": "TokenDance Seedance Generations（由 AI 接入索引进入）",
+          "url": "https://tokendance.space/docs/protocol-seedance-generations"
+        },
+        {
+          "title": "火山方舟 Seedance 模型能力与使用限制",
+          "url": "https://docs.volcengine.com/docs/82379/2607688"
+        }
+      ],
+      "activationBlockers": [
+        "PROTOCOL_RUNTIME_VERIFICATION_REQUIRED",
+        "PRICING_COVERAGE_REQUIRED"
+      ],
+      "protocols": {
+        "seedance:generations": {
+          "coverageStatus": "COMPLETE",
+          "capability": {
+            "inputModalities": [
+              "TEXT",
+              "IMAGE",
+              "VIDEO",
+              "AUDIO"
+            ],
+            "outputModalities": [
+              "VIDEO"
+            ],
+            "sizeOptions": [
+              "480P",
+              "720P",
+              "1080P"
+            ],
+            "aspectRatioOptions": [
+              "21:9",
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16",
+              "adaptive"
+            ],
+            "durationOptions": [
+              -1,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16,
+              17,
+              18,
+              19,
+              20,
+              21,
+              22,
+              23,
+              24,
+              25,
+              26,
+              27,
+              28,
+              29,
+              30
+            ],
+            "outputFormatOptions": [
+              "mp4",
+              "mov"
+            ],
+            "defaultOutputFormat": "mp4",
+            "outputFpsOptions": [24],
+            "defaultOutputFps": 24,
+            "supportsAudio": true,
+            "minReferenceImages": 0,
+            "maxReferenceImages": 30,
+            "referenceImageFormats": [
+              "jpeg",
+              "png",
+              "webp",
+              "bmp",
+              "tiff",
+              "gif",
+              "heic",
+              "heif"
+            ],
+            "referenceImageMaxFileSizeMb": 30,
+            "referenceImageMinDimensionPixels": 300,
+            "referenceImageMaxDimensionPixels": 6000,
+            "referenceImageMinAspectRatio": 0.4,
+            "referenceImageMaxAspectRatio": 2.5,
+            "supportsBase64Image": true,
+            "supportsVideoInput": true,
+            "maxReferenceVideos": 10,
+            "referenceVideoFormats": [
+              "mp4",
+              "mov"
+            ],
+            "referenceVideoMaxFileSizeMb": 200,
+            "referenceVideoMinDurationSeconds": 2,
+            "referenceVideoMaxDurationSeconds": 30,
+            "referenceVideoMaxTotalDurationSeconds": 30,
+            "referenceVideoMinDimensionPixels": 300,
+            "referenceVideoMaxDimensionPixels": 6000,
+            "referenceVideoMinPixels": 407696,
+            "referenceVideoMaxPixels": 8295044,
+            "referenceVideoMinAspectRatio": 0.4,
+            "referenceVideoMaxAspectRatio": 2.5,
+            "referenceVideoMinFps": 24,
+            "referenceVideoMaxFps": 60,
+            "supportsReferenceAudio": true,
+            "referenceAudioRequiresGeneratedAudio": false,
+            "referenceAudioRequiresVisualInput": false,
+            "maxReferenceAudios": 10,
+            "referenceAudioFormats": [
+              "wav",
+              "mp3"
+            ],
+            "referenceAudioMaxFileSizeMb": 15,
+            "referenceAudioMinDurationSeconds": 2,
+            "referenceAudioMaxDurationSeconds": 30,
+            "referenceAudioMaxTotalDurationSeconds": 30,
+            "maxReferenceMaterials": 50,
+            "supportsTextInput": true,
+            "supportsImageInput": true,
+            "supportsMultiImageInput": true,
+            "supportsFirstFrame": true,
+            "supportsLastFrame": true,
+            "supportsSizePreset": true,
+            "supportsAspectRatio": true,
+            "supportsDuration": true,
+            "defaultAudio": true,
+            "supportsAudioInput": true,
+            "seedanceTaskTypeOptions": [
+              "reference",
+              "edit",
+              "extend",
+              "auto"
+            ],
+            "allowedScenes": [
+              "textToVideo",
+              "imageToVideo",
+              "startEndToVideo",
+              "referenceToVideo",
+              "videoToVideo"
+            ],
+            "strictSceneRules": true,
+            "sceneRules": {
+              "textToVideo": { "allowedInputs": ["text"] },
+              "imageToVideo": {
+                "requiredInputs": ["firstFrame"],
+                "allowedInputs": ["text", "firstFrame"],
+                "aspectRatioOptions": ["adaptive"],
+                "defaultAspectRatio": "adaptive"
+              },
+              "startEndToVideo": {
+                "requiredInputs": ["firstFrame", "lastFrame"],
+                "allowedInputs": ["text", "firstFrame", "lastFrame"],
+                "aspectRatioOptions": ["adaptive"],
+                "defaultAspectRatio": "adaptive"
+              },
+              "referenceToVideo": {
+                "requiredAnyOf": ["image", "video", "audio"],
+                "allowedInputs": ["text", "image", "video", "audio"]
+              },
+              "videoToVideo": { "requiredInputs": ["video"], "allowedInputs": ["text", "video"] }
+            }
+          },
+          "requirements": [
+            {
+              "code": "PROMPT_REQUIRED",
+              "kind": "REQUIRED",
+              "field": "prompt",
+              "minCount": 1
+            },
+            {
+              "code": "VIDEO_EDIT_FIXED_OUTPUT",
+              "kind": "FORCE_VALUES",
+              "scene": "VIDEO_EDIT",
+              "values": {
+                "aspectRatio": "adaptive",
+                "duration": -1
+              },
+              "referenceVideoDurationSeconds": {
+                "min": 4,
+                "max": 30
+              }
+            },
+            {
+              "code": "VIDEO_EXTENSION_OUTPUT",
+              "kind": "CONDITIONAL_RANGE",
+              "scene": "VIDEO_EXTENSION",
+              "field": "duration",
+              "values": [
+                -1,
+                4,
+                5,
+                6,
+                7,
+                8,
+                9,
+                10,
+                11,
+                12,
+                13,
+                14,
+                15,
+                16,
+                17,
+                18,
+                19,
+                20,
+                21,
+                22,
+                23,
+                24,
+                25,
+                26,
+                27,
+                28,
+                29,
+                30
+              ]
+            },
+            {
+              "code": "FIRST_LAST_FRAME_OUTPUT",
+              "kind": "CONDITIONAL_RANGE",
+              "scene": "FIRST_OR_FIRST_LAST_FRAME",
+              "field": "duration",
+              "values": [
+                -1,
+                4,
+                5,
+                6,
+                7,
+                8,
+                9,
+                10,
+                11,
+                12,
+                13,
+                14,
+                15,
+                16,
+                17,
+                18,
+                19,
+                20,
+                21,
+                22,
+                23,
+                24,
+                25,
+                26,
+                27,
+                28,
+                29,
+                30
+              ]
+            }
+          ],
+          "unresolved": []
+        }
+      }
+    },
+    {
+      "modelId": "deepseek-v4-flash-vision-exp",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "wan3.0-video-prime",
+      "evidenceStatus": "VERIFIED",
+      "verifiedAt": "2026-09-08",
+      "evidence": [
+        {
+          "title": "TokenDance AI 接入索引",
+          "url": "https://tokendance.space/docs/ai-integration"
+        },
+        {
+          "title": "阿里云百炼 Wan3.0 视频生成 API",
+          "url": "https://help.aliyun.com/en/model-studio/wan3-video-generation-api-reference"
+        }
+      ],
+      "activationBlockers": [
+        "PROTOCOL_RUNTIME_VERIFICATION_REQUIRED",
+        "PRICING_COVERAGE_REQUIRED"
+      ],
+      "protocols": {
+        "wan3:video-synthesis": {
+          "coverageStatus": "COMPLETE",
+          "capability": {
+            "inputModalities": [
+              "TEXT",
+              "IMAGE",
+              "VIDEO",
+              "AUDIO"
+            ],
+            "outputModalities": [
+              "VIDEO"
+            ],
+            "sizeOptions": [
+              "480P",
+              "720P",
+              "1080P"
+            ],
+            "defaultSize": "1080P",
+            "aspectRatioOptions": [
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16",
+              "adaptive"
+            ],
+            "defaultAspectRatio": "adaptive",
+            "durationOptions": [
+              -1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16,
+              17,
+              18,
+              19,
+              20,
+              21,
+              22,
+              23,
+              24,
+              25,
+              26,
+              27,
+              28,
+              29,
+              30
+            ],
+            "defaultDurationSeconds": 5,
+            "outputFormatOptions": ["mp4"],
+            "defaultOutputFormat": "mp4",
+            "outputFpsOptions": [30],
+            "defaultOutputFps": 30,
+            "maxPromptCharacters": 20000,
+            "supportsTextInput": true,
+            "supportsImageInput": true,
+            "supportsMultiImageInput": true,
+            "supportsVideoInput": true,
+            "supportsAudioInput": true,
+            "supportsSizePreset": true,
+            "supportsAspectRatio": true,
+            "supportsDuration": true,
+            "supportsAudio": true,
+            "defaultAudio": true,
+            "upstreamAudioField": "audio",
+            "minReferenceImages": 0,
+            "maxReferenceImages": 10,
+            "referenceImageFormats": ["jpeg", "jpg", "png", "bmp", "webp"],
+            "referenceImageMaxFileSizeMb": 20,
+            "referenceImageMinDimensionPixels": 240,
+            "referenceImageMaxDimensionPixels": 8000,
+            "referenceImageMinAspectRatio": 0.125,
+            "referenceImageMaxAspectRatio": 8,
+            "supportsBase64Image": true,
+            "maxReferenceVideos": 5,
+            "referenceVideoFormats": ["mp4", "mov"],
+            "referenceVideoMaxFileSizeMb": 100,
+            "referenceVideoMinDurationSeconds": 1,
+            "referenceVideoMaxDurationSeconds": 15,
+            "referenceVideoMaxTotalDurationSeconds": 15,
+            "referenceVideoMinDimensionPixels": 240,
+            "referenceVideoMaxDimensionPixels": 4096,
+            "referenceVideoMinAspectRatio": 0.125,
+            "referenceVideoMaxAspectRatio": 8,
+            "referenceVideoMinFps": 16,
+            "supportsReferenceAudio": true,
+            "maxReferenceAudios": 5,
+            "referenceAudioFormats": ["wav", "mp3"],
+            "referenceAudioMaxFileSizeMb": 15,
+            "referenceAudioMinDurationSeconds": 1,
+            "referenceAudioMaxDurationSeconds": 15,
+            "referenceAudioMaxTotalDurationSeconds": 15,
+            "maxReferenceMaterials": 20,
+            "maxInputOutputVideoDurationSeconds": 30,
+            "allowedScenes": [
+              "textToVideo",
+              "imageToVideo",
+              "startEndToVideo",
+              "referenceToVideo",
+              "videoToVideo"
+            ],
+            "strictSceneRules": true,
+            "sceneRules": {
+              "textToVideo": {
+                "allowedInputs": ["text"]
+              },
+              "imageToVideo": {
+                "requiredInputs": ["firstFrame"],
+                "allowedInputs": ["text", "firstFrame"]
+              },
+              "startEndToVideo": {
+                "requiredInputs": ["firstFrame", "lastFrame"],
+                "allowedInputs": ["text", "firstFrame", "lastFrame"]
+              },
+              "referenceToVideo": {
+                "requiredAnyOf": ["image", "video", "audio"],
+                "allowedInputs": ["text", "image", "video", "audio"]
+              },
+              "videoToVideo": {
+                "requiredInputs": ["video"],
+                "allowedInputs": ["text", "image", "video", "audio"]
+              }
+            }
+          },
+          "requirements": [
+            {
+              "code": "REFERENCE_AND_FRAME_INPUTS_MUTUALLY_EXCLUSIVE",
+              "kind": "MUTUALLY_EXCLUSIVE",
+              "groups": [
+                ["reference_image", "reference_video", "reference_audio"],
+                ["first_frame", "last_frame"]
+              ]
+            },
+            {
+              "code": "VIDEO_INPUT_OUTPUT_TOTAL_MAX",
+              "kind": "SUM_MAX",
+              "fields": ["referenceVideoDurationSeconds", "duration"],
+              "max": 30
+            }
+          ],
+          "unresolved": []
+        }
+      }
+    },
+    {
+      "modelId": "glm-5.3",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "dots-3-note-preview",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "seed-2.0-code",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "ling-3.0-flash",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "deepseek-v4-pro-0813",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "glm-5.3-flash",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "kling-3.0-turbo",
+      "evidenceStatus": "VERIFIED",
+      "verifiedAt": "2026-09-08",
+      "evidence": [
+        {
+          "title": "可灵开放平台 API 文档",
+          "url": "https://klingai.com/document-api"
+        }
+      ],
+      "activationBlockers": [
+        "PROTOCOL_RUNTIME_VERIFICATION_REQUIRED",
+        "PRICING_COVERAGE_REQUIRED"
+      ],
+      "protocols": {
+        "kling:text2video": {
+          "coverageStatus": "COMPLETE",
+          "capability": {
+            "inputModalities": [
+              "TEXT"
+            ],
+            "outputModalities": [
+              "VIDEO"
+            ],
+            "sizeOptions": [
+              "720P",
+              "1080P"
+            ],
+            "aspectRatioOptions": ["16:9", "9:16", "1:1"],
+            "durationOptions": [
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15
+            ],
+            "outputFormatOptions": [
+              "mp4"
+            ],
+            "defaultOutputFormat": "mp4",
+            "maxPromptCharacters": 2500,
+            "supportsAudio": false,
+            "defaultAudio": false,
+            "minReferenceImages": 0,
+            "maxReferenceImages": 0
+          },
+          "requirements": [],
+          "unresolved": []
+        },
+        "kling:image2video": {
+          "coverageStatus": "COMPLETE",
+          "capability": {
+            "inputModalities": [
+              "TEXT",
+              "IMAGE"
+            ],
+            "outputModalities": [
+              "VIDEO"
+            ],
+            "sizeOptions": [
+              "720P",
+              "1080P"
+            ],
+            "durationOptions": [
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15
+            ],
+            "outputFormatOptions": [
+              "mp4"
+            ],
+            "defaultOutputFormat": "mp4",
+            "maxPromptCharacters": 2500,
+            "supportsAudio": false,
+            "defaultAudio": false,
+            "minReferenceImages": 1,
+            "maxReferenceImages": 1,
+            "referenceImageFormats": [
+              "jpg",
+              "jpeg",
+              "png"
+            ],
+            "referenceImageMaxFileSizeMb": 50,
+            "referenceImageMinDimensionPixels": 300,
+            "referenceImageMinAspectRatio": 0.4,
+            "referenceImageMaxAspectRatio": 2.5,
+            "supportsBase64Image": false,
+            "supportsFirstFrame": true,
+            "supportsLastFrame": false,
+            "supportsAspectRatio": false,
+            "allowedScenes": ["imageToVideo"],
+            "strictSceneRules": true,
+            "sceneRules": {
+              "imageToVideo": {
+                "requiredInputs": ["firstFrame"],
+                "allowedInputs": ["text", "firstFrame"],
+                "supportsAspectRatio": false
+              }
+            }
+          },
+          "requirements": [
+            {
+              "code": "FIRST_FRAME_REQUIRED",
+              "kind": "EXACT",
+              "field": "referenceImageCount",
+              "value": 1
+            }
+          ],
+          "unresolved": []
+        }
+      }
+    },
+    {
+      "modelId": "seed-tts-2.0",
+      "evidenceStatus": "VERIFIED",
+      "verifiedAt": "2026-09-08",
+      "evidence": [
+        {
+          "title": "火山引擎语音合成大模型文档",
+          "url": "https://www.volcengine.com/docs/6561/1359370"
+        }
+      ],
+      "activationBlockers": [
+        "PROTOCOL_RUNTIME_VERIFICATION_REQUIRED",
+        "PRICING_COVERAGE_REQUIRED"
+      ],
+      "protocols": {
+        "ark:tts": {
+          "coverageStatus": "COMPLETE",
+          "capability": {
+            "inputModalities": [
+              "TEXT"
+            ],
+            "outputModalities": [
+              "AUDIO"
+            ],
+            "audioOperation": "synthesis",
+            "ttsTextRequired": true,
+            "ttsVoiceRequired": true,
+            "audioFormatOptions": ["mp3", "pcm", "ogg_opus", "wav"],
+            "defaultAudioFormat": "mp3",
+            "audioSampleRateOptions": [8000, 16000, 22050, 24000, 32000, 44100, 48000],
+            "defaultAudioSampleRate": 24000,
+            "supportsAudioStreaming": false,
+            "supportsTimestamp": false,
+            "speechRateMin": -50,
+            "speechRateMax": 100,
+            "loudnessRateMin": -50,
+            "loudnessRateMax": 100,
+            "pitchMin": -12,
+            "pitchMax": 12,
+            "supportsEmotionScale": false
+          },
+          "requirements": [],
+          "unresolved": []
+        },
+        "ark:tts_ws": {
+          "coverageStatus": "COMPLETE",
+          "capability": {
+            "inputModalities": [
+              "TEXT"
+            ],
+            "outputModalities": [
+              "AUDIO"
+            ],
+            "audioOperation": "synthesis",
+            "ttsTextRequired": true,
+            "ttsVoiceRequired": true,
+            "audioFormatOptions": ["mp3", "pcm", "ogg_opus", "wav"],
+            "defaultAudioFormat": "mp3",
+            "audioSampleRateOptions": [8000, 16000, 22050, 24000, 32000, 44100, 48000],
+            "defaultAudioSampleRate": 24000,
+            "supportsAudioStreaming": false,
+            "supportsTimestamp": false,
+            "speechRateMin": -50,
+            "speechRateMax": 100,
+            "loudnessRateMin": -50,
+            "loudnessRateMax": 100,
+            "pitchMin": -12,
+            "pitchMax": 12,
+            "supportsEmotionScale": false
+          },
+          "requirements": [],
+          "unresolved": []
+        }
+      }
+    },
+    {
+      "modelId": "hy4-preview",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "kling-3.0-omni",
+      "evidenceStatus": "VERIFIED",
+      "verifiedAt": "2026-09-08",
+      "evidence": [
+        {
+          "title": "可灵开放平台 API 文档",
+          "url": "https://klingai.com/document-api"
+        }
+      ],
+      "activationBlockers": [
+        "PROTOCOL_RUNTIME_VERIFICATION_REQUIRED",
+        "PRICING_COVERAGE_REQUIRED"
+      ],
+      "protocols": {
+        "kling:omni-video": {
+          "coverageStatus": "COMPLETE",
+          "capability": {
+            "inputModalities": [
+              "TEXT",
+              "IMAGE",
+              "VIDEO"
+            ],
+            "outputModalities": [
+              "VIDEO"
+            ],
+            "sizeOptions": [
+              "720P",
+              "1080P",
+              "4K"
+            ],
+            "aspectRatioOptions": [
+              "16:9",
+              "9:16",
+              "1:1"
+            ],
+            "durationOptions": [
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15
+            ],
+            "outputFormatOptions": [
+              "mp4"
+            ],
+            "defaultOutputFormat": "mp4",
+            "maxPromptCharacters": 3072,
+            "audioModeOptions": [
+              "off",
+              "native",
+              "original"
+            ],
+            "supportsAudio": true,
+            "defaultAudio": false,
+            "supportsReferenceAudio": false,
+            "maxReferenceAudios": 0,
+            "minReferenceImages": 0,
+            "maxReferenceImages": 7,
+            "referenceImageFormats": [
+              "jpg",
+              "jpeg",
+              "png"
+            ],
+            "referenceImageMaxFileSizeMb": 50,
+            "referenceImageMinDimensionPixels": 300,
+            "referenceImageMinAspectRatio": 0.4,
+            "referenceImageMaxAspectRatio": 2.5,
+            "supportsBase64Image": true,
+            "supportsVideoInput": true,
+            "maxReferenceVideos": 1,
+            "referenceVideoFormats": [
+              "mp4",
+              "mov"
+            ],
+            "referenceVideoMaxFileSizeMb": 200,
+            "referenceVideoMinDurationSeconds": 3,
+            "referenceVideoMaxDurationSeconds": 15.5,
+            "referenceVideoMaxTotalDurationSeconds": 15.5,
+            "referenceVideoMinDimensionPixels": 700,
+            "referenceVideoMaxDimensionPixels": 4553,
+            "referenceVideoMaxPixels": 8294400,
+            "referenceVideoMinAspectRatio": 0.4,
+            "referenceVideoMaxAspectRatio": 2,
+            "referenceVideoMinFps": 24,
+            "referenceVideoMaxFps": 60,
+            "supportsElements": true,
+            "maxElements": 7,
+            "elementTypeRequired": true,
+            "allowedScenes": ["textToVideo", "imageToVideo", "startEndToVideo", "referenceToVideo", "videoToVideo"],
+            "strictSceneRules": true,
+            "sceneRules": {
+              "textToVideo": {"allowedInputs": ["text"]},
+              "imageToVideo": {"requiredInputs": ["firstFrame"], "allowedInputs": ["text", "firstFrame"]},
+              "startEndToVideo": {"requiredInputs": ["firstFrame", "lastFrame"], "allowedInputs": ["text", "firstFrame", "lastFrame"]},
+              "referenceToVideo": {"allowedInputs": ["text", "image"]},
+              "videoToVideo": {"requiredInputs": ["video"], "allowedInputs": ["text", "image", "video"], "supportsAspectRatio": false}
+            }
+          },
+          "requirements": [
+            {
+              "code": "VIDEO_TOTAL_PIXELS_MAX",
+              "kind": "MAX",
+              "field": "referenceVideoPixels",
+              "max": 8294400
+            },
+            {
+              "code": "OMNI_SCENE_COMBINATIONS",
+              "kind": "SCENE_DEPENDENT",
+              "field": "referenceMaterials"
+            }
+          ],
+          "unresolved": []
+        }
+      }
+    },
+    {
+      "modelId": "qwen3.8-flash",
+      "evidenceStatus": "VERIFIED",
+      "verifiedAt": "2026-09-09",
+      "evidence": [
+        {
+          "title": "阿里云百炼视觉理解模型列表",
+          "url": "https://help.aliyun.com/zh/model-studio/vision-model/"
+        },
+        {
+          "title": "阿里云百炼 Anthropic Messages",
+          "url": "https://help.aliyun.com/zh/model-studio/anthropic-api-messages"
+        },
+        {
+          "title": "阿里云百炼 Responses API",
+          "url": "https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-responses"
+        }
+      ],
+      "activationBlockers": [
+        "PROTOCOL_RUNTIME_VERIFICATION_REQUIRED",
+        "PRICING_COVERAGE_REQUIRED"
+      ],
+      "protocols": {
+        "anthropic:messages": {
+          "coverageStatus": "COMPLETE",
+          "capability": {},
+          "requirements": [],
+          "unresolved": []
+        },
+        "openai:chat-completions": {
+          "coverageStatus": "COMPLETE",
+          "capability": {},
+          "requirements": [],
+          "unresolved": []
+        },
+        "openai:responses": {
+          "coverageStatus": "COMPLETE",
+          "capability": {},
+          "requirements": [],
+          "unresolved": []
+        }
+      }
+    },
+    {
+      "modelId": "qwen3.8-max-0902",
+      "evidenceStatus": "VERIFIED",
+      "verifiedAt": "2026-09-09",
+      "evidence": [
+        {
+          "title": "阿里云百炼 Qwen3.8 Max 快照信息",
+          "url": "https://help.aliyun.com/zh/model-studio/qwen3-8-max"
+        },
+        {
+          "title": "阿里云百炼 OpenAI Chat Completions 与 Responses API",
+          "url": "https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-responses"
+        }
+      ],
+      "activationBlockers": [
+        "PROTOCOL_RUNTIME_VERIFICATION_REQUIRED",
+        "PRICING_COVERAGE_REQUIRED"
+      ],
+      "protocols": {
+        "openai:chat-completions": {
+          "coverageStatus": "COMPLETE",
+          "capability": {},
+          "requirements": [],
+          "unresolved": []
+        },
+        "openai:responses": {
+          "coverageStatus": "COMPLETE",
+          "capability": {},
+          "requirements": [],
+          "unresolved": []
+        }
+      }
+    },
+    {
+      "modelId": "spark-x2.5-1.7b",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    },
+    {
+      "modelId": "spark-x2.5-4b",
+      "evidenceStatus": "UNVERIFIED",
+      "verifiedAt": null,
+      "evidence": [],
+      "activationBlockers": [
+        "OFFICIAL_CAPABILITY_EVIDENCE_MISSING"
+      ],
+      "protocols": {}
+    }
+  ]
+}

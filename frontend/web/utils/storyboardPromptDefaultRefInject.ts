@@ -27,7 +27,7 @@ export interface InjectedDefaultRefAsset {
 
 export function promptPlainHasAssetPlaceholders(plain: string): boolean {
   const text = String(plain || '')
-  return text.includes('@图片') || text.includes('@音频')
+  return text.includes('@图片') || text.includes('@音频') || text.includes('@视频')
 }
 
 /** 从导入参考图项构建可点击的 prompt 资产 */

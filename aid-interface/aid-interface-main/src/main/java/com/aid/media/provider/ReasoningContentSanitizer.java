@@ -15,7 +15,7 @@ public final class ReasoningContentSanitizer {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final List<String> REASONING_FIELDS = List.of(
-            "reasoning_content", "reasoningContent", "thoughts", "thinking_content");
+            "reasoning_content", "reasoningContent", "thoughts", "thinking_content", "thinkingBlocks", "responseItems");
 
     private ReasoningContentSanitizer() {
     }
@@ -36,6 +36,16 @@ public final class ReasoningContentSanitizer {
     private static void sanitize(JsonNode node) {
         if (node instanceof ObjectNode objectNode) {
             REASONING_FIELDS.forEach(objectNode::remove);
+            String type = objectNode.path("type").asText();
+            if ("thinking".equals(type) || "redacted_thinking".equals(type) || "reasoning".equals(type)) {
+                objectNode.remove(List.of("thinking", "signature", "data", "summary", "content", "encrypted_content"));
+                objectNode.put("thoughtOmitted", true);
+            }
+            if ("thinking_delta".equals(type) || "signature_delta".equals(type)
+                    || type.startsWith("response.reasoning")) {
+                objectNode.remove(List.of("thinking", "signature", "delta", "text"));
+                objectNode.put("thoughtOmitted", true);
+            }
             if (objectNode.path("thought").asBoolean(false)) {
                 objectNode.remove("text");
                 objectNode.put("thoughtOmitted", true);

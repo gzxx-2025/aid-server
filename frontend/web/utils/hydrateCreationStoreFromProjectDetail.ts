@@ -128,6 +128,7 @@ export function applyProjectDetailToCreationStore(
   store.setCurrentMediaContext({
     projectStatus: detail.status ?? null,
     projectStatusReason: detail.statusReason ?? null,
+    projectIsPublic: detail.isPublic ?? null,
     episodeStatus: detail.projectType === 'movie' ? detail.status ?? null : null,
     episodeStatusReason: detail.projectType === 'movie' ? detail.statusReason ?? null : null,
     episodeEditorId: detail.projectType === 'movie' ? detail.episodeEditorId ?? null : null,

@@ -35,14 +35,20 @@ public interface TextProviderClient {
         return modelName.toLowerCase().contains(marker);
     }
 
+    /** Pure provider contract validation; no network I/O or external mutation. */
+    default void validateRequest(AiModelConfigVo modelConfig, MediaTextGenerateRequest request) {
+    }
+
     // 业务含义：上游一律走流式拉取，本方法将增量聚合为整段后写入 directText（同步 JSON 接口复用）。
     default ProviderSubmitResult submit(AiModelConfigVo modelConfig, MediaTextGenerateRequest request) {
         StringBuilder aggregated = new StringBuilder();
         StringBuilder raw = new StringBuilder();
         AtomicReference<String> errorRef = new AtomicReference<>();
+        AtomicReference<String> errorDetail = new AtomicReference<>();
         // 业务含义：捕获 onUsage 回调（input_tokens/output_tokens/total_tokens），
         // 同步 submit 路径同样要带出真实 token usage 给 settleBilling，避免按预扣封顶结算。
         AtomicReference<Map<String, Object>> usageRef = new AtomicReference<>();
+        AtomicReference<MediaTextGenerateRequest.TextMessageItem> toolMessage = new AtomicReference<>();
         final int maxRawChars = TEXT_SYNC_RAW_SNAPSHOT_CAP;
         try {
             streamChat(modelConfig, request, new TextStreamCallbacks() {
@@ -59,6 +65,11 @@ public interface TextProviderClient {
                 }
 
                 @Override
+                public void onToolMessage(MediaTextGenerateRequest.TextMessageItem message) {
+                    toolMessage.set(message);
+                }
+
+                @Override
                 public void onSseDataLine(String dataLine) {
                     if (raw.length() < maxRawChars && dataLine != null) {
                         int room = maxRawChars - raw.length();
@@ -72,6 +83,7 @@ public interface TextProviderClient {
 
                 @Override
                 public void onError(String message, Throwable cause) {
+                    if (cause instanceof com.aid.common.exception.ServiceException exception) errorDetail.set(exception.getTaskErrorJson());
                     if (errorRef.get() == null) {
                         errorRef.set(StringUtils.defaultIfBlank(message, cause != null ? cause.getMessage() : "流式错误"));
                     }
@@ -86,15 +98,17 @@ public interface TextProviderClient {
                     usageRef.updateAndGet(current -> ProviderUsageSupport.merge(current, usage));
                 }
             });
-        } catch (IOException e) {
+        } catch (IOException | RuntimeException e) {
             return ProviderSubmitResult.builder()
-                .rawResponse(e.getMessage())
+                .rawResponse(ProviderErrorSanitizer.safeMessage(e.getMessage(), "上游请求失败"))
+                .errorDetailJson(e instanceof com.aid.common.exception.ServiceException exception ? exception.getTaskErrorJson() : errorDetail.get())
                 .usage(usageRef.get())
                 .build();
         }
         if (errorRef.get() != null) {
             return ProviderSubmitResult.builder()
                 .rawResponse(errorRef.get())
+                .errorDetailJson(errorDetail.get())
                 .usage(usageRef.get())
                 .build();
         }
@@ -103,6 +117,7 @@ public interface TextProviderClient {
             : raw.toString();
         return ProviderSubmitResult.builder()
             .directText(aggregated.toString())
+            .toolMessage(toolMessage.get())
             .rawResponse(rawStr)
             .usage(usageRef.get())
             .build();

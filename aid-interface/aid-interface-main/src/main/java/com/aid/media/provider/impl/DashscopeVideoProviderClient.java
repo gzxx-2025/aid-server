@@ -73,7 +73,7 @@ public class DashscopeVideoProviderClient implements VideoProviderClient {
         VideoDialect dialect = resolveDialect(effectiveModel);
         String submitUrl = buildApiUrl(modelConfig.getBaseUrl(), modelConfig.getApiSuffix());
         Map<String, Object> body = dialect.buildSubmitBody(effectiveModel, request, modelConfig);
-        String raw = doPost(submitUrl, modelConfig.getApiKey(), JSONUtil.toJsonStr(body));
+        String raw = doPost(submitUrl, modelConfig.getApiKey(), JSONUtil.toJsonStr(com.aid.model.definition.ModelConfiguredRequestBody.apply(modelConfig, body, request)));
         JsonNode root = ProviderResponseHelper.readTree(raw);
         String taskId = ProviderResponseHelper.readText(root, "output.task_id", "task_id", "data.task_id");
         String directUrl = ProviderResponseHelper.readText(root,
@@ -381,13 +381,12 @@ public class DashscopeVideoProviderClient implements VideoProviderClient {
             Map<String, Object> body = buildBaseBody(modelName, request);
             Map<String, Object> input = getOrCreateInput(body);
 
-            //    先定参考图清单再清洗 prompt：正文的 [Image N] 编号必须与真正下发的 media 条数一一对应，
-            //    顺序颠倒会把「已被上限截断掉」的图片仍以编号形式留在正文里，形成指向不存在实物的悬空引用。
+            //    先校验参考图清单再清洗 prompt：正文的 [Image N] 编号必须与真正下发的 media 条数一一对应。
             input.remove(DashscopeConstants.JSON_MEDIA);
             List<String> refs = extractReferenceImages(request);
             refs = ReferenceImageLimiter.limit(refs, modelConfig,
                     DashscopeConstants.HAPPYHORSE_MAX_REFERENCE_IMAGES, "HappyHorse");
-            int limit = Math.min(refs.size(), DashscopeConstants.HAPPYHORSE_MAX_REFERENCE_IMAGES);
+            int limit = refs.size();
 
             //    request.prompt 已在 submit() 首行 sanitize；此处按实际下发张数再 sanitize 一次保证幂等，再转 [Image N]。
             String sysPrompt = ReferencePromptSanitizer.sanitize(

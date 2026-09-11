@@ -7,6 +7,7 @@ import { useEffect,useRef,useState } from 'react'
 import type { CreditConsumeRecordRow } from '~/types/business-api'
 import { creditConsumeList } from '~/utils/businessApi'
 import { consumeAmountLabel,consumeDetailItems,formatConsumeChange } from './rechargeFormat'
+import { rechargeHistoryDrawerOverlayProps } from './rechargeOverlayLifecycle'
 
 export interface RechargeConsumeDrawerProps {
   open: boolean
@@ -74,6 +75,7 @@ export function RechargeConsumeDrawer({ open, onClose }: RechargeConsumeDrawerPr
       size={520}
       mask={{ closable: true }}
       rootClassName="recharge-order-drawer recharge-consume-drawer"
+      {...rechargeHistoryDrawerOverlayProps(open)}
     >
       <p className="consume-drawer__hint">按任务聚合展示积分变动，单位：Credits</p>
       <div ref={consumeScrollRef} className="consume-drawer__scroll" onScroll={onConsumeScroll}>

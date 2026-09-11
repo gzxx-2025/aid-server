@@ -1,13 +1,11 @@
-import { NextResponse,type NextRequest } from 'next/server'
+import { NextResponse, type NextRequest } from 'next/server'
 import { handleMediaProxyRequest } from '~/server/mediaProxyCore'
-
-const MOBILE_ONLY_PATH = '/mobile'
-
-function isMobileUserAgent(ua: string): boolean {
-  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|Windows Phone/i.test(
-    ua
-  )
-}
+import {
+  MOBILE_ONLY_PATH,
+  isMobileUserAgent,
+  shouldForceMobileOnlyPath,
+  shouldLeaveMobileOnlyPath
+} from '~/utils/mobileOnlyNavigation'
 
 /** SSR 阶段 UA 拦截：与原 Nuxt middleware/00.mobile-only.global.ts 的服务端分支一致，避免首屏闪跳 */
 export async function proxy(request: NextRequest) {
@@ -19,10 +17,10 @@ export async function proxy(request: NextRequest) {
     return handleMediaProxyRequest(request)
   }
 
-  if (isMobile && pathname !== MOBILE_ONLY_PATH) {
+  if (isMobile && shouldForceMobileOnlyPath(pathname)) {
     return NextResponse.redirect(new URL(MOBILE_ONLY_PATH, request.url))
   }
-  if (!isMobile && pathname === MOBILE_ONLY_PATH) {
+  if (shouldLeaveMobileOnlyPath(pathname, isMobile)) {
     return NextResponse.redirect(new URL('/', request.url))
   }
   return NextResponse.next()

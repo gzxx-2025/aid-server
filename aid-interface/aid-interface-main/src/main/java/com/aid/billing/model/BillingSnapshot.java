@@ -33,6 +33,24 @@ public class BillingSnapshot {
     /** 本次任务创建时是否免费；历史快照缺失时按收费处理 */
     private Boolean isFree;
 
+    /** 付款方：USER 或 PROVIDER；缺失时保留用户计费。 */
+    private String payerType;
+
+    /** 由站长承担上游费用的后台操作者。 */
+    private Long payerAdminId;
+
+    /** 站长上游预估成本（元），与用户积分预扣分开。 */
+    private BigDecimal providerEstimatedCostCny;
+
+    /** 可核实的站长上游实际成本（元）；未获得真实用量时留空。 */
+    private BigDecimal providerActualCostCny;
+
+    /** 供应商明确返回的实际计费字符数，不由请求文本长度替代。 */
+    private Long providerActualCharacters;
+
+    /** 每次任务固定附加成本快照（元）。 */
+    private BigDecimal fixedSurcharge;
+
     /** 完整计费规则JSON（文本结算重算时使用，避免依赖实时模型配置） */
     private String billingRuleJson;
 

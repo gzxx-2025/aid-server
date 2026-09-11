@@ -2,7 +2,9 @@ package com.aid.media.util;
 
 import com.aid.common.error.TaskErrorCode;
 import com.aid.common.error.TaskErrorPresentation;
+import com.aid.common.exception.ServiceException;
 import java.net.URI;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -135,9 +137,58 @@ public final class ModelCapabilityValidator {
                 ? request.getSize() : readFirstText(options, OPTION_SIZE_KEYS);
         validateSceneOption(capability, sceneCapability, KEY_SIZE_OPTIONS, effectiveSize,
                 modelConfig.getModelCode(), sceneCode, ModelCapabilityResolver.MSG_SIZE_UNSUPPORTED);
+        validateOutputDimensions(capability, sceneCapability, effectiveSize, modelConfig.getModelCode());
         String ratio = readFirstText(options, OPTION_RATIO_KEYS);
         validateSceneOption(capability, sceneCapability, KEY_ASPECT_RATIO_OPTIONS, ratio,
                 modelConfig.getModelCode(), sceneCode, ModelCapabilityResolver.MSG_ASPECT_RATIO_UNSUPPORTED);
+    }
+
+    private static void validateOutputDimensions(JsonNode capability, JsonNode sceneCapability,
+                                                 String size, String modelCode) {
+        if (StrUtil.isBlank(size)) return;
+        String normalized = size.trim().replace('×', 'x').replace('*', 'x').replace('X', 'x');
+        if (!normalized.matches("\\d{2,5}x\\d{2,5}")) return;
+        String[] dimensions = normalized.split("x", 2);
+        long pixels;
+        long width;
+        long height;
+        try {
+            width = Long.parseLong(dimensions[0]);
+            height = Long.parseLong(dimensions[1]);
+            pixels = Math.multiplyExact(width, height);
+        } catch (NumberFormatException | ArithmeticException exception) {
+            log.info("图片输出尺寸解析失败: modelCode={}, size={}", modelCode, size);
+            throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_INVALID, "图片尺寸无效");
+        }
+        BigDecimal minimum = scopedNumber(sceneCapability, capability, "minOutputPixels");
+        BigDecimal maximum = scopedNumber(sceneCapability, capability, "maxOutputPixels");
+        BigDecimal actual = BigDecimal.valueOf(pixels);
+        if ((minimum != null && actual.compareTo(minimum) < 0)
+                || (maximum != null && actual.compareTo(maximum) > 0)) {
+            log.info("图片输出像素超出模型能力: modelCode={}, min={}, max={}, actual={}",
+                    modelCode, minimum, maximum, pixels);
+            throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_INVALID, "图片尺寸超限");
+        }
+        BigDecimal minimumRatio = scopedNumber(sceneCapability, capability, "minOutputAspectRatio");
+        BigDecimal maximumRatio = scopedNumber(sceneCapability, capability, "maxOutputAspectRatio");
+        BigDecimal actualRatio = BigDecimal.valueOf(width)
+                .divide(BigDecimal.valueOf(height), 12, java.math.RoundingMode.HALF_UP);
+        if ((minimumRatio != null && actualRatio.compareTo(minimumRatio) < 0)
+                || (maximumRatio != null && actualRatio.compareTo(maximumRatio) > 0)) {
+            log.info("Image output aspect ratio exceeds model capability: modelCode={}, min={}, max={}, actual={}",
+                    modelCode, minimumRatio, maximumRatio, actualRatio);
+            throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_INVALID, "图片宽高比超限");
+        }
+    }
+
+    private static BigDecimal scopedNumber(JsonNode scoped, JsonNode root, String name) {
+        BigDecimal value = number(scoped, name);
+        return value != null ? value : number(root, name);
+    }
+
+    private static BigDecimal number(JsonNode root, String name) {
+        JsonNode value = root == null ? null : root.get(name);
+        return value != null && value.isNumber() ? value.decimalValue() : null;
     }
 
     /**
@@ -152,7 +203,8 @@ public final class ModelCapabilityValidator {
      */
     public static void normalizeImageAspectRatio(AiModelConfigVo modelConfig, MediaImageGenerateRequest request) {
         if (Objects.isNull(modelConfig) || Objects.isNull(request)
-                || Boolean.TRUE.equals(modelConfig.getSupportsAspectRatio())) {
+                || Boolean.TRUE.equals(modelConfig.getSupportsAspectRatio())
+                || "tokendance".equalsIgnoreCase(modelConfig.getProviderCode())) {
             return;
         }
         Map<String, Object> options = mutableOptions(request.getOptions());
@@ -174,6 +226,7 @@ public final class ModelCapabilityValidator {
         if (Objects.isNull(modelConfig) || Objects.isNull(request)) {
             return;
         }
+        if ("tokendance".equalsIgnoreCase(modelConfig.getProviderCode())) return;
         boolean followInput = ModelCapabilityResolver.isVideoAspectRatioFollowInput(modelConfig);
         if (Boolean.TRUE.equals(modelConfig.getSupportsAspectRatio()) && !followInput) {
             return;
@@ -187,6 +240,13 @@ public final class ModelCapabilityValidator {
             }
             // 比例仅供媒体层归一化输入图，Provider 按官方协议不会把它作为独立字段下发。
             return;
+        }
+        if (Boolean.FALSE.equals(modelConfig.getSupportsAspectRatio())
+                && (StrUtil.isNotBlank(request.getAspectRatio()) || Objects.nonNull(removed))) {
+            log.info("视频模型禁止显式画面比例参数: modelCode={}, aspectRatio={}",
+                    modelConfig.getModelCode(), StrUtil.blankToDefault(
+                            request.getAspectRatio(), Objects.toString(removed, null)));
+            throw new ServiceException(ModelCapabilityResolver.MSG_ASPECT_RATIO_UNSUPPORTED);
         }
         if (StrUtil.isNotBlank(request.getAspectRatio())) {
             removed = request.getAspectRatio();
@@ -268,7 +328,7 @@ public final class ModelCapabilityValidator {
             return;
         }
         // 对口型：音频来自 audio_url / TTS，不是音画同出开关
-        if (isLipSyncRequest(request)) {
+        if (isLipSyncRequest(modelConfig, request)) {
             return;
         }
         Boolean audio = request.getAudio();
@@ -309,16 +369,14 @@ public final class ModelCapabilityValidator {
     /**
      * 归一化并校验视频参考音频（能力、去重、格式、时长、条数）。
      *
-     * <p>失败处理按来源分级：用户显式选择的音频记录不合规先 log 再抛短文案；
-     * 由提示词占位推导出的隐式引用不合规则剔除并 warn，降级为不带参考音频继续出片，
-     * 避免自动推导出的约束升级为用户可见的强制项。条数超限统一截断，不抛超限异常。</p>
+     * 不合规输入统一拒绝，不因引用来源不同而静默改变请求。
      *
      * @param modelConfig 模型配置
      * @param request     视频生成请求（会被原地归一化）
      */
     public static void normalizeAndValidateReferenceAudios(AiModelConfigVo modelConfig,
                                                            MediaVideoGenerateRequest request) {
-        if (Objects.isNull(modelConfig) || Objects.isNull(request) || isLipSyncRequest(request)) {
+        if (Objects.isNull(modelConfig) || Objects.isNull(request) || isLipSyncRequest(modelConfig, request)) {
             return;
         }
         List<ReferenceAudioInput> audios = request.getReferenceAudios();
@@ -339,13 +397,13 @@ public final class ModelCapabilityValidator {
             dropAllReferenceAudios(modelConfig, request, "请开启视频声音", "音画同出未开启");
             return;
         }
-        long maxTotalDurationMs = capability.getMaxTotalDurationSeconds() * 1000L;
+        java.math.BigDecimal maxTotalDurationMs = capability.getMaxTotalDurationSeconds().multiply(java.math.BigDecimal.valueOf(1000));
         long totalDurationMs = 0L;
         Set<String> seenUrls = new LinkedHashSet<>();
         List<ReferenceAudioInput> accepted = new ArrayList<>();
         for (ReferenceAudioInput audio : audios) {
             if (Objects.isNull(audio)) {
-                continue;
+                throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_INVALID, "参考音频无效");
             }
             String reason = resolveRejectReason(capability, audio);
             if (StrUtil.isNotBlank(reason)) {
@@ -358,7 +416,7 @@ public final class ModelCapabilityValidator {
                         modelConfig.getModelCode(), audio.getName());
                 continue;
             }
-            if (maxTotalDurationMs > 0 && totalDurationMs + audio.getDurationMs() > maxTotalDurationMs) {
+            if (maxTotalDurationMs.signum() > 0 && java.math.BigDecimal.valueOf(totalDurationMs + audio.getDurationMs()).compareTo(maxTotalDurationMs) > 0) {
                 seenUrls.remove(audio.getSampleUrl());
                 rejectReferenceAudio(modelConfig, audio, "总时长超限");
                 continue;
@@ -391,7 +449,7 @@ public final class ModelCapabilityValidator {
     }
 
     /**
-     * 单条参考音频不合规：显式来源抛短文案，隐式来源剔除并 warn。
+     * 拒绝不合规的参考音频。
      *
      * @param modelConfig 模型配置
      * @param audio       参考音频
@@ -401,20 +459,15 @@ public final class ModelCapabilityValidator {
         String message = reason.startsWith("格式") ? "参考音频格式不符"
                 : (reason.startsWith("时长") || reason.startsWith("总时长")) ? "参考音频时长不符"
                 : "参考音频不可用";
-        if (audio.isExplicit()) {
-            // 显式来源有配音记录与上传音频两类，两个 ID 都打出来才能定位到具体是哪一条
-            log.info("视频参考音频校验失败: modelCode={}, reason={}, sourceType={}, audioRecordId={},"
+        log.info("视频参考音频校验失败: modelCode={}, reason={}, sourceType={}, audioRecordId={},"
                             + " referenceAudioId={}",
                     modelConfig.getModelCode(), reason, audio.getSourceType(),
                     audio.getAudioRecordId(), audio.getReferenceAudioId());
-            throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_INVALID, message);
-        }
-        log.warn("参考音频不合规已剔除: modelCode={}, reason={}, name={}",
-                modelConfig.getModelCode(), reason, audio.getName());
+        throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_INVALID, message);
     }
 
     /**
-     * 能力不可用：含显式选择时抛短文案，否则整体剔除并 warn。
+     * 拒绝模型不支持的参考音频组合。
      *
      * @param modelConfig 模型配置
      * @param request     视频生成请求
@@ -424,16 +477,9 @@ public final class ModelCapabilityValidator {
     private static void dropAllReferenceAudios(AiModelConfigVo modelConfig, MediaVideoGenerateRequest request,
                                                String message, String reason) {
         List<ReferenceAudioInput> audios = request.getReferenceAudios();
-        boolean hasExplicit = audios.stream()
-                .anyMatch(audio -> Objects.nonNull(audio) && audio.isExplicit());
-        if (hasExplicit) {
-            log.info("视频参考音频校验失败: modelCode={}, reason={}, count={}",
-                    modelConfig.getModelCode(), reason, audios.size());
-            throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_INVALID, message);
-        }
-        log.warn("参考音频降级丢弃: modelCode={}, reason={}, count={}",
+        log.info("视频参考音频校验失败: modelCode={}, reason={}, count={}",
                 modelConfig.getModelCode(), reason, audios.size());
-        request.setReferenceAudios(new ArrayList<>());
+        throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_INVALID, message);
     }
 
     private static boolean isHttpUrl(String value) {
@@ -452,13 +498,23 @@ public final class ModelCapabilityValidator {
     /**
      * 是否对口型请求：options 同时带 video_url 与 audio_url 契约键。
      */
-    private static boolean isLipSyncRequest(MediaVideoGenerateRequest request) {
+    private static boolean isLipSyncRequest(AiModelConfigVo modelConfig, MediaVideoGenerateRequest request) {
+        if (modelConfig != null && ("lip_sync".equalsIgnoreCase(modelConfig.getGenerateMode())
+                || "lip_sync".equalsIgnoreCase(modelConfig.getCapabilityCode()))) {
+            return true;
+        }
+        if (request != null && "lip_sync".equalsIgnoreCase(request.getCapabilityCode())) {
+            return true;
+        }
+        if (request == null) {
+            return false;
+        }
         Map<String, Object> options = request.getOptions();
         if (Objects.isNull(options) || options.isEmpty()) {
             return false;
         }
-        // 与 MediaGenerationServiceImpl.isLipSyncRequest 口径一致：键存在即视为对口型
-        return options.containsKey("video_url") && options.containsKey("audio_url");
+        return options.containsKey("video_url")
+                && (options.containsKey("audio_url") || StrUtil.isNotBlank(request.getPrompt()));
     }
 
     /**
@@ -491,6 +547,7 @@ public final class ModelCapabilityValidator {
         if (StrUtil.isBlank(value)) {
             return;
         }
+        if (customImageSize(capability, whitelistKey, value)) return;
         List<String> whitelist = ModelCapabilityResolver.readOptions(capability, whitelistKey);
         if (CollectionUtil.isEmpty(whitelist)) {
             return;
@@ -510,6 +567,8 @@ public final class ModelCapabilityValidator {
         if (StrUtil.isBlank(value)) {
             return;
         }
+        JsonNode sizeRules = sceneCapability.has("allowCustomWH") ? sceneCapability : capability;
+        if (customImageSize(sizeRules, whitelistKey, value)) return;
         List<String> whitelist = ModelCapabilityResolver.readOptions(sceneCapability, whitelistKey);
         if (CollectionUtil.isEmpty(whitelist)) {
             whitelist = ModelCapabilityResolver.readOptions(capability, whitelistKey);
@@ -521,6 +580,12 @@ public final class ModelCapabilityValidator {
         log.info("模型场景能力校验未命中: modelCode={}, scene={}, key={}, value={}, whitelist={}",
                 modelCode, sceneCode, whitelistKey, value, whitelist);
         throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_INVALID, errorMessage);
+    }
+
+    private static boolean customImageSize(JsonNode capability, String key, String value) {
+        return KEY_SIZE_OPTIONS.equals(key) && capability != null
+                && capability.path("allowCustomWH").asBoolean(false)
+                && ModelCapabilityResolver.normalize(value).matches("\\d{2,5}x\\d{2,5}");
     }
 
     /** 根据图片输入与组图开关识别能力场景。 */

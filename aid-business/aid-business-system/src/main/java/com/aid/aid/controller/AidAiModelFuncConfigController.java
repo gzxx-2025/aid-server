@@ -31,6 +31,9 @@ public class AidAiModelFuncConfigController extends BaseController
     @Autowired
     private IAiOrchestrationService orchestrationService;
 
+    @Autowired
+    private com.aid.model.definition.ModelBusinessBindingService modelBindings;
+
     /**
      * 查询AI模型功能配置列表
      */
@@ -63,7 +66,9 @@ public class AidAiModelFuncConfigController extends BaseController
     @GetMapping(value = "/{id}")
     public AjaxResult getInfo(@PathVariable("id") Long id)
     {
-        return success(aidAiModelFuncConfigService.selectAidAiModelFuncConfigById(id));
+        AidAiModelFuncConfig config = aidAiModelFuncConfigService.selectAidAiModelFuncConfigById(id);
+        if (config != null) config.setModelBindings(modelBindings.forFunction(config.getFuncCode()));
+        return success(config);
     }
 
     /**
@@ -74,8 +79,7 @@ public class AidAiModelFuncConfigController extends BaseController
     @PostMapping
     public AjaxResult add(@RequestBody AidAiModelFuncConfig aidAiModelFuncConfig)
     {
-        orchestrationService.validateFunctionConfig(aidAiModelFuncConfig);
-        return toAjax(aidAiModelFuncConfigService.insertAidAiModelFuncConfig(aidAiModelFuncConfig));
+        return toAjax(modelBindings.saveFunction(aidAiModelFuncConfig, true, getUsername()));
     }
 
     /**
@@ -86,8 +90,7 @@ public class AidAiModelFuncConfigController extends BaseController
     @PutMapping
     public AjaxResult edit(@RequestBody AidAiModelFuncConfig aidAiModelFuncConfig)
     {
-        orchestrationService.validateFunctionConfig(aidAiModelFuncConfig);
-        return toAjax(aidAiModelFuncConfigService.updateAidAiModelFuncConfig(aidAiModelFuncConfig));
+        return toAjax(modelBindings.saveFunction(aidAiModelFuncConfig, false, getUsername()));
     }
 
     /**
@@ -98,7 +101,6 @@ public class AidAiModelFuncConfigController extends BaseController
 	@DeleteMapping("/{ids}")
     public AjaxResult remove(@PathVariable Long[] ids)
     {
-        orchestrationService.validateFunctionConfigsRemovable(ids);
-        return toAjax(aidAiModelFuncConfigService.deleteAidAiModelFuncConfigByIds(ids));
+        return toAjax(modelBindings.deleteFunctions(ids));
     }
 }

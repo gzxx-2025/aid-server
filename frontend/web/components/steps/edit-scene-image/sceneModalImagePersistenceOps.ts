@@ -8,7 +8,7 @@ userAssetRpsFormImageList,
 userAssetRpsFormImageUpdate
 } from '~/utils/businessApi'
 import { setFormImageInUse,unsetFormImageInUse } from '~/utils/formImageAutoUse'
-import { isSinglePrimaryImageType } from './sceneModalTaskParsers'
+import { isSinglePrimaryImageEditor } from './sceneModalTaskParsers'
 import type { EditSceneImageModalCtx } from './types'
 
 export function createSceneModalImagePersistenceOps(ctx: EditSceneImageModalCtx) {
@@ -123,7 +123,7 @@ export function createSceneModalImagePersistenceOps(ctx: EditSceneImageModalCtx)
     const visibleImages = ctx.localSceneImages
       .get()
       .filter((img) => !img._pending && img?._isSet === true)
-    const normalizedImages = isSinglePrimaryImageType(ctx.props().imageType)
+    const normalizedImages = isSinglePrimaryImageEditor(ctx.props())
       ? visibleImages.slice(-1)
       : visibleImages
     return normalizedImages
@@ -208,7 +208,7 @@ export function createSceneModalImagePersistenceOps(ctx: EditSceneImageModalCtx)
     const pendingOnly = opts?.preservePending
       ? ctx.localSceneImages.get().filter((img: any) => img?._pending && img?.id && !sceneIds.has(img.id))
       : []
-    const mainImageIndex = isSinglePrimaryImageType(ctx.props().imageType)
+    const mainImageIndex = isSinglePrimaryImageEditor(ctx.props())
       ? sceneImages.length - 1
       : -1
     ctx.localSceneImages.set([

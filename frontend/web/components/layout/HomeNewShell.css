@@ -54,7 +54,7 @@
 
 /*
  * 原 Vue <Transition name="home-route" mode="out-in">：App Router 已负责换页，
- * 勿再对容器 key=pathname 强制重挂载（会与 body Portal 卸载竞态，二次导航易 removeChild 报错）。
+ * 保留容器实例，避免 key=pathname 让整个页面子树额外重挂载。
  * 进场动画挂在页面根节点上即可。
  */
 .home-main-route > * {

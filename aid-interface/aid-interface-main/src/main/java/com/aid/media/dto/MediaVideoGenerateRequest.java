@@ -1,5 +1,6 @@
 package com.aid.media.dto;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Data;
 
 import java.util.List;
@@ -10,6 +11,17 @@ public class MediaVideoGenerateRequest {
 
     // 指定模型名称（可选）：为空时走后端默认模型路由策略。
     private String modelName;
+
+    /** 本次业务调用的能力；专用业务接口由 Service 填写。 */
+    private String capabilityCode;
+
+    /** 业务 Service 指定的功能池，不接受客户端覆盖。 */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private String businessFuncCode;
+
+    /** 归一化后的调用配置标识，参与请求幂等。 */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private String invocationIdentity;
 
     // 项目ID（可选）：用于关联任务到具体项目，列表查询时按项目过滤。
     private Long projectId;
@@ -69,6 +81,17 @@ public class MediaVideoGenerateRequest {
      * 外部参考音频列表。业务层必须先完成归属校验与 URL 解析，Provider 仅按模型协议下发。
      */
     private List<ReferenceAudioInput> referenceAudios;
+
+    /**
+     * 参考视频生成记录 ID。服务端按当前用户和项目解析，不能用裸 URL 代替记录权限校验。
+     */
+    private List<Long> referenceVideoRecordIds;
+
+    /**
+     * 服务端解析后的可信参考视频。外部请求不能直接写入，进入媒体主链路时会按记录 ID 重新解析。
+     */
+    @JsonIgnore
+    private List<ReferenceVideoInput> resolvedReferenceVideos;
 
     /**
      * 业务记录主键（可选）：生成成功后通过 {@link com.aid.service.IGenResultCallbackService#fillResultUrl} 回填。

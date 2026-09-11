@@ -3,7 +3,7 @@
 import { message } from 'antd'
 import { createSceneModalImageInteractionOps } from './sceneModalImageInteractionOps'
 import {
-isSinglePrimaryImageType,
+isSinglePrimaryImageEditor,
 normalizeImageId,
 resolveRpsSourceType
 } from './sceneModalTaskParsers'
@@ -51,7 +51,7 @@ export function useSceneModalImageActions(ctx: EditSceneImageModalCtx): SceneMod
         }
         return nextImage
       }
-      if (isSinglePrimaryImageType(ctx.props().imageType) && image._isSet) {
+      if (isSinglePrimaryImageEditor(ctx.props()) && image._isSet) {
         return { ...image, _isSet: false }
       }
       return image
@@ -59,7 +59,7 @@ export function useSceneModalImageActions(ctx: EditSceneImageModalCtx): SceneMod
 
     ctx.localSceneImages.set(nextImages)
     const selectedKey = normalizeImageId(nextImages[imageIndex]?.id)
-    if (isSinglePrimaryImageType(ctx.props().imageType)) {
+    if (isSinglePrimaryImageEditor(ctx.props())) {
       ctx.addedImageIds.set(selectedKey ? new Set([selectedKey]) : new Set())
     } else if (selectedKey) {
       ctx.addedImageIds.set(new Set([...ctx.addedImageIds.get(), selectedKey]))

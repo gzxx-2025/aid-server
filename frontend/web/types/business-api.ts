@@ -149,6 +149,7 @@ export interface AuthBasicPublicConfig {
   tutorial_url?: string
   open_source_git_url?: string
   open_source_gitee_url?: string
+  work_publish_enabled?: string
 }
 
 /** /auth/public-config → brand */
@@ -375,6 +376,67 @@ export type CreditConsumeListResponse = ApiListEnvelopeData<CreditConsumeRecordR
 /** /api/user/project/list */
 export type UserProjectType = 'movie' | 'series'
 
+/** POST /api/public/project/video */
+export interface PublicProjectVideoListRequest {
+  projectName?: string
+  /** movie 电影 / series 剧集；不传返回全部 */
+  projectType?: UserProjectType
+  pageNum?: number
+  pageSize?: number
+}
+
+export type PublicProjectAccessReasonCode =
+  | 'PROJECT_UNAVAILABLE'
+  | 'NO_APPROVED_SNAPSHOT'
+  | 'PROJECT_CONTENT_SHARING_DISABLED'
+  | 'PROJECT_TYPE_UNSUPPORTED'
+  | 'PROJECT_CONTENT_NOT_VIEWABLE'
+  | 'PROJECT_COPY_DISABLED'
+  | 'RIGHTS_RESTRICTED'
+  | 'PUBLISHED_SNAPSHOT_UNAVAILABLE'
+  | (string & {})
+
+export interface PublicProjectVideoRow {
+  id: number
+  projectName: string
+  authorNickname?: string | null
+  projectType?: UserProjectType | string | null
+  projectDesc?: string | null
+  publishTime?: string | null
+  episodeCount?: number | null
+  coverUrl?: string | null
+  finalVideoUrl?: string | null
+  previewVideoUrl?: string | null
+  mediaWidth?: number | null
+  mediaHeight?: number | null
+  aspectRatio?: string | null
+  ratioSource?: string | null
+  allowPreview?: boolean | null
+  allowCopy?: boolean | null
+  canViewProjectContent?: boolean | null
+  viewProjectContentReasonCode?: PublicProjectAccessReasonCode | null
+  canCopyProject?: boolean | null
+  copyProjectReasonCode?: PublicProjectAccessReasonCode | null
+  copyRequiresLogin?: boolean | null
+  copyLabel?: string | null
+}
+
+export interface PublicProjectEpisodeItem {
+  episodeId: number
+  episodeNo?: number | null
+  title?: string | null
+  coverUrl?: string | null
+  videoUrl?: string | null
+}
+
+/** POST /api/public/project/detail */
+export interface PublicProjectDetailRow extends Omit<PublicProjectVideoRow, 'previewVideoUrl'> {
+  previewVideoUrl?: string | null
+  updateTime?: string | null
+  videoStyleType?: string | null
+  episodes?: PublicProjectEpisodeItem[] | null
+}
+
 export interface UserProjectListRequest {
   projectName?: string
   projectType?: UserProjectType
@@ -405,6 +467,14 @@ export interface UserProjectRow {
   currentStep?: number | null
   status: 0 | 1 | 2 | 3 | 4 | 5
   statusReason?: string | null
+  isPublic?: string | null
+  allowPreview?: boolean | null
+  allowCopy?: boolean | null
+  publishedSnapshotId?: number | null
+  sourceProjectId?: number | null
+  sourceSnapshotId?: number | null
+  copyLabel?: string | null
+  copyCount?: number | null
   createTime?: string | null
   updateTime?: string | null
   /** 剧集项目：分集数量（列表接口可能返回，用于作品卡片展示） */
@@ -499,6 +569,8 @@ export interface UserProjectUpdateRequest {
   defaultGenMode?: 'economy' | 'performance'
   defaultStoryboardMode?: 'single' | 'grid'
   defaultCreationMode?: 'i2v' | 'multi' | 'pro' | 'auto_grid'
+  allowPreview?: boolean
+  allowCopy?: boolean
 }
 
 /** 与官方/个人资产接口 assetType 对齐 */
@@ -1238,6 +1310,13 @@ export interface ProjectOrEpisodeIdRequest {
   id: number
 }
 
+/** POST /api/user/project/publish */
+export interface UserProjectPublishRequest {
+  id: number
+  projectDesc: string
+  coverUrl: string
+}
+
 /** /api/user/storyboard/list 分镜最终图引用的参考图快照 */
 export interface StoryboardReferenceImageSnapshot {
   n?: number
@@ -1770,6 +1849,8 @@ export interface StoryboardVideoGenerateRequest {
   referenceAudioRecordIds?: number[] | null
   /** 单镜头：用户上传参考音频 ID（aid_reference_audio） */
   referenceAudioIds?: number[] | null
+  /** 单镜头：参考视频生成记录 ID（aid_gen_record），按用户选择顺序提交 */
+  referenceVideoRecordIds?: number[] | null
   userInputText?: string | null
 }
 
@@ -2601,6 +2682,16 @@ export interface UserModelCapability {
   referenceAudioMaxTotalDurationSeconds?: number
   /** 支持格式白名单，如 ["wav","mp3"]；不支持时为 [] */
   referenceAudioFormats?: string[]
+  /** 是否支持参考视频输入；视频模型未配置时视为 false */
+  supportsVideoInput?: boolean
+  /** 单次最大参考视频数；-1 表示不限制，0 表示不支持 */
+  maxReferenceVideos?: number
+  referenceVideoMinDurationSeconds?: number
+  referenceVideoMaxDurationSeconds?: number
+  referenceVideoMaxTotalDurationSeconds?: number
+  referenceVideoFormats?: string[]
+  /** 部分动态模型以输入模态列表补充声明视频能力 */
+  allowedInputs?: string[]
   allowCustomWH?: boolean
   sceneRules?: Record<string, unknown>
 }
@@ -2608,6 +2699,11 @@ export interface UserModelCapability {
 export interface UserModelListItem {
   id: number
   modelCode: string
+  capabilityCode?: string | null
+  parameterSchema?: import('./modelParameters').ModelParameter[] | null
+  parameterRules?: import('./modelParameters').ModelParameterRule[] | null
+  legacyModelCodes?: string[]
+  legacyModelIds?: number[]
   modelName: string
   modelType: AiModelType
   costCredits?: number | null

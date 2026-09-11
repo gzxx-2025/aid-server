@@ -157,6 +157,16 @@
   color: var(--create-ref-audio-text) !important;
 }
 
+.rich-text-editor__host .ql-editor .scp-prompt-asset-ref--video {
+  --create-ref-video-bg: var(--accent-100, rgba(74, 231, 253, 0.1));
+  --create-ref-video-border: var(--accent-400, rgba(74, 231, 253, 0.42));
+  --create-ref-video-text: var(--accent-500, #4ae7fd);
+  background: var(--create-ref-video-bg) !important;
+  background-color: var(--create-ref-video-bg) !important;
+  border: 1px solid var(--create-ref-video-border) !important;
+  color: var(--create-ref-video-text) !important;
+}
+
 .rich-text-editor__host .ql-editor .scp-prompt-asset-ref--other {
   background: rgba(74, 231, 253, 0.16) !important;
   background-color: rgba(74, 231, 253, 0.16) !important;
@@ -178,6 +188,11 @@
 .rich-text-editor__host .ql-editor .scp-prompt-asset-ref--audio .scp-prompt-asset-ref__label {
   color: var(--create-ref-audio-text, #4ae7fd) !important;
   -webkit-text-fill-color: var(--create-ref-audio-text, #4ae7fd) !important;
+}
+
+.rich-text-editor__host .ql-editor .scp-prompt-asset-ref--video .scp-prompt-asset-ref__label {
+  color: var(--create-ref-video-text, #4ae7fd) !important;
+  -webkit-text-fill-color: var(--create-ref-video-text, #4ae7fd) !important;
 }
 
 /* 分镜提示词 @构图 / @拍摄角度 等参数引用块：按参数类型区分背景色 */

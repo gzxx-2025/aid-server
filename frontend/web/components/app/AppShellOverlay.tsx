@@ -5,7 +5,6 @@ import { usePathname } from 'next/navigation'
 import { ViewportCompactScaleToggle } from '@/components/common/ViewportCompactScaleToggle'
 import { useAuthPublicConfig } from '~/composables/useAuthPublicConfig'
 import { useEnterCreateFlowOverlay } from '~/composables/useEnterCreateFlowOverlay'
-import { usePublicSiteHead } from '~/composables/usePublicSiteHead'
 import { endCreateFlowNavTransition, isCreateFlowNavPath } from '~/utils/createFlowNavSerialize'
 
 import './AppShellOverlay.css'
@@ -81,7 +80,6 @@ function useRouteReadySignal(onReady: () => void) {
 }
 
 export function AppShellOverlay() {
-  usePublicSiteHead()
 
   const pathname = usePathname()
   const { siteName } = useAuthPublicConfig()

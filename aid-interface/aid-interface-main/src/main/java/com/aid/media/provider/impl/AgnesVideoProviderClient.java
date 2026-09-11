@@ -22,6 +22,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Component;
 import lombok.extern.slf4j.Slf4j;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -100,7 +101,7 @@ public class AgnesVideoProviderClient implements VideoProviderClient {
             }
             body = buildSubmitBody(model, request);
         }
-        String json = JSONUtil.toJsonStr(body);
+        String json = JSONUtil.toJsonStr(com.aid.model.definition.ModelConfiguredRequestBody.apply(modelConfig, body, request));
         log.info("Agnes 视频提交, url={}, model={}, mode={}, seconds={}", submitUrl, model,
                 body.get(AgnesConstants.JSON_MODE), body.get("seconds"));
 
@@ -331,12 +332,12 @@ public class AgnesVideoProviderClient implements VideoProviderClient {
             // 单图图生视频：顶层 image。
             // Agnes 多图仅支持 mode=keyframes（首尾帧过渡），与「多参考图锁人设」语义不同：
             // 无显式 mode 时多图下发会被上游整单拒绝（multiple images, but mode was omitted），
-            // 故此处按「截断保留首张 + warn」兜底，与 ReferenceImageLimiter 的治理口径一致。
+            // 因此必须明确拒绝，不能静默只保留首张素材。
             String single = !refImages.isEmpty() ? refImages.get(0)
                     : (request != null ? request.getImageUrl() : null);
             if (refImages.size() > 1) {
-                log.warn("Agnes 视频不支持多参考图(非关键帧模式)，已截断保留首张: total={}, kept={}",
-                        refImages.size(), single);
+                log.info("Agnes 视频不支持非关键帧模式的多参考图: total={}", refImages.size());
+                throw new ServiceException("此场景仅支持单图");
             }
             if (StringUtils.isNotBlank(single)) {
                 body.put(AgnesConstants.JSON_IMAGE, single);
@@ -365,11 +366,17 @@ public class AgnesVideoProviderClient implements VideoProviderClient {
      */
     private int resolveFrameRate(Map<String, Object> options) {
         Integer fr = getIntOption(options, "frame_rate");
-        if (fr == null) {
+        boolean explicitlyConfigured = options != null && options.containsKey("frame_rate");
+        if (fr == null && !explicitlyConfigured) {
             fr = getIntOption(options, "fps");
+            explicitlyConfigured = options != null && options.containsKey("fps");
+        }
+        if (fr == null && !explicitlyConfigured) {
+            return AgnesConstants.DEFAULT_FRAME_RATE;
         }
         if (fr == null || fr < 1 || fr > 60) {
-            return AgnesConstants.DEFAULT_FRAME_RATE;
+            log.info("Agnes 视频帧率不符合限制: frameRate={}", fr);
+            throw new ServiceException("视频帧率不支持");
         }
         return fr;
     }
@@ -379,31 +386,32 @@ public class AgnesVideoProviderClient implements VideoProviderClient {
      */
     private int resolveNumFrames(MediaVideoGenerateRequest request, int frameRate, Map<String, Object> options) {
         Integer explicit = getIntOption(options, "num_frames");
-        if (explicit != null && explicit > 0) {
-            return snapToValidFrames(explicit);
+        if (options != null && options.containsKey("num_frames")) {
+            if (explicit == null || explicit < AgnesConstants.MIN_NUM_FRAMES
+                    || explicit > AgnesConstants.MAX_NUM_FRAMES || (explicit - 1) % 8 != 0) {
+                log.info("Agnes 视频帧数不符合限制: numFrames={}", explicit);
+                throw new ServiceException("视频帧数不支持");
+            }
+            return explicit;
         }
         Integer duration = request == null ? null : request.getDurationSeconds();
         if (duration == null || duration <= 0) {
             return AgnesConstants.DEFAULT_NUM_FRAMES;
         }
-        return snapToValidFrames(duration * frameRate);
+        return alignDerivedFrames(Math.multiplyExact((long) duration, frameRate));
     }
 
     /**
-     * 将期望帧数对齐到 Agnes 合法值：满足 8n+1，且落在 [MIN_NUM_FRAMES, MAX_NUM_FRAMES]。
+     * 将秒数换算结果向上对齐到 Agnes 合法帧数，不能把用户要求的输出时长静默缩短。
      */
-    private int snapToValidFrames(int desired) {
-        int clamped = Math.max(AgnesConstants.MIN_NUM_FRAMES, Math.min(AgnesConstants.MAX_NUM_FRAMES, desired));
-        // 取不超过 clamped 的最大 8n+1（n>=10）
-        int n = (clamped - 1) / 8;
-        int frames = n * 8 + 1;
-        if (frames < AgnesConstants.MIN_NUM_FRAMES) {
-            frames = AgnesConstants.MIN_NUM_FRAMES;
-        }
+    private int alignDerivedFrames(long desired) {
+        long frames = Math.max(AgnesConstants.MIN_NUM_FRAMES,
+                Math.addExact(Math.floorDiv(Math.max(desired - 1, 0) + 7, 8) * 8, 1));
         if (frames > AgnesConstants.MAX_NUM_FRAMES) {
-            frames = AgnesConstants.MAX_NUM_FRAMES;
+            log.info("Agnes 视频时长换算后超过帧数上限: desired={}, aligned={}", desired, frames);
+            throw new ServiceException("视频时长超限");
         }
-        return frames;
+        return Math.toIntExact(frames);
     }
 
     /**
@@ -412,6 +420,14 @@ public class AgnesVideoProviderClient implements VideoProviderClient {
     private int[] resolveWidthHeight(MediaVideoGenerateRequest request, Map<String, Object> options) {
         Integer w = getIntOption(options, "width");
         Integer h = getIntOption(options, "height");
+        boolean hasWidth = options != null && options.containsKey("width");
+        boolean hasHeight = options != null && options.containsKey("height");
+        if (hasWidth || hasHeight) {
+            if (!hasWidth || !hasHeight || w == null || h == null || w <= 0 || h <= 0) {
+                log.info("Agnes 视频宽高参数不完整或无效: width={}, height={}", w, h);
+                throw new ServiceException("视频尺寸无效");
+            }
+        }
         if (w != null && h != null && w > 0 && h > 0) {
             return new int[]{w, h};
         }
@@ -431,6 +447,10 @@ public class AgnesVideoProviderClient implements VideoProviderClient {
         if (byPreset != null) {
             return byPreset;
         }
+        if (StringUtils.isNotBlank(sizePreset)) {
+            log.info("Agnes 视频清晰度不受支持: size={}", sizePreset);
+            throw new ServiceException("视频清晰度不支持");
+        }
 
         if (StringUtils.isNotBlank(ratio)) {
             switch (ratio.trim()) {
@@ -445,7 +465,8 @@ public class AgnesVideoProviderClient implements VideoProviderClient {
                 case "3:4":
                     return new int[]{768, 1024};
                 default:
-                    break;
+                    log.info("Agnes 视频比例不受支持: aspectRatio={}", ratio);
+                    throw new ServiceException("视频比例不支持");
             }
         }
         return new int[]{AgnesConstants.DEFAULT_VIDEO_WIDTH, AgnesConstants.DEFAULT_VIDEO_HEIGHT};
@@ -489,8 +510,8 @@ public class AgnesVideoProviderClient implements VideoProviderClient {
             case "3:4":
                 return new int[]{shortSide, alignTo8(shortSide * 4 / 3)};
             default:
-                // 比例未知：用规格档短边做正方形兜底（仍尊重用户的清晰度选择）
-                return new int[]{shortSide, shortSide};
+                log.info("Agnes 视频比例不受支持: aspectRatio={}", ratio);
+                throw new ServiceException("视频比例不支持");
         }
     }
 
@@ -614,12 +635,16 @@ public class AgnesVideoProviderClient implements VideoProviderClient {
         }
         Object val = options.get(key);
         if (val instanceof Number) {
-            return ((Number) val).intValue();
+            try {
+                return new BigDecimal(val.toString()).intValueExact();
+            } catch (ArithmeticException | NumberFormatException ignore) {
+                return null;
+            }
         }
         if (val instanceof String && StringUtils.isNotBlank((String) val)) {
             try {
-                return (int) Math.round(Double.parseDouble(((String) val).trim()));
-            } catch (NumberFormatException ignore) {
+                return new BigDecimal(((String) val).trim()).intValueExact();
+            } catch (ArithmeticException | NumberFormatException ignore) {
                 return null;
             }
         }

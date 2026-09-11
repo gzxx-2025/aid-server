@@ -15,6 +15,12 @@ mergeReferenceAudioLists,
 removeAudioFromPromptAndList,
 syncAudioPlaceholdersIntoPrompt
 } from '~/utils/storyboardVideoReferenceAudioWire'
+import {
+  collectNewlyAddedPromptVideoAssets,
+  mergeReferenceVideoLists,
+  removeVideoFromPromptAndList,
+  syncVideoPlaceholdersIntoPrompt
+} from '~/utils/storyboardVideoReferenceVideoWire'
 import type { VideoModalCtx,VideoModalPromptApi } from './types'
 
 import { useVideoModalPromptEditorOps } from './useVideoModalPromptEditorOps'
@@ -173,6 +179,35 @@ export function useVideoModalPrompt(ctx: VideoModalCtx): void {
     writePromptPlainToActiveEditor(r.plain)
   }
 
+  function applyImportedReferenceVideos(videos: ReferenceMediaItem[]) {
+    if (!videos.length) return
+    const previous = ctx.referenceVideos.get()
+    const merged = mergeReferenceVideoLists(previous, videos)
+    ctx.referenceVideos.set(merged)
+    const addedAssets = collectNewlyAddedPromptVideoAssets(previous, merged)
+    if (!addedAssets.length) return
+    ctx.resolvedMultiParamPromptAssets.set([
+      ...ctx.resolvedMultiParamPromptAssets.get().filter((asset) => asset.assetType !== 'video'),
+      ...collectNewlyAddedPromptVideoAssets([], merged)
+    ])
+    if (ctx.getActiveStoryboardPanel()?.insertPromptAssetRefsAtCaret?.(addedAssets)) return
+    writePromptPlainToActiveEditor(syncVideoPlaceholdersIntoPrompt(basePlainForActiveTab(), merged))
+  }
+
+  function removeReferenceVideoAt(index: number) {
+    const result = removeVideoFromPromptAndList(
+      basePlainForActiveTab(),
+      ctx.referenceVideos.get(),
+      index
+    )
+    ctx.referenceVideos.set(result.videos)
+    ctx.resolvedMultiParamPromptAssets.set([
+      ...ctx.resolvedMultiParamPromptAssets.get().filter((asset) => asset.assetType !== 'video'),
+      ...collectNewlyAddedPromptVideoAssets([], result.videos)
+    ])
+    writePromptPlainToActiveEditor(result.plain)
+  }
+
   async function handleSaveVideoPrompt() {
     if (ctx.isSavingVideoPrompt.get() || showGeneratingVideoPromptForScene()) return
     const storyboardId = ctx.currentStoryboardId()
@@ -262,6 +297,8 @@ export function useVideoModalPrompt(ctx: VideoModalCtx): void {
     writePromptPlainToActiveEditor,
     applyImportedReferenceAudios,
     removeReferenceAudioAt,
+    applyImportedReferenceVideos,
+    removeReferenceVideoAt,
     applyVideoParamSelectionsFromPlain
   }
   Object.assign(ctx, api)

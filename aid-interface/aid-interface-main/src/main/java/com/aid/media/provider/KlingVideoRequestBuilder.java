@@ -182,6 +182,24 @@ public final class KlingVideoRequestBuilder {
         String explicitFeatureVideo = firstNonBlank(options, "featureVideoUrl", "referenceVideoUrl");
         String explicitBaseVideo = firstNonBlank(options, "baseVideoUrl", "inputVideoUrl");
         String sharedVideo = firstNonBlank(options, "videoUrl", "video_url");
+        List<String> referenceVideos = readStringList(options.get("referenceVideos"));
+        if (referenceVideos.isEmpty()) {
+            referenceVideos = readStringList(options.get("videos"));
+        }
+        if (referenceVideos.size() > 1) {
+            fail("multiple reference videos=" + referenceVideos.size(), "参考视频数量超限");
+        }
+        if (!referenceVideos.isEmpty()) {
+            String listVideo = referenceVideos.get(0);
+            if ((StrUtil.isNotBlank(explicitFeatureVideo) && !explicitFeatureVideo.equals(listVideo))
+                || (StrUtil.isNotBlank(explicitBaseVideo) && !explicitBaseVideo.equals(listVideo))
+                || (StrUtil.isNotBlank(sharedVideo) && !sharedVideo.equals(listVideo))) {
+                fail("conflicting reference video aliases", "参考视频参数互斥");
+            }
+        }
+        if (StrUtil.isBlank(sharedVideo) && !referenceVideos.isEmpty()) {
+            sharedVideo = referenceVideos.get(0);
+        }
         String featureVideo = explicitFeatureVideo;
         String baseVideo = explicitBaseVideo;
         if (KlingConstants.SCENARIO_OMNI_FEATURE_VIDEO.equals(scenario) && StrUtil.isBlank(featureVideo)) {
@@ -367,8 +385,7 @@ public final class KlingVideoRequestBuilder {
         }
         settings.put("audio", audio);
         settings.put("multi_shot", multiShot);
-        if ((KlingConstants.SCENARIO_OMNI_FEATURE_VIDEO.equals(scenario)
-            || KlingConstants.SCENARIO_OMNI_EDIT.equals(scenario))
+        if (KlingConstants.SCENARIO_OMNI_EDIT.equals(scenario)
             && (hasAny(options, "aspect_ratio", "aspectRatio") || StrUtil.isNotBlank(request.getAspectRatio()))) {
             fail("reference video scenario received aspect ratio", "参考视频场景不接受画幅比例参数");
         }
@@ -376,7 +393,7 @@ public final class KlingVideoRequestBuilder {
         if (StrUtil.isBlank(aspect)) {
             aspect = request.getAspectRatio();
         }
-        if (StrUtil.isBlank(first) && StrUtil.isBlank(featureVideo) && StrUtil.isBlank(baseVideo) && StrUtil.isBlank(aspect)) {
+        if (StrUtil.isBlank(first) && StrUtil.isBlank(baseVideo) && StrUtil.isBlank(aspect)) {
             aspect = "16:9";
         }
         if (StrUtil.isNotBlank(aspect)) {
@@ -572,13 +589,13 @@ public final class KlingVideoRequestBuilder {
 
     private static void require(boolean condition, String message) {
         if (!condition) {
-            fail(message, "可灵参数无效");
+            fail(message, message);
         }
     }
 
     private static void reject(boolean condition, String message) {
         if (condition) {
-            fail(message, "可灵参数无效");
+            fail(message, message);
         }
     }
 

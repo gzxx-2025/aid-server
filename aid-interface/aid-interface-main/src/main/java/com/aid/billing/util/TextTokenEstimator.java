@@ -14,6 +14,10 @@ public final class TextTokenEstimator {
     }
 
     public static int estimateRequestConservative(MediaTextGenerateRequest request) {
+        return estimateRequestConservative(request, true);
+    }
+
+    public static int estimateRequestConservative(MediaTextGenerateRequest request, boolean includeMedia) {
         long tokens = REQUEST_FRAMING_TOKENS;
         if (request == null) {
             return saturatingInt(tokens);
@@ -27,18 +31,23 @@ public final class TextTokenEstimator {
                 tokens = safeAdd(tokens, MESSAGE_FRAMING_TOKENS);
                 tokens = safeAdd(tokens, utf8Length(message.getRole()));
                 tokens = safeAdd(tokens, utf8Length(message.getContent()));
-                tokens = safeAdd(tokens, estimateMediaTokens(message.getParts()));
+                tokens = safeAdd(tokens, estimateMediaTokens(contextParts(message.getParts(), includeMedia)));
             }
         }
         if (request.getPrompt() != null && !request.getPrompt().isBlank()) {
             tokens = safeAdd(tokens, MESSAGE_FRAMING_TOKENS + 4L);
             tokens = safeAdd(tokens, utf8Length(request.getPrompt()));
         }
+        tokens = safeAdd(tokens, utf8Length(toolContext(request)));
         return saturatingInt(tokens);
     }
 
     /** 允许补扣时使用的平衡估算，兼顾英文、CJK、标点和长连续串。 */
     public static int estimateRequestBalanced(MediaTextGenerateRequest request) {
+        return estimateRequestBalanced(request, true);
+    }
+
+    public static int estimateRequestBalanced(MediaTextGenerateRequest request, boolean includeMedia) {
         long quarterTokens = REQUEST_FRAMING_TOKENS * 4L;
         if (request == null) {
             return saturatingInt(ceilDiv(quarterTokens, 4L));
@@ -52,14 +61,21 @@ public final class TextTokenEstimator {
                 quarterTokens = safeAdd(quarterTokens, MESSAGE_FRAMING_TOKENS * 4L);
                 quarterTokens = safeAdd(quarterTokens, balancedQuarterTokens(message.getRole()));
                 quarterTokens = safeAdd(quarterTokens, balancedQuarterTokens(message.getContent()));
-                quarterTokens = safeAdd(quarterTokens, estimateMediaTokens(message.getParts()) * 4L);
+                quarterTokens = safeAdd(quarterTokens, estimateMediaTokens(contextParts(message.getParts(), includeMedia)) * 4L);
             }
         }
         if (request.getPrompt() != null && !request.getPrompt().isBlank()) {
             quarterTokens = safeAdd(quarterTokens, (MESSAGE_FRAMING_TOKENS + 4L) * 4L);
             quarterTokens = safeAdd(quarterTokens, balancedQuarterTokens(request.getPrompt()));
         }
+        quarterTokens = safeAdd(quarterTokens, balancedQuarterTokens(toolContext(request)));
         return saturatingInt(ceilDiv(quarterTokens, 4L));
+    }
+
+    private static List<MediaTextGenerateRequest.TextContentPart> contextParts(
+            List<MediaTextGenerateRequest.TextContentPart> parts, boolean includeMedia) {
+        return includeMedia || parts == null ? parts : parts.stream()
+                .filter(part -> part != null && "text".equalsIgnoreCase(part.getType())).toList();
     }
 
     /** 仅有字符数时使用的保守估算。 */
@@ -94,7 +110,26 @@ public final class TextTokenEstimator {
                 }
             }
         }
+        chars = safeAdd(chars, toolContext(request).length());
         return saturatingInt(chars);
+    }
+
+    /** 工具定义、历史参数和续轮思考同样占用输入上下文，不应漏入预估。 */
+    private static String toolContext(MediaTextGenerateRequest request) {
+        if (request == null) return "";
+        java.util.List<Object> values = new java.util.ArrayList<>();
+        if (request.getOptions() != null && request.getOptions().get("tools") != null) values.add(request.getOptions().get("tools"));
+        if (request.getMessages() != null) for (var message : request.getMessages()) {
+            if (message == null) continue;
+            if (message.getResponseItems() != null) values.add(message.getResponseItems());
+            else {
+                if (message.getToolCalls() != null && !message.getToolCalls().isEmpty()) values.add(message.getToolCalls());
+                if (message.getReasoningContent() != null) values.add(message.getReasoningContent());
+                if (message.getThinkingBlocks() != null) values.add(message.getThinkingBlocks());
+            }
+            if (message.getToolCallId() != null) values.add(message.getToolCallId());
+        }
+        return values.isEmpty() ? "" : cn.hutool.json.JSONUtil.toJsonStr(values);
     }
 
     private static long balancedQuarterTokens(String text) {

@@ -5,6 +5,7 @@ ProjectGenConfigVO,
 UserModelListItem
 } from '~/types/business-api'
 import type { AgentOption } from '~/types/modelAgentOptions'
+import { findModelByReference } from '~/utils/modelReference'
 import { userProjectGenConfigGet,userProjectGenConfigSave } from '~/utils/businessApi'
 import {
 CHARACTER_CARD_IMAGE_AGENT_BIZ_CATEGORY,
@@ -313,9 +314,9 @@ export function pickProjectGenModelCodeFromVo(
   if (
     saved &&
     (!availableModels.length ||
-      availableModels.some((m) => String(m.modelCode || '').trim() === saved))
+      findModelByReference(availableModels, saved))
   ) {
-    return saved
+    return findModelByReference(availableModels, saved)?.modelCode || saved
   }
 
   const code = String(agentCode || vo?.agentCode || '').trim()
@@ -324,9 +325,9 @@ export function pickProjectGenModelCodeFromVo(
   if (
     agentDefault &&
     (!availableModels.length ||
-      availableModels.some((m) => String(m.modelCode || '').trim() === agentDefault))
+      findModelByReference(availableModels, agentDefault))
   ) {
-    return agentDefault
+    return findModelByReference(availableModels, agentDefault)?.modelCode || agentDefault
   }
 
   const sorted = [...availableModels].sort(

@@ -24,6 +24,19 @@ public class AiModelVO implements Serializable
     /** 模型真实调用代码 (如: qwen-image-max, seedance-v2) */
     private String modelCode;
 
+    /** 仅用于恢复历史选择，不产生额外模型选项。 */
+    private java.util.List<String> legacyModelCodes;
+    private java.util.List<Long> legacyModelIds;
+
+    /** 当前业务使用的模型能力。 */
+    private String capabilityCode;
+
+    /** 当前能力的表单参数定义。 */
+    private java.util.List<com.aid.aid.domain.model.ModelParameter> parameterSchema;
+
+    /** 当前能力的参数联动规则。 */
+    private java.util.List<com.aid.aid.domain.model.ModelParameterRule> parameterRules;
+
     /** 前端展示名称 */
     private String modelName;
 

@@ -16,6 +16,11 @@ export function isAudioMediaItem(item: unknown): item is ReferenceMediaItem {
   return x?.kind === 'audio' || x?.audioSource === 'voice_sample' || x?.audioSource === 'upload'
 }
 
+export function isVideoMediaItem(item: unknown): item is ReferenceMediaItem {
+  const x = item as ReferenceMediaItem
+  return x?.kind === 'video' || Number(x?.referenceVideoRecordId) > 0
+}
+
 export function referenceAudioIdentityKey(a: ReferenceMediaItem): string {
   return String(a.referenceAudioId || a.id || a.url || a.name || '')
 }
@@ -24,14 +29,17 @@ export function referenceAudioIdentityKey(a: ReferenceMediaItem): string {
 export function splitReferenceConfirmItems(items: unknown[]): {
   images: any[]
   audios: ReferenceMediaItem[]
+  videos: ReferenceMediaItem[]
 } {
   const images: any[] = []
   const audios: ReferenceMediaItem[] = []
+  const videos: ReferenceMediaItem[] = []
   for (const item of items || []) {
     if (isAudioMediaItem(item)) audios.push(item as ReferenceMediaItem)
+    else if (isVideoMediaItem(item)) videos.push(item as ReferenceMediaItem)
     else images.push(item)
   }
-  return { images, audios }
+  return { images, audios, videos }
 }
 
 export function mergeReferenceAudioLists(

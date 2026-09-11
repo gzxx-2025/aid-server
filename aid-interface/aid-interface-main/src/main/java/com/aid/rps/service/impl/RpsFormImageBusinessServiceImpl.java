@@ -192,6 +192,9 @@ public class RpsFormImageBusinessServiceImpl implements IRpsFormImageBusinessSer
     @Autowired
     private IAiModelConfigService aiModelConfigService;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.aid.model.definition.BusinessModelResolver businessModelResolver;
+
     /** 模型主表 Service：高清接口校验模型存在 / 类型 / 池成员 */
     @Autowired
     private IAidAiModelService aidAiModelService;
@@ -1195,7 +1198,7 @@ public class RpsFormImageBusinessServiceImpl implements IRpsFormImageBusinessSer
         // 校验：模型存在 / 启用 / model_type=image / 在 func_code=image_upscale 的功能池内
         // 高清"能力"由功能池统一治理（运营把能做高清的模型加入池即可），无需额外卡 imageRefine 能力位。
         validateModelInUpscalePool(effectiveModelCode);
-        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(effectiveModelCode);
+        AiModelConfigVo modelConfig = aiModelConfigService.selectForBusiness(effectiveModelCode, FUNC_CODE_IMAGE_UPSCALE, null);
         if (Objects.isNull(modelConfig))
         {
             log.error("高清任务提交失败，模型不存在: modelCode={}", effectiveModelCode);
@@ -1488,6 +1491,7 @@ public class RpsFormImageBusinessServiceImpl implements IRpsFormImageBusinessSer
     {
         MediaImageGenerateRequest imageRequest = new MediaImageGenerateRequest();
         imageRequest.setModelName(modelCode);
+        imageRequest.setBusinessFuncCode(FUNC_CODE_IMAGE_UPSCALE);
         imageRequest.setUserId(userId);
         imageRequest.setPrompt(UPSCALE_FALLBACK_PROMPT);
         imageRequest.setReferenceImageUrl(referenceUrl);
@@ -1529,105 +1533,8 @@ public class RpsFormImageBusinessServiceImpl implements IRpsFormImageBusinessSer
      * 校验链：功能池存在/启用 → 池非空 → 模型存在/启用/{@code model_type=image} → 模型 ID 在池内。
      * 任意不满足抛出模型相关短文案。
      */
-    private void validateModelInUpscalePool(String modelCode)
-    {
-        LambdaQueryWrapper<AidAiModelFuncConfig> cfgQuery = Wrappers.lambdaQuery();
-        cfgQuery.select(AidAiModelFuncConfig::getId, AidAiModelFuncConfig::getFuncCode,
-                AidAiModelFuncConfig::getModelIds, AidAiModelFuncConfig::getStatus,
-                AidAiModelFuncConfig::getDelFlag);
-        cfgQuery.eq(AidAiModelFuncConfig::getFuncCode, FUNC_CODE_IMAGE_UPSCALE);
-        cfgQuery.eq(AidAiModelFuncConfig::getStatus, STATUS_NORMAL);
-        cfgQuery.eq(AidAiModelFuncConfig::getDelFlag, DEL_FLAG_NORMAL);
-        cfgQuery.last("limit 1");
-        AidAiModelFuncConfig cfg = aidAiModelFuncConfigService.getOne(cfgQuery, false);
-        if (Objects.isNull(cfg))
-        {
-            log.error("高清功能池未配置: funcCode={}", FUNC_CODE_IMAGE_UPSCALE);
-            throw new RuntimeException("功能未开放");
-        }
-        List<Long> allowedIds = parseModelIdsJson(cfg.getModelIds());
-        if (CollectionUtil.isEmpty(allowedIds))
-        {
-            log.error("高清功能池为空: funcCode={}", FUNC_CODE_IMAGE_UPSCALE);
-            throw new RuntimeException("功能未开放");
-        }
-
-        LambdaQueryWrapper<AidAiModel> modelQuery = Wrappers.lambdaQuery();
-        modelQuery.select(AidAiModel::getId, AidAiModel::getModelCode,
-                AidAiModel::getModelType, AidAiModel::getStatus, AidAiModel::getDelFlag);
-        modelQuery.eq(AidAiModel::getModelCode, modelCode);
-        modelQuery.eq(AidAiModel::getStatus, STATUS_NORMAL);
-        modelQuery.eq(AidAiModel::getDelFlag, DEL_FLAG_NORMAL);
-        modelQuery.last("limit 1");
-        AidAiModel model = aidAiModelService.getOne(modelQuery, false);
-        if (Objects.isNull(model))
-        {
-            log.info("高清模型不存在或已停用: modelCode={}", modelCode);
-            throw new RuntimeException("模型无效");
-        }
-        if (!Objects.equals(MODEL_TYPE_IMAGE, model.getModelType()))
-        {
-            log.info("高清模型类型不匹配: modelCode={}, type={}", modelCode, model.getModelType());
-            throw new RuntimeException("模型不符");
-        }
-        if (!allowedIds.contains(model.getId()))
-        {
-            log.info("高清模型不在功能池: modelCode={}, modelId={}, pool={}",
-                    modelCode, model.getId(), allowedIds);
-            throw new RuntimeException("模型不符");
-        }
-    }
-
-    /** 解析 {@code aid_ai_model_func_config.model_ids} JSON 数组字符串为去重 Long 列表。 */
-    private List<Long> parseModelIdsJson(String modelIdsJson)
-    {
-        List<Long> ordered = new ArrayList<>();
-        if (StrUtil.isBlank(modelIdsJson))
-        {
-            return ordered;
-        }
-        try
-        {
-            List<?> raw = JSONUtil.parseArray(modelIdsJson).toList(Object.class);
-            for (Object item : raw)
-            {
-                if (Objects.isNull(item))
-                {
-                    continue;
-                }
-                Long id = null;
-                if (item instanceof Number)
-                {
-                    id = ((Number) item).longValue();
-                }
-                else
-                {
-                    String s = item.toString().trim();
-                    if (StrUtil.isBlank(s))
-                    {
-                        continue;
-                    }
-                    try
-                    {
-                        id = Long.parseLong(s);
-                    }
-                    catch (NumberFormatException ignore)
-                    {
-                        // 非数字元素跳过
-                    }
-                }
-                if (Objects.nonNull(id) && id > 0L && !ordered.contains(id))
-                {
-                    ordered.add(id);
-                }
-            }
-        }
-        catch (Exception e)
-        {
-            log.error("解析高清功能池 modelIds 失败: jsonLen={}, err={}",
-                    StrUtil.length(modelIdsJson), e.getMessage());
-        }
-        return ordered;
+    private void validateModelInUpscalePool(String modelCode) {
+        businessModelResolver.resolve(FUNC_CODE_IMAGE_UPSCALE, modelCode, MODEL_TYPE_IMAGE);
     }
 
     /**

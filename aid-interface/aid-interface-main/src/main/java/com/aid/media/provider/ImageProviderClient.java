@@ -30,6 +30,19 @@ public interface ImageProviderClient {
         return null;
     }
 
+    /** Pure provider contract validation; no network I/O or external mutation. */
+    default void validateRequest(AiModelConfigVo modelConfig, MediaImageGenerateRequest request) {
+    }
+
+    /**
+     * Planned quotes may not have their final prompt yet. Implementations must
+     * validate every other provider constraint without mutating the request.
+     */
+    default void validateRequest(AiModelConfigVo modelConfig, MediaImageGenerateRequest request,
+                                 boolean planned) {
+        validateRequest(modelConfig, request);
+    }
+
     // 提交图片生成任务：返回直出URL或providerTaskId。
     // 说明：具体走同步还是异步、请求体协议差异（如 messages/prompt）由实现类按模型名自行路由。
     ProviderSubmitResult submit(AiModelConfigVo modelConfig, MediaImageGenerateRequest request);

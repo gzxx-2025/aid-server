@@ -218,6 +218,7 @@ public class ProjectGenConfigResolverImpl implements IProjectGenConfigResolver
             log.error("项目配置解析失败: 模型池未配置, projectId={}, sceneCode={}", projectId, sceneCode);
             throw new ServiceException("模型未配置");
         }
+        modelCode = com.aid.model.definition.ModelReferences.canonicalCode(pool, modelCode);
         final String finalModelCode = modelCode;
         boolean inPool = pool.stream().anyMatch(m -> Objects.equals(finalModelCode, m.getModelCode()));
         if (!inPool)
@@ -254,7 +255,7 @@ public class ProjectGenConfigResolverImpl implements IProjectGenConfigResolver
             aspectRatio = DEFAULT_CHARACTER_CARD_ASPECT_RATIO;
         }
 
-        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(modelCode);
+        AiModelConfigVo modelConfig = aiModelConfigService.selectForBusiness(modelCode, sceneCode, null);
         if (Objects.isNull(modelConfig))
         {
             log.error("项目配置解析失败: 模型不存在, projectId={}, sceneCode={}, modelCode={}",

@@ -11,6 +11,8 @@ interface InfiniteScrollPaginationOptions {
   threshold?: number
   /** 上拉加载后追加内容的最低等待时间（ms），默认 1000 */
   appendDelayMs?: number
+  /** 仅当前有效请求失败时触发；已被筛选重载淘汰的旧请求不提示。 */
+  onError?: (error: unknown, context: { pageNum: number; reset: boolean }) => void
 }
 
 /**
@@ -24,6 +26,8 @@ export function useInfiniteScrollPagination<T>(
   const pageSize = options.pageSize ?? 20
   const threshold = options.threshold ?? 120
   const appendDelayMs = options.appendDelayMs ?? INFINITE_SCROLL_APPEND_DELAY_MS
+  const onErrorRef = useRef(options.onError)
+  onErrorRef.current = options.onError
 
   const [items, setItems] = useState<T[]>([])
   const [hasMore, setHasMore] = useState(true)
@@ -34,23 +38,31 @@ export function useInfiniteScrollPagination<T>(
   const [appendTick, setAppendTick] = useState(0)
 
   // 回调中的并发闸门用 ref 镜像，避免闭包读到旧 state
-  const gateRef = useRef({ loading: false, loadingMore: false, hasMore: true, pageNum: 0 })
+  const gateRef = useRef({
+    loading: false,
+    loadingMore: false,
+    hasMore: true,
+    pageNum: 0,
+    generation: 0
+  })
   const fetchPageRef = useRef(fetchPage)
   fetchPageRef.current = fetchPage
   const boundElRef = useRef<HTMLElement | null>(null)
+  const loadTriggerObserverRef = useRef<IntersectionObserver | null>(null)
 
   const isEmpty = initialLoaded && !loading && items.length === 0
 
   const loadNextPage = useCallback(
     async (reset = false) => {
       const gate = gateRef.current
-      if (gate.loading || gate.loadingMore) return
-      if (!reset && !gate.hasMore) return
+      if (!reset && (gate.loading || gate.loadingMore || !gate.hasMore)) return
 
       const startedAt = Date.now()
 
       if (reset) {
+        gate.generation += 1
         gate.loading = true
+        gate.loadingMore = false
         gate.pageNum = 0
         gate.hasMore = true
         setLoading(true)
@@ -62,11 +74,14 @@ export function useInfiniteScrollPagination<T>(
         setLoadingMore(true)
       }
 
+      const generation = gate.generation
       const nextPage = reset ? 1 : gate.pageNum + 1
       try {
         const { rows, hasMore: more } = await fetchPageRef.current(nextPage, pageSize)
+        if (generation !== gate.generation) return
         if (!reset) {
           await waitInfiniteScrollAppendDelay(startedAt, appendDelayMs)
+          if (generation !== gate.generation) return
         }
         if (reset) {
           setItems(rows)
@@ -78,15 +93,19 @@ export function useInfiniteScrollPagination<T>(
         gate.hasMore = more
         setHasMore(more)
         setLoadError(false)
-      } catch {
+      } catch (error) {
+        if (generation !== gate.generation) return
         setLoadError(true)
         if (reset) setItems([])
+        onErrorRef.current?.(error, { pageNum: nextPage, reset })
       } finally {
-        gate.loading = false
-        gate.loadingMore = false
-        setLoading(false)
-        setLoadingMore(false)
-        setInitialLoaded(true)
+        if (generation === gate.generation) {
+          gate.loading = false
+          gate.loadingMore = false
+          setLoading(false)
+          setLoadingMore(false)
+          setInitialLoaded(true)
+        }
       }
     },
     [pageSize, appendDelayMs]
@@ -120,7 +139,31 @@ export function useInfiniteScrollPagination<T>(
     requestAnimationFrame(() => bindScroll())
   }, [loadNextPage, bindScroll])
 
-  useEffect(() => unbindScroll, [unbindScroll])
+  const setLoadMoreTrigger = useCallback(
+    (node: HTMLElement | null) => {
+      loadTriggerObserverRef.current?.disconnect()
+      loadTriggerObserverRef.current = null
+      if (!node || typeof IntersectionObserver === 'undefined') return
+      const observer = new IntersectionObserver(
+        (entries) => {
+          if (entries.some((entry) => entry.isIntersecting)) void loadNextPage(false)
+        },
+        { rootMargin: `${threshold}px 0px` }
+      )
+      observer.observe(node)
+      loadTriggerObserverRef.current = observer
+    },
+    [loadNextPage, threshold]
+  )
+
+  useEffect(
+    () => () => {
+      gateRef.current.generation += 1
+      loadTriggerObserverRef.current?.disconnect()
+      unbindScroll()
+    },
+    [unbindScroll]
+  )
 
   return {
     items,
@@ -137,6 +180,7 @@ export function useInfiniteScrollPagination<T>(
     loadNextPage,
     bindScroll,
     unbindScroll,
-    onScroll
+    onScroll,
+    setLoadMoreTrigger
   }
 }

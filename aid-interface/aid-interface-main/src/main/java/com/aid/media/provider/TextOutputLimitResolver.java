@@ -31,6 +31,10 @@ public final class TextOutputLimitResolver {
     }
 
     public static void normalize(MediaTextGenerateRequest request, AiModelConfigVo model) {
+        normalize(request, model, true);
+    }
+
+    public static void normalize(MediaTextGenerateRequest request, AiModelConfigVo model, boolean metadataVerified) {
         if (request == null) {
             return;
         }
@@ -48,8 +52,11 @@ public final class TextOutputLimitResolver {
         }
         request.setOptions(options);
 
-        int conservativeInputTokens = TextTokenEstimator.estimateRequestConservative(request);
-        int balancedInputTokens = TextTokenEstimator.estimateRequestBalanced(request);
+        // 报价保留完整媒体成本估算，但只用已知文本检查上下文；正式提交探测后再执行完整检查。
+        boolean includeMedia = metadataVerified || model == null
+                || !"tokendance".equalsIgnoreCase(model.getProviderCode());
+        int conservativeInputTokens = TextTokenEstimator.estimateRequestConservative(request, includeMedia);
+        int balancedInputTokens = TextTokenEstimator.estimateRequestBalanced(request, includeMedia);
         int contextLimit = positiveCapability(model, "contextWindowTokens");
         int contextSafetyMargin = Math.max(256, contextLimit / 50);
         if (conservativeInputTokens > ABSOLUTE_INPUT_TOKENS
@@ -69,6 +76,9 @@ public final class TextOutputLimitResolver {
                 "max_completion_tokens", "max_tokens", "maxOutputTokens");
         int effective = requested > 0 ? requested : configured > 0 ? configured : FALLBACK_OUTPUT_TOKENS;
         int capabilityMax = positiveCapability(model, "maxOutputTokens");
+        if (requested > ABSOLUTE_OUTPUT_TOKENS || capabilityMax > 0 && requested > capabilityMax) {
+            throw new ServiceException("输出长度超限");
+        }
         if (capabilityMax > 0) {
             effective = Math.min(effective, capabilityMax);
         }
@@ -78,6 +88,10 @@ public final class TextOutputLimitResolver {
     public static int billingCeiling(int providerCap) {
         return (int) Math.min((long) Math.max(1, providerCap) + OUTPUT_OVERSHOOT_TOLERANCE,
                 ABSOLUTE_BILLING_OUTPUT_TOKENS);
+    }
+
+    public static int contextWindowTokens(AiModelConfigVo model) {
+        return positiveCapability(model, "contextWindowTokens");
     }
 
     private static int positiveCapability(AiModelConfigVo model, String key) {

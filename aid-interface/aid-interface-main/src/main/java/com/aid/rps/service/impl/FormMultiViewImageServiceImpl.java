@@ -157,6 +157,9 @@ public class FormMultiViewImageServiceImpl implements IFormMultiViewImageService
     @Autowired
     private IAiModelConfigService aiModelConfigService;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.aid.model.definition.BusinessModelResolver businessModelResolver;
+
     @Autowired
     private IMediaGenerationService mediaGenerationService;
 
@@ -219,7 +222,7 @@ public class FormMultiViewImageServiceImpl implements IFormMultiViewImageService
         MultiViewContext ctx = loadAndValidateOwnership(request.getFormId(), userId);
 
         AidAiModel model = validateMultiViewModel(request.getModelCode());
-        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(model.getModelCode());
+        AiModelConfigVo modelConfig = aiModelConfigService.selectForBusiness(model.getModelCode(), FUNC_CODE_IMAGE_MULTI_VIEW, null);
         if (Objects.isNull(modelConfig))
         {
             log.error("多机位生图模型配置缺失: modelCode={}", model.getModelCode());
@@ -260,7 +263,7 @@ public class FormMultiViewImageServiceImpl implements IFormMultiViewImageService
         validateBasicRequest(request, userId, false);
         MultiViewContext ctx = loadAndValidateOwnership(request.getFormId(), userId);
         AidAiModel model = validateMultiViewModel(request.getModelCode());
-        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(model.getModelCode());
+        AiModelConfigVo modelConfig = aiModelConfigService.selectForBusiness(model.getModelCode(), FUNC_CODE_IMAGE_MULTI_VIEW, null);
         if (modelConfig == null)
         {
             throw new RuntimeException("模型无效");
@@ -392,109 +395,14 @@ public class FormMultiViewImageServiceImpl implements IFormMultiViewImageService
      */
     private AidAiModel validateMultiViewModel(String modelCode)
     {
-        LambdaQueryWrapper<AidAiModelFuncConfig> cfgQuery = Wrappers.lambdaQuery();
-        cfgQuery.select(AidAiModelFuncConfig::getId, AidAiModelFuncConfig::getFuncCode,
-                AidAiModelFuncConfig::getModelIds, AidAiModelFuncConfig::getStatus,
-                AidAiModelFuncConfig::getDelFlag);
-        cfgQuery.eq(AidAiModelFuncConfig::getFuncCode, FUNC_CODE_IMAGE_MULTI_VIEW);
-        cfgQuery.eq(AidAiModelFuncConfig::getStatus, STATUS_NORMAL);
-        cfgQuery.eq(AidAiModelFuncConfig::getDelFlag, DEL_FLAG_NORMAL);
-        cfgQuery.last("limit 1");
-        AidAiModelFuncConfig cfg = aidAiModelFuncConfigService.getOne(cfgQuery, false);
-        if (Objects.isNull(cfg))
-        {
-            log.error("多机位生图失败，未配置功能池: funcCode={}", FUNC_CODE_IMAGE_MULTI_VIEW);
-            throw new RuntimeException("功能未开放");
-        }
-        List<Long> allowedIds = parseModelIdsJson(cfg.getModelIds());
-        if (CollectionUtil.isEmpty(allowedIds))
-        {
-            log.error("多机位生图失败，功能池为空: funcCode={}", FUNC_CODE_IMAGE_MULTI_VIEW);
-            throw new RuntimeException("功能未开放");
-        }
-
-        LambdaQueryWrapper<AidAiModel> modelQuery = Wrappers.lambdaQuery();
-        modelQuery.select(AidAiModel::getId, AidAiModel::getModelCode,
-                AidAiModel::getModelName, AidAiModel::getModelType,
-                AidAiModel::getStatus, AidAiModel::getDelFlag);
-        modelQuery.eq(AidAiModel::getModelCode, modelCode);
-        modelQuery.eq(AidAiModel::getStatus, STATUS_NORMAL);
-        modelQuery.eq(AidAiModel::getDelFlag, DEL_FLAG_NORMAL);
-        modelQuery.last("limit 1");
-        AidAiModel model = aidAiModelService.getOne(modelQuery, false);
-        if (Objects.isNull(model))
-        {
-            log.info("多机位生图失败，模型不存在或已停用: modelCode={}", modelCode);
-            throw new RuntimeException("模型无效");
-        }
-        if (!Objects.equals(MODEL_TYPE_IMAGE, model.getModelType()))
-        {
-            log.info("多机位生图失败，模型类型不匹配: modelCode={}, modelType={}", modelCode, model.getModelType());
-            throw new RuntimeException("模型不符");
-        }
-        if (!allowedIds.contains(model.getId()))
-        {
-            log.info("多机位生图失败，模型不在功能池: modelCode={}, modelId={}, pool={}",
-                    modelCode, model.getId(), allowedIds);
-            throw new RuntimeException("模型不符");
-        }
-        return model;
+        return businessModelResolver.resolve(FUNC_CODE_IMAGE_MULTI_VIEW, modelCode, "image");
     }
 
     /**
      * 解析 {@code aid_ai_model_func_config.model_ids} JSON 数组字符串。
      * 非法元素（null / 非数字 / 负数 / 0）全部跳过，保证配置脏数据不会拖垮主流程。
      */
-    private List<Long> parseModelIdsJson(String modelIdsJson)
-    {
-        List<Long> ordered = new ArrayList<>();
-        if (StrUtil.isBlank(modelIdsJson))
-        {
-            return ordered;
-        }
-        try
-        {
-            List<?> raw = JSONUtil.parseArray(modelIdsJson).toList(Object.class);
-            for (Object item : raw)
-            {
-                if (Objects.isNull(item))
-                {
-                    continue;
-                }
-                Long id = null;
-                if (item instanceof Number)
-                {
-                    id = ((Number) item).longValue();
-                }
-                else
-                {
-                    String s = item.toString().trim();
-                    if (StrUtil.isBlank(s))
-                    {
-                        continue;
-                    }
-                    try
-                    {
-                        id = Long.parseLong(s);
-                    }
-                    catch (NumberFormatException ignore)
-                    {
-                        // 非数字元素跳过
-                    }
-                }
-                if (Objects.nonNull(id) && id > 0L && !ordered.contains(id))
-                {
-                    ordered.add(id);
-                }
-            }
-        }
-        catch (Exception e)
-        {
-            log.error("解析多机位功能池 modelIds 失败: jsonLen={}, err={}",
-                    StrUtil.length(modelIdsJson), e.getMessage());
-        }
-        return ordered;
-    }
+
     /**
      * 从 aid_agent 读 aid_multi_camera 智能体的 prompt_content，注入 {angle_prompt} / {aspect_ratio}。
      * prompt 文本维护在 aid_agent.prompt_content（agent_code = aid_multi_camera，
@@ -751,6 +659,7 @@ public class FormMultiViewImageServiceImpl implements IFormMultiViewImageService
     {
         MediaImageGenerateRequest imageRequest = new MediaImageGenerateRequest();
         imageRequest.setModelName(modelCode);
+        imageRequest.setBusinessFuncCode(FUNC_CODE_IMAGE_MULTI_VIEW);
         // 异步线程里 SecurityContext 已丢失，必须显式带出 userId 触发预冻结 / 结算
         imageRequest.setUserId(userId);
         imageRequest.setPrompt(finalPrompt);
@@ -775,7 +684,7 @@ public class FormMultiViewImageServiceImpl implements IFormMultiViewImageService
         imageRequest.setBizTaskType(TASK_TYPE_FORM_MULTI_VIEW);
 
         // 模型默认参数兜底（仅在用户未在 request options 里显式写过时生效）
-        AiModelConfigVo defaultModelConfig = aiModelConfigService.selectByModelCode(modelCode);
+        AiModelConfigVo defaultModelConfig = aiModelConfigService.selectForBusiness(modelCode, FUNC_CODE_IMAGE_MULTI_VIEW, null);
         if (Objects.isNull(defaultModelConfig))
         {
             log.error("多机位生图模型配置缺失: modelCode={}", modelCode);

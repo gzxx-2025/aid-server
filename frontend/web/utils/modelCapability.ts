@@ -1,4 +1,5 @@
 import type { UserModelListItem } from '~/types/business-api'
+import { allowedParameterOptions, modelParameterConstraints } from '~/utils/modelParameterConstraints'
 
 export interface ModelCapabilitySnapshot {
   aspectRatioOptions: string[]
@@ -12,6 +13,8 @@ export interface ModelCapabilitySnapshot {
   supportsDuration: boolean
   /** 是否支持音画同出；仅 capability.supportsAudio === true 时为 true */
   supportsAudio: boolean
+  countOptions?: number[]
+  audioOptions?: string[]
 }
 
 export interface VideoGenerationSettingsState {
@@ -224,7 +227,7 @@ function formatSizeLabel(code: string): string {
 }
 
 /** 从 listByFunc / model/list 单项解析生成配置下拉数据源 */
-export function parseModelCapability(item?: UserModelListItem | null): ModelCapabilitySnapshot {
+export function parseModelCapability(item?: UserModelListItem | null, parameters?: Record<string, unknown>): ModelCapabilitySnapshot {
   const cap = resolveCapabilityRecord(item)
   const aspectFromCap = resolveModelAspectRatioOptions(item)
   const sizeFromCap = resolveModelSizeOptions(item).map(normalizeSizeCode).filter(Boolean)
@@ -282,7 +285,7 @@ export function parseModelCapability(item?: UserModelListItem | null): ModelCapa
   const supportsDuration = item?.supportsDuration !== false && durationOptions.length > 0
   const supportsAudio = resolveModelSupportsAudio(item)
 
-  return {
+  const snapshot: ModelCapabilitySnapshot = {
     aspectRatioOptions,
     sizeOptions: sizeOptions.length ? sizeOptions : [...DEFAULT_SIZE_OPTIONS],
     maxOutputCount,
@@ -294,6 +297,18 @@ export function parseModelCapability(item?: UserModelListItem | null): ModelCapa
     supportsDuration,
     supportsAudio
   }
+  const constraints = modelParameterConstraints(item, parameters)
+  snapshot.aspectRatioOptions = allowedParameterOptions(snapshot.aspectRatioOptions, constraints.get('aspectRatio') ?? constraints.get('options.aspectRatio'))
+  snapshot.sizeOptions = allowedParameterOptions(snapshot.sizeOptions, constraints.get('size') ?? constraints.get('options.size') ?? constraints.get('options.resolution'))
+  snapshot.durationOptions = allowedParameterOptions(snapshot.durationOptions, constraints.get('durationSeconds'))
+  const countConstraint = constraints.get('expectedImageCount')
+  if (countConstraint) snapshot.countOptions = allowedParameterOptions(Array.from({ length: snapshot.maxOutputCount }, (_, index) => index + 1), countConstraint)
+  const audioConstraint = constraints.get('audio')
+  if (audioConstraint) {
+    snapshot.audioOptions = allowedParameterOptions([false, true], audioConstraint).map((value) => value ? 'with_audio' : 'silent')
+    if (audioConstraint.forbidden) snapshot.supportsAudio = false
+  }
+  return snapshot
 }
 
 /** 视频模型音画同出：仅 capability.supportsAudio === true 视为支持（未配置按 false） */
@@ -320,10 +335,7 @@ export function buildAspectRatioSelectOptions(
 
 export function buildCountSelectOptions(snapshot: ModelCapabilitySnapshot): SelectOption<number>[] {
   const max = Math.max(1, snapshot.maxOutputCount)
-  return Array.from({ length: max }, (_, i) => {
-    const n = i + 1
-    return { value: n, label: `${n}张` }
-  })
+  return (snapshot.countOptions ?? Array.from({ length: max }, (_, i) => i + 1)).map((value) => ({ value, label: `${value}张` }))
 }
 
 export function buildQualitySelectOptions(
@@ -343,8 +355,7 @@ export function buildVideoQualitySelectOptions(
   const sizes = snapshot.sizeOptions
     .map((s) => String(s || '').trim())
     .filter(Boolean)
-  const list = sizes.length ? sizes : [...DEFAULT_VIDEO_SIZE_OPTIONS]
-  return list.map((value) => ({
+  return sizes.map((value) => ({
     value: value.toLowerCase(),
     label: /^\d+p$/i.test(value) ? value.toUpperCase() : formatSizeLabel(value)
   }))
@@ -372,9 +383,9 @@ export function buildVideoCountSelectOptions(snapshot: ModelCapabilitySnapshot):
 }
 
 /** 不支持音画同出时返回空列表，由 UI 隐藏音频下拉 */
-export function buildAudioSelectOptions(supportsAudio = true): SelectOption<string>[] {
+export function buildAudioSelectOptions(supportsAudio = true, allowed?: string[]): SelectOption<string>[] {
   if (!supportsAudio) return []
-  return [...DEFAULT_AUDIO_OPTIONS]
+  return DEFAULT_AUDIO_OPTIONS.filter((option) => allowed == null || allowed.includes(option.value))
 }
 
 /** 是否向生成接口传 generateAudio=true */
@@ -405,7 +416,7 @@ export function coerceVideoGenerationSettings(
   const counts = buildVideoCountSelectOptions(snapshot)
   const qualities = buildVideoQualitySelectOptions(snapshot)
   const durations = buildDurationSelectOptions(snapshot)
-  const audios = buildAudioSelectOptions(snapshot.supportsAudio)
+  const audios = buildAudioSelectOptions(snapshot.supportsAudio, snapshot.audioOptions)
 
   let aspectRatio = current.aspectRatio
   if (!ratios.some((o) => o.value === aspectRatio)) {
@@ -439,7 +450,7 @@ export function coerceVideoGenerationSettings(
   if (!snapshot.supportsAudio) {
     audio = 'silent'
   } else if (!audios.some((o) => o.value === audio)) {
-    audio = 'with_audio'
+    audio = audios.some((option) => option.value === 'with_audio') ? 'with_audio' : audios[0]?.value ?? 'silent'
   }
 
   return { aspectRatio, count, quality, duration, audio }

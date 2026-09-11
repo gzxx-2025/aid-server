@@ -25,7 +25,7 @@ public class BillingQuoteAssemblerImpl implements BillingQuoteAssembler
         BigDecimal amount = BillingConstants.normalizeAccountAmount(
                 result.getAmount().multiply(BigDecimal.valueOf(quantity)));
         String meterType = result.getSnapshot() == null ? null : result.getSnapshot().getMeterType();
-        boolean estimated = BillingSettlementPolicy.isEstimated(meterType,
+        boolean estimated = result.isInputMetadataPending() || BillingSettlementPolicy.isEstimated(meterType,
                 modelConfig.getBillingMode(), modelConfig.getBillingRuleJson());
         boolean free = Boolean.TRUE.equals(modelConfig.getIsFree());
         BillingQuoteVO vo = new BillingQuoteVO();

@@ -508,6 +508,8 @@ public class BillingDetailQueryServiceImpl implements IBillingDetailQueryService
         item.setDurationMax(matchIntOrNull(match, "durationMax"));
         item.setInputTokensMin(matchIntOrNull(match, "inputTokensMin"));
         item.setInputTokensMax(matchIntOrNull(match, "inputTokensMax"));
+        item.setOutputPixelsMin(matchLongOrNull(match, "outputPixelsMin"));
+        item.setOutputPixelsMax(matchLongOrNull(match, "outputPixelsMax"));
         item.setReferenceImageCountMin(matchIntOrNull(match, "referenceImageCountMin"));
         item.setReferenceImageCountMax(matchIntOrNull(match, "referenceImageCountMax"));
         item.setInputVideoCountMin(matchIntOrNull(match, "inputVideoCountMin"));
@@ -634,6 +636,8 @@ public class BillingDetailQueryServiceImpl implements IBillingDetailQueryService
             {
                 cols.add(new BillingColumnVO("resolution", "分辨率", null, "text"));
                 cols.add(new BillingColumnVO("generateMode", "生成模式", null, "text"));
+                cols.add(new BillingColumnVO("outputPixelsMin", "输出像素下限", null, "number"));
+                cols.add(new BillingColumnVO("outputPixelsMax", "输出像素上限", null, "number"));
                 cols.add(new BillingColumnVO("unitPrice", "每张单价", CREDIT_UNIT, "number"));
             }
             case METER_PER_SECOND ->
@@ -885,6 +889,28 @@ public class BillingDetailQueryServiceImpl implements IBillingDetailQueryService
         try
         {
             return Integer.valueOf(String.valueOf(v).trim());
+        }
+        catch (NumberFormatException ignore)
+        {
+            return null;
+        }
+    }
+
+    /** 从 match 取 Long，无值或非数字返回 null。 */
+    private Long matchLongOrNull(Map<String, Object> match, String key)
+    {
+        if (CollectionUtil.isEmpty(match) || !match.containsKey(key))
+        {
+            return null;
+        }
+        Object value = match.get(key);
+        if (value instanceof Number number)
+        {
+            return number.longValue();
+        }
+        try
+        {
+            return Long.valueOf(String.valueOf(value).trim());
         }
         catch (NumberFormatException ignore)
         {

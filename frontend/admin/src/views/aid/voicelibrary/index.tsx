@@ -1,6 +1,6 @@
 ﻿import React, { useEffect, useRef, useState } from 'react';
 import { Avatar, Button, Card, Form, Input, Popconfirm, Select, Space, Switch, Table, Tag, Tooltip, message } from 'antd';
-import { DeleteOutlined, EditOutlined, PlusOutlined, SearchOutlined, SoundOutlined, UserOutlined } from '@ant-design/icons';
+import { AudioOutlined, DeleteOutlined, EditOutlined, PlusOutlined, SearchOutlined, SoundOutlined, UserOutlined } from '@ant-design/icons';
 import {
   listVoiceLibrary, getVoiceLibrary, addVoiceLibrary, updateVoiceLibrary,
   updateVoiceLibraryStatus, delVoiceLibrary,
@@ -8,6 +8,7 @@ import {
 } from '@/api/aid/voicelibrary';
 import { LANGUAGE_OPTIONS, GENDER_OPTIONS, AGE_RANGE_OPTIONS, resolveEnumLabel, resolveEmotionLabel, isNeverOffline, isAlreadyOffline, isOfflineSoon } from './constants';
 import VoiceFormDialog from './VoiceFormDialog';
+import VoiceWorkbenchWizard from './VoiceWorkbenchWizard';
 import Auth from '@/components/Auth';
 import { parseTime } from '@/utils/ruoyi';
 
@@ -21,9 +22,15 @@ export default function VoiceLibraryPage() {
   const [modelOpts, setModelOpts] = useState<any[]>([]);
   const [tagDict, setTagDict] = useState<any>({ characterTypes: [], voiceStyles: [], toneTags: [] });
   const [dlg, setDlg] = useState<{ open: boolean; title: string; data?: any }>({ open: false, title: '' });
+  const [workbenchOpen, setWorkbenchOpen] = useState(false);
   const [playingId, setPlayingId] = useState<any>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const [searchForm] = Form.useForm();
+  const tokenDanceProviderIds = new Set(
+    providerOpts
+      .filter((provider: any) => String(provider.providerCode || '').trim().toLowerCase() === 'tokendance')
+      .map((provider: any) => Number(provider.id))
+  );
 
   useEffect(() => {
     listProviderOptions({ pageSize: 200 }).then((r: any) => setProviderOpts(r.rows || r.data || []));
@@ -139,6 +146,7 @@ export default function VoiceLibraryPage() {
         <div className="crud-page__toolbar">
           <Space>
             <Auth permission="aid:voice-library:add"><Button type="primary" icon={<PlusOutlined />} onClick={() => setDlg({ open: true, title: '新增音色' })}>新增音色</Button></Auth>
+            <Auth permission="aid:voice-library:add"><Button icon={<AudioOutlined />} onClick={() => setWorkbenchOpen(true)}>音色工作台</Button></Auth>
             <Auth permission="aid:voice-library:remove">
               <Popconfirm
                 title={`确认删除选中的 ${selectedKeys.length} 条音色吗？`}
@@ -168,6 +176,13 @@ export default function VoiceLibraryPage() {
           else { await addVoiceLibrary(values); message.success('已新增'); }
           setDlg({ open: false, title: '' }); loadList();
         }}
+      />
+      <VoiceWorkbenchWizard
+        open={workbenchOpen}
+        modelOptions={modelOpts.filter((model: any) => model.status === '0'
+          && tokenDanceProviderIds.has(Number(model.providerId)))}
+        onClose={() => setWorkbenchOpen(false)}
+        onPublished={loadList}
       />
     </div>
   );

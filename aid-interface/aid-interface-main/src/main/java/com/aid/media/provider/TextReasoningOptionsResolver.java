@@ -58,7 +58,9 @@ public final class TextReasoningOptionsResolver {
             options.remove("max_completion_tokens");
             options.put(targetField, outputLimit);
         }
-        boolean enabled = enabledValue != null && Boolean.parseBoolean(String.valueOf(enabledValue));
+        boolean enabled = enabledValue != null
+                ? Boolean.parseBoolean(String.valueOf(enabledValue))
+                : capabilityBoolean(model, "defaultReasoningEnabled");
         if (!enabled && !hasReasoningCapabilityOrConfig(model, options)) {
             return options.isEmpty() ? null : options;
         }
@@ -73,6 +75,8 @@ public final class TextReasoningOptionsResolver {
                 options.put("enable_thinking", enabled);
                 if (enabled && requestedBudget > 0) {
                     options.put("thinking_budget", requestedBudget);
+                } else if (enabled && modelIdentity(model).contains("qwen3.8")) {
+                    options.put("reasoning_effort", normalizeQwen38Level(level));
                 }
             }
             case "DEEPSEEK" -> {
@@ -132,7 +136,9 @@ public final class TextReasoningOptionsResolver {
             options.remove("maxOutputTokens");
             options.put("maxOutputTokens", outputLimit);
         }
-        boolean enabled = enabledValue != null && Boolean.parseBoolean(String.valueOf(enabledValue));
+        boolean enabled = enabledValue != null
+                ? Boolean.parseBoolean(String.valueOf(enabledValue))
+                : capabilityBoolean(model, "defaultReasoningEnabled");
         if (!enabled && !hasReasoningCapabilityOrConfig(model, options)) {
             return options;
         }
@@ -162,6 +168,61 @@ public final class TextReasoningOptionsResolver {
             thinking.put("includeThoughts", enabled && Boolean.parseBoolean(String.valueOf(includeValue)));
         }
         options.put("thinkingConfig", thinking);
+        return options;
+    }
+
+    /** 将统一思考参数映射为 OpenAI Responses 的 reasoning.effort。 */
+    public static Map<String, Object> resolveResponses(AiModelConfigVo model,
+                                                        MediaTextGenerateRequest request,
+                                                        Map<String, Object> source) {
+        Map<String, Object> options = source == null ? new LinkedHashMap<>() : new LinkedHashMap<>(source);
+        options.remove("reasoning");
+        if (!capabilityBoolean(model, "supportsReasoning")) return options;
+        boolean enabled = request != null && request.getReasoningEnabled() != null
+                ? request.getReasoningEnabled()
+                : capabilityBoolean(model, "defaultReasoningEnabled");
+        String requested = request != null && StrUtil.isNotBlank(request.getReasoningLevel())
+                ? request.getReasoningLevel().trim().toLowerCase(Locale.ROOT)
+                : capabilityText(model, "defaultReasoningLevel", "high");
+        String modelCode = modelIdentity(model);
+        String effort = enabled
+                ? (modelCode.contains("qwen3.8")
+                    ? normalizeQwen38Level(requested)
+                    : ("DEEPSEEK".equals(reasoningApiStyle(model))
+                        ? normalizeDeepSeekLevel(requested) : normalizeOpenAiLevel(requested)))
+                : "none";
+        options.put("reasoning", Map.of("effort", effort));
+        return options;
+    }
+
+    /** DeepSeek Anthropic 兼容协议使用 output_config.effort；原厂未声明关闭参数时不伪造关闭能力。 */
+    public static Map<String, Object> resolveAnthropic(AiModelConfigVo model,
+                                                        MediaTextGenerateRequest request,
+                                                        Map<String, Object> source) {
+        Map<String, Object> options = source == null ? new LinkedHashMap<>() : new LinkedHashMap<>(source);
+        options.remove("output_config");
+        options.remove("thinking");
+        if (!capabilityBoolean(model, "supportsReasoning")) return options;
+        boolean enabled = request != null && request.getReasoningEnabled() != null
+                ? request.getReasoningEnabled()
+                : capabilityBoolean(model, "defaultReasoningEnabled");
+        Map<String, Object> thinking = new LinkedHashMap<>();
+        thinking.put("type", enabled ? "enabled" : "disabled");
+        if (enabled && request != null && request.getReasoningBudgetTokens() != null) {
+            int budget = boundedReasoningBudget(request.getReasoningBudgetTokens());
+            if (budget > 0) thinking.put("budget_tokens", budget);
+        }
+        options.put("thinking", thinking);
+        if (!enabled) return options;
+        String requested = request != null && StrUtil.isNotBlank(request.getReasoningLevel())
+                ? request.getReasoningLevel().trim().toLowerCase(Locale.ROOT)
+                : capabilityText(model, "defaultReasoningLevel", "high");
+        String modelCode = modelIdentity(model);
+        if (modelCode.contains("qwen3.8")) {
+            options.put("output_config", Map.of("effort", normalizeQwen38Level(requested)));
+        } else if (modelCode.contains("deepseek-v4") || modelCode.contains("glm-5.2")) {
+            options.put("output_config", Map.of("effort", normalizeDeepSeekLevel(requested)));
+        }
         return options;
     }
 
@@ -250,6 +311,24 @@ public final class TextReasoningOptionsResolver {
         }
     }
 
+    private static String modelIdentity(AiModelConfigVo model) {
+        if (model == null) return "";
+        return (StrUtil.blankToDefault(model.getRealModelCode(), "") + " "
+                + StrUtil.blankToDefault(model.getModelCode(), ""))
+                .trim().toLowerCase(Locale.ROOT);
+    }
+
+    private static String capabilityText(AiModelConfigVo model, String key, String fallback) {
+        if (model == null || StrUtil.isBlank(model.getCapabilityJson())) return fallback;
+        try {
+            JsonNode node = MAPPER.readTree(model.getCapabilityJson()).get(key);
+            return node != null && node.isTextual() && StrUtil.isNotBlank(node.asText())
+                    ? node.asText().trim().toLowerCase(Locale.ROOT) : fallback;
+        } catch (Exception ignored) {
+            return fallback;
+        }
+    }
+
     private static String minimumReasoningLevel(AiModelConfigVo model) {
         if (model != null && StrUtil.isNotBlank(model.getCapabilityJson())) {
             try {
@@ -328,6 +407,14 @@ public final class TextReasoningOptionsResolver {
 
     private static String normalizeDeepSeekLevel(String level) {
         return "max".equals(level) || "xhigh".equals(level) ? "max" : "high";
+    }
+
+    private static String normalizeQwen38Level(String level) {
+        return switch (StrUtil.blankToDefault(level, "xhigh").toLowerCase(Locale.ROOT)) {
+            case "low" -> "low";
+            case "medium" -> "medium";
+            default -> "xhigh";
+        };
     }
 
     private static String normalizeOpenAiLevel(String level) {

@@ -2,7 +2,12 @@ import type { AssetExtractType } from '~/types/business-api';
 
 export type ExtractModelCodes = Record<AssetExtractType, string>
 
-export type ModelOptionMatchable = { id: string; serverModelId?: number }
+export type ModelOptionMatchable = {
+  id: string
+  serverModelId?: number
+  legacyModelCodes?: string[]
+  legacyModelIds?: number[]
+}
 
 /** 下拉 option 是否与 modelCode / modelId 一致（含 serverModelId 与大小写容错） */
 export function modelOptionMatchesCode(option: ModelOptionMatchable, code: string): boolean {
@@ -17,13 +22,22 @@ export function modelOptionMatchesCode(option: ModelOptionMatchable, code: strin
   return false
 }
 
+/** 当前标识优先；旧标识有歧义时不擅自切换供应商或模型。 */
+function findModelOption<T extends ModelOptionMatchable>(options: T[], code: string): T | undefined {
+  const current = options.filter((option) => modelOptionMatchesCode(option, code))
+  if (current.length) return current.length === 1 ? current[0] : undefined
+  const previous = options.filter((option) => option.legacyModelCodes?.includes(code)
+    || option.legacyModelIds?.some((id) => String(id) === code))
+  return previous.length === 1 ? previous[0] : undefined
+}
+
 export function findModelOptionIdByCode<T extends ModelOptionMatchable>(
   options: T[],
   code: string | null | undefined
 ): string {
   const normalized = String(code || '').trim()
   if (!normalized) return ''
-  const hit = options.find((o) => modelOptionMatchesCode(o, normalized))
+  const hit = findModelOption(options, normalized)
   return hit ? String(hit.id || '').trim() : ''
 }
 
@@ -76,7 +90,7 @@ export function resolveSelectedModelOption<T extends ModelOptionMatchable & { na
 ): T {
   const id = String(modelId || '').trim()
   if (!id) return placeholder
-  return options.find((o) => modelOptionMatchesCode(o, id)) ?? placeholder
+  return findModelOption(options, id) ?? placeholder
 }
 
 export function emptyExtractModelCodes(): ExtractModelCodes {

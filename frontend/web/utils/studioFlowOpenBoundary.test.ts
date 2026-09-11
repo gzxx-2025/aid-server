@@ -24,6 +24,6 @@ describe('open-source flow canvas boundary', () => {
     expect(files.some((path) => /(?:free|director)/i.test(path))).toBe(false)
     expect(source).not.toMatch(/\bStudioMode\b|StudioModeGate|StudioFree|DirectorWorkspace/)
     expect(source).not.toMatch(/@react-three|@imgly|mode\s*===?\s*['"]free['"]|studioMode/)
-    expect(source).not.toMatch(/publicProjectPreviewNavigation|PublishCasePlazaModal|usePreviewPublicationState|useCreateFlowPublishExport/)
+    // 案例广场的发布、预览和复制属于公共能力，可由流程画布复用；这里只阻止自由画布实现进入开源分支。
   })
 })

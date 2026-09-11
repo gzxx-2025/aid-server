@@ -208,4 +208,21 @@ class ErrorNormalizerFallbackTest
         assertEquals("MERCHANT", credits.getRechargeOwner());
         assertEquals("MERCHANT", overdue.getRechargeOwner());
     }
+
+    @Test
+    void shouldClassifyProviderQuotaAuthAndHttpFailuresWithoutPlatformFallback()
+    {
+        assertEquals(TaskErrorCode.PROVIDER_QUOTA_EXHAUSTED.name(),
+                ErrorNormalizer.classifyFallback("insufficient user quota; remaining quota: 0").getErrorCode());
+        assertEquals(TaskErrorCode.UPSTREAM_AUTH_INVALID.name(),
+                ErrorNormalizer.classifyFallback("上游账户或权限不可用").getErrorCode());
+        assertEquals(TaskErrorCode.UPSTREAM_AUTH_INVALID.name(),
+                ErrorNormalizer.classifyFallback("HTTP 403: forbidden").getErrorCode());
+        assertEquals(TaskErrorCode.UPSTREAM_SERVICE_NOT_OPEN.name(),
+                ErrorNormalizer.classifyFallback("HTTP 404: model not found").getErrorCode());
+        assertEquals(TaskErrorCode.UPSTREAM_RATE_LIMITED.name(),
+                ErrorNormalizer.classifyFallback("HTTP 429: rate limited").getErrorCode());
+        assertEquals(TaskErrorCode.UPSTREAM_SERVER_ERROR.name(),
+                ErrorNormalizer.classifyFallback("HTTP 503: unavailable").getErrorCode());
+    }
 }

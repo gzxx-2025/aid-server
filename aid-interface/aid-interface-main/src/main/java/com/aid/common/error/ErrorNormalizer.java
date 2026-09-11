@@ -60,12 +60,14 @@ public class ErrorNormalizer {
         }
         Throwable current = ex;
         String selectedMessage = ex.getMessage();
+        int selectedHttpStatus = -1;
         TaskErrorResult selected = null;
         for (int depth = 0; Objects.nonNull(current) && depth < 10; depth++) {
             if (current instanceof InterruptedException) {
                 return TaskErrorResult.of(TaskErrorCode.TASK_INTERRUPTED, current.getMessage());
             }
             String message = current.getMessage();
+            int currentHttpStatus = -1;
             if (current instanceof ServiceException serviceException) {
                 TaskErrorResult explicit = TaskErrorSnapshot.read(serviceException.getTaskErrorJson());
                 if (Objects.nonNull(explicit)) {
@@ -74,16 +76,22 @@ public class ErrorNormalizer {
                     return explicit;
                 }
                 message = StrUtil.blankToDefault(serviceException.getDetailMessage(), message);
+                if (StrUtil.isNotBlank(serviceException.getDetailMessage())
+                        && serviceException.getCode() != null
+                        && serviceException.getCode() >= 100 && serviceException.getCode() <= 599) {
+                    currentHttpStatus = serviceException.getCode();
+                }
             }
-            TaskErrorResult candidate = classify(providerCode, modelCode, -1, message);
+            TaskErrorResult candidate = classify(providerCode, modelCode, currentHttpStatus, message);
             if (Objects.isNull(selected) || TaskErrorPresentation.isGeneric(selected)
                     || TaskErrorPresentation.specificity(candidate) > TaskErrorPresentation.specificity(selected)) {
                 selected = candidate;
                 selectedMessage = message;
+                selectedHttpStatus = currentHttpStatus;
             }
             current = current.getCause();
         }
-        return normalize(taskId, providerCode, modelCode, -1, selectedMessage);
+        return normalize(taskId, providerCode, modelCode, selectedHttpStatus, selectedMessage);
     }
 
     /**
@@ -104,7 +112,7 @@ public class ErrorNormalizer {
         }
         ErrorNormalizer self = INSTANCE;
         if (Objects.isNull(self)) {
-            return classifyFallback(rawMessage);
+            return classifyFallback(httpStatus, rawMessage);
         }
         return self.doNormalize(null, providerCode, modelCode, httpStatus, rawMessage, false);
     }
@@ -134,7 +142,7 @@ public class ErrorNormalizer {
         if (Objects.isNull(self)) {
             // 兜底：Spring 还未启动完成（极少见，比如 init 期异常）
             log.warn("[ErrorNormalizer] 静态门面尚未初始化，临时返回兜底错误码");
-            return classifyFallback(rawMessage);
+            return classifyFallback(httpStatus, rawMessage);
         }
         return self.doNormalize(taskId, providerCode, modelCode, httpStatus, rawMessage, true);
     }
@@ -150,7 +158,7 @@ public class ErrorNormalizer {
         }
         ErrorNormalizer self = INSTANCE;
         if (Objects.isNull(self)) {
-            return classifyFallback(rawMessage);
+            return classifyFallback(httpStatus, rawMessage);
         }
         return self.doNormalize(null, providerCode, modelCode, httpStatus, rawMessage, false);
     }
@@ -158,7 +166,7 @@ public class ErrorNormalizer {
                                         int httpStatus, String rawMessage, boolean recordSample) {
         String effectiveProviderCode = StrUtil.blankToDefault(
                 providerCode, errorProviderResolver.resolve(modelCode));
-        TaskErrorResult fallbackResult = classifyFallback(rawMessage);
+        TaskErrorResult fallbackResult = classifyFallback(httpStatus, rawMessage);
         List<AidProviderErrorRule> rules = errorRuleCache.findEffective(effectiveProviderCode, modelCode);
         for (AidProviderErrorRule rule : rules) {
             if (errorRuleEngine.matches(rule, httpStatus, rawMessage)) {
@@ -268,31 +276,35 @@ public class ErrorNormalizer {
                 "freetieronly", "free allocated quota")) {
             return TaskErrorResult.of(TaskErrorCode.PROVIDER_FREE_TIER_EXHAUSTED, rawMessage);
         }
-        if (containsAny(lower, "insufficient credits", "insufficient balance",
-                "balance insufficient", "account balance is insufficient",
+        if (containsAny(lower, "insufficient balance", "balance insufficient", "account balance is insufficient",
                 "credit balance is insufficient",
-                "模型服务额度不足", "模型余额不足", "上游账户余额不足", "供应商余额不足")
-                || Objects.equals(lower.trim(), "余额不足")) {
+                "上游账户余额不足", "供应商余额不足")) {
             return TaskErrorResult.of(TaskErrorCode.PROVIDER_BALANCE_INSUFFICIENT, rawMessage);
         }
-        if (containsAny(lower, "quota exhausted", "quota exceeded", "reached the set inference limit",
-                "safe experience mode")) {
+        if (containsAny(lower, "insufficient credits", "insufficient user quota", "remaining quota",
+                "quota exhausted", "quota exceeded", "reached the set inference limit",
+                "safe experience mode", "模型服务额度不足", "模型余额不足")
+                || Objects.equals(lower.trim(), "余额不足")) {
             return TaskErrorResult.of(TaskErrorCode.PROVIDER_QUOTA_EXHAUSTED, rawMessage);
         }
         if (containsAny(lower, "invalid api key", "incorrect api key", "api key not valid",
                 "unauthorized", "authentication failed", "invalid credential",
-                "access denied", "signaturedoesnotmatch", "invalidaccesskeyid")) {
+                "access denied", "signaturedoesnotmatch", "invalidaccesskeyid",
+                "上游账户或权限不可用")) {
             return TaskErrorResult.of(TaskErrorCode.UPSTREAM_AUTH_INVALID, rawMessage);
         }
         if (containsAny(lower, "rate limit exceeded", "too many requests", "request limit exceeded",
                 "throttling", "ratelimitexceeded")) {
             return TaskErrorResult.of(TaskErrorCode.UPSTREAM_RATE_LIMITED, rawMessage);
         }
+        if (containsAny(lower, "清晰度不支持", "画面比例不支持", "分辨率不支持")) {
+            return TaskErrorResult.of(TaskErrorCode.USER_INPUT_INVALID, rawMessage);
+        }
         if (containsAny(lower, "invalid value for 'size'", "invalid value for `size`",
                 "unsupported image size", "image dimensions", "maximum edge length",
                 "both edges must be multiples of", "long edge to short edge ratio",
                 "total pixels must be", "mask and image must be the same size",
-                "清晰度不支持", "画面比例不支持", "图片尺寸不符合要求", "分辨率不支持")) {
+                "图片尺寸不符合要求")) {
             return TaskErrorResult.of(TaskErrorCode.USER_IMAGE_RESOLUTION_INVALID, rawMessage);
         }
         if (containsAny(lower, "unsupported image format", "unsupported file format",
@@ -342,7 +354,8 @@ public class ErrorNormalizer {
             return TaskErrorResult.of(TaskErrorCode.UPSTREAM_TIMEOUT, rawMessage);
         }
         if (containsAny(lower, "comfyui is not reachable", "image generation is not enabled",
-                "model service is not open")) {
+                "model service is not open", "requested resource not granted",
+                "resource not granted")) {
             return TaskErrorResult.of(TaskErrorCode.UPSTREAM_SERVICE_NOT_OPEN, rawMessage);
         }
         if (containsAny(lower, "error updating database", "error querying database",
@@ -357,7 +370,38 @@ public class ErrorNormalizer {
         if (containsAny(lower, "服务重启中断", "interrupted", "任务被中断")) {
             return TaskErrorResult.of(TaskErrorCode.TASK_INTERRUPTED, rawMessage);
         }
+        if (lower.matches("^http\\s+(401|403)(?:\\D.*)?$")) {
+            return TaskErrorResult.of(TaskErrorCode.UPSTREAM_AUTH_INVALID, rawMessage);
+        }
+        if (lower.matches("^http\\s+404(?:\\D.*)?$")) {
+            return TaskErrorResult.of(TaskErrorCode.UPSTREAM_SERVICE_NOT_OPEN, rawMessage);
+        }
+        if (lower.matches("^http\\s+429(?:\\D.*)?$")) {
+            return TaskErrorResult.of(TaskErrorCode.UPSTREAM_RATE_LIMITED, rawMessage);
+        }
+        if (lower.matches("^http\\s+5\\d{2}(?:\\D.*)?$")) {
+            return TaskErrorResult.of(TaskErrorCode.UPSTREAM_SERVER_ERROR, rawMessage);
+        }
+        if (lower.matches("^http\\s+400(?:\\D.*)?$")) {
+            return TaskErrorResult.of(TaskErrorCode.UPSTREAM_BAD_REQUEST, rawMessage);
+        }
         return TaskErrorResult.of(TaskErrorCode.AI_GENERATION_FAILED, rawMessage);
+    }
+
+    private static TaskErrorResult classifyFallback(int httpStatus, String rawMessage) {
+        TaskErrorResult messageResult = classifyFallback(rawMessage);
+        if (!TaskErrorPresentation.isGeneric(messageResult)) {
+            return messageResult;
+        }
+        TaskErrorCode statusCode = switch (httpStatus) {
+            case 401, 403 -> TaskErrorCode.UPSTREAM_AUTH_INVALID;
+            case 404 -> TaskErrorCode.UPSTREAM_SERVICE_NOT_OPEN;
+            case 429 -> TaskErrorCode.UPSTREAM_RATE_LIMITED;
+            case 400 -> TaskErrorCode.UPSTREAM_BAD_REQUEST;
+            default -> httpStatus >= 500 && httpStatus <= 599
+                    ? TaskErrorCode.UPSTREAM_SERVER_ERROR : null;
+        };
+        return statusCode == null ? messageResult : TaskErrorResult.of(statusCode, rawMessage);
     }
 
     private static boolean containsAny(String value, String... keywords) {

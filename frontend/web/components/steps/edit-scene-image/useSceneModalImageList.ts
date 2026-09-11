@@ -4,7 +4,7 @@ import {
 userAssetRpsFormImageList
 } from '~/utils/businessApi'
 import { createSceneModalImagePersistenceOps } from './sceneModalImagePersistenceOps'
-import { isSinglePrimaryImageType, normalizeImageId } from './sceneModalTaskParsers'
+import { isSinglePrimaryImageEditor, normalizeImageId } from './sceneModalTaskParsers'
 import type { EditSceneImageModalCtx,EditSceneImageModalScene,ModalScopeSnapshot } from './types'
 
 export interface SceneModalImageListApi {
@@ -84,7 +84,7 @@ export interface SceneModalImageListApi {
 export function useSceneModalImageList(ctx: EditSceneImageModalCtx): SceneModalImageListApi {
   const { buildVisibleImagesForParent, emitSceneTabUpdate, reserveSetRpsForm, reserveUnsetRpsForm, resolveImageIdFromFormImageList, syncImageToRpsApi, syncLocalSceneImagesFromSceneIndex } = createSceneModalImagePersistenceOps(ctx)
   function normalizeMainImageFlags(images: any[], focusImageId?: number | null) {
-    if (!isSinglePrimaryImageType(ctx.props().imageType)) return images
+    if (!isSinglePrimaryImageEditor(ctx.props())) return images
     let mainIndex = -1
     for (let index = 0; index < images.length; index += 1) {
       if (images[index]?._isSet === true) mainIndex = index
@@ -123,7 +123,7 @@ export function useSceneModalImageList(ctx: EditSceneImageModalCtx): SceneModalI
     const si = ctx.currentSceneIndex.get()
     const sceneImages = ctx.props().scenes[si]?.images || []
     const next = new Set<string>()
-    const visibleImages = isSinglePrimaryImageType(ctx.props().imageType)
+    const visibleImages = isSinglePrimaryImageEditor(ctx.props())
       ? sceneImages.slice(-1)
       : sceneImages
     for (const im of visibleImages) {
@@ -416,7 +416,7 @@ export function useSceneModalImageList(ctx: EditSceneImageModalCtx): SceneModalI
       _isSet: true,
       canSplit: false
     }
-    const currentImages = isSinglePrimaryImageType(ctx.props().imageType)
+    const currentImages = isSinglePrimaryImageEditor(ctx.props())
       ? ctx.localSceneImages
           .get()
           .map((image) => (image._isSet ? { ...image, _isSet: false } : image))

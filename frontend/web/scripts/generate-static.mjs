@@ -2,6 +2,10 @@ import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, write
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
+import {
+  flattenStaticExportRscTree,
+  resolveFlattenedStaticExportRscPath
+} from './staticExportRscPaths.mjs'
 
 const projectRoot = dirname(dirname(fileURLToPath(import.meta.url)))
 const nextBin = join(projectRoot, 'node_modules', 'next', 'dist', 'bin', 'next')
@@ -19,6 +23,29 @@ if (build.status !== 0) process.exit(build.status ?? 1)
 if (!existsSync(join(exportDir, 'index.html'))) {
   throw new Error('Next 静态导出缺少 out/index.html')
 }
+
+// Next 16 Windows 静态导出可能留下嵌套 __next 段目录；压平为客户端请求的扁平文件名。
+const { renamed } = await flattenStaticExportRscTree(exportDir)
+if (renamed > 0) {
+  console.log(`Normalized ${renamed} nested static-export RSC segment file(s)`)
+}
+
+function assertNoNestedStaticExportRsc(directory) {
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const full = join(directory, entry.name)
+    if (entry.isDirectory()) {
+      if (entry.name.startsWith('__next')) {
+        throw new Error(`静态导出仍含嵌套 RSC 段目录（应已压平）: ${full}`)
+      }
+      assertNoNestedStaticExportRsc(full)
+      continue
+    }
+    if (entry.isFile() && resolveFlattenedStaticExportRscPath(full)) {
+      throw new Error(`静态导出仍含嵌套 RSC 段文件（应已压平）: ${full}`)
+    }
+  }
+}
+assertNoNestedStaticExportRsc(exportDir)
 
 // A successful process is not enough: every declared static route must be in the release.
 function verifyRoutes(directory, segments = []) {

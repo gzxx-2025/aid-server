@@ -16,6 +16,9 @@ public interface TextStreamCallbacks {
      */
     default void onReasoningDelta(String reasoningDelta) {}
 
+    /** 完整且已结束的助手工具调用消息；调用方负责工具执行和续轮。 */
+    default void onToolMessage(com.aid.media.dto.MediaTextGenerateRequest.TextMessageItem message) {}
+
     // 业务含义：单条 SSE data 行原文（不含 "data: " 前缀），用于审计或排障时落库截断快照。
     void onSseDataLine(String dataLine);
 

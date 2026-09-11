@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class KlingVideoReferenceStrategyTest {
 
@@ -18,19 +19,27 @@ class KlingVideoReferenceStrategyTest {
 
     @Test
     void omniReferenceReservesOneImageSlotForNonblankBaseFrame() {
-        VideoReferencePlan withBase = strategy.assemble(context("https://cdn.test/base.png"));
-        VideoReferencePlan withoutBase = strategy.assemble(context(" "));
+        VideoReferencePlan withBase = strategy.assemble(context("https://cdn.test/base.png", 6));
+        VideoReferencePlan withoutBase = strategy.assemble(context(" ", 7));
 
         assertEquals(6, withBase.getReferenceImageUrls().size());
         assertEquals("https://cdn.test/base.png", withBase.getFirstFrameImageUrl());
         assertEquals(7, withoutBase.getReferenceImageUrls().size());
     }
 
-    private VideoReferenceContext context(String baseImageUrl) {
+    @Test
+    void omniReferenceRejectsOverLimitInsteadOfClipping() {
+        assertThrows(com.aid.common.exception.ServiceException.class,
+                () -> strategy.assemble(context("https://cdn.test/base.png", 7)));
+        assertThrows(com.aid.common.exception.ServiceException.class,
+                () -> strategy.assemble(context(" ", 8)));
+    }
+
+    private VideoReferenceContext context(String baseImageUrl, int referenceCount) {
         AiModelConfigVo config = new AiModelConfigVo();
         config.setCapabilityJson("{\"klingScenario\":\"" + KlingConstants.SCENARIO_OMNI_REFERENCE + "\"}");
         List<ResolvedReference> references = new ArrayList<>();
-        for (int index = 1; index <= 8; index++) {
+        for (int index = 1; index <= referenceCount; index++) {
             references.add(new ResolvedReference(index, "form-" + index, "asset-" + index,
                 "character", false, "https://cdn.test/ref-" + index + ".png"));
         }

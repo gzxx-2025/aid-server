@@ -190,6 +190,10 @@ public class ProviderBalanceService {
             item.put("apiBalanceUnit", upstreamBalanceUnit(provider.getId()));
             if (config == null) {
                 item.putAll(defaultProviderValues());
+                Object unit = item.get("apiBalanceUnit");
+                if (unit instanceof String units && !units.isBlank()) {
+                    item.put("currency", units.split("/")[0].toUpperCase(Locale.ROOT));
+                }
             } else {
                 item.putAll(JSON.parseObject(JSON.toJSONString(config), Map.class));
                 item.put("enabled", Objects.equals(config.getEnabled(), 1));
@@ -474,13 +478,15 @@ public class ProviderBalanceService {
         String queryError = null;
         if (Objects.equals(config.getApiEnabled(), 1) && isApiSupported(providerId)) {
             try {
-                Map<String, Object> raw = upstreamOperationsService.balance(providerId, null, null, null);
-                balance = extractBalance(raw);
+                boolean packages = "RESOURCE_UNITS".equals(upstreamBalanceUnit(providerId));
+                // 资源包可能早于最近一个月购买，监控必须覆盖历史购买记录。
+                Map<String, Object> raw = upstreamOperationsService.balance(providerId, packages ? 1L : null, null, null);
+                balance = OfficialBalanceReader.read(raw, config.getCurrency(), System.currentTimeMillis());
                 if (balance == null) {
                     throw new ServiceException("官方接口未返回可汇总余额");
                 }
                 source = "API";
-                saveSnapshot(config, balance, source, "SUCCESS", "EXACT", raw, null);
+                saveSnapshot(config, balance, source, "SUCCESS", packages ? "ESTIMATED" : "EXACT", raw, null);
             } catch (Exception ex) {
                 queryError = safeText(ex.getMessage(), 200);
                 saveSnapshot(config, null, "API", "UNAVAILABLE", "UNKNOWN", null, queryError);
@@ -508,6 +514,9 @@ public class ProviderBalanceService {
         if (balance != null) {
             config.setLastSuccessTime(new Date());
             evaluateNumericBalance(config, balance, source);
+        } else {
+            // 查询未知不能跨越失败继续累计“连续低余额”，也不能解除已有告警。
+            config.setConsecutiveLow(0);
         }
         persistCheckState(config);
         Map<String, Object> result = new LinkedHashMap<>();
@@ -893,7 +902,7 @@ public class ProviderBalanceService {
             Map<String, String> params = new LinkedHashMap<>();
             params.put("provider", provider == null ? "供应商" : safeText(provider.getProviderName(), 20));
             params.put("balance", StrUtil.blankToDefault(balanceText, "测试"));
-            params.put("status", incident == null ? "测试" : severityName(incident.getSeverity()));
+            params.put("status", "RECOVERY".equals(type) ? "已恢复" : incident == null ? "测试" : severityName(incident.getSeverity()));
             SmsResult result = smsTemplateFactory.send(recipient.getTargetValue(), settings.getSmsTemplateId(), params);
             return new DeliveryOutcome(result != null && result.isSuccess(), null,
                     result == null || result.isSuccess() ? null : result.getMessage());
@@ -910,7 +919,7 @@ public class ProviderBalanceService {
             payload.setClientMsgId("pbal_" + recipient.getId() + "_" + System.currentTimeMillis());
             payload.getData().put(settings.getWechatProviderField(), provider == null ? "余额监控测试" : provider.getProviderName());
             payload.getData().put(settings.getWechatBalanceField(), StrUtil.blankToDefault(balanceText, "测试"));
-            payload.getData().put(settings.getWechatStatusField(), incident == null ? "通道测试" : severityName(incident.getSeverity()));
+            payload.getData().put(settings.getWechatStatusField(), "RECOVERY".equals(type) ? "已恢复" : incident == null ? "通道测试" : severityName(incident.getSeverity()));
             payload.getData().put(settings.getWechatTimeField(), DATE_TIME.format(LocalDateTime.now()));
             WechatTemplateSendResult result = wechatSender.send(payload);
             return new DeliveryOutcome(result != null && result.success(),
@@ -1081,35 +1090,6 @@ public class ProviderBalanceService {
                 : config.getCurrentBalance().max(BigDecimal.ZERO).divide(daily, 1, RoundingMode.HALF_UP);
     }
 
-    private BigDecimal extractBalance(Object raw) {
-        if (raw == null) return null;
-        if (raw instanceof Number number) return new BigDecimal(number.toString());
-        if (raw instanceof Map<?, ?> map) {
-            for (String key : List.of("remaining_quantity", "balance", "credits", "available", "available_balance")) {
-                Object value = map.get(key);
-                BigDecimal parsed = decimal(value);
-                if (parsed != null) return parsed;
-            }
-            for (Object value : map.values()) {
-                BigDecimal nested = extractBalance(value);
-                if (nested != null) return nested;
-            }
-        }
-        if (raw instanceof Iterable<?> iterable) {
-            BigDecimal total = BigDecimal.ZERO;
-            boolean found = false;
-            for (Object value : iterable) {
-                BigDecimal nested = extractBalance(value);
-                if (nested != null) {
-                    total = total.add(nested);
-                    found = true;
-                }
-            }
-            return found ? total : null;
-        }
-        return decimal(raw);
-    }
-
     private BigDecimal decimal(Object value) {
         if (value == null) return null;
         try {
@@ -1199,6 +1179,7 @@ public class ProviderBalanceService {
                 .set(ProviderBalanceConfig::getSimulatedBalance, config.getSimulatedBalance())
                 .set(ProviderBalanceConfig::getLastCheckTime, config.getLastCheckTime())
                 .set(ProviderBalanceConfig::getLastSuccessTime, config.getLastSuccessTime())
+                .set(ProviderBalanceConfig::getConsecutiveLow, config.getConsecutiveLow())
                 .set(ProviderBalanceConfig::getLastError, config.getLastError()));
     }
 
@@ -1278,6 +1259,13 @@ public class ProviderBalanceService {
         }
         if (Objects.equals(input.getApiEnabled(), 1) && !isApiSupported(providerId)) {
             throw new ServiceException("该供应商暂不支持官方余额接口，请使用模拟余额或错误规则检测");
+        }
+        if (Objects.equals(input.getApiEnabled(), 1)) {
+            Object unit = upstreamBalanceUnit(providerId);
+            if (unit instanceof String units && !units.isBlank()
+                    && java.util.Arrays.stream(units.split("/")).noneMatch(input.getCurrency()::equalsIgnoreCase)) {
+                throw new ServiceException("官方余额单位为 " + units + "，请使用相同单位设置阈值");
+            }
         }
         if (Objects.equals(input.getSimulatedEnabled(), 1)
                 && (input.getInitialAmount() == null || input.getInitialTime() == null)) {

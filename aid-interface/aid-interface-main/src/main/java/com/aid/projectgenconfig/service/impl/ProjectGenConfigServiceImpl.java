@@ -440,7 +440,8 @@ public class ProjectGenConfigServiceImpl implements IProjectGenConfigService
             log.error("项目生成配置校验失败: 模型池为空或未配置, projectId={}, sceneCode={}", projectId, sceneCode);
             throw new ServiceException("模型未配置");
         }
-        boolean inPool = pool.stream().anyMatch(m -> Objects.equals(modelCode, m.getModelCode()));
+        String canonicalModelCode = com.aid.model.definition.ModelReferences.canonicalCode(pool, modelCode);
+        boolean inPool = pool.stream().anyMatch(m -> Objects.equals(canonicalModelCode, m.getModelCode()));
         if (!inPool)
         {
             log.error("项目生成配置校验失败: 模型不在可选池内, projectId={}, sceneCode={}, modelCode={}, poolSize={}",
@@ -453,7 +454,7 @@ public class ProjectGenConfigServiceImpl implements IProjectGenConfigService
         if (scene.isImageScene())
         {
             supportsAspectRatio = validateImageCapability(
-                    projectId, scene, modelCode, resolution, aspectRatio);
+                    projectId, scene, canonicalModelCode, resolution, aspectRatio);
         }
 
         // 组装实体（文字场景不写图片参数）
@@ -462,7 +463,7 @@ public class ProjectGenConfigServiceImpl implements IProjectGenConfigService
         entity.setUserId(userId);
         entity.setSceneCode(sceneCode);
         entity.setAgentCode(agentCode);
-        entity.setModelCode(modelCode);
+        entity.setModelCode(canonicalModelCode);
         entity.setResolution(scene.isNeedResolution() ? resolution : null);
         entity.setAspectRatio(scene.isNeedAspectRatio() && supportsAspectRatio ? aspectRatio : null);
         entity.setDelFlag(DEL_FLAG_NORMAL);
@@ -475,7 +476,7 @@ public class ProjectGenConfigServiceImpl implements IProjectGenConfigService
     private boolean validateImageCapability(Long projectId, ProjectGenConfigScene scene, String modelCode,
                                             String resolution, String aspectRatio)
     {
-        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(modelCode);
+        AiModelConfigVo modelConfig = aiModelConfigService.selectForBusiness(modelCode, scene.getSceneCode(), null);
         if (Objects.isNull(modelConfig))
         {
             log.error("项目生成配置校验失败: 模型不存在, projectId={}, sceneCode={}, modelCode={}",
@@ -561,7 +562,7 @@ public class ProjectGenConfigServiceImpl implements IProjectGenConfigService
         {
             return;
         }
-        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(vo.getModelCode());
+        AiModelConfigVo modelConfig = aiModelConfigService.selectForBusiness(vo.getModelCode(), scene.getSceneCode(), null);
         if (Objects.isNull(modelConfig))
         {
             return;
@@ -616,6 +617,7 @@ public class ProjectGenConfigServiceImpl implements IProjectGenConfigService
             vo.setMode(null);
             return;
         }
+        vo.setModelCode(com.aid.model.definition.ModelReferences.canonicalCode(availableModels, vo.getModelCode()));
         boolean currentAvailable = availableModels.stream()
                 .anyMatch(model -> Objects.equals(vo.getModelCode(), model.getModelCode()));
         if (currentAvailable)

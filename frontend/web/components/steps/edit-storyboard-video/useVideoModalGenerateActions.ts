@@ -15,6 +15,11 @@ validateImageToVideoPromptPlain,
 validateMultiParamVideoPromptPlain
 } from '~/utils/storyboardVideoPromptSave'
 import { buildGenerateReferenceAudioFields } from '~/utils/storyboardVideoReferenceAudioWire'
+import { buildGenerateReferenceVideoFields } from '~/utils/storyboardVideoReferenceVideoWire'
+import {
+  parseReferenceVideoCapability,
+  validateReferenceVideoCount
+} from '~/utils/referenceVideoCapability'
 import type { VideoModalCtx,VideoModalGenerateActionsApi } from './types'
 
 /** 各出片方向的 body 组装 / 校验 / 开始生成入口（拆自 useVideoModalGenerate，超 800 行体量红线） */
@@ -85,11 +90,19 @@ export function useVideoModalGenerateActions(ctx: VideoModalCtx): void {
       return
     }
 
-    if (!ctx.validateMultiParamAssetImages()) return
+    if (!ctx.validateMultiParamReferenceMedia()) return
 
     const modelName = String(ctx.multiParamVideoModel.get() || '').trim()
     if (!modelName) {
       message.warning('请先选择多参生视频模型')
+      return
+    }
+    const referenceVideoCheck = validateReferenceVideoCount(
+      parseReferenceVideoCapability(ctx.activeVideoRawModel()),
+      ctx.referenceVideos.get().length
+    )
+    if (referenceVideoCheck.ok === false) {
+      message.warning(referenceVideoCheck.message)
       return
     }
 
@@ -120,6 +133,7 @@ export function useVideoModalGenerateActions(ctx: VideoModalCtx): void {
       count: ctx.videoCount.get(),
       generateAudio: ctx.resolveCurrentGenerateAudio(),
       ...buildGenerateReferenceAudioFields(ctx.referenceAudios.get()),
+      ...buildGenerateReferenceVideoFields(ctx.referenceVideos.get()),
       userInputText: opts.userInputText
     }
 

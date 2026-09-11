@@ -99,7 +99,7 @@ public class ConfigurableAsyncVideoProviderClient implements VideoProviderClient
         appendGenerateAudio(body, modelConfig, request);
 
         HttpResult response = executePost(buildSubmitUrl(modelConfig), modelConfig,
-                JSONUtil.toJsonStr(body));
+                JSONUtil.toJsonStr(com.aid.model.definition.ModelConfiguredRequestBody.apply(modelConfig, body, request)));
         if (!isSuccess(response.statusCode()) || !JSONUtil.isTypeJSON(response.body())) {
             log.error("可配置异步视频提交失败, modelCode={}, upstreamModel={}, detail={}",
                     modelConfig.getModelCode(), upstreamModel,
@@ -235,15 +235,16 @@ public class ConfigurableAsyncVideoProviderClient implements VideoProviderClient
                 ConfigurableAsyncMediaConstants.CAPABILITY_MAX_REFERENCE_VIDEOS, 0);
         if (max == 0) {
             if (!result.isEmpty()) {
-                log.warn("可配置异步视频模型禁止参考视频，已丢弃输入, modelCode={}, actual={}",
+                log.info("可配置异步视频模型禁止参考视频, modelCode={}, actual={}",
                         modelConfig.getModelCode(), result.size());
+                throw new ServiceException("模型不支持参考视频");
             }
-            return new ArrayList<>();
+            return result;
         }
         if (max > 0 && result.size() > max) {
-            log.warn("可配置异步视频参考视频超过上限按顺序截断, modelCode={}, max={}, actual={}",
+            log.info("可配置异步视频参考视频数量不符合模型限制, modelCode={}, max={}, actual={}",
                     modelConfig.getModelCode(), max, result.size());
-            return new ArrayList<>(result.subList(0, max));
+            throw new ServiceException("参考视频数量超限");
         }
         return result;
     }
@@ -255,8 +256,10 @@ public class ConfigurableAsyncVideoProviderClient implements VideoProviderClient
         if (!capability.isUsable()) {
             if (request != null && request.getReferenceAudios() != null
                     && !request.getReferenceAudios().isEmpty()) {
-                log.warn("可配置异步视频模型禁止或未完整配置参考音频，已丢弃输入, modelCode={}, actual={}",
+                log.info("可配置异步视频模型禁止或未完整配置参考音频, modelCode={}, actual={}",
                         modelConfig.getModelCode(), request.getReferenceAudios().size());
+                throw new ServiceException(capability.isIncomplete()
+                        ? "参考音频配置不全" : "模型不支持参考音频");
             }
             return new ArrayList<>();
         }

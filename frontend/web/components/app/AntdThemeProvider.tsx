@@ -7,8 +7,9 @@ import { getAidPortalRoot } from '~/utils/portalRoot'
 
 export const AID_ANTD_STATIC_HOLDER_CLASS = 'aid-antd-static-holder'
 
-/** Ant Design 浮层统一挂到 #aid-portal-root，避免与 React 根节点争用 body 子树。 */
+/** 锚定浮层复用 Portal；无锚点的全局消息必须脱离业务 Portal 的 stacking context。 */
 export function resolveAidPopupContainer(triggerNode?: HTMLElement): HTMLElement {
+  if (!triggerNode) return document.body
   return getAidPortalRoot() ?? triggerNode?.parentElement ?? document.body
 }
 

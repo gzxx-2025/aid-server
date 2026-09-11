@@ -61,6 +61,33 @@
   grid-auto-rows: max-content;
 }
 
+.works-library-figma .works-lib-card--appended {
+  animation: works-lib-card-append 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(var(--works-append-order, 0) * 36ms);
+}
+
+.works-library-figma .works-lib-list-footer {
+  grid-column: 1 / -1;
+  min-height: 48px;
+}
+
+@keyframes works-lib-card-append {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .works-library-figma .works-lib-card--appended {
+    animation: none;
+  }
+}
+
 /* 电视剧集 Tab：新建卡片与剧集卡片同高；电影/短片 Tab 不受影响 */
 .works-library-figma--series-tab {
   --works-lib-body-h: 56px;

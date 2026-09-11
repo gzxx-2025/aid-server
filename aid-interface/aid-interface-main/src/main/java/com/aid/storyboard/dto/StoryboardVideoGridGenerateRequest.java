@@ -41,7 +41,7 @@ public class StoryboardVideoGridGenerateRequest
 
     /**
      * 目标视频时长（秒，可选）。单分镜显式传值优先于分镜建议；批量时各分镜建议优先，本值作为整批兜底，
-     * 最终按模型档位向上归一化。
+     * 显式传值必须精确命中模型档位；分镜建议和模型默认值才可按档位归一化。
      */
     private Integer durationSeconds;
 
@@ -57,6 +57,6 @@ public class StoryboardVideoGridGenerateRequest
     /** 用户选择的上传参考音频 ID（可选，仅单镜头生效）。 */
     private List<Long> referenceAudioIds;
 
-    /** 用户补充文本（可选，最大 500 字符，超出截断），拼接到提示词之后。 */
+    /** 用户补充文本（可选，最大 500 字符，超出拒绝），拼接到提示词之后。 */
     private String userInputText;
 }

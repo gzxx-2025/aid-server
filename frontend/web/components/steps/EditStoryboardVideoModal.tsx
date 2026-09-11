@@ -178,6 +178,7 @@ export function EditStoryboardVideoModal(rawProps: EditStoryboardVideoModalProps
   const gridVideoModelDropdownExpanded = useMirrored(false)
 
   const referenceAudios = useMirrored<any[]>([])
+  const referenceVideos = useMirrored<any[]>([])
   const videoAspectRatio = useMirrored('16:9')
   const videoDuration = useMirrored('5')
   const videoCount = useMirrored(1)
@@ -402,6 +403,7 @@ export function EditStoryboardVideoModal(rawProps: EditStoryboardVideoModalProps
     cachedGridVideoAgentModelCodes,
     initVideoModelGen,
     referenceAudios,
+    referenceVideos,
     videoAspectRatio,
     videoDuration,
     videoCount,

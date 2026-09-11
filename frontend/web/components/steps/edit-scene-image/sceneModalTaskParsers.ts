@@ -1,8 +1,13 @@
 import type { SceneModalSseTaskKind } from '~/stores/creation'
 import { isFormCardImageTaskType } from '~/utils/formImageAutoUse'
+import type { EditSceneImageModalProps } from './types'
 
-export function isSinglePrimaryImageType(imageType: unknown): boolean {
-  return imageType === 'character' || imageType === 'prop'
+/** 形态是编辑入口，不是资产类型；所有主图选择链路按所属资产统一判断。 */
+export function isSinglePrimaryImageEditor(
+  props: Pick<EditSceneImageModalProps, 'imageType' | 'formParentAssetType'>
+): boolean {
+  const assetType = props.imageType === 'form' ? props.formParentAssetType : props.imageType
+  return assetType === 'character' || assetType === 'prop'
 }
 
 export function mapSourceLabelToRpsType(source?: string): 'upload' | 'official' | 'ai' {

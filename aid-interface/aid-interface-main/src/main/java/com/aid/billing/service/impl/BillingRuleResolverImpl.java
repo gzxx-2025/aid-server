@@ -42,7 +42,8 @@ public class BillingRuleResolverImpl implements BillingRuleResolver {
             return null;
         }
         try {
-            BillingRule rule = objectMapper.readValue(json, BillingRule.class);
+            BillingRule rule = objectMapper.readerFor(BillingRule.class)
+                    .without(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES).readValue(json);
             // 基本校验：SKU列表不能为空
             if (CollectionUtil.isEmpty(rule.getSkus())) {
                 log.error("计费规则SKU列表为空, modelCode={}", modelConfig.getModelCode());

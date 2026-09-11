@@ -55,6 +55,20 @@ class MinimaxH3VideoReferenceStrategyTest {
         assertEquals("tail", plan.getExtraOptions().get("lastFrameImageUrl"));
     }
 
+    @Test
+    void unifiedModelUsesSelectedCapabilityOverlayInsteadOfLegacyModelCode() {
+        AiModelConfigVo config = new AiModelConfigVo();
+        config.setModelCode("minimax-h3");
+        config.setCapabilityJson("{\"videoScenario\":\"first_last_frame\"}");
+        VideoReferenceContext context = new VideoReferenceContext("prompt", null,
+                List.of(reference(1, "tail")), "base", config, false, 9);
+
+        VideoReferencePlan plan = strategy.assemble(context);
+
+        assertEquals("base", plan.getFirstFrameImageUrl());
+        assertEquals("tail", plan.getExtraOptions().get("lastFrameImageUrl"));
+    }
+
     private VideoReferenceContext context(String modelCode, String base, List<ResolvedReference> references) {
         AiModelConfigVo config = new AiModelConfigVo();
         config.setModelCode(modelCode);

@@ -31,6 +31,7 @@ import { useCreateFlowStepNavigationFeedback } from '~/hooks/useCreateFlowStepNa
 import { useCreateFlowStepPreload } from '~/hooks/useCreateFlowStepPreload'
 import { useGlobalSettingProjectHydrate } from '~/composables/useGlobalSettingProjectHydrate'
 import { useCreateFlowTitleMeasure } from '~/composables/useCreateFlowTitleMeasure'
+import { usePreviewPublicationState } from '~/hooks/usePreviewPublicationState'
 import { htmlPlainTextLength } from '~/utils/htmlPlain'
 import { userEpisodeList, userProjectUpdate } from '~/utils/businessApi'
 import { checkSeriesProjectConfigStoryboardGuard, resolveSeriesProjectConfigAccess } from '~/utils/seriesProjectConfigGuard'
@@ -38,14 +39,17 @@ import { isDubbingFlowStepGenerating, isStoryboardScriptFlowStepGenerating, isSt
 import { isStep3FlowStepGenerating } from '~/utils/step3LiveGenRestore'
 import type { CreationStep } from '~/types'
 import { useRouter } from 'next/navigation'
+import { PageLoadingOverlay } from '~/components/common/PageLoadingOverlay'
+import { useRouteNavigation } from '~/hooks/useRouteNavigation'
 import { buildStudioFlowCanvasHref } from '~/utils/studio/studioFlowNavigation'
 import { parseStudioEpisodeId } from '~/utils/studio/studioFlowEntry'
+import { isProjectPublicLockError, projectPublicLockUserHint } from '~/utils/projectAudit'
 import { CreateFlowToolbar } from './create-flow-shell/CreateFlowToolbar'
 import { CreateFlowStepStrip } from './create-flow-shell/CreateFlowStepStrip'
 import { CreateFlowShellOverlays } from './create-flow-shell/CreateFlowShellOverlays'
 import { CreateFlowShellSkeleton } from './create-flow-shell/CreateFlowShellSkeleton'
 import { CreateFlowStepLoading } from './create-flow-shell/CreateFlowStepLoading'
-import { useCreateFlowExport } from './create-flow-shell/useCreateFlowExport'
+import { useCreateFlowPublishExport } from './create-flow-shell/useCreateFlowPublishExport'
 import { useCreateFlowGlobalTasks } from './create-flow-shell/useCreateFlowGlobalTasks'
 import './create-flow-shell/create-flow-shell.css'
 import './create-flow-shell/create-flow-shell-steps.css'
@@ -60,6 +64,10 @@ export function CreateFlowShell({ children }: { children: ReactNode }) {
     routeRef.current = route
   }, [route])
   const router = useRouter()
+  const { navigate, isPending: navigationPending } = useRouteNavigation()
+  useEffect(() => {
+    router.prefetch('/create/studio')
+  }, [router])
   const navigator = useRouteLikeNavigator()
 
   const isSeriesScriptUpload = isSeriesScriptUploadPath(route.path)
@@ -136,6 +144,7 @@ export function CreateFlowShell({ children }: { children: ReactNode }) {
     handleStepClick,
     isStepPillDisabled,
     handleNextStep: runNextStep,
+    handleSubmit,
     nextStepSubmitting,
     toolbarPrimaryLabel,
     toolbarPrimaryDisabled,
@@ -180,6 +189,8 @@ export function CreateFlowShell({ children }: { children: ReactNode }) {
   const [showProjectGenConfigModal, setShowProjectGenConfigModal] = useState(false)
 
   const isPreviewStep = flowStepIndex >= steps.length - 1
+  const { isPublished: previewIsPublished, auditFailureReason: previewAuditFailureReason } =
+    usePreviewPublicationState({ pageReady, isPreviewStep })
   const highlightEntryFlowTabs =
     String(route.query[CREATE_FLOW_ENTRY_GUIDE_QUERY_KEY] ?? '') === CREATE_FLOW_ENTRY_GUIDE_VALUE
   const toolbarPrimaryLoading = nextStepDelayLoading || nextStepSubmitting
@@ -192,7 +203,11 @@ export function CreateFlowShell({ children }: { children: ReactNode }) {
     activeProjectIdRef.current = activeProjectId
   }, [activeProjectId])
 
-  const flowExport = useCreateFlowExport()
+  const publishExport = useCreateFlowPublishExport({
+    previewIsPublished,
+    getActiveProjectId: () => activeProjectIdRef.current,
+    handleSubmit
+  })
 
   const openFlowCanvas = useCallback(() => {
     const projectId = activeProjectIdRef.current
@@ -206,8 +221,8 @@ export function CreateFlowShell({ children }: { children: ReactNode }) {
     const episodeId = state.currentProjectType === 'movie'
       ? 0
       : routeEpisode ?? (state.currentProjectId === projectId ? state.currentEpisodeId : null)
-    router.push(buildStudioFlowCanvasHref({ projectId, episodeId, from: 'steps' }))
-  }, [router])
+    navigate(buildStudioFlowCanvasHref({ projectId, episodeId, from: 'steps' }))
+  }, [navigate])
 
   const openProjectGenConfig = useCallback(() => {
     if (!activeProjectIdRef.current) {
@@ -265,6 +280,11 @@ export function CreateFlowShell({ children }: { children: ReactNode }) {
       setSeriesProjectConfigContentLocked(access.mode === 'content-locked')
       globalSetting.openGlobalSettingModal()
     } catch (e: unknown) {
+      if (isProjectPublicLockError(e)) {
+        message.error(projectPublicLockUserHint())
+        useCreationStore.getState().setWorkTitle(workTitleSaveBaselineRef.current)
+        return
+      }
       const err = e as { msg?: string; message?: string }
       message.error(err?.msg || err?.message || '打开项目配置失败')
     } finally {
@@ -425,8 +445,8 @@ export function CreateFlowShell({ children }: { children: ReactNode }) {
     },
     globalSetting: globalSettingContext,
     openProjectGenConfig,
-    registerPreviewExportBridge: flowExport.registerPreviewExportBridge,
-    notifyPreviewExportSuccess: flowExport.handlePreviewExportSuccess
+    registerPreviewExportBridge: publishExport.registerPreviewExportBridge,
+    notifyPreviewExportSuccess: publishExport.handlePreviewExportSuccess
   }
 
   // ---- onMounted ----
@@ -675,11 +695,15 @@ export function CreateFlowShell({ children }: { children: ReactNode }) {
             toolbarPrimaryLoading={toolbarPrimaryLoading}
             saveDraft={() => void saveDraft()}
             isPreviewStep={isPreviewStep}
-            exportMenuOpen={flowExport.exportMenuOpen}
-            onExportMenuOpenChange={flowExport.onExportMenuOpenChange}
-            previewExportBusy={flowExport.previewExportBusy}
-            onExportFullVideo={() => void flowExport.onExportFullVideo()}
-            onExportSegments={() => void flowExport.onExportSegments()}
+            exportMenuOpen={publishExport.exportMenuOpen}
+            onExportMenuOpenChange={(open) => void publishExport.onExportMenuOpenChange(open)}
+            previewExportBusy={publishExport.previewExportBusy}
+            onExportFullVideo={() => void publishExport.onExportFullVideo()}
+            onExportSegments={() => void publishExport.onExportSegments()}
+            publishToCasePlazaDisabled={publishExport.publishToCasePlazaDisabled}
+            publishToCasePlazaTooltip={publishExport.publishToCasePlazaTooltip}
+            getPublishTooltipPopupContainer={publishExport.getPublishTooltipPopupContainer}
+            onPublishToCasePlaza={publishExport.onPublishToCasePlaza}
             toolbarPrimaryDisabled={toolbarPrimaryDisabled}
             toolbarPrimaryTooltip={toolbarPrimaryTooltip}
             nextStepDelayLoading={nextStepDelayLoading}
@@ -687,6 +711,12 @@ export function CreateFlowShell({ children }: { children: ReactNode }) {
             onNextStepWithDelay={() => void handleNextStepWithDelay()}
           />
           <div className="preview_bg_box">
+            {previewAuditFailureReason ? (
+              <div className="preview-audit-failure" role="alert">
+                <span className="preview-audit-failure__title">审核失败</span>
+                <span className="preview-audit-failure__reason">{previewAuditFailureReason}</span>
+              </div>
+            ) : null}
             {!isSeriesFlowChrome ? (
               <CreateFlowStepStrip
                 displaySteps={displaySteps}
@@ -728,6 +758,7 @@ export function CreateFlowShell({ children }: { children: ReactNode }) {
 
   return (
     <createFlowShellContext.Provider value={shellContextValue}>
+      {navigationPending && <PageLoadingOverlay label="正在进入流程画布…" />}
       <div className={`create-page${isSeriesFlowChrome ? ' create-page--series-upload' : ''}`}>
         {!pageReady ? skeletonView : mainView}
 
@@ -790,6 +821,13 @@ export function CreateFlowShell({ children }: { children: ReactNode }) {
             onBilling: openBilling,
             onRecharge: openRechargeFromMenu,
             onLogout: handleLogout
+          }}
+          publishModal={{
+            open: publishExport.publishCasePlazaModalOpen,
+            projectId: activeProjectId,
+            initialProjectDesc: publishExport.publishInitialProjectDesc,
+            onOpenChange: publishExport.setPublishModalOpen,
+            onSuccess: (payload) => void publishExport.onPublishCasePlazaMetaSuccess(payload)
           }}
         />
       </div>

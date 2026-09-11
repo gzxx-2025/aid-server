@@ -7,6 +7,8 @@ aid-master/
 │   │   ├── com/aid/auth/controller/AccountSecurityController.java  密码设置/修改、手机号邮箱换绑、会话管理及登录历史接口
 │   │   └── com/aid/skill/controller/SkillRuntimeController.java  Skill 目录、幂等调用、澄清、历史、事件续传与取消接口
 │   └── aid-business-system/
+│       ├── com/aid/tokendance/controller/  供应商授权、余额、充值会话与本地目录接口
+│       ├── com/aid/aid/controller/VoiceWorkbenchController.java  后台音色工作台接口
 │       ├── com/aid/aid/controller/AidAiOrchestrationController.java  模型与智能体影响预览、替换引用及事务化受控下线接口
 │       ├── com/aid/aid/controller/AidAiProviderOperationsController.java  供应商余额与上游任务运维接口
 │       ├── com/aid/aid/controller/AidUserProfileController.java  后台 C 端用户管理与新增入口
@@ -28,6 +30,7 @@ aid-master/
 │   │   │   ├── billing/                  最终倍率计费明细、图片选型计价、SKU命中、预冻结纯计算、确定/预估语义及复杂业务无副作用报价适配器
 │   │   │   ├── common/error/rule/ErrorLogRuleConversionService.java  错误样本生成规则草稿、规则创建与样本状态回写
 │   │   │   ├── promotion/                邀请码预校验、注册绑定与返佣业务
+│   │   │   ├── providerbalance/service/   官方余额字段与单位读取（OfficialBalanceReader）、监控确认、告警与恢复通知
 │   │   │   ├── compose/
 │   │   │   │   ├── config/               语音识别与三种媒体处理方式的强类型配置及缓存
 │   │   │   │   ├── domain/               合成领域对象、厂商无关合成计划及文件存储归属快照
@@ -45,7 +48,7 @@ aid-master/
 │   │   │   │   ├── util/ReferenceMediaRequestNormalizer.java  落库前参考图片/视频别名去重、能力截断与请求回写
 │   │   │   │   ├── util/ModelInputCapabilityValidator.java  显式输入组合能力与图片输出数量前置校验
 │   │   │   │   └── service/              模型资源临时签名、正式任务与报价共用的计费准备、厂商并发排队、上游权威终态、回调唤醒及任务补偿收口
-│   │   │   ├── orchestration/             模型池完整性、跨配置影响预览、替换/清理引用与软下线事务边界
+│   │   │   ├── orchestration/             模型池完整性、批量绑定、跨配置影响预览、替换/清理引用与软下线事务边界
 │   │   │   ├── project/service/ProjectStyleSnapshotService.java  官方/自定义风格解析与项目风格快照
 │   │   │   ├── projectgenconfig/matrix/   生成池矩阵解析、后台配置及按模型场景能力返回清晰度/比例选项
 │   │   │   ├── rps/assembler/StoryboardVideoPromptContinuityAssembler.java  相邻分镜连续性校验、任务快照恢复与结构化上下文装配
@@ -71,9 +74,18 @@ aid-master/
 │   │   │   ├── rps/queue/BatchParentSubmissionGuard.java  批量父任务停止与真实供应商受理互斥
 │   │   │   ├── rps/queue/BatchTaskExecutionRejectedException.java  批量任务受控提交周期失效异常
 │   │   │   ├── storyboard/               分镜原子复制、图片/原视频产物重映射、正式提交与报价共享的引用/媒体计划、视频生成、选片同步及按协议路由的多参考素材策略
+│   │   │   ├── tokendance/                供应商协议门面、本地模型与成本目录、授权凭证、余额与充值会话
+│   │   │   ├── tokendance/provider/text/TokenDanceToolMessages.java  客户端函数调用关联、三协议续轮与流增量聚合
+│   │   │   ├── media/provider/TextToolResultSupport.java  工具结果摘要与仅内存的续轮上下文
+│   │   │   ├── voice/                     音色工作台、样本权限、报价确认、任务与发布
+│   │   │   ├── media/resolver/ReferenceVideoRecordResolver.java  参考视频记录权限与可信素材解析
+│   │   │   ├── media/service/VerifiedMediaInputService.java  提交前公共媒体能力校验
+│   │   │   ├── media/service/VerifiedMediaMetadataService.java  本站媒体受限下载与本地元数据探测
+│   │   │   ├── model/service/ModelSkuCoverageService.java  能力与计费条件覆盖检查
 │   │   │   ├── upgrade/                  升级器通信、部署配置诊断、HTTPS证书安全安装及官方资源包服务
 │   │   │   └── user/                     后台 C 端用户创建、账户信息与出入参
 │   │   ├── src/main/resources/skills/    内置剧本入口、写作与审核 Skill 的版本化清单、Prompt 和参考资料
+│   │   ├── src/main/resources/tokendance/catalog/  本地成本快照、已核验能力及视频 Token 估算规则
 │   │   └── src/test/java/com/aid/
 │   │       ├── auth/service/              发码前邀请码校验与 public-config 登录渠道独立开关/异常降级测试
 │   │       ├── asset/service/             风格分类与三段式跨源分页测试
@@ -94,16 +106,23 @@ aid-master/
 │   └── aid-interface-system/             实体、Mapper 与领域服务，含注销身份哈希记录、系统风格分类关系、推荐与稳定排序维护
 │       ├── com/aid/skill/                 Skill 身份、版本、资源、关系、Run、步骤、任务关联、澄清与事件实体及 Mapper
 │       ├── com/aid/aid/domain/dto/ProviderUpstreamTaskQuery.java  上游任务精确/游标查询参数
-│       ├── com/aid/aid/service/impl/ProviderUpstreamOperationsServiceImpl.java  可灵余额/任务与 MiniMax H3 最近任务查询实现
+│       ├── com/aid/aid/service/impl/ProviderUpstreamOperationsServiceImpl.java  可灵资源包、DeepSeek 余额、Vidu 积分及可灵/MiniMax 任务查询
 │       ├── com/aid/aid/service/support/ModelBillingActivationValidator.java  新模型启用前计费完整性闸门
 │       ├── com/aid/aid/service/support/ModelBillingRuleValidator.java  SKU 档位级计费口径与主价格保存校验
+│       ├── com/aid/aid/service/support/ModelConfigurationMerge.java  配置无损合并与稳定 SKU 标识
+│       ├── com/aid/tokendance/             授权、凭证与最小充值会话实体及 Mapper
 │       ├── src/test/                       可灵供应商配置、可灵/MiniMax H3 上游运维与计费闸门回归测试
 │       ├── com/aid/aid/domain/AidEpisodeEditor.java  成片与素材指纹
 │       └── com/aid/aid/domain/dto/AidAiProviderStatusRequest.java  服务商启停专用入参
 ├── deploy/updater/internal/task/         部署配置分项诊断、证书链校验、原子安装与失败恢复
 ├── doc/Business-API.md                   C 端接口文档
+├── deliverables/                         接入说明、模型能力与价格证据台账
 └── sql/
     ├── aid-init.sql                      已合并全部初始化结构与配置数据
+    ├── unreleased/020-tokendance-accounts.sql  授权、凭证与充值会话
+    ├── unreleased/030-model-configuration-version.sql  模型配置乐观锁
+    ├── unreleased/040-provider-task-route-snapshot.sql  任务供应商路由快照
+    ├── unreleased/050-verified-model-capabilities.sql  已核验官方能力缺失字段补齐
     ├── v2.0.0.sql                        v2.0.0 公共数据库升级脚本
     ├── alter_account_amount_precision.sql 账户账本与任务计费金额四位小数迁移
     ├── v1.0.0-beta.2.sql                上一测试版本的幂等数据库迁移脚本

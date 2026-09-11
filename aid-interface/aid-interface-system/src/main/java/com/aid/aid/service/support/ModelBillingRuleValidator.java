@@ -63,6 +63,14 @@ public final class ModelBillingRuleValidator {
                 if (!hasValidMainPrice(sku, meterType, explicitMeterType)) {
                     reject(model, skuCode, meterType + "主价格缺失");
                 }
+                if (sku.hasNonNull("fixedSurcharge") && (!nonNegative(sku.get("fixedSurcharge"))
+                        || !("PER_CHAR".equals(meterType) || "SKU_PACKAGE".equals(meterType)))) {
+                    reject(model, skuCode, "固定附加费口径无效");
+                }
+                for (String price : Set.of("inputPricePerMillion", "outputPricePerMillion",
+                        "cachedInputPricePerMillion", "cacheWritePricePerMillion", "reasoningPricePerMillion")) {
+                    if (sku.hasNonNull(price) && !nonNegative(sku.get(price))) reject(model, skuCode, "Token价格无效");
+                }
             }
             if (enabledCount == 0 && "0".equals(model.getStatus())) {
                 reject(model, null, "无启用SKU");
@@ -76,13 +84,12 @@ public final class ModelBillingRuleValidator {
 
     private static boolean hasValidMainPrice(JsonNode sku, String meterType, boolean explicitMeterType) {
         return switch (meterType) {
-            case "TOKEN" -> positive(sku.get("inputPricePerMillion"))
-                    || positive(sku.get("outputPricePerMillion"));
-            case "PER_IMAGE", "SKU_PACKAGE" -> positive(sku.get("price"));
-            case "PER_SECOND" -> positive(sku.get("pricePerSecond"))
+            case "TOKEN" -> nonNegative(sku.get("inputPricePerMillion")) && nonNegative(sku.get("outputPricePerMillion"));
+            case "PER_IMAGE", "SKU_PACKAGE" -> nonNegative(sku.get("price"));
+            case "PER_SECOND" -> nonNegative(sku.get("pricePerSecond"))
                     || (!explicitMeterType && positive(sku.get("price"))
                     && positive(sku.path("match").get("durationMax")));
-            case "PER_CHAR" -> positive(sku.get("pricePerChar"))
+            case "PER_CHAR" -> nonNegative(sku.get("pricePerChar"))
                     || (!explicitMeterType && positive(sku.get("price")));
             default -> false;
         };
@@ -103,6 +110,16 @@ public final class ModelBillingRuleValidator {
             }
             BigDecimal value = node.isNumber() ? node.decimalValue() : new BigDecimal(node.asText());
             return value.compareTo(BigDecimal.ZERO) > 0;
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
+    private static boolean nonNegative(JsonNode node) {
+        try {
+            if (node == null || node.isNull()) return false;
+            BigDecimal value = node.isNumber() ? node.decimalValue() : new BigDecimal(node.asText());
+            return value.signum() >= 0;
         } catch (Exception ex) {
             return false;
         }

@@ -186,6 +186,11 @@
 }
 
 .generate-source-images-strip .generate-source-thumb--adder {
+  /* 「导入参考素材」等比「导入参考图」更长，固定 64px 会撑破虚线框 */
+  width: auto;
+  min-width: 64px;
+  padding: 0 6px;
+  box-sizing: border-box;
   border: 1px dashed rgba(188, 205, 228, 0.6);
   background: transparent;
   color: rgba(225, 239, 255, 0.85);
@@ -201,7 +206,11 @@
 .generate-source-images-strip .generate-source-thumb--adder .adder-text {
   font-size: 12px;
   margin-top: 2px;
+  line-height: 1.2;
   white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .generate-source-images-strip .generate-source-empty-hint {

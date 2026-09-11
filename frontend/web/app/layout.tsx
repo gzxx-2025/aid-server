@@ -6,6 +6,7 @@ import { AppShellOverlay } from '@/components/app/AppShellOverlay'
 import { LoginModalHost } from '@/components/login/LoginModalHost'
 import { RouteGuard } from '@/components/app/RouteGuard'
 import { ViewportScaleEffect } from '@/components/app/ViewportScaleEffect'
+import { PublicSiteHead } from '@/components/app/PublicSiteHead'
 
 import './globals.css'
 import 'antd/dist/reset.css'
@@ -37,24 +38,6 @@ import '@/assets/font/font.css'
 const baiduSiteVerification = process.env.NEXT_PUBLIC_BAIDU_SITE_VERIFICATION?.trim()
 
 export const metadata: Metadata = {
-  title: {
-    default: '视觉·AID',
-    template: '%s - 视觉·AID'
-  },
-  description: '从剧本到成片的全流程创作工具',
-  keywords: ['AI 视频', 'AI 创作', '剧本', '分镜', '视频生成'],
-  robots: { index: true, follow: true },
-  openGraph: {
-    title: '视觉·AID',
-    description: '从剧本到成片的全流程创作工具',
-    type: 'website',
-    locale: 'zh_CN'
-  },
-  twitter: {
-    card: 'summary',
-    title: '视觉·AID',
-    description: '从剧本到成片的全流程创作工具'
-  },
   ...(baiduSiteVerification
     ? {
         verification: {
@@ -75,6 +58,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="zh-CN">
       <body>
+        <PublicSiteHead />
         <AntdRegistry>
           <AntdThemeProvider>
             <AppBootstrap />

@@ -96,7 +96,7 @@ public class AiProviderConnectivityTester implements ConfigConnectivityTester {
             if (providerProbe != null
                     && (probeModel != null || !providerProbe.requiresModel())) {
                 // 即梦等查询必须使用可解析模型的真实 req_key；没有启用模型时可安全复用停用配置做只读查询。
-                probeResult = providerProbe.probe(probeModel, provider);
+                probeResult = providerProbe.probeProvider(probeModel, provider);
             } else {
                 AidAiModel protocolModel = providerProbe == null
                         ? probeModel : pickModelForProbe(providerId, null);

@@ -6,6 +6,7 @@ import com.aid.domain.vo.AiModelConfigVo;
 import com.aid.media.constants.MinimaxH3Constants;
 import com.aid.media.dto.MediaVideoGenerateRequest;
 import com.aid.media.dto.ReferenceAudioInput;
+import com.aid.media.util.ModelCapabilityResolver;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayList;
@@ -14,7 +15,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-/** 构造 MiniMax H3 V2 多模态 content 请求。场景只由平台模型编码决定。 */
+/** 构造 MiniMax H3 V2 多模态 content 请求。结构化能力场景优先，兼容历史独立模型编码。 */
 @Slf4j
 public final class MinimaxH3VideoRequestBuilder {
 
@@ -377,6 +378,20 @@ public final class MinimaxH3VideoRequestBuilder {
     }
 
     private static Scene requireScene(AiModelConfigVo config) {
+        String configured = ModelCapabilityResolver.readText(
+            ModelCapabilityResolver.parseCapability(config == null ? null : config.getCapabilityJson()),
+            "videoScenario");
+        if (StrUtil.isNotBlank(configured)) {
+            return switch (configured.trim().toLowerCase(Locale.ROOT)) {
+                case "text_to_video", "text" -> Scene.TEXT;
+                case "first_frame", "image_to_video" -> Scene.FIRST_FRAME;
+                case "last_frame", "last_frame_to_video" -> Scene.LAST_FRAME;
+                case "first_last_frame", "start_end_to_video" -> Scene.FIRST_LAST_FRAME;
+                case "multimodal_reference", "reference_to_video", "reference" -> Scene.REFERENCE;
+                default -> throw rejected("unknown configured videoScenario=" + configured,
+                    "模型场景配置无效");
+            };
+        }
         String code = config == null ? null : StrUtil.trim(config.getModelCode());
         return switch (StrUtil.blankToDefault(code, "")) {
             case MinimaxH3Constants.MODEL_T2V -> Scene.TEXT;

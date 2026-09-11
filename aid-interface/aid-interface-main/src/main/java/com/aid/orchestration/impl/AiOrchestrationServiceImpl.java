@@ -5,6 +5,8 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -30,7 +32,13 @@ import com.aid.agent.IAidAgentService;
 import com.aid.common.exception.ServiceException;
 import com.aid.common.utils.DateUtils;
 import com.aid.orchestration.IAiOrchestrationService;
+import com.aid.orchestration.dto.ModelPoolBindingChangeRequest;
+import com.aid.orchestration.dto.ModelPoolBindingQueryRequest;
 import com.aid.orchestration.dto.RetireResourceRequest;
+import com.aid.orchestration.vo.ModelPoolBindingChangeVO;
+import com.aid.orchestration.vo.ModelPoolBindingModelVO;
+import com.aid.orchestration.vo.ModelPoolBindingPoolVO;
+import com.aid.orchestration.vo.ModelPoolBindingSnapshotVO;
 import com.aid.orchestration.vo.OrchestrationImpactItemVO;
 import com.aid.orchestration.vo.OrchestrationImpactVO;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
@@ -80,6 +88,9 @@ public class AiOrchestrationServiceImpl implements IAiOrchestrationService
 
     @Autowired
     private IAidAiVoiceLibraryService voiceLibraryService;
+
+    @Autowired
+    private com.aid.model.definition.ModelFunctionBindingReconciler capabilityBindings;
 
     @Override
     public void validateFunctionConfig(AidAiModelFuncConfig config)
@@ -196,6 +207,216 @@ public class AiOrchestrationServiceImpl implements IAiOrchestrationService
                         + "】仍被智能体、策略矩阵或项目配置引用，请先处理引用");
             }
         }
+    }
+
+    @Override
+    public ModelPoolBindingSnapshotVO getModelPoolBindings(ModelPoolBindingQueryRequest request)
+    {
+        List<Long> requestedIds = normalizeIds(Objects.isNull(request) ? null : request.getModelIds());
+        List<AidAiModel> allModels = modelService.list(Wrappers.<AidAiModel>lambdaQuery()
+                .select(AidAiModel::getId, AidAiModel::getModelCode, AidAiModel::getModelName,
+                        AidAiModel::getModelType, AidAiModel::getGenerateMode, AidAiModel::getStatus)
+                .eq(AidAiModel::getDelFlag, NORMAL)
+                .orderByDesc(AidAiModel::getPriority)
+                .orderByAsc(AidAiModel::getId));
+        Set<Long> requestedIdSet = new LinkedHashSet<>(requestedIds);
+        List<AidAiModel> models = CollectionUtil.isEmpty(requestedIds) ? allModels
+                : allModels.stream().filter(model -> requestedIdSet.contains(model.getId()))
+                        .collect(Collectors.toList());
+        Set<Long> existingModelIds = models.stream().map(AidAiModel::getId)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        Map<Long, AidAiModel> allModelMap = allModels.stream()
+                .collect(Collectors.toMap(AidAiModel::getId, model -> model));
+        Map<Long, List<Long>> memberships = new LinkedHashMap<>();
+        for (Long modelId : existingModelIds)
+        {
+            memberships.put(modelId, new ArrayList<>());
+        }
+
+        List<AidAiModelFuncConfig> pools = functionConfigService.list(
+                Wrappers.<AidAiModelFuncConfig>lambdaQuery()
+                        .select(AidAiModelFuncConfig::getId, AidAiModelFuncConfig::getFuncName,
+                                AidAiModelFuncConfig::getFuncCode, AidAiModelFuncConfig::getModelType,
+                                AidAiModelFuncConfig::getGenerateMode, AidAiModelFuncConfig::getStatus,
+                                AidAiModelFuncConfig::getModelIds)
+                        .eq(AidAiModelFuncConfig::getDelFlag, NORMAL)
+                        .orderByDesc(AidAiModelFuncConfig::getId));
+        List<ModelPoolBindingPoolVO> poolViews = new ArrayList<>();
+        for (AidAiModelFuncConfig pool : pools)
+        {
+            List<Long> poolModelIds;
+            boolean valid = true;
+            try
+            {
+                poolModelIds = parseModelIdsStrict(pool.getModelIds());
+                valid = poolModelIds.stream().allMatch(modelId -> {
+                    AidAiModel model = allModelMap.get(modelId);
+                    return Objects.nonNull(model) && Objects.equals(pool.getModelType(), model.getModelType());
+                });
+            }
+            catch (ServiceException e)
+            {
+                log.warn("模型池关系快照发现无效配置: poolId={}", pool.getId());
+                poolModelIds = Collections.emptyList();
+                valid = false;
+            }
+            for (Long modelId : poolModelIds)
+            {
+                List<Long> poolIds = memberships.get(modelId);
+                if (Objects.nonNull(poolIds))
+                {
+                    poolIds.add(pool.getId());
+                }
+            }
+            poolViews.add(ModelPoolBindingPoolVO.builder()
+                    .id(pool.getId()).funcName(pool.getFuncName()).funcCode(pool.getFuncCode())
+                    .modelType(pool.getModelType()).generateMode(pool.getGenerateMode()).status(pool.getStatus())
+                    .configurationValid(valid).modelIds(poolModelIds).build());
+        }
+        List<ModelPoolBindingModelVO> modelViews = models.stream()
+                .map(model -> ModelPoolBindingModelVO.builder()
+                        .id(model.getId()).modelCode(model.getModelCode()).modelName(model.getModelName())
+                        .modelType(model.getModelType()).generateMode(model.getGenerateMode()).status(model.getStatus())
+                        .poolIds(memberships.getOrDefault(model.getId(), Collections.emptyList())).build())
+                .collect(Collectors.toList());
+        return ModelPoolBindingSnapshotVO.builder().pools(poolViews).models(modelViews).build();
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ModelPoolBindingChangeVO bindModelsToPools(ModelPoolBindingChangeRequest request, String operator)
+    {
+        return changeModelPoolBindings(request, operator, true);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ModelPoolBindingChangeVO unbindModelsFromPools(ModelPoolBindingChangeRequest request, String operator)
+    {
+        return changeModelPoolBindings(request, operator, false);
+    }
+
+    private ModelPoolBindingChangeVO changeModelPoolBindings(ModelPoolBindingChangeRequest request,
+            String operator, boolean bind)
+    {
+        List<Long> modelIds = normalizeIds(Objects.isNull(request) ? null : request.getModelIds());
+        List<Long> poolIds = normalizeIds(Objects.isNull(request) ? null : request.getPoolIds());
+        if (CollectionUtil.isEmpty(modelIds))
+        {
+            throw new ServiceException("请选择模型");
+        }
+        if (CollectionUtil.isEmpty(poolIds))
+        {
+            throw new ServiceException("请选择模型池");
+        }
+        List<AidAiModel> models = modelService.list(Wrappers.<AidAiModel>lambdaQuery()
+                .select(AidAiModel::getId, AidAiModel::getModelCode, AidAiModel::getModelType,
+                        AidAiModel::getGenerateMode, AidAiModel::getStatus)
+                .in(AidAiModel::getId, modelIds)
+                .eq(AidAiModel::getDelFlag, NORMAL));
+        if (models.size() != modelIds.size())
+        {
+            log.error("批量维护模型池失败：部分模型不存在, modelIds={}", modelIds);
+            throw new ServiceException("部分模型不存在");
+        }
+        List<AidAiModelFuncConfig> pools = functionConfigService.list(
+                Wrappers.<AidAiModelFuncConfig>lambdaQuery()
+                        .in(AidAiModelFuncConfig::getId, poolIds)
+                        .eq(AidAiModelFuncConfig::getDelFlag, NORMAL)
+                        .orderByAsc(AidAiModelFuncConfig::getId)
+                        .last("for update"));
+        if (pools.size() != poolIds.size())
+        {
+            log.error("批量维护模型池失败：部分模型池不存在, poolIds={}", poolIds);
+            throw new ServiceException("部分模型池不存在");
+        }
+
+        int changedPoolCount = 0;
+        int changedRelationCount = 0;
+        int unchangedRelationCount = 0;
+        for (AidAiModelFuncConfig pool : pools)
+        {
+            if (bind)
+            {
+                for (AidAiModel model : models)
+                {
+                    if (!Objects.equals(pool.getModelType(), model.getModelType()))
+                    {
+                        log.error("批量绑定模型池失败：类型不匹配, modelId={}, poolId={}",
+                                model.getId(), pool.getId());
+                        throw new ServiceException("模型类型不匹配");
+                    }
+                }
+            }
+            List<Long> currentIds;
+            try
+            {
+                currentIds = parseModelIdsStrict(pool.getModelIds());
+            }
+            catch (ServiceException e)
+            {
+                log.error("批量维护模型池失败：模型池配置异常, poolId={}", pool.getId());
+                throw new ServiceException("模型池配置异常");
+            }
+            LinkedHashSet<Long> nextIds = new LinkedHashSet<>(currentIds);
+            int changedForPool = 0;
+            for (Long modelId : modelIds)
+            {
+                boolean changed = bind ? nextIds.add(modelId) : nextIds.remove(modelId);
+                if (changed)
+                {
+                    changedForPool++;
+                }
+                else
+                {
+                    unchangedRelationCount++;
+                }
+            }
+            if (changedForPool == 0)
+            {
+                continue;
+            }
+            AidAiModelFuncConfig next = new AidAiModelFuncConfig();
+            next.setId(pool.getId());
+            next.setFuncName(pool.getFuncName());
+            next.setFuncCode(pool.getFuncCode());
+            next.setModelType(pool.getModelType());
+            next.setGenerateMode(pool.getGenerateMode());
+            next.setStatus(pool.getStatus());
+            next.setModelIds(JSONUtil.toJsonStr(new ArrayList<>(nextIds)));
+            validateFunctionConfig(next);
+            capabilityBindings.reconcile(next, operator);
+            AidAiModelFuncConfig update = new AidAiModelFuncConfig();
+            update.setId(pool.getId());
+            update.setModelIds(next.getModelIds());
+            update.setUpdateBy(operator);
+            update.setUpdateTime(DateUtils.getNowDate());
+            if (!functionConfigService.updateById(update))
+            {
+                log.error("批量维护模型池失败：保存失败, poolId={}", pool.getId());
+                throw new ServiceException("模型池保存失败");
+            }
+            changedPoolCount++;
+            changedRelationCount += changedForPool;
+        }
+        log.info("批量{}模型池完成: modelCount={}, poolCount={}, changedPoolCount={}, changedRelationCount={}, operator={}",
+                bind ? "绑定" : "移出", modelIds.size(), poolIds.size(), changedPoolCount,
+                changedRelationCount, operator);
+        return ModelPoolBindingChangeVO.builder()
+                .requestedModelCount(modelIds.size()).requestedPoolCount(poolIds.size())
+                .changedPoolCount(changedPoolCount).changedRelationCount(changedRelationCount)
+                .unchangedRelationCount(unchangedRelationCount)
+                .snapshot(getModelPoolBindings(null)).build();
+    }
+
+    private List<Long> normalizeIds(List<Long> ids)
+    {
+        if (CollectionUtil.isEmpty(ids))
+        {
+            return Collections.emptyList();
+        }
+        return new ArrayList<>(ids.stream().filter(Objects::nonNull).filter(id -> id > 0)
+                .collect(Collectors.toCollection(LinkedHashSet::new)));
     }
 
     @Override

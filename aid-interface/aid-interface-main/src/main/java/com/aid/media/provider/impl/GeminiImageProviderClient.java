@@ -126,7 +126,7 @@ public class GeminiImageProviderClient implements ImageProviderClient {
 
         String json;
         try {
-            json = MAPPER.writeValueAsString(body);
+            json = MAPPER.writeValueAsString(com.aid.model.definition.ModelConfiguredRequestBody.apply(modelConfig, body, request));
         } catch (Exception e) {
             log.error("Gemini 图片请求体序列化失败", e);
             return ProviderSubmitResult.builder()
@@ -191,7 +191,7 @@ public class GeminiImageProviderClient implements ImageProviderClient {
             parts.add(Map.of("text", prompt));
         }
         // 参考图：优先 referenceImageUrl，再看 options.referenceImages；
-        // 统一上限：读 capability_json.maxReferenceImages，缺省回退 9 张，超限按序截断 + warn
+        // 统一上限：读 capability_json.maxReferenceImages，缺省回退 9 张，超限直接拒绝。
         List<String> refImages = com.aid.media.provider.ReferenceImageLimiter.limit(
                 resolveReferenceImages(request), modelConfig, GEMINI_IMAGE_REFERENCE_MAX, "Gemini图片");
         boolean hasRefImage = !refImages.isEmpty();

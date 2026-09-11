@@ -140,6 +140,9 @@ public class StoryboardMultiViewGridImageServiceImpl implements IStoryboardMulti
     @Autowired
     private IAiModelConfigService aiModelConfigService;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.aid.model.definition.BusinessModelResolver businessModelResolver;
+
     @Autowired
     private IMediaGenerationService mediaGenerationService;
 
@@ -190,7 +193,7 @@ public class StoryboardMultiViewGridImageServiceImpl implements IStoryboardMulti
         AidStoryboard storyboard = loadAndCheckStoryboard(request.getStoryboardId(), userId);
 
         AidAiModel model = validateModelInPool(request.getModelCode(), funcCode);
-        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(model.getModelCode());
+        AiModelConfigVo modelConfig = aiModelConfigService.selectForBusiness(model.getModelCode(), funcCode, null);
         if (Objects.isNull(modelConfig))
         {
             log.error("分镜机位生图模型配置缺失: modelCode={}", model.getModelCode());
@@ -250,7 +253,7 @@ public class StoryboardMultiViewGridImageServiceImpl implements IStoryboardMulti
                 ? "STORYBOARD_MULTI_GRID_IMAGE" : "STORYBOARD_MULTI_VIEW_IMAGE";
         AidStoryboard storyboard = loadAndCheckStoryboard(request.getStoryboardId(), userId);
         AidAiModel model = validateModelInPool(request.getModelCode(), funcCode);
-        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(model.getModelCode());
+        AiModelConfigVo modelConfig = aiModelConfigService.selectForBusiness(model.getModelCode(), funcCode, null);
         if (modelConfig == null)
         {
             throw new RuntimeException("模型无效");
@@ -390,105 +393,10 @@ public class StoryboardMultiViewGridImageServiceImpl implements IStoryboardMulti
      */
     private AidAiModel validateModelInPool(String modelCode, String funcCode)
     {
-        LambdaQueryWrapper<AidAiModelFuncConfig> cfgQuery = Wrappers.lambdaQuery();
-        cfgQuery.select(AidAiModelFuncConfig::getId, AidAiModelFuncConfig::getFuncCode,
-                AidAiModelFuncConfig::getModelIds, AidAiModelFuncConfig::getStatus,
-                AidAiModelFuncConfig::getDelFlag);
-        cfgQuery.eq(AidAiModelFuncConfig::getFuncCode, funcCode);
-        cfgQuery.eq(AidAiModelFuncConfig::getStatus, STATUS_NORMAL);
-        cfgQuery.eq(AidAiModelFuncConfig::getDelFlag, DEL_FLAG_NORMAL);
-        cfgQuery.last("limit 1");
-        AidAiModelFuncConfig cfg = aidAiModelFuncConfigService.getOne(cfgQuery, false);
-        if (Objects.isNull(cfg))
-        {
-            log.error("分镜机位生图功能池未配置: funcCode={}", funcCode);
-            throw new RuntimeException("功能未开放");
-        }
-        List<Long> allowedIds = parseModelIdsJson(cfg.getModelIds());
-        if (CollectionUtil.isEmpty(allowedIds))
-        {
-            log.error("分镜机位生图功能池为空: funcCode={}", funcCode);
-            throw new RuntimeException("功能未开放");
-        }
-
-        LambdaQueryWrapper<AidAiModel> modelQuery = Wrappers.lambdaQuery();
-        modelQuery.select(AidAiModel::getId, AidAiModel::getModelCode,
-                AidAiModel::getModelName, AidAiModel::getModelType,
-                AidAiModel::getStatus, AidAiModel::getDelFlag);
-        modelQuery.eq(AidAiModel::getModelCode, modelCode);
-        modelQuery.eq(AidAiModel::getStatus, STATUS_NORMAL);
-        modelQuery.eq(AidAiModel::getDelFlag, DEL_FLAG_NORMAL);
-        modelQuery.last("limit 1");
-        AidAiModel model = aidAiModelService.getOne(modelQuery, false);
-        if (Objects.isNull(model))
-        {
-            log.info("分镜机位生图模型不存在或已停用: modelCode={}", modelCode);
-            throw new RuntimeException("模型无效");
-        }
-        if (!Objects.equals(MODEL_TYPE_IMAGE, model.getModelType()))
-        {
-            log.info("分镜机位生图模型类型不匹配: modelCode={}, type={}", modelCode, model.getModelType());
-            throw new RuntimeException("模型不符");
-        }
-        if (!allowedIds.contains(model.getId()))
-        {
-            log.info("分镜机位生图模型不在功能池: modelCode={}, modelId={}, funcCode={}, pool={}",
-                    modelCode, model.getId(), funcCode, allowedIds);
-            throw new RuntimeException("模型不符");
-        }
-        return model;
+        return businessModelResolver.resolve(funcCode, modelCode, "image");
     }
 
-    private List<Long> parseModelIdsJson(String modelIdsJson)
-    {
-        List<Long> ordered = new ArrayList<>();
-        if (StrUtil.isBlank(modelIdsJson))
-        {
-            return ordered;
-        }
-        try
-        {
-            List<?> raw = JSONUtil.parseArray(modelIdsJson).toList(Object.class);
-            for (Object item : raw)
-            {
-                if (Objects.isNull(item))
-                {
-                    continue;
-                }
-                Long id = null;
-                if (item instanceof Number)
-                {
-                    id = ((Number) item).longValue();
-                }
-                else
-                {
-                    String s = item.toString().trim();
-                    if (StrUtil.isBlank(s))
-                    {
-                        continue;
-                    }
-                    try
-                    {
-                        id = Long.parseLong(s);
-                    }
-                    catch (NumberFormatException ignore)
-                    {
-                        // 非数字元素跳过，避免脏数据拖垮主流程
-                    }
-                }
-                if (Objects.nonNull(id) && id > 0L && !ordered.contains(id))
-                {
-                    ordered.add(id);
-                }
-            }
-        }
-        catch (Exception e)
-        {
-            log.error("解析分镜机位生图功能池modelIds失败: jsonLen={}, err={}",
-                    StrUtil.length(modelIdsJson), e.getMessage());
-        }
-        return ordered;
-    }
+
     /** 单机位提示词：从 {@code aid_agent.aid_multi_camera}（biz=image_multi_view）加载，
      *  注入 {@code {angle_prompt}} / {@code {aspect_ratio}}。智能体缺失时直接报错（与形态侧单机位一致）。 */
     private String buildSinglePrompt(String anglePrompt, String aspectRatio,
@@ -801,6 +709,7 @@ public class StoryboardMultiViewGridImageServiceImpl implements IStoryboardMulti
     {
         MediaImageGenerateRequest imageRequest = new MediaImageGenerateRequest();
         imageRequest.setModelName(modelCode);
+        imageRequest.setBusinessFuncCode(isGrid ? FUNC_CODE_IMAGE_MULTI_GRID : FUNC_CODE_IMAGE_MULTI_VIEW);
         imageRequest.setUserId(userId);
         imageRequest.setPrompt(finalPrompt);
         imageRequest.setTaskPromptDigest(buildTaskDigest(anglePrompt, anglesBlock, aspectRatio, isGrid));
@@ -819,7 +728,7 @@ public class StoryboardMultiViewGridImageServiceImpl implements IStoryboardMulti
         imageRequest.setBizTaskId(bizTaskId);
         imageRequest.setBizTaskType(bizTaskType);
 
-        AiModelConfigVo defaultModelConfig = aiModelConfigService.selectByModelCode(modelCode);
+        AiModelConfigVo defaultModelConfig = aiModelConfigService.selectForBusiness(modelCode, isGrid ? FUNC_CODE_IMAGE_MULTI_GRID : FUNC_CODE_IMAGE_MULTI_VIEW, null);
         if (Objects.isNull(defaultModelConfig))
         {
             log.error("分镜机位生图模型配置缺失: modelCode={}", modelCode);

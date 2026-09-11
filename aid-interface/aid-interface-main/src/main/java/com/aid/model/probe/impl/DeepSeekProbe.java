@@ -32,6 +32,14 @@ public class DeepSeekProbe extends AbstractReadOnlyProbe {
     }
 
     @Override
+    public ProbeResult probeProvider(AidAiModel routingModel, AidAiProvider provider) {
+        // 保留自定义网关路径，但不把随机选中的历史模型当成账户鉴权条件。
+        AidAiModel route = new AidAiModel();
+        if (routingModel != null) route.setApiSuffix(routingModel.getApiSuffix());
+        return probe(route, provider);
+    }
+
+    @Override
     protected String resolvePath(AidAiModel model, AidAiProvider provider) {
         if (Objects.isNull(model) || StrUtil.isBlank(model.getApiSuffix())) {
             return MODELS_PATH;

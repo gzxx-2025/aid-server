@@ -76,6 +76,7 @@ public class PromptSkillExecutor implements SkillExecutor {
             Integer reasoningBudgetTokens = context.getRun().getReasoningBudgetTokens();
             MediaTextGenerateRequest request = new MediaTextGenerateRequest();
             request.setModelName(context.getSkill().getModelCode());
+            request.setStrictModelSelection(true);
             request.setStream(true);
             request.setReasoningEnabled(reasoningEnabled);
             request.setReasoningLevel(reasoningEnabled

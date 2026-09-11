@@ -247,6 +247,9 @@ public class StoryboardWorkbenchServiceImpl implements IStoryboardWorkbenchServi
     /** AI 模型配置查询：用于 capability 校验 */
     @Autowired
     private IAiModelConfigService aiModelConfigService;
+
+    @Autowired
+    private com.aid.model.definition.ModelDefinitionService modelDefinitions;
     /** C 端模型池查询：用于分镜详情解析当前模式默认视频模型 */
     @Autowired
     private IAiModelBusinessService aiModelBusinessService;
@@ -1789,6 +1792,7 @@ public class StoryboardWorkbenchServiceImpl implements IStoryboardWorkbenchServi
         mediaReq.setProjectId(storyboard.getProjectId());
         mediaReq.setEpisodeId(storyboard.getEpisodeId());
         mediaReq.setModelName(resolved.modelCode);
+        mediaReq.setCapabilityCode(resolved.capabilityCode);
         mediaReq.setTtsText(ttsText);
         mediaReq.setVoiceCode(resolved.voiceCode);
         mediaReq.setLanguage(resolved.language);
@@ -1850,7 +1854,7 @@ public class StoryboardWorkbenchServiceImpl implements IStoryboardWorkbenchServi
         if (request.getVoiceModifyPitch() != null) {
             options.put("voiceModifyPitch", request.getVoiceModifyPitch());
         }
-        return options.isEmpty() ? null : options;
+        return options;
     }
 
     private record PreparedAudioBillingPlan(
@@ -1874,6 +1878,8 @@ public class StoryboardWorkbenchServiceImpl implements IStoryboardWorkbenchServi
                                               String parentExecutionTraceId) {
         PreparedAudioBillingPlan plan = prepareAudioBillingPlan(
                 request, userId, parentTaskId, parentExecutionTraceId);
+        // 与报价共用完整能力与协议校验，非法参数不得先创建业务记录再包装成提交失败。
+        mediaBillingQuotePreparer.prepareAudioBilling(plan.mediaRequest());
         AidStoryboard storyboard = plan.storyboard();
         ResolvedVoice resolved = plan.resolvedVoice();
         String ttsText = plan.ttsText();
@@ -1906,12 +1912,13 @@ public class StoryboardWorkbenchServiceImpl implements IStoryboardWorkbenchServi
             mediaResp = mediaGenerationService.generateAudio(mediaReq);
         } catch (Exception ex) {
             log.error("配音提交失败, audioRecordId={}", task.getId(), ex);
+            ServiceException presented = TaskErrorPresentation.fromThrowable(ex, "配音失败");
             task.setStatus(MediaTaskStatus.FAILED.name());
-            task.setErrorMessage("配音失败");
+            task.setErrorMessage(presented.getMessage());
             task.setUpdateBy(String.valueOf(userId));
             task.setUpdateTime(DateUtils.getNowDate());
             aidAudioRecordService.updateById(task);
-            throw new ServiceException("配音失败，请重试");
+            throw presented;
         }
 
         //    避免把豆包 TTS 的临时签名 originUrl 当成最终结果落业务表（1 小时后失效）。
@@ -1928,7 +1935,9 @@ public class StoryboardWorkbenchServiceImpl implements IStoryboardWorkbenchServi
             }
         } else if (MediaTaskStatus.FAILED.name().equals(mediaResp.getStatus())) {
             task.setStatus(MediaTaskStatus.FAILED.name());
-            task.setErrorMessage("配音失败");
+            String fallbackMessage = StrUtil.blankToDefault(mediaResp.getUserMessage(), "配音失败");
+            task.setErrorMessage(TaskErrorPresentation.toUserMessage(
+                    mediaResp.getErrorMessage(), fallbackMessage));
         } else {
             task.setStatus(MediaTaskStatus.PROCESSING.name());
         }
@@ -1982,6 +1991,7 @@ public class StoryboardWorkbenchServiceImpl implements IStoryboardWorkbenchServi
         Long voiceLibraryId;
         Long modelId;
         String modelCode;
+        String capabilityCode;
         String voiceCode;
         String language;
         String defaultEmotion;
@@ -2034,6 +2044,7 @@ public class StoryboardWorkbenchServiceImpl implements IStoryboardWorkbenchServi
             r.voiceLibraryId = voice.getId();
             r.modelId = model.getId();
             r.modelCode = model.getModelCode();
+            r.capabilityCode = model.getSelectedCapabilityCode();
             r.voiceCode = voice.getVoiceCode();
             r.language = voice.getLanguage();
             r.defaultPitch = voice.getDefaultPitch() == null ? null : voice.getDefaultPitch().intValue();
@@ -2050,6 +2061,7 @@ public class StoryboardWorkbenchServiceImpl implements IStoryboardWorkbenchServi
         AidAiModel model = getAvailableAudioModel(request.getVoiceModelId());
         r.modelId = model.getId();
         r.modelCode = model.getModelCode();
+        r.capabilityCode = model.getSelectedCapabilityCode();
         r.voiceCode = request.getTimbreCode();
         enrichProviderAndEmotions(r, model);
         return r;
@@ -2066,7 +2078,7 @@ public class StoryboardWorkbenchServiceImpl implements IStoryboardWorkbenchServi
             return;
         }
         try {
-            AiModelConfigVo cfg = aiModelConfigService.selectByModelId(model.getId());
+            AiModelConfigVo cfg = aiModelConfigService.selectByModelId(model.getId(), "audio");
             if (Objects.nonNull(cfg)) {
                 r.providerCode = cfg.getProviderCode();
             }
@@ -2390,13 +2402,18 @@ public class StoryboardWorkbenchServiceImpl implements IStoryboardWorkbenchServi
 
     /** 校验配音模型是否启用、未删除且大类为 audio。 */
     private AidAiModel getAvailableAudioModel(Long modelId) {
+        var alias = modelDefinitions.alias(modelId);
+        if (alias != null) modelId = alias.getModelId();
         AidAiModel model = getAvailableModel(modelId);
         if (!Objects.equals(MediaType.AUDIO.name().toLowerCase(Locale.ROOT),
                 StrUtil.blankToDefault(model.getModelType(), "").toLowerCase(Locale.ROOT))) {
             log.error("配音模型类型错误, modelId={}, modelType={}", modelId, model.getModelType());
             throw new ServiceException("模型类型错误");
         }
-        return model;
+        if (modelDefinitions.definitions(model.getId()).isEmpty()) return model;
+        AidAiModel selected = modelDefinitions.project(model, "audio");
+        if (selected == null) throw new ServiceException("模型未启用语音合成能力");
+        return selected;
     }
 
     /**
@@ -3234,7 +3251,16 @@ public class StoryboardWorkbenchServiceImpl implements IStoryboardWorkbenchServi
     }
 
     private AudioTaskVO buildAudioTaskVO(AidAudioRecord task) {
-        return AudioTaskVO.builder()
+        MediaTaskResponse failure = null;
+        if (MediaTaskStatus.FAILED.name().equals(task.getStatus()) && Objects.nonNull(task.getTtsMediaTaskId())) {
+            try {
+                failure = mediaGenerationService.queryTaskLocal(task.getTtsMediaTaskId());
+            } catch (RuntimeException ex) {
+                log.warn("配音失败详情关联统一任务不可用: audioRecordId={}, mediaTaskId={}",
+                        task.getId(), task.getTtsMediaTaskId());
+            }
+        }
+        AudioTaskVO.AudioTaskVOBuilder builder = AudioTaskVO.builder()
                 .id(task.getId()).storyboardId(task.getStoryboardId())
                 .audioSource(task.getAudioSource()).audioUrl(task.getAudioUrl())
                 .durationMs(task.getDurationMs())
@@ -3245,8 +3271,18 @@ public class StoryboardWorkbenchServiceImpl implements IStoryboardWorkbenchServi
                 .voiceLibraryId(task.getVoiceLibraryId())
                 .syncVideoUrl(task.getSyncVideoUrl())
                 .lipSyncStatus(deriveLipSyncStatus(task))
-                .createTime(task.getCreateTime())
-                .build();
+                .createTime(task.getCreateTime());
+        if (Objects.nonNull(failure)) {
+            builder.errorCode(failure.getErrorCode())
+                    .errorType(failure.getErrorType())
+                    .errorSource(failure.getErrorSource())
+                    .needRecharge(failure.isNeedRecharge())
+                    .rechargeOwner(failure.getRechargeOwner())
+                    .retryable(failure.isRetryable())
+                    .billingStatus(failure.getBillingStatus())
+                    .refundStatus(failure.getRefundStatus());
+        }
+        return builder.build();
     }
 
     /**

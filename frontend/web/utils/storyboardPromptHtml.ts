@@ -15,6 +15,7 @@ import {
 findPromptAsset,
 formatAssetApiPlaceholder,
 formatAudioApiPlaceholder,
+formatVideoApiPlaceholder,
 promptAssetItemToRefValue,
 promptAssetNamesMatch,
 type PromptAssetItem,
@@ -23,6 +24,7 @@ type PromptAssetType
 } from './storyboardPromptAssetCore'
 const API_PLACEHOLDER_RE = /@图片(\d+)\[([^\]]+)\]/g
 const API_AUDIO_PLACEHOLDER_RE = /@音频(\d+)\[([^\]]+)\]/g
+const API_VIDEO_PLACEHOLDER_RE = /@视频(\d+)\[([^\]]+)\]/g
 const LEGACY_TAG_RE = /@([^\s@]+)/g
 
 function stripAt(value: string): string {
@@ -49,6 +51,7 @@ export function storyboardPromptHtmlToPlain(html: string): string {
         const assetType = String(node.dataset.assetType || '')
         if (Number.isFinite(idx) && idx > 0 && name) {
           if (assetType === 'audio') return formatAudioApiPlaceholder(idx, stripAt(name))
+          if (assetType === 'video') return formatVideoApiPlaceholder(idx, stripAt(name))
           return formatAssetApiPlaceholder(idx, stripAt(name))
         }
         const label = (node.querySelector('.scp-prompt-asset-ref__label')?.textContent ?? '').trim()
@@ -155,7 +158,7 @@ function buildPromptPlainSegments(
   }
 
   const re = new RegExp(
-    `${API_PLACEHOLDER_RE.source}|${API_AUDIO_PLACEHOLDER_RE.source}|${LEGACY_TAG_RE.source}`,
+    `${API_PLACEHOLDER_RE.source}|${API_AUDIO_PLACEHOLDER_RE.source}|${API_VIDEO_PLACEHOLDER_RE.source}|${LEGACY_TAG_RE.source}`,
     'g'
   )
   let m: RegExpExecArray | null
@@ -168,7 +171,7 @@ function buildPromptPlainSegments(
     if (m[1] != null && m[2] != null) {
       const imageIndex = Number(m[1])
       const name = m[2]
-      const imageAssets = assets.filter((a) => a.assetType !== 'audio')
+      const imageAssets = assets.filter((a) => a.assetType !== 'audio' && a.assetType !== 'video')
       const item =
         findPromptAsset(imageAssets, { imageIndex, name }) ||
         ({
@@ -205,8 +208,30 @@ function buildPromptPlainSegments(
       continue
     }
 
-    if (m[5]) {
-      const tag = m[5]
+    // @视频N[name]
+    if (m[5] != null && m[6] != null) {
+      const videoIndex = Number(m[5])
+      const name = m[6]
+      const item =
+        assets.find(
+          (asset) =>
+            asset.assetType === 'video' &&
+            (asset.imageIndex === videoIndex || promptAssetNamesMatch(asset, { name }))
+        ) ||
+        ({
+          assetId: `video-placeholder-${videoIndex}-${name}`,
+          assetType: 'video' as PromptAssetType,
+          name,
+          imageIndex: videoIndex,
+          url: '',
+          label: `@${name}`
+        } satisfies PromptAssetItem)
+      segments.push({ kind: 'asset', start, end, item })
+      continue
+    }
+
+    if (m[7]) {
+      const tag = m[7]
       const paramRef = paramRefFromTag(tag, paramGroups)
       if (paramRef) {
         segments.push({ kind: 'param', start, end, ref: paramRef })

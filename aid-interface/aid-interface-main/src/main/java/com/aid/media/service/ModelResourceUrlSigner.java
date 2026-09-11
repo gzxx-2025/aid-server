@@ -12,6 +12,7 @@ import com.aid.media.dto.MediaAudioGenerateRequest;
 import com.aid.media.dto.MediaImageGenerateRequest;
 import com.aid.media.dto.MediaVideoGenerateRequest;
 import com.aid.media.dto.ReferenceAudioInput;
+import com.aid.media.dto.ReferenceVideoInput;
 
 import lombok.RequiredArgsConstructor;
 
@@ -41,18 +42,31 @@ public class ModelResourceUrlSigner
         {
             return;
         }
-        request.setImageUrl(signOne(request.getImageUrl()));
+        Map<String, String> signedUrls = new LinkedHashMap<>();
+        request.setImageUrl(signOne(request.getImageUrl(), signedUrls));
         if (request.getReferenceAudios() != null)
         {
             for (ReferenceAudioInput audio : request.getReferenceAudios())
             {
                 if (audio != null)
                 {
-                    audio.setSampleUrl(signOne(audio.getSampleUrl()));
+                    audio.setSampleUrl(signOne(audio.getSampleUrl(), signedUrls));
                 }
             }
         }
-        request.setOptions(signMap(request.getOptions()));
+        if (request.getResolvedReferenceVideos() != null)
+        {
+            List<ReferenceVideoInput> videos = new ArrayList<>();
+            for (ReferenceVideoInput video : request.getResolvedReferenceVideos())
+            {
+                if (video == null) { videos.add(null); continue; }
+                videos.add(new ReferenceVideoInput(video.getRecordId(), signOne(video.getVideoUrl(), signedUrls),
+                        video.getDurationMs(), video.getFileSizeBytes(), video.getWidth(), video.getHeight(),
+                        video.getFps(), video.getFormat()));
+            }
+            request.setResolvedReferenceVideos(videos);
+        }
+        request.setOptions(signMap(request.getOptions(), signedUrls));
     }
 
     /** 语音模型的厂商扩展参数也可能承载参考音频 URL。 */
@@ -71,27 +85,37 @@ public class ModelResourceUrlSigner
 
     private Map<String, Object> signMap(Map<String, Object> source)
     {
+        return signMap(source, new LinkedHashMap<>());
+    }
+
+    private String signOne(String value, Map<String, String> signedUrls)
+    {
+        return value == null ? null : signedUrls.computeIfAbsent(value, this::signOne);
+    }
+
+    private Map<String, Object> signMap(Map<String, Object> source, Map<String, String> signedUrls)
+    {
         if (source == null || source.isEmpty())
         {
             return source;
         }
         Map<String, Object> result = new LinkedHashMap<>(source.size());
-        source.forEach((key, value) -> result.put(key, signValue(key, value)));
+        source.forEach((key, value) -> result.put(key, signValue(key, value, signedUrls)));
         return result;
     }
 
-    private Object signValue(String fieldName, Object value)
+    private Object signValue(String fieldName, Object value, Map<String, String> signedUrls)
     {
         if (value instanceof String text)
         {
-            return isResourceField(fieldName) ? signOne(text) : text;
+            return isResourceField(fieldName) ? signOne(text, signedUrls) : text;
         }
         if (value instanceof Map<?, ?> map)
         {
             Map<String, Object> result = new LinkedHashMap<>();
             map.forEach((key, item) -> {
                 String nestedName = String.valueOf(key);
-                result.put(nestedName, signValue(nestedName, item));
+                result.put(nestedName, signValue(nestedName, item, signedUrls));
             });
             return result;
         }
@@ -100,7 +124,7 @@ public class ModelResourceUrlSigner
             List<Object> result = new ArrayList<>(list.size());
             for (Object item : list)
             {
-                result.add(signValue(fieldName, item));
+                result.add(signValue(fieldName, item, signedUrls));
             }
             return result;
         }

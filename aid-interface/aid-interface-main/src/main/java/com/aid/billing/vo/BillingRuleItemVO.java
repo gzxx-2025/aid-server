@@ -60,6 +60,12 @@ public class BillingRuleItemVO implements Serializable
     /** 输入 Token 区间上限，仅文本按 Token 计费时有效 */
     private Integer inputTokensMax;
 
+    /** 输出图片总像素下限。 */
+    private Long outputPixelsMin;
+
+    /** 输出图片总像素上限。 */
+    private Long outputPixelsMax;
+
     /** 参考图片数量下限，null 表示不限制 */
     private Integer referenceImageCountMin;
 

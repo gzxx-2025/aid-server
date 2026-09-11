@@ -24,13 +24,16 @@ public class VideoReferenceContext
     /** 首帧垫图完整 URL（baseImageRecordId / final_image_id 解析得到，可空）。 */
     private final String baseImageUrl;
 
+    /** 尾帧完整 URL（仅首尾帧业务入口提供，可空）。 */
+    private final String lastFrameImageUrl;
+
     /** 命中的模型聚合配置（含 supportsMultiImageInput / supportsFirstFrame / providerCode 等能力位）。 */
     private final AiModelConfigVo modelConfig;
 
     /** 是否生成音频（用户偏好，可空）。 */
     private final Boolean generateAudio;
 
-    /** 参考图业务层上限（厂商内部仍会二次裁剪）。 */
+    /** 参考图生效上限；装配层与 Provider 层都只校验，不做静默裁剪。 */
     private final int maxReferenceImages;
 
     public VideoReferenceContext(String videoPrompt, String userInputText,
@@ -38,11 +41,21 @@ public class VideoReferenceContext
                                  AiModelConfigVo modelConfig, Boolean generateAudio,
                                  int maxReferenceImages)
     {
+        this(videoPrompt, userInputText, references, baseImageUrl, null,
+                modelConfig, generateAudio, maxReferenceImages);
+    }
+
+    public VideoReferenceContext(String videoPrompt, String userInputText,
+                                 List<ResolvedReference> references, String baseImageUrl,
+                                 String lastFrameImageUrl, AiModelConfigVo modelConfig,
+                                 Boolean generateAudio, int maxReferenceImages)
+    {
         this.videoPrompt = videoPrompt;
         this.userInputText = userInputText;
         this.references = references == null ? Collections.emptyList()
                 : Collections.unmodifiableList(references);
         this.baseImageUrl = baseImageUrl;
+        this.lastFrameImageUrl = lastFrameImageUrl;
         this.modelConfig = modelConfig;
         this.generateAudio = generateAudio;
         this.maxReferenceImages = maxReferenceImages;
@@ -66,6 +79,11 @@ public class VideoReferenceContext
     public String getBaseImageUrl()
     {
         return baseImageUrl;
+    }
+
+    public String getLastFrameImageUrl()
+    {
+        return lastFrameImageUrl;
     }
 
     public AiModelConfigVo getModelConfig()

@@ -139,8 +139,8 @@ public class StoryboardGenerationController extends BaseController {
 
     /**
      * 查询音频任务（供前端轮询 PROCESSING → SUCCEEDED / FAILED）。
-     * 只读 aid_audio_record，不穿透 aid_media_task；成功时 audioUrl 为系统可长期访问的 OSS/CDN URL，
-     * 不会返回上游临时签名地址。
+     * 以 aid_audio_record 为业务记录；失败时只读关联统一媒体任务的标准错误与计费终态。
+     * 成功时 audioUrl 为系统可长期访问的 OSS/CDN URL，不会返回上游临时签名地址。
      */
     @GetMapping("/audio/{taskId}")
     public AjaxResult getAudioTask(@PathVariable("taskId") Long taskId) {
@@ -151,7 +151,8 @@ public class StoryboardGenerationController extends BaseController {
 
     /**
      * 查询音频任务（POST 版，与 GET /audio/{taskId} 等价；C 端统一 POST 规范入口，GET 版保留兼容）。
-     * 只读 aid_audio_record；成功时 audioUrl 为系统可长期访问的 OSS/CDN URL。
+     * 以 aid_audio_record 为业务记录，失败时补充关联统一媒体任务的标准错误与计费终态；
+     * 成功时 audioUrl 为系统可长期访问的 OSS/CDN URL。
      */
     @PostMapping("/audio/detail")
     public AjaxResult getAudioTaskDetail(@Valid @RequestBody AudioTaskQueryRequest request) {

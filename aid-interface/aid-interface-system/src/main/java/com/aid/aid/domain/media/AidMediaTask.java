@@ -47,6 +47,11 @@ public class AidMediaTask extends BaseEntity {
     // 任务实际模型名。
     private String modelName;
 
+    /** 供应商任务路由与凭证版本快照；不保存明文凭证，不返回给客户端。 */
+    @JsonIgnore
+    @ToString.Exclude
+    private String providerRouteSnapshotJson;
+
     // 任务提示词。
     private String prompt;
 
@@ -64,6 +69,12 @@ public class AidMediaTask extends BaseEntity {
     // 上游响应原文 JSON 快照。
     @ToString.Exclude
     private String responseJson;
+
+    /** 仅本次同步调用消费的文本续轮上下文，不进入数据库或实体响应。 */
+    @TableField(exist = false)
+    @JsonIgnore
+    @ToString.Exclude
+    private transient java.util.Map<String, Object> liveTextTurn;
 
     // 上游 provider 任务ID。
     private String providerTaskId;

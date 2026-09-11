@@ -17,6 +17,12 @@ public interface MediaTextStreamSink {
     /** 上游公开的思考内容增量；调用方只可实时转发，不得持久化。 */
     default void onReasoningDelta(String content) {}
 
+    /** 是否能够处理工具消息；普通正文消费方默认关闭。 */
+    default boolean supportsToolMessages() { return false; }
+
+    /** 当前工具轮已成功结算；思考字段仅实时消费，不得持久化。 */
+    default void onToolMessage(com.aid.media.dto.MediaTextGenerateRequest.TextMessageItem message) {}
+
     // 业务含义：整段生成结束，附带全文与截断后的审计快照（可为空串）。
     void onDone(String fullText, String truncatedRawSnapshot);
 

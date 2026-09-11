@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Modal, Spin, message } from 'antd'
 import { CloseOutlined, UploadOutlined, FolderOutlined } from '@ant-design/icons'
 import { openImagePreviewModal } from '~/utils/openImagePreviewModal'
+import { openVideoPreviewModal } from '~/utils/openVideoPreviewModal'
 import ImportScriptModal from '../ImportScriptModal'
 import SelectAssetVoiceTab, { type OfficialVoicePick } from '../SelectAssetVoiceTab'
 import SelectAssetVideoFrameTab from '../SelectAssetVideoFrameTab'
@@ -26,6 +27,11 @@ import {
   type ReferenceAudioCapability
 } from '~/utils/referenceAudioCapability'
 import { fromOfficialVoice, type ReferenceMediaItem } from '~/utils/referenceMediaItem'
+import {
+  parseReferenceVideoCapability,
+  validateReferenceVideoSelection,
+  type ReferenceVideoCapability
+} from '~/utils/referenceVideoCapability'
 import { userReferenceAudioDelete } from '~/utils/businessApi'
 import { useStackedModalZIndex } from '~/hooks/useStackedModalZIndex'
 import {
@@ -38,6 +44,10 @@ import {
   type AssetImageType
 } from './assetGroups'
 import { uploadLocalReferenceAudios } from './referenceAudioUpload'
+import {
+  importLibraryReferenceVideos,
+  importLocalReferenceVideos
+} from './referenceVideoImport'
 import { PendingImportList } from './PendingImportList'
 import './select-asset-image-modal.css'
 
@@ -57,10 +67,14 @@ export interface SelectAssetImageModalProps {
   storyboardScriptGroups?: { label: string; images: any[] }[]
   /** 是否展示「音色」Tab（仅编辑分镜视频弹窗的导入参考图） */
   enableVoiceTab?: boolean
+  /** 多参生视频入口是否允许图片与视频混合导入 */
+  enableReferenceVideo?: boolean
   /** 当前视频模型（用于参考音频 capability） */
   videoModel?: { capability?: unknown } | null
   projectId?: number
   episodeId?: number
+  storyboardId?: number
+  existingReferenceVideoCount?: number
   onOpenChange: (open: boolean) => void
   onConfirm: (items: any[]) => void
 }
@@ -76,9 +90,12 @@ export function SelectAssetImageModal({
   stepPanelImages = [],
   storyboardScriptGroups = [],
   enableVoiceTab = false,
+  enableReferenceVideo = false,
   videoModel = null,
   projectId = 0,
   episodeId = 0,
+  storyboardId = 0,
+  existingReferenceVideoCount = 0,
   onOpenChange,
   onConfirm
 }: SelectAssetImageModalProps) {
@@ -90,6 +107,10 @@ export function SelectAssetImageModal({
 
   const audioCapability = useMemo<ReferenceAudioCapability>(
     () => parseReferenceAudioCapability(videoModel),
+    [videoModel]
+  )
+  const videoCapability = useMemo<ReferenceVideoCapability>(
+    () => parseReferenceVideoCapability(videoModel),
     [videoModel]
   )
 
@@ -129,7 +150,7 @@ export function SelectAssetImageModal({
   const modalZIndex = useStackedModalZIndex(open)
   const assetLibraryZIndex = modalZIndex + 100
 
-  const modalTitle = TITLE_MAP[type] || '选择'
+  const modalTitle = enableReferenceVideo ? '导入参考素材' : TITLE_MAP[type] || '选择'
 
   const tabOptions = useMemo(() => {
     const base = TAB_OPTIONS_MAP[type] || { current: '本作品资产', step: '当前分镜' }
@@ -219,6 +240,23 @@ export function SelectAssetImageModal({
 
   function pendingAudioItems(): ReferenceMediaItem[] {
     return selectedListRef.current.filter((x) => isAudioPendingItem(x)) as ReferenceMediaItem[]
+  }
+
+  function pendingVideoItems(): ReferenceMediaItem[] {
+    return selectedListRef.current.filter((item) => item?.kind === 'video') as ReferenceMediaItem[]
+  }
+
+  function validateVideoImportCount(incomingCount: number): boolean {
+    const check = validateReferenceVideoSelection({
+      capability: videoCapability,
+      existingCount: Math.max(0, Number(existingReferenceVideoCount) || 0) + pendingVideoItems().length,
+      incomingCount
+    })
+    if (check.ok === false) {
+      message.warning(check.message)
+      return false
+    }
+    return true
   }
 
   async function loadStep3AssetsIfNeeded() {
@@ -366,6 +404,11 @@ export function SelectAssetImageModal({
       void playPendingAudio(String(item.url || ''), rowKey(item))
       return
     }
+    if (item?.kind === 'video') {
+      const url = String(item.url || item.thumbnail || '').trim()
+      if (url) openVideoPreviewModal({ url, title: item?.title || item?.name || '参考视频' })
+      return
+    }
     const url = item?.url || item?.thumbnail
     if (!url) return
     openImagePreviewModal({
@@ -407,7 +450,9 @@ export function SelectAssetImageModal({
       ? (audioCapability.referenceAudioFormats.length
           ? audioCapability.referenceAudioFormats.map((f) => `.${f}`).join(',')
           : '.wav,.mp3')
-      : 'image/*'
+      : enableReferenceVideo
+        ? 'image/*,video/*'
+        : 'image/*'
     input.multiple = !pickAudio
     input.onchange = (e: Event) => {
       const files = (e.target as HTMLInputElement).files
@@ -424,14 +469,37 @@ export function SelectAssetImageModal({
           })
           return
         }
-        const { uploadImagesToOssWithToast } = await import('~/utils/ossUpload')
         const list = Array.from(files)
-        const urls = await uploadImagesToOssWithToast(list)
+        const videoFiles = enableReferenceVideo
+          ? list.filter((file) => file.type.startsWith('video/'))
+          : []
+        const imageFiles = list.filter((file) => file.type.startsWith('image/'))
+        if (videoFiles.length) {
+          if (!validateVideoImportCount(videoFiles.length)) return
+          try {
+            const videos = await importLocalReferenceVideos(videoFiles, {
+              projectId: resolvedProjectId,
+              episodeId: resolvedEpisodeId,
+              storyboardId: Number(storyboardId) || 0
+            })
+            if (videos.length) setSelectedList((prev) => [...prev, ...videos])
+          } catch (error: unknown) {
+            const cause = error as { msg?: string; message?: string }
+            message.error(cause?.msg || cause?.message || '参考视频导入失败')
+            return
+          }
+        }
+        if (!imageFiles.length) {
+          if (videoFiles.length) message.success(`已添加 ${videoFiles.length} 个参考视频`)
+          return
+        }
+        const { uploadImagesToOssWithToast } = await import('~/utils/ossUpload')
+        const urls = await uploadImagesToOssWithToast(imageFiles)
         if (!urls) return
         const now = new Date().toISOString()
         for (let i = 0; i < urls.length; i++) {
           const url = urls[i]!
-          const file = list[i]!
+          const file = imageFiles[i]!
           const name =
             file.name.replace(/\.[^/.]+$/, '') || `图片${selectedListRef.current.length + 1}`
           setSelectedList((prev) => [
@@ -448,7 +516,11 @@ export function SelectAssetImageModal({
             }
           ])
         }
-        message.success(`已添加 ${urls.length} 张图片`)
+        message.success(
+          videoFiles.length
+            ? `已添加 ${urls.length} 张图片和 ${videoFiles.length} 个参考视频`
+            : `已添加 ${urls.length} 张图片`
+        )
       })()
     }
     input.click()
@@ -458,9 +530,28 @@ export function SelectAssetImageModal({
     setAssetLibraryOpen(true)
   }
 
-  function handleAssetLibraryImportMultiple(items: any[]) {
+  async function handleAssetLibraryImportMultiple(items: any[]) {
     if (Array.isArray(items) && items.length) {
-      items.forEach((asset) => {
+      const videoItems = enableReferenceVideo
+        ? items.filter((asset) => asset?.type === 'video')
+        : []
+      const imageItems = items.filter((asset) => asset?.type !== 'video')
+      if (videoItems.length) {
+        if (!validateVideoImportCount(videoItems.length)) return false
+        try {
+          const videos = await importLibraryReferenceVideos(videoItems, {
+            projectId: resolvedProjectId,
+            episodeId: resolvedEpisodeId,
+            storyboardId: Number(storyboardId) || 0
+          })
+          if (videos.length) setSelectedList((prev) => [...prev, ...videos])
+        } catch (error: unknown) {
+          const cause = error as { msg?: string; message?: string }
+          message.error(cause?.msg || cause?.message || '参考视频导入失败')
+          return false
+        }
+      }
+      imageItems.forEach((asset) => {
         const url = asset.url || asset.thumbnail
         if (!url) return
         const id = asset.id || `lib-${Date.now()}-${Math.random().toString(36).slice(2)}`
@@ -689,7 +780,7 @@ export function SelectAssetImageModal({
         onOpenChange={setAssetLibraryOpen}
         title={assetLibraryTitle}
         multiple={true}
-        acceptAssetType="image"
+        acceptAssetType={enableReferenceVideo ? 'media' : 'image'}
         zIndex={assetLibraryZIndex}
         onImport={() => {}}
         onImportMultiple={handleAssetLibraryImportMultiple}

@@ -49,6 +49,30 @@ public class AudioTaskVO {
     /** 失败原因短文案 */
     private String errorMessage;
 
+    /** 失败错误码；仅失败且存在关联统一媒体任务时返回。 */
+    private String errorCode;
+
+    /** 失败错误大类。 */
+    private String errorType;
+
+    /** 失败责任来源：USER / MERCHANT / PROVIDER / PLATFORM。 */
+    private String errorSource;
+
+    /** 是否需要充值。 */
+    private Boolean needRecharge;
+
+    /** 充值主体：USER / MERCHANT / null。 */
+    private String rechargeOwner;
+
+    /** 当前错误是否允许重试。 */
+    private Boolean retryable;
+
+    /** 统一媒体任务计费状态。 */
+    private String billingStatus;
+
+    /** 统一媒体任务退款状态。 */
+    private String refundStatus;
+
     /** 关联音色库ID */
     private Long voiceLibraryId;
 

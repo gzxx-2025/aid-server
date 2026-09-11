@@ -64,9 +64,20 @@ public class JimengVideoProviderClient implements VideoProviderClient {
         String modelCode = resolveEffectiveModel(modelConfig, request);
         // req_key 依赖场景（文生/首帧/首尾帧）与分辨率（720P/1080P），必须在组装前解析
         List<String> imageUrls = resolveFrameImages(request, modelCode);
-        String reqKey = resolveSubmitReqKey(modelCode, imageUrls.size(), resolveResolution(request));
+        String reqKey = com.aid.model.definition.ModelConfiguredRequestBody.configuredRequestKey(modelConfig, request);
+        if (reqKey == null) {
+            int scenarioFrames = imageUrls.size();
+            if (modelConfig.getCapabilityCode() != null) scenarioFrames = switch (modelConfig.getGenerateMode()) {
+                case "text_to_video" -> 0;
+                case "image_to_video" -> 1;
+                case "start_end_to_video" -> 2;
+                default -> throw new IllegalArgumentException("即梦视频能力未配置服务标识");
+            };
+            reqKey = resolveSubmitReqKey(modelCode, scenarioFrames, resolveResolution(request));
+        }
 
         Map<String, Object> body = buildSubmitBody(reqKey, modelCode, request, imageUrls);
+        body = com.aid.model.definition.ModelConfiguredRequestBody.apply(modelConfig, body, request);
         applyBase64FramesIfEnabled(body, modelConfig);
 
         String raw;
@@ -233,11 +244,9 @@ public class JimengVideoProviderClient implements VideoProviderClient {
 
         String prompt = request == null ? null : request.getPrompt();
         if (StrUtil.isNotBlank(prompt)) {
-            // 文档限制 800 字符，超长截断并告警
+            // 文档限制 800 字符，超长直接拒绝。
             if (prompt.length() > JimengConstants.VIDEO_PROMPT_MAX_LENGTH) {
-                log.warn("即梦视频 prompt 超长截断, 原始长度={}, 截断至={}",
-                        prompt.length(), JimengConstants.VIDEO_PROMPT_MAX_LENGTH);
-                prompt = prompt.substring(0, JimengConstants.VIDEO_PROMPT_MAX_LENGTH);
+                throw invalidParameter("提示词长度超过即梦视频模型上限", "提示词过长");
             }
             body.put(JimengConstants.JSON_PROMPT, prompt);
         }
@@ -356,10 +365,13 @@ public class JimengVideoProviderClient implements VideoProviderClient {
             Object v = request.getOptions().get(JimengConstants.OPTIONS_RESOLUTION);
             if (v != null && StrUtil.isNotBlank(String.valueOf(v))) {
                 String normalized = String.valueOf(v).trim().toUpperCase(Locale.ROOT);
-                if (normalized.contains("1080")) {
+                if (JimengConstants.VIDEO_RESOLUTION_1080P.equals(normalized)) {
                     return JimengConstants.VIDEO_RESOLUTION_1080P;
                 }
-                return JimengConstants.VIDEO_RESOLUTION_720P;
+                if (JimengConstants.VIDEO_RESOLUTION_720P.equals(normalized)) {
+                    return JimengConstants.VIDEO_RESOLUTION_720P;
+                }
+                throw invalidParameter("即梦视频分辨率不在 720P/1080P 枚举内", "分辨率不支持");
             }
         }
         return JimengConstants.VIDEO_RESOLUTION_720P;
@@ -367,19 +379,17 @@ public class JimengVideoProviderClient implements VideoProviderClient {
 
     /**
      * 时长（秒）→ frames：frames = 24 * 秒数 + 1。
-     * 官方仅支持 5s（121 帧）与 10s（241 帧），其他秒数就近收口（<=7 归 5s，>7 归 10s）并告警。
+     * 官方仅支持 5s（121 帧）与 10s（241 帧），其他秒数直接拒绝。
      */
     private int resolveFrames(MediaVideoGenerateRequest request) {
         int seconds = (request != null && request.getDurationSeconds() != null && request.getDurationSeconds() > 0)
                 ? request.getDurationSeconds()
                 : JimengConstants.VIDEO_DEFAULT_DURATION_SECONDS;
-        int snapped = seconds <= JimengConstants.VIDEO_DURATION_SNAP_THRESHOLD_SECONDS
-                ? JimengConstants.VIDEO_DURATION_SHORT_SECONDS
-                : JimengConstants.VIDEO_DURATION_LONG_SECONDS;
-        if (snapped != seconds) {
-            log.warn("即梦视频时长收口: 请求={}s, 实际下发={}s（官方仅支持5s/10s）", seconds, snapped);
+        if (seconds != JimengConstants.VIDEO_DURATION_SHORT_SECONDS
+                && seconds != JimengConstants.VIDEO_DURATION_LONG_SECONDS) {
+            throw invalidParameter("即梦视频时长不在 5/10 秒枚举内", "视频时长不支持");
         }
-        return JimengConstants.VIDEO_FRAMES_PER_SECOND_FACTOR * snapped + 1;
+        return JimengConstants.VIDEO_FRAMES_PER_SECOND_FACTOR * seconds + 1;
     }
 
     // ------------------------------------------------------------------
@@ -507,6 +517,11 @@ public class JimengVideoProviderClient implements VideoProviderClient {
                 .providerStatus(providerStatus)
                 .terminalConfirmed(Boolean.FALSE)
                 .build();
+    }
+
+    private static IllegalArgumentException invalidParameter(String detail, String userMessage) {
+        log.info("即梦视频参数校验失败: {}", detail);
+        return new IllegalArgumentException(userMessage);
     }
 
     /**

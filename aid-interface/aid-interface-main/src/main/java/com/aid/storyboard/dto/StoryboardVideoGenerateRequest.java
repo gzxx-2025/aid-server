@@ -44,7 +44,7 @@ public class StoryboardVideoGenerateRequest
 
     /**
      * 目标视频时长（秒，可选）。单分镜显式传值优先于分镜建议；批量时各分镜建议优先，本值作为整批兜底。
-     * 最终按模型 {@code durationOptions} 命中、向上取最近档或超过最大档时取最大档。
+     * 显式传值必须精确命中模型 {@code durationOptions}；分镜建议和模型默认值才可按档位归一化。
      */
     private Integer durationSeconds;
 
@@ -70,6 +70,21 @@ public class StoryboardVideoGenerateRequest
 
     /** 用户选择的上传参考音频 ID（可选，仅单镜头生效）。 */
     private List<Long> referenceAudioIds;
+
+    /** 用户选择的参考视频生成记录 ID（可选，仅单镜头生效，aid_gen_record.id）。 */
+    private List<Long> referenceVideoRecordIds;
+
+    /** 可选视频任务意图；只对明确支持该参数的模型开放，批量请求禁止使用。 */
+    private String omniReferenceTaskType;
+
+    /**
+     * 可选的视频能力编码。一个模型同时提供文生视频、图生视频、参考生成等能力时，
+     * 用于选择与本次素材组合一致的协议绑定；未传时保持原有场景推断和默认绑定行为。
+     */
+    private String capabilityCode;
+
+    /** 可选输出封装格式；取值须命中当前模型的 outputFormatOptions。 */
+    private String outputFormat;
 
     /** 用户补充文本（可选，最大 500 字符）。拼接到 video_prompt 之后，前缀"用户补充："，用于临时微调。 */
     private String userInputText;

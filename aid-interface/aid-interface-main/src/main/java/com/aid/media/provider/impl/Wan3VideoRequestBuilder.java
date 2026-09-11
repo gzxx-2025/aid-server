@@ -38,6 +38,10 @@ public final class Wan3VideoRequestBuilder {
     }
 
     public static boolean supportsModel(AiModelConfigVo modelConfig) {
+        // TokenDance 的同名模型由独立协议门面校验，不能提前套用原厂请求及整数时长契约。
+        if (modelConfig != null && "tokendance".equalsIgnoreCase(modelConfig.getProviderCode())) {
+            return false;
+        }
         String model = ModelCodeResolver.resolveUpstreamModel(modelConfig, null);
         return supportsModelName(model);
     }

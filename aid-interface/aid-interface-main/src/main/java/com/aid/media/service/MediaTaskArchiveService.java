@@ -39,7 +39,7 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  * 媒体任务终态载荷治理：
  * 1. 按 aid_config 动态开关把压缩前的请求/响应异步写入本地 JSONL；
- * 2. 无论是否开启归档，都压缩终态 request_json 并清空 response_json；
+ * 2. 无论是否开启归档，都压缩终态请求与响应，仅保留必要的函数结果摘要；
  * 3. 业务扇入完成后清理 request_json 中已消费的分镜上下文。
  */
 @Slf4j
@@ -133,6 +133,10 @@ public class MediaTaskArchiveService {
         String safeRequestJson = MediaTaskPayloadSanitizer.sanitizeForStorage(
             Objects.isNull(task) ? null : task.getRequestJson());
         String safeResponseJson = MediaTaskPayloadSanitizer.sanitizeForStorage(rawResponseJson);
+        if (task != null && "TEXT".equals(task.getMediaType())) {
+            safeRequestJson = com.aid.media.provider.ReasoningContentSanitizer.sanitizeJson(safeRequestJson);
+            safeResponseJson = com.aid.media.provider.ReasoningContentSanitizer.sanitizeJson(safeResponseJson);
+        }
         if (Objects.isNull(task) || !isTerminal(targetStatus)) {
             return new PreparedTerminalPayload(safeRequestJson, safeResponseJson, null);
         }
@@ -149,9 +153,11 @@ public class MediaTaskArchiveService {
             && isArchiveEnabled()) {
             archiveRecord = ArchiveRecord.from(task, targetStatus, safeRequestJson, safeResponseJson);
         }
-        // response_json 只保存上游原始快照，终态业务字段已拆列。使用空串保证 updateById 的
-        // NOT_NULL 策略也会真实清空旧响应；LambdaUpdate 路径同样写空串，数据库不再保留响应正文。
-        return new PreparedTerminalPayload(compactRequestJson, "", archiveRecord);
+        // 普通响应正文清空；函数结果尚无独立列，仅保留受控摘要，不能丢失幂等重放标识。
+        // 使用空串保证 updateById 的 NOT_NULL 策略也会真实清空旧响应。
+        String toolResult = "TEXT".equals(task.getMediaType()) && "SUCCEEDED".equals(targetStatus)
+                ? com.aid.media.provider.TextToolResultSupport.compactSnapshot(safeResponseJson) : "";
+        return new PreparedTerminalPayload(compactRequestJson, toolResult, archiveRecord);
     }
 
     /**

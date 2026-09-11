@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Drawer, Empty, Input, Space, Spin, Switch, Table, Tag, Tooltip, message } from 'antd';
 import { GlobalOutlined, SearchOutlined } from '@ant-design/icons';
-import { realModelOverview, updateModel, type RealModelGroup, type RealModelItem } from '@/api/aid/aimanage';
+import { getModel, realModelOverview, updateModel, type RealModelGroup, type RealModelItem } from '@/api/aid/aimanage';
 import { MODEL_TYPE_OPTIONS, GENERATE_MODE_OPTIONS, getLabelByValue, getAntdTagColor } from '@/utils/enums';
 
 interface Props {
@@ -47,8 +47,21 @@ export default function RealModelOverviewDrawer({ open, onClose, onStatusChanged
     if (togglingId != null) return;
     setTogglingId(item.id);
     try {
-      await updateModel({ id: item.id, modelCode: item.modelCode, status: enabled ? '0' : '1' });
+      let configVersion = item.configVersion;
+      let modelCode = item.modelCode;
+      if (configVersion == null) {
+        const current: any = await getModel(item.id);
+        configVersion = current.data?.configVersion;
+        modelCode = current.data?.modelCode || modelCode;
+      }
+      await updateModel({
+        id: item.id,
+        modelCode,
+        status: enabled ? '0' : '1',
+        configVersion
+      });
       message.success(enabled ? `已启用【${item.modelName}】` : `已停用【${item.modelName}】`);
+      // 重新加载权威列表，取得服务端递增后的 configVersion。
       await load(keyword);
       onStatusChanged?.();
     } catch {

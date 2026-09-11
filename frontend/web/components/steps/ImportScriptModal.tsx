@@ -66,12 +66,16 @@ export function ImportScriptModal({
       ? '导入图片'
       : acceptAssetType === 'video'
         ? '导入视频'
+        : acceptAssetType === 'media'
+          ? '导入图片或视频'
         : '导入剧本')
   const sidebarTitle =
     acceptAssetType === 'image'
       ? '导入图片'
       : acceptAssetType === 'video'
         ? '导入视频'
+        : acceptAssetType === 'media'
+          ? '导入素材'
         : '导入文档'
   const storeCurrentEpisodeId = useCreationStore((s) => s.currentEpisodeId)
   const storeCurrentProjectId = useCreationStore((s) => s.currentProjectId)
@@ -544,7 +548,7 @@ export function ImportScriptModal({
       message.warning(
         isScriptImportContext()
           ? '剧本导入仅支持文本脚本'
-          : `请选择有效的${acceptAssetType === 'image' ? '图片' : '视频'}资产`
+          : `请选择有效的${acceptAssetType === 'image' ? '图片' : acceptAssetType === 'video' ? '视频' : '图片或视频'}资产`
       )
       return
     }
@@ -700,7 +704,7 @@ export function ImportScriptModal({
         message.error(
           isScriptImportContext()
             ? '剧本导入仅支持文本脚本'
-            : `仅支持导入${acceptAssetType === 'image' ? '图片' : '视频'}`
+            : `仅支持导入${acceptAssetType === 'image' ? '图片' : acceptAssetType === 'video' ? '视频' : '图片或视频'}`
         )
         return
       }

@@ -3,6 +3,7 @@ package com.aid.media.util;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.regex.Pattern;
 
@@ -93,6 +94,15 @@ public final class ModelCapabilityResolver {
 
     /** 解析视频画面比例。 */
     public static String resolveVideoAspectRatio(AiModelConfigVo modelConfig, String requested) {
+        if (modelConfig != null && Boolean.FALSE.equals(modelConfig.getSupportsAspectRatio())
+                && !isVideoAspectRatioFollowInput(modelConfig)) {
+            if (StrUtil.isNotBlank(requested)) {
+                log.info("视频模型禁止画面比例参数: modelCode={}, aspectRatio={}",
+                        modelConfig.getModelCode(), requested);
+                throw new ServiceException(MSG_ASPECT_RATIO_UNSUPPORTED);
+            }
+            return null;
+        }
         if (!isVideoAspectRatioFollowInput(modelConfig)) {
             return resolveAspectRatio(modelConfig, requested);
         }
@@ -118,6 +128,26 @@ public final class ModelCapabilityResolver {
         log.info("跟随输入视频目标比例格式错误: modelCode={}, aspectRatio={}",
                 modelConfig.getModelCode(), requestedValue);
         throw new ServiceException(MSG_ASPECT_RATIO_UNSUPPORTED);
+    }
+
+    /**
+     * 解析来自项目配置的默认视频比例。项目比例不是本次请求的显式参数；当它不在当前模型白名单内时，
+     * 回退到模型自身默认值，避免例如仅支持 {@code adaptive} 的模型被项目 {@code 16:9} 误伤。
+     * 显式请求仍必须调用 {@link #resolveVideoAspectRatio(AiModelConfigVo, String)} 严格拒绝非法值。
+     */
+    public static String resolveVideoAspectRatioForProjectDefault(
+            AiModelConfigVo modelConfig, String projectDefault) {
+        try {
+            return resolveVideoAspectRatio(modelConfig, projectDefault);
+        } catch (ServiceException ex) {
+            if (!MSG_ASPECT_RATIO_UNSUPPORTED.equals(ex.getMessage())) {
+                throw ex;
+            }
+            String fallback = resolveVideoAspectRatio(modelConfig, null);
+            log.info("项目画面比例不在视频模型能力内，已使用模型默认值: modelCode={}, projectRatio={}, resolved={}",
+                    modelConfig == null ? null : modelConfig.getModelCode(), projectDefault, fallback);
+            return fallback;
+        }
     }
 
     /** 读取 FOLLOW_INPUT 模型提交给 Provider 的比例值。 */
@@ -294,17 +324,28 @@ public final class ModelCapabilityResolver {
     public record ImageSizeSpec(String size, String aspectRatio) {
     }
 
-    /**
-     * 白名单单项解析：传值优先（未命中抛短文案），未传值按默认档 → 白名单首项兜底。
-     *
-     * @param capability   已解析的 capability 根节点（可空）
-     * @param modelCode    模型编码（日志用）
-     * @param requested    调用方传值（可空）
-     * @param optionsKey   白名单键名
-     * @param defaultValue 模型默认值（可空）
-     * @param errorMessage 未命中时的用户短文案
-     * @return 规范写法；无可用值返回 null
-     */
+    /** 编辑入口与媒体入口共用规格语义，允许显式声明的自定义宽高。 */
+    public static void validateImageOutputSelection(AiModelConfigVo model, String size, String ratio) {
+        JsonNode capability = parseCapability(model.getCapabilityJson());
+        if (capability == null) throw new ServiceException("模型能力无效");
+        List<String> ratios = readOptions(capability, KEY_ASPECT_RATIO_OPTIONS);
+        boolean custom = capability.path("allowCustomWH").asBoolean(false);
+        if (StrUtil.isBlank(ratio)
+                || (!ratios.isEmpty() && matchOption(ratios, ratio) == null)
+                || (ratios.isEmpty() && (!custom || !isConcreteAspectRatio(ratio)))) {
+            log.info("图片编辑比例不受支持: modelCode={}, ratio={}", model.getModelCode(), ratio);
+            throw new ServiceException(MSG_ASPECT_RATIO_UNSUPPORTED);
+        }
+        List<String> sizes = readOptions(capability, KEY_SIZE_OPTIONS);
+        if (StrUtil.isBlank(size) || (matchOption(sizes, size) == null
+                && !(custom && normalize(size).matches("\\d{2,5}x\\d{2,5}")))) {
+            log.info("图片编辑尺寸不受支持: modelCode={}, size={}", model.getModelCode(), size);
+            throw new ServiceException(MSG_SIZE_UNSUPPORTED);
+        }
+        ModelCapabilityValidator.validateImage(model, size, Map.of("aspect_ratio", ratio));
+    }
+
+    /** 白名单单项解析，未传值按默认值及首项兜底。 */
     private static String resolve(JsonNode capability, String modelCode, String requested,
                                   String optionsKey, String defaultValue, String errorMessage) {
         List<String> whitelist = readOptions(capability, optionsKey);

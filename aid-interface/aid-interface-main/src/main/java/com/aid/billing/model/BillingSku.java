@@ -40,6 +40,9 @@ public class BillingSku {
     /** 官方每字符原价（元/字符），仅 PER_CHAR 使用；null时降级到 price */
     private BigDecimal pricePerChar;
 
+    /** 每次任务的固定附加成本，适用于字符计费与按次计费的复合费用。 */
+    private BigDecimal fixedSurcharge;
+
     /** 输入官方原价（元/百万Token），仅 TEXT SKU 使用；null时降级到 price */
     private BigDecimal inputPricePerMillion;
 

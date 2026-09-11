@@ -2,6 +2,7 @@ package com.aid.storyboard.service.impl;
 
 import com.aid.media.util.MediaTaskPayloadSanitizer;
 import com.aid.common.error.TaskErrorSnapshot;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -67,13 +68,14 @@ import com.aid.domain.vo.AiModelConfigVo;
 import com.aid.enums.CreationModeEnum;
 import com.aid.enums.GenTypeEnum;
 import com.aid.media.constants.KlingConstants;
-import com.aid.media.constants.MinimaxH3Constants;
 import com.aid.media.dto.MediaTaskResponse;
 import com.aid.media.dto.MediaVideoGenerateRequest;
 import com.aid.media.dto.PreparedMediaBillingInput;
 import com.aid.media.dto.ReferenceAudioInput;
+import com.aid.media.dto.ReferenceVideoInput;
 import com.aid.media.provider.KlingVideoRequestBuilder;
 import com.aid.media.provider.ReferenceImageLimiter;
+import com.aid.media.resolver.ReferenceVideoRecordResolver;
 import com.aid.media.service.IMediaGenerationService;
 import com.aid.media.service.MediaBillingQuotePreparer;
 import com.aid.media.util.ModelCapabilityResolver;
@@ -101,6 +103,7 @@ import com.aid.storyboard.dto.StoryboardVideoGridGenerateRequest;
 import com.aid.storyboard.dto.StoryboardVideoGenerateVO;
 import com.aid.storyboard.service.IStoryboardVideoGenerationService;
 import com.aid.storyboard.support.StoryboardDurationResolver;
+import com.aid.storyboard.support.StoryboardVideoAdvancedOptions;
 import com.aid.storyboard.support.StoryboardDurationResolver.Resolution;
 import com.aid.storyboard.video.ResolvedReference;
 import com.aid.storyboard.video.VideoReferenceContext;
@@ -146,6 +149,9 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
 
     /** 任务快照键：用户显式选择的上传参考音频 ID */
     private static final String SNAPSHOT_KEY_REFERENCE_AUDIO_IDS = "referenceAudioIds";
+
+    /** 任务快照键：用户显式选择的参考视频记录 ID */
+    private static final String SNAPSHOT_KEY_VIDEO_RECORD_IDS = "referenceVideoRecordIds";
 
     /** 任务状态枚举（与 AidExtractTask 字符串字段对齐） */
     private static final String TASK_STATUS_PENDING = "PENDING";
@@ -193,15 +199,12 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
     /** 视频提示词业务侧最大长度。 */
     private static final int MAX_PROMPT_LENGTH = 20_000;
 
-    /** 用户补充文本最大长度（超出截断） */
+    /** 用户补充文本最大长度（超出拒绝） */
     private static final int MAX_USER_INPUT_LENGTH = 500;
 
     /** 出片数量上下限 */
     private static final int MIN_COUNT = 1;
     private static final int MAX_COUNT = 4;
-
-    /** 模型未提供时长时，余额预检沿用统一计费链路的安全估算秒数 */
-    private static final int BILLING_FALLBACK_DURATION_SECONDS = 5;
 
     /** 单次批量出片最大镜头数：限制批量规模，避免父任务顺序执行总时长过长超出执行租约 */
     private static final int MAX_BATCH_SHOTS = 20;
@@ -212,7 +215,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
      */
     private static final int MAX_RUN_NO = 999;
 
-    /** 参考图业务层统一上限（厂商内部仍会做二次裁剪） */
+    /** 能力未声明时采用的参考图业务安全上限；模型明确配置优先。 */
     private static final int MAX_REFERENCE_IMAGES = 8;
 
     /** {@code @图片N[name]} 占位正则（与 {@link } 完全一致） */
@@ -335,6 +338,9 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
     @Autowired
     private IAidGenRecordService aidGenRecordService;
 
+    @Autowired
+    private ReferenceVideoRecordResolver referenceVideoRecordResolver;
+
     /** aid_media_task 无独立 Service，沿用现有直读 Mapper 的统一做法。
      *  续生 durable 复用用：按确定性 bizTaskId 反查已成功媒体任务，不受媒体层 1 小时幂等窗限制。 */
     @Autowired
@@ -373,10 +379,6 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
     @Autowired
     private IWechatNotifyService wechatNotifyService;
 
-    /** 计费金额计算器（建任务前余额预检的金额预估，冻结仍走统一 prepareBilling） */
-    @Autowired
-    private com.aid.billing.service.BillingAmountCalculator billingAmountCalculator;
-
     /** 账户服务（建任务前的余额只读预检） */
     @Autowired
     private com.aid.billing.service.IAccountUpdateService accountUpdateService;
@@ -410,13 +412,9 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         String creationMode = resolveCreationModeForBatch(ids, userId);
         String funcCode = CreationModeEnum.PRO.getValue().equals(creationMode)
                 ? FUNC_CODE_STORYBOARD_VIDEO_MULTI_PRO : FUNC_CODE_STORYBOARD_VIDEO; // pro 专属多参池 / 通用多参池
-        String modelCode = resolveModelCode(request.getModelName(), funcCode);
-        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(modelCode);
-        if (Objects.isNull(modelConfig))
-        {
-            log.error("分镜图生视频模型配置缺失: modelCode={}", modelCode);
-            throw new ServiceException("模型不存在");
-        }
+        AiModelConfigVo modelConfig = requireVideoModel(
+                request.getModelName(), funcCode, multiCapability(request));
+        String modelCode = modelConfig.getModelCode();
         Long modelId = modelConfig.getId();
         Integer requestedDuration = Boolean.TRUE.equals(modelConfig.getSupportsDuration())
                 ? request.getDurationSeconds() : null;
@@ -433,7 +431,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
                 funcCode, DIRECTION_MULTI,
                 slotReservation,
                 sb -> prepareMultiShot(sb, singleFinal, request, modelConfig, userId,
-                        perShotCountFinal, null, true, true));
+                        perShotCountFinal, null, null, true, true));
     }
 
     @Override
@@ -445,7 +443,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         String creationMode = resolveCreationModeForBatch(ids, userId);
         String funcCode = CreationModeEnum.PRO.getValue().equals(creationMode)
                 ? FUNC_CODE_STORYBOARD_VIDEO_MULTI_PRO : FUNC_CODE_STORYBOARD_VIDEO;
-        AiModelConfigVo modelConfig = requireVideoModel(request.getModelName(), funcCode);
+        AiModelConfigVo modelConfig = requireVideoModel(request.getModelName(), funcCode, multiCapability(request));
         int perShotCount = single ? clampCount(request.getCount()) : 1;
         return quotePreparedVideoBatch("STORYBOARD_VIDEO", userId, ids, single,
                 single ? clampCount(request.getCount()) : 1, modelConfig,
@@ -454,7 +452,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
                 Boolean.TRUE.equals(modelConfig.getSupportsDuration()) ? request.getDurationSeconds() : null,
                 request.getGenerateAudio(), DIRECTION_MULTI, false,
                 storyboard -> prepareMultiShot(storyboard, single, request, modelConfig, userId,
-                        perShotCount, null, false, false));
+                        perShotCount, null, null, false, false));
     }
 
     @Override
@@ -466,7 +464,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         String creationMode = resolveCreationModeForBatch(ids, userId);
         String funcCode = CreationModeEnum.PRO.getValue().equals(creationMode)
                 ? FUNC_CODE_STORYBOARD_VIDEO_MULTI_PRO : FUNC_CODE_STORYBOARD_VIDEO;
-        AiModelConfigVo modelConfig = requireVideoModel(request.getModelName(), funcCode);
+        AiModelConfigVo modelConfig = requireVideoModel(request.getModelName(), funcCode, multiCapability(request));
         int perShotCount = single ? clampCount(request.getCount()) : 1;
         return quotePreparedVideoBatch("STORYBOARD_VIDEO", userId, ids, single,
                 perShotCount, modelConfig,
@@ -485,7 +483,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         List<Long> ids = validateBatchRequestImage(request);
         boolean single = ids.size() == 1;
         AiModelConfigVo modelConfig = requireVideoModel(
-                request.getModelName(), FUNC_CODE_STORYBOARD_VIDEO_IMAGE);
+                request.getModelName(), FUNC_CODE_STORYBOARD_VIDEO_IMAGE, "image_to_video");
         if (!Boolean.TRUE.equals(modelConfig.getSupportsImageInput()))
         {
             throw new ServiceException("该模型不支持图片");
@@ -509,7 +507,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         List<Long> ids = validateBatchRequestImage(request);
         boolean single = ids.size() == 1;
         AiModelConfigVo modelConfig = requireVideoModel(
-                request.getModelName(), FUNC_CODE_STORYBOARD_VIDEO_IMAGE);
+                request.getModelName(), FUNC_CODE_STORYBOARD_VIDEO_IMAGE, "image_to_video");
         if (!Boolean.TRUE.equals(modelConfig.getSupportsImageInput()))
         {
             throw new ServiceException("该模型不支持图片");
@@ -536,7 +534,8 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         {
             throw new ServiceException("仅宫格模式可用");
         }
-        AiModelConfigVo modelConfig = requireVideoModel(request.getModelName(), FUNC_CODE_STORYBOARD_VIDEO_GRID);
+        AiModelConfigVo modelConfig = requireVideoModel(
+                request.getModelName(), FUNC_CODE_STORYBOARD_VIDEO_GRID, "image_to_video");
         if (!Boolean.TRUE.equals(modelConfig.getSupportsImageInput()))
         {
             throw new ServiceException("该模型不支持图片");
@@ -571,7 +570,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
             throw new ServiceException("仅宫格模式可用");
         }
         AiModelConfigVo modelConfig = requireVideoModel(
-                request.getModelName(), FUNC_CODE_STORYBOARD_VIDEO_GRID);
+                request.getModelName(), FUNC_CODE_STORYBOARD_VIDEO_GRID, "image_to_video");
         if (!Boolean.TRUE.equals(modelConfig.getSupportsImageInput()))
         {
             throw new ServiceException("该模型不支持图片");
@@ -597,7 +596,8 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         validateUserId(userId);
         List<Long> ids = validateBatchRequestEdge(request);
         boolean single = ids.size() == 1;
-        AiModelConfigVo modelConfig = requireVideoModel(request.getModelName(), FUNC_CODE_STORYBOARD_VIDEO_EDGE);
+        AiModelConfigVo modelConfig = requireVideoModel(
+                request.getModelName(), FUNC_CODE_STORYBOARD_VIDEO_EDGE, "start_end_to_video");
         if (!Boolean.TRUE.equals(modelConfig.getSupportsLastFrame()))
         {
             throw new ServiceException("不支持尾帧");
@@ -616,8 +616,41 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
 
     private AiModelConfigVo requireVideoModel(String requestedModelCode, String funcCode)
     {
+        return requireVideoModel(requestedModelCode, funcCode, null);
+    }
+
+    private static String multiCapability(StoryboardVideoGenerateRequest request) {
+        if (request != null && StrUtil.isNotBlank(request.getCapabilityCode()))
+        {
+            return StrUtil.trim(request.getCapabilityCode()).toLowerCase(java.util.Locale.ROOT);
+        }
+        String taskType = request == null ? null : request.getOmniReferenceTaskType();
+        return "edit".equals(taskType) ? "video_edit" : "extend".equals(taskType) ? "video_extend" : null;
+    }
+
+    private AiModelConfigVo requireVideoModel(String requestedModelCode, String funcCode, String capability)
+    {
         String modelCode = resolveModelCode(requestedModelCode, funcCode);
-        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(modelCode);
+        AiModelConfigVo modelConfig;
+        try
+        {
+            modelConfig = aiModelConfigService.selectForBusiness(modelCode, funcCode, capability);
+        }
+        catch (ServiceException exception)
+        {
+            boolean compatibleVideoToVideoAlias = ("video_edit".equals(capability)
+                    || "video_extend".equals(capability))
+                    && "业务未绑定此能力".equals(exception.getMessage());
+            if (!compatibleVideoToVideoAlias)
+            {
+                throw exception;
+            }
+            modelConfig = aiModelConfigService.selectForBusiness(modelCode, funcCode, "video_to_video");
+        }
+        if (modelConfig == null && ("video_edit".equals(capability) || "video_extend".equals(capability)))
+        {
+            modelConfig = aiModelConfigService.selectForBusiness(modelCode, funcCode, "video_to_video");
+        }
         if (modelConfig == null)
         {
             throw new ServiceException("模型不存在");
@@ -789,13 +822,9 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
                 userId, ids.size(), single, perShotCount, request.getModelName(),
                 request.getImages() == null ? 0 : request.getImages().size());
 
-        String modelCode = resolveModelCode(request.getModelName(), FUNC_CODE_STORYBOARD_VIDEO_IMAGE);
-        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(modelCode);
-        if (Objects.isNull(modelConfig))
-        {
-            log.error("分镜图生视频模型配置缺失: modelCode={}", modelCode);
-            throw new ServiceException("模型不存在");
-        }
+        AiModelConfigVo modelConfig = requireVideoModel(
+                request.getModelName(), FUNC_CODE_STORYBOARD_VIDEO_IMAGE, "image_to_video");
+        String modelCode = modelConfig.getModelCode();
         // 图生视频出片硬要求：模型必须支持图片输入（池已收敛，此处再兜底一层）
         if (!Boolean.TRUE.equals(modelConfig.getSupportsImageInput()))
         {
@@ -852,13 +881,9 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
             throw new ServiceException("仅宫格模式可用");
         }
 
-        String modelCode = resolveModelCode(request.getModelName(), FUNC_CODE_STORYBOARD_VIDEO_GRID);
-        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(modelCode);
-        if (Objects.isNull(modelConfig))
-        {
-            log.error("宫格生视频模型配置缺失: modelCode={}", modelCode);
-            throw new ServiceException("模型不存在");
-        }
+        AiModelConfigVo modelConfig = requireVideoModel(
+                request.getModelName(), FUNC_CODE_STORYBOARD_VIDEO_GRID, "image_to_video");
+        String modelCode = modelConfig.getModelCode();
         if (!Boolean.TRUE.equals(modelConfig.getSupportsImageInput()))
         {
             log.info("宫格生视频模型不支持图片输入: modelCode={}", modelCode);
@@ -906,13 +931,9 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         log.info("分镜首尾帧生视频入口: userId={}, shotCount={}, single={}, perShotCount={}, modelName={}",
                 userId, ids.size(), single, perShotCount, request.getModelName());
 
-        String modelCode = resolveModelCode(request.getModelName(), FUNC_CODE_STORYBOARD_VIDEO_EDGE);
-        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(modelCode);
-        if (Objects.isNull(modelConfig))
-        {
-            log.error("首尾帧生视频模型配置缺失: modelCode={}", modelCode);
-            throw new ServiceException("模型不存在");
-        }
+        AiModelConfigVo modelConfig = requireVideoModel(
+                request.getModelName(), FUNC_CODE_STORYBOARD_VIDEO_EDGE, "start_end_to_video");
+        String modelCode = modelConfig.getModelCode();
         if (!Boolean.TRUE.equals(modelConfig.getSupportsLastFrame()))
         {
             log.info("首尾帧生视频模型不支持尾帧输入: modelCode={}", modelCode);
@@ -953,6 +974,21 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         List<Long> ids = distinctValidIds(request.getStoryboardIds());
         boolean single = ids.size() == 1;
         validateCountRule(single, request.getCount());
+        long explicitImageCount = request.getImages() == null ? 0L : request.getImages().stream()
+                .filter(StrUtil::isNotBlank)
+                .map(StrUtil::trim)
+                .distinct()
+                .count();
+        if (!single && explicitImageCount > 0)
+        {
+            log.info("分镜批量图生视频收到整批参考图: count={}", explicitImageCount);
+            throw new ServiceException("批量分镜不能共用参考图");
+        }
+        if (explicitImageCount > 1)
+        {
+            log.info("分镜图生视频参考图数量超限: count={}", explicitImageCount);
+            throw new ServiceException("图生方向最多传1张图");
+        }
         if (StrUtil.isNotBlank(request.getVideoPrompt()) && request.getVideoPrompt().length() > MAX_PROMPT_LENGTH)
         {
             log.error("分镜图生视频(图生方向)提示词过长: len={}", request.getVideoPrompt().length());
@@ -960,8 +996,8 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         }
         if (StrUtil.isNotBlank(request.getUserInputText()) && request.getUserInputText().length() > MAX_USER_INPUT_LENGTH)
         {
-            log.warn("分镜图生视频(图生方向) userInputText 超长截断: originLen={}", request.getUserInputText().length());
-            request.setUserInputText(request.getUserInputText().substring(0, MAX_USER_INPUT_LENGTH));
+            log.error("分镜图生视频用户补充内容过长: len={}", request.getUserInputText().length());
+            throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_TOO_LONG, "用户补充内容过长，请精简");
         }
         if (Objects.nonNull(request.getDurationSeconds()) && request.getDurationSeconds() <= 0)
         {
@@ -1011,7 +1047,14 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         }
         List<Long> ids = distinctValidIds(request.getStoryboardIds());
         boolean single = ids.size() == 1;
+        StoryboardVideoAdvancedOptions.normalize(request, single);
         validateCountRule(single, request.getCount());
+        if (!single && CollectionUtil.isNotEmpty(request.getReferenceVideoRecordIds()))
+        {
+            log.info("分镜批量出片不接受整批参考视频: shotCount={}, videoCount={}",
+                    ids.size(), request.getReferenceVideoRecordIds().size());
+            throw new ServiceException("参考视频仅限单镜");
+        }
         if (StrUtil.isNotBlank(request.getVideoPrompt())
                 && request.getVideoPrompt().length() > MAX_PROMPT_LENGTH)
         {
@@ -1021,10 +1064,11 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         if (StrUtil.isNotBlank(request.getUserInputText())
                 && request.getUserInputText().length() > MAX_USER_INPUT_LENGTH)
         {
-            log.warn("分镜图生视频 userInputText 超长截断: originLen={}", request.getUserInputText().length());
-            request.setUserInputText(request.getUserInputText().substring(0, MAX_USER_INPUT_LENGTH));
+            log.error("分镜视频用户补充内容过长: len={}", request.getUserInputText().length());
+            throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_TOO_LONG, "用户补充内容过长，请精简");
         }
-        if (Objects.nonNull(request.getDurationSeconds()) && request.getDurationSeconds() <= 0)
+        if (Objects.nonNull(request.getDurationSeconds()) && request.getDurationSeconds() <= 0
+                && request.getDurationSeconds() != -1)
         {
             log.error("分镜图生视频 durationSeconds 非法: val={}", request.getDurationSeconds());
             throw new ServiceException("时长有误");
@@ -1054,8 +1098,8 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         }
         if (StrUtil.isNotBlank(request.getUserInputText()) && request.getUserInputText().length() > MAX_USER_INPUT_LENGTH)
         {
-            log.warn("分镜宫格生视频 userInputText 超长截断: originLen={}", request.getUserInputText().length());
-            request.setUserInputText(request.getUserInputText().substring(0, MAX_USER_INPUT_LENGTH));
+            log.error("分镜宫格视频用户补充内容过长: len={}", request.getUserInputText().length());
+            throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_TOO_LONG, "用户补充内容过长，请精简");
         }
         if (Objects.nonNull(request.getDurationSeconds()) && request.getDurationSeconds() <= 0)
         {
@@ -1088,8 +1132,8 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         }
         if (StrUtil.isNotBlank(request.getUserInputText()) && request.getUserInputText().length() > MAX_USER_INPUT_LENGTH)
         {
-            log.warn("分镜首尾帧生视频 userInputText 超长截断: originLen={}", request.getUserInputText().length());
-            request.setUserInputText(request.getUserInputText().substring(0, MAX_USER_INPUT_LENGTH));
+            log.error("分镜首尾帧视频用户补充内容过长: len={}", request.getUserInputText().length());
+            throw TaskErrorPresentation.fromCode(TaskErrorCode.USER_INPUT_TOO_LONG, "用户补充内容过长，请精简");
         }
         if (Objects.nonNull(request.getDurationSeconds()) && request.getDurationSeconds() <= 0)
         {
@@ -1126,6 +1170,9 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         if (StrUtil.isNotBlank(ps.lastImageUrl)) { target.put("lastImageUrl", ps.lastImageUrl); }
         if (Objects.nonNull(ps.lastImageRecordId)) { target.put("lastImageRecordId", ps.lastImageRecordId); }
         putAudioSelectionSnapshot(target, ps.referenceAudios);
+        putVideoSelectionSnapshot(target, ps.referenceVideos);
+        Map<String, Object> advanced = StoryboardVideoAdvancedOptions.snapshot(ps.providerExtraOptions);
+        if (!advanced.isEmpty()) target.put("videoOptions", advanced);
     }
 
     /** 把逐分镜建议时长、实际时长及来源写入任务快照。 */
@@ -1151,6 +1198,25 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         List<Long> uploadIds = collectExplicitIds(referenceAudios, ReferenceAudioInput.SOURCE_UPLOAD,
                 ReferenceAudioInput::getReferenceAudioId);
         if (CollectionUtil.isNotEmpty(uploadIds)) { target.put(SNAPSHOT_KEY_REFERENCE_AUDIO_IDS, uploadIds); }
+    }
+
+    /** 快照只保存参考视频来源记录 ID，URL 与元数据在续生时重新解析。 */
+    private void putVideoSelectionSnapshot(Map<String, Object> target, List<ReferenceVideoInput> referenceVideos)
+    {
+        if (CollectionUtil.isEmpty(referenceVideos))
+        {
+            return;
+        }
+        List<Long> recordIds = referenceVideos.stream()
+                .filter(Objects::nonNull)
+                .map(ReferenceVideoInput::getRecordId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (CollectionUtil.isNotEmpty(recordIds))
+        {
+            target.put(SNAPSHOT_KEY_VIDEO_RECORD_IDS, recordIds);
+        }
     }
 
     /**
@@ -1202,7 +1268,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
             return null;
         }
         int parsed = value.intValue();
-        return parsed > 0 ? parsed : null;
+        return parsed > 0 || parsed == -1 && "durationSeconds".equals(field) ? parsed : null;
     }
 
     /**
@@ -1252,15 +1318,34 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         final String lastImageUrl;
         final Long lastImageRecordId;
         final ExplicitAudioSelection audioSelection;
+        final List<Long> referenceVideoRecordIds;
+        final Map<String, Object> videoOptions;
 
         EdgeResolved(String firstImageUrl, Long firstImageRecordId, String lastImageUrl, Long lastImageRecordId,
-                     ExplicitAudioSelection audioSelection)
+                      ExplicitAudioSelection audioSelection)
+        {
+            this(firstImageUrl, firstImageRecordId, lastImageUrl, lastImageRecordId, audioSelection, null);
+        }
+
+        EdgeResolved(String firstImageUrl, Long firstImageRecordId, String lastImageUrl, Long lastImageRecordId,
+                     ExplicitAudioSelection audioSelection, List<Long> referenceVideoRecordIds)
+        {
+            this(firstImageUrl, firstImageRecordId, lastImageUrl, lastImageRecordId,
+                    audioSelection, referenceVideoRecordIds, Map.of());
+        }
+
+        EdgeResolved(String firstImageUrl, Long firstImageRecordId, String lastImageUrl, Long lastImageRecordId,
+                     ExplicitAudioSelection audioSelection, List<Long> referenceVideoRecordIds,
+                     Map<String, Object> videoOptions)
         {
             this.firstImageUrl = firstImageUrl;
             this.firstImageRecordId = firstImageRecordId;
             this.lastImageUrl = lastImageUrl;
             this.lastImageRecordId = lastImageRecordId;
             this.audioSelection = (audioSelection == null) ? ExplicitAudioSelection.EMPTY : audioSelection;
+            this.referenceVideoRecordIds = referenceVideoRecordIds == null
+                    ? Collections.emptyList() : List.copyOf(referenceVideoRecordIds);
+            this.videoOptions = Map.copyOf(videoOptions);
         }
     }
 
@@ -1350,18 +1435,19 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         }
     }
 
-    /** 单镜头出片条数兜底：null→1，限制 [1,4]。 */
+    /** 单镜头出片条数：null→1，超出 [1,4] 直接拒绝。 */
     private int clampCount(Integer count)
     {
         if (Objects.isNull(count))
         {
             return MIN_COUNT;
         }
-        if (count < MIN_COUNT)
+        if (count < MIN_COUNT || count > MAX_COUNT)
         {
-            return MIN_COUNT;
+            log.info("分镜视频输出数量超限: min={}, max={}, actual={}", MIN_COUNT, MAX_COUNT, count);
+            throw new ServiceException("生成视频数量超限");
         }
-        return Math.min(count, MAX_COUNT);
+        return count;
     }
 
     /** 把异常文案归一化为简短的镜头跳过原因（控制在 ~12 字内，供前端列表展示）。 */
@@ -1861,6 +1947,8 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         final String lastImageUrl;
         /** 已解析并完成模型能力校验的参考音频。 */
         final List<ReferenceAudioInput> referenceAudios;
+        /** 已解析的服务端可信参考视频。 */
+        final List<ReferenceVideoInput> referenceVideos;
         /** 厂商专属扩展参数（装配策略产出，如 Vidu 主体调用 subjects），提交时并入 options */
         final Map<String, Object> providerExtraOptions;
         /** 分镜脚本中的原始建议时长（秒） */
@@ -1904,6 +1992,20 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
                      Map<String, Object> providerExtraOptions, Integer recommendedDurationSeconds,
                      Integer durationSeconds, String durationSource)
         {
+            this(storyboard, finalPrompt, rawVideoPrompt, referenceImages, baseImageUrl, userVideoPromptInput,
+                    takeCount, lastFrameImageUrl, firstImageRecordId, lastImageRecordId,
+                    firstImageUrl, lastImageUrl, referenceAudios, providerExtraOptions,
+                    recommendedDurationSeconds, durationSeconds, durationSource, null);
+        }
+
+        PreparedShot(AidStoryboard storyboard, String finalPrompt, String rawVideoPrompt,
+                     List<String> referenceImages, String baseImageUrl, String userVideoPromptInput, int takeCount,
+                     String lastFrameImageUrl, Long firstImageRecordId, Long lastImageRecordId,
+                     String firstImageUrl, String lastImageUrl,
+                     List<ReferenceAudioInput> referenceAudios,
+                     Map<String, Object> providerExtraOptions, Integer recommendedDurationSeconds,
+                     Integer durationSeconds, String durationSource, List<ReferenceVideoInput> referenceVideos)
+        {
             this.storyboard = storyboard;
             this.finalPrompt = finalPrompt;
             this.rawVideoPrompt = rawVideoPrompt;
@@ -1919,6 +2021,8 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
             this.lastImageUrl = lastImageUrl;
             this.referenceAudios = (referenceAudios == null)
                     ? java.util.Collections.emptyList() : referenceAudios;
+            this.referenceVideos = (referenceVideos == null)
+                    ? java.util.Collections.emptyList() : List.copyOf(referenceVideos);
             this.providerExtraOptions = (providerExtraOptions == null)
                     ? java.util.Collections.emptyMap() : providerExtraOptions;
             this.recommendedDurationSeconds = recommendedDurationSeconds;
@@ -1931,7 +2035,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
             return new PreparedShot(storyboard, finalPrompt, rawVideoPrompt, referenceImages, baseImageUrl,
                     userVideoPromptInput, takeCount, lastFrameImageUrl, firstImageRecordId, lastImageRecordId,
                     firstImageUrl, lastImageUrl, referenceAudios, providerExtraOptions, recommendedDurationSeconds,
-                    durationSeconds, durationSource);
+                    durationSeconds, durationSource, referenceVideos);
         }
     }
 
@@ -1984,7 +2088,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         {
             throw new ReferenceAudioValidationException(ex.getMessage());
         }
-        // 归一后的列表已完成去重、剔除、截断与编号重排，实际下发以此为准
+        // 归一后的列表已完成去重、严格上限校验与编号重排，实际下发以此为准
         return validationRequest.getReferenceAudios();
     }
 
@@ -2024,6 +2128,18 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         return (single && Objects.nonNull(requestSelection)) ? requestSelection : ExplicitAudioSelection.EMPTY;
     }
 
+    /** 解析用户显式选择的参考视频；只接受服务端生成记录 ID。 */
+    private List<ReferenceVideoInput> resolveReferenceVideos(AidStoryboard storyboard, Long userId,
+            List<Long> referenceVideoRecordIds, boolean allowProbe)
+    {
+        if (CollectionUtil.isEmpty(referenceVideoRecordIds))
+        {
+            return Collections.emptyList();
+        }
+        return referenceVideoRecordResolver.resolve(
+                referenceVideoRecordIds, userId, storyboard.getProjectId(), allowProbe);
+    }
+
     /** 用户显式选择的参考音频不可用时抛出，供单镜头链路转换为 ServiceException。 */
     private static final class ReferenceAudioValidationException extends RuntimeException
     {
@@ -2043,8 +2159,10 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
     /** 多参方向单镜头准备：提示词来源 + 参考图解析 + 厂商装配。 */
     private PreparedShot prepareMultiShot(AidStoryboard sb, boolean single,
             StoryboardVideoGenerateRequest request, AiModelConfigVo modelConfig, Long userId, int takeCount,
-            ExplicitAudioSelection snapshotSelection, boolean applyMutations, boolean validateRemoteUrls)
+            ExplicitAudioSelection snapshotSelection, List<Long> snapshotVideoRecordIds,
+            boolean applyMutations, boolean validateRemoteUrls)
     {
+        StoryboardVideoAdvancedOptions.merge(Map.of(), request, modelConfig);
         String overridePrompt = single ? request.getVideoPrompt() : null;
         String videoPrompt = resolveVideoPrompt(overridePrompt, sb);
         if (StrUtil.isBlank(overridePrompt))
@@ -2056,6 +2174,13 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
                 resolveShotAudioSelection(single, new ExplicitAudioSelection(
                         request.getReferenceAudioRecordIds(), request.getReferenceAudioIds()), snapshotSelection),
                 modelConfig, request.getGenerateAudio());
+        List<Long> referenceVideoRecordIds = single
+                ? request.getReferenceVideoRecordIds() : snapshotVideoRecordIds;
+        List<ReferenceVideoInput> referenceVideos = resolveReferenceVideos(sb, userId,
+                referenceVideoRecordIds, false);
+        validateReferenceVideoCountBeforeSubmit(modelConfig, referenceVideos);
+        // 分镜层只解析权属与服务端已存元数据；正式生成在媒体主链路完成
+        // 唯一一次可信内容探测，避免同一个视频在预处理和预扣前重复下载。
         videoPrompt = alignPromptWithResolvedRoleAudios(videoPrompt, sb, referenceAudios);
         if (applyMutations && single && StrUtil.isNotBlank(overridePrompt))
         {
@@ -2063,29 +2188,38 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         }
         ReferenceResolution resolution = resolveReferences(videoPrompt, sb, userId,
                 single ? request.getReferenceOverrides() : null, applyMutations, validateRemoteUrls);
-        String baseImageUrl = resolveBaseImageUrl(single ? request.getBaseImageRecordId() : null, sb, userId);
+        boolean videoSourceOnly = "edit".equals(request.getOmniReferenceTaskType())
+                || "extend".equals(request.getOmniReferenceTaskType());
+        boolean forbidsImageInput = Boolean.FALSE.equals(modelConfig.getSupportsImageInput());
+        String baseImageUrl = (videoSourceOnly || forbidsImageInput) && request.getBaseImageRecordId() == null
+                ? null : resolveBaseImageUrl(single ? request.getBaseImageRecordId() : null, sb, userId);
         int maxRefImages = ReferenceImageLimiter.resolveMax(modelConfig, MAX_REFERENCE_IMAGES);
-        if (maxRefImages == ReferenceImageLimiter.FORBID)
+        int actualReferenceImages = countDistinctReferenceImages(resolution.references, baseImageUrl);
+        if (maxRefImages == ReferenceImageLimiter.FORBID && actualReferenceImages > 0)
         {
-            resolution = compactResolvedReferences(resolution.prompt, java.util.Collections.emptyList());
+            log.info("多参视频模型禁止参考图: storyboardId={}, actual={}",
+                    sb.getId(), actualReferenceImages);
+            throw new ServiceException("模型不支持图片");
         }
-        else if (resolution.references.size() > maxRefImages)
+        else if (maxRefImages >= 0 && actualReferenceImages > maxRefImages)
         {
-            resolution = compactResolvedReferences(resolution.prompt,
-                    new ArrayList<>(resolution.references.subList(0, maxRefImages)));
+            log.info("多参视频参考图数量超限: storyboardId={}, max={}, actual={}",
+                    sb.getId(), maxRefImages, actualReferenceImages);
+            throw new ServiceException("参考图数量超限");
         }
         int minReferenceImages = ReferenceImageLimiter.readMinFromCapabilityJson(
                 modelConfig.getCapabilityJson());
         boolean klingModel = KlingConstants.PROVIDER_CODE.equalsIgnoreCase(
                 StrUtil.trim(modelConfig.getProviderCode()));
-        if (!klingModel && resolution.references.size() < minReferenceImages)
+        if (actualReferenceImages < minReferenceImages)
         {
             log.info("多参视频有效参考图不足: storyboardId={}, required={}, actual={}",
-                    sb.getId(), minReferenceImages, resolution.references.size());
+                    sb.getId(), minReferenceImages, actualReferenceImages);
             throw new ServiceException("请选择参考图");
         }
         if (CollectionUtil.isEmpty(resolution.references)
                 && StrUtil.isBlank(baseImageUrl)
+                && CollectionUtil.isEmpty(referenceVideos)
                 && Boolean.FALSE.equals(modelConfig.getSupportsTextInput()))
         {
             log.info("多参视频零引用且模型不支持纯文本: storyboardId={}, modelCode={}",
@@ -2097,7 +2231,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         VideoReferencePlan plan = videoReferencePlanner.plan(ctx);
         if (klingModel)
         {
-            validateKlingPlannedReferenceInputs(modelConfig, plan);
+            validateKlingPlannedReferenceInputs(modelConfig, plan, referenceVideos);
         }
         String finalPrompt = plan.getFinalPrompt();
         if (StrUtil.length(finalPrompt) > MAX_PROMPT_LENGTH)
@@ -2107,7 +2241,76 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         }
         return new PreparedShot(sb, finalPrompt, videoPrompt, plan.getReferenceImageUrls(),
                 plan.getFirstFrameImageUrl(), overridePrompt, takeCount, null, null, null, null, null,
-                referenceAudios, plan.getExtraOptions(), null, null, null);
+                referenceAudios, StoryboardVideoAdvancedOptions.merge(plan.getExtraOptions(), request, modelConfig),
+                null, null, null, referenceVideos);
+    }
+
+    /** 模型图片上下限按真实下发素材计数：显式首帧与提示词参考图合并去重。 */
+    private int countDistinctReferenceImages(List<ResolvedReference> references, String baseImageUrl)
+    {
+        Set<String> urls = new TreeSet<>();
+        if (StrUtil.isNotBlank(baseImageUrl))
+        {
+            urls.add(baseImageUrl.trim());
+        }
+        if (CollectionUtil.isNotEmpty(references))
+        {
+            references.stream()
+                    .filter(Objects::nonNull)
+                    .map(ResolvedReference::getUrl)
+                    .filter(StrUtil::isNotBlank)
+                    .map(String::trim)
+                    .forEach(urls::add);
+        }
+        return urls.size();
+    }
+
+    /** 交给媒体主链路前先按模型全局/场景最大值拒绝异常数量。 */
+    private void validateReferenceVideoCountBeforeSubmit(AiModelConfigVo modelConfig,
+            List<ReferenceVideoInput> referenceVideos)
+    {
+        if (CollectionUtil.isEmpty(referenceVideos))
+        {
+            return;
+        }
+        JsonNode capability = ModelCapabilityResolver.parseCapability(
+                modelConfig == null ? null : modelConfig.getCapabilityJson());
+        if (capability == null)
+        {
+            return;
+        }
+        JsonNode supportsVideo = capability.get("supportsVideoInput");
+        if (supportsVideo != null && supportsVideo.isBoolean() && !supportsVideo.asBoolean())
+        {
+            throw new ServiceException("模型不支持视频");
+        }
+        Integer maximum = nonNegativeInteger(capability.get("maxReferenceVideos"));
+        if (maximum == null && capability.path("sceneRules").isObject())
+        {
+            int largestSceneMaximum = -1;
+            java.util.Iterator<JsonNode> scenes = capability.path("sceneRules").elements();
+            while (scenes.hasNext())
+            {
+                Integer sceneMaximum = nonNegativeInteger(scenes.next().get("maxReferenceVideos"));
+                if (sceneMaximum != null)
+                {
+                    largestSceneMaximum = Math.max(largestSceneMaximum, sceneMaximum);
+                }
+            }
+            maximum = largestSceneMaximum < 0 ? null : largestSceneMaximum;
+        }
+        if (maximum != null && referenceVideos.size() > maximum)
+        {
+            log.info("参考视频探测前数量超限: modelCode={}, max={}, actual={}",
+                    modelConfig.getModelCode(), maximum, referenceVideos.size());
+            throw new ServiceException("参考视频数量超限");
+        }
+    }
+
+    private Integer nonNegativeInteger(JsonNode value)
+    {
+        return value != null && value.isIntegralNumber() && value.canConvertToInt()
+                && value.intValue() >= 0 ? value.intValue() : null;
     }
 
     /** 前序提示词尚未生成时，只规划当前请求已确定的垫图与显式参考音频。 */
@@ -2115,29 +2318,69 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
             StoryboardVideoGenerateRequest request, AiModelConfigVo modelConfig,
             Long userId, int takeCount)
     {
+        StoryboardVideoAdvancedOptions.merge(Map.of(), request, modelConfig);
         List<ReferenceAudioInput> referenceAudios = resolveAndValidateReferenceAudios(
                 "", storyboard, userId,
                 resolveShotAudioSelection(single, new ExplicitAudioSelection(
                         request.getReferenceAudioRecordIds(), request.getReferenceAudioIds()), null),
                 modelConfig, request.getGenerateAudio());
-        String baseImageUrl = resolveBaseImageUrl(
-                single ? request.getBaseImageRecordId() : null, storyboard, userId);
+        List<ReferenceVideoInput> referenceVideos = resolveReferenceVideos(storyboard, userId,
+                single ? request.getReferenceVideoRecordIds() : null, false);
+        validateReferenceVideoCountBeforeSubmit(modelConfig, referenceVideos);
+        boolean videoSourceOnly = "edit".equals(request.getOmniReferenceTaskType())
+                || "extend".equals(request.getOmniReferenceTaskType());
+        boolean forbidsImageInput = Boolean.FALSE.equals(modelConfig.getSupportsImageInput());
+        String baseImageUrl = (videoSourceOnly || forbidsImageInput) && request.getBaseImageRecordId() == null
+                ? null : resolveBaseImageUrl(single ? request.getBaseImageRecordId() : null, storyboard, userId);
         int maxReferences = ReferenceImageLimiter.resolveMax(modelConfig, MAX_REFERENCE_IMAGES);
+        String plannedPrompt = single ? StrUtil.blankToDefault(request.getVideoPrompt(), "") : "";
+        ReferenceResolution resolution = resolveReferences(plannedPrompt, storyboard, userId,
+                single ? request.getReferenceOverrides() : null, false, false);
+        int actualReferenceImages = countDistinctReferenceImages(resolution.references, baseImageUrl);
+        if (maxReferences == ReferenceImageLimiter.FORBID && actualReferenceImages > 0)
+        {
+            throw new ServiceException("模型不支持图片");
+        }
+        if (maxReferences >= 0 && actualReferenceImages > maxReferences)
+        {
+            throw new ServiceException("参考图数量超限");
+        }
+        int minReferenceImages = ReferenceImageLimiter.readMinFromCapabilityJson(
+                modelConfig.getCapabilityJson());
+        if (actualReferenceImages < minReferenceImages)
+        {
+            throw new ServiceException("请选择参考图");
+        }
+        if (CollectionUtil.isEmpty(resolution.references)
+                && StrUtil.isBlank(baseImageUrl)
+                && CollectionUtil.isEmpty(referenceVideos)
+                && Boolean.FALSE.equals(modelConfig.getSupportsTextInput()))
+        {
+            throw new ServiceException("请选择参考图");
+        }
         VideoReferencePlan plan = videoReferencePlanner.plan(new VideoReferenceContext(
-                "", null, List.of(), baseImageUrl, modelConfig,
+                resolution.prompt, null, resolution.references, baseImageUrl, modelConfig,
                 request.getGenerateAudio(), maxReferences));
         if (KlingConstants.PROVIDER_CODE.equalsIgnoreCase(StrUtil.trim(modelConfig.getProviderCode())))
         {
-            validateKlingPlannedReferenceInputs(modelConfig, plan);
+            validateKlingPlannedReferenceInputs(modelConfig, plan, referenceVideos);
         }
         return new PreparedShot(storyboard, null, null, plan.getReferenceImageUrls(),
                 plan.getFirstFrameImageUrl(), null, takeCount,
                 null, null, null, null, null, referenceAudios,
-                plan.getExtraOptions(), null, null, null);
+                StoryboardVideoAdvancedOptions.merge(plan.getExtraOptions(), request, modelConfig),
+                null, null, null, referenceVideos);
     }
 
     /** 按分镜策略规划后的真实可灵派发字段校验场景输入。 */
     static void validateKlingPlannedReferenceInputs(AiModelConfigVo modelConfig, VideoReferencePlan plan)
+    {
+        validateKlingPlannedReferenceInputs(modelConfig, plan, Collections.emptyList());
+    }
+
+    /** 按分镜策略规划后的真实可灵派发字段校验场景输入。 */
+    static void validateKlingPlannedReferenceInputs(AiModelConfigVo modelConfig, VideoReferencePlan plan,
+            List<ReferenceVideoInput> referenceVideos)
     {
         MediaVideoGenerateRequest plannedRequest = new MediaVideoGenerateRequest();
         plannedRequest.setImageUrl(plan.getFirstFrameImageUrl());
@@ -2150,6 +2393,11 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         {
             // 与 submitSingleVideoMedia 保持相同覆盖顺序，校验看到的就是最终下发 options。
             options.putAll(plan.getExtraOptions());
+        }
+        if (CollectionUtil.isNotEmpty(referenceVideos))
+        {
+            options.put("referenceVideos", referenceVideos.stream()
+                    .map(ReferenceVideoInput::getVideoUrl).toList());
         }
         plannedRequest.setOptions(options);
         KlingVideoRequestBuilder.validateRequestInputs(modelConfig, plannedRequest);
@@ -2327,14 +2575,8 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         {
             persistVideoPrompt(sb.getId(), userId, videoPrompt);
         }
-        List<ResolvedReference> edgeReferences = new ArrayList<>();
-        if (MinimaxH3Constants.MODEL_I2V_FIRST_LAST.equals(modelConfig.getModelCode())
-                && StrUtil.isNotBlank(lastUrl))
-        {
-            edgeReferences.add(new ResolvedReference(1, "尾帧图", "尾帧图", null, false, lastUrl));
-        }
         VideoReferenceContext ctx = new VideoReferenceContext(videoPrompt, request.getUserInputText(),
-                edgeReferences, firstUrl, modelConfig, request.getGenerateAudio(), 0);
+                List.of(), firstUrl, lastUrl, modelConfig, request.getGenerateAudio(), 0);
         VideoReferencePlan plan = videoReferencePlanner.plan(ctx);
         String finalPrompt = plan.getFinalPrompt();
         if (StrUtil.length(finalPrompt) > MAX_PROMPT_LENGTH)
@@ -2656,6 +2898,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         inputMap.put("funcCode", funcCode);
         inputMap.put("storyboardIds", acceptedIds);
         inputMap.put("modelCode", modelCode);
+        inputMap.put("capabilityCode", modelConfig.getCapabilityCode());
         inputMap.put("aspectRatio", aspectRatio);
         inputMap.put("resolution", resolution);
         inputMap.put("durationSeconds", durationSeconds);
@@ -2746,7 +2989,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
     }
 
     /**
-     * 出片批量余额前置预检（只读，不冻结）：按主要 SKU 维度（时长/分辨率/音频）预估单条视频预扣额 × 总条数，
+     * 出片批量余额前置预检（只读，不冻结）：按完整媒体请求预估单条视频预扣额 × 总条数，
      * 余额不足直接抛「预扣余额不足」；预估不出（模型未配规则等）时放行，交由媒体任务统一冻结兜底。
      *
      * @param userId          用户ID
@@ -2764,10 +3007,13 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
             java.math.BigDecimal total = java.math.BigDecimal.ZERO;
             for (PreparedShot shot : prepared)
             {
-                Map<String, Object> params = buildVideoPrecheckBillingParams(aspectRatio, resolution,
-                        generateAudio, shot.durationSeconds);
-                com.aid.billing.dto.BillingCalcResult calc = billingAmountCalculator.calculatePreHoldAmount(
-                        modelConfig, new com.aid.billing.dto.BillingInput("VIDEO", params));
+                MediaVideoGenerateRequest media = buildVideoMediaRequest(
+                        shot.storyboard, shot, modelConfig, userId, aspectRatio, resolution,
+                        shot.durationSeconds, generateAudio, Map.of());
+                // 与报价和正式提交共用素材及计费维度，不能漏掉参考视频等 SKU 条件。
+                PreparedMediaBillingInput billing = mediaBillingQuotePreparer.prepareVideoBilling(media);
+                BillingCalcResult calc = billingPreHoldCalculationService.calculate(
+                        billing.modelConfig(), billing.billingInput());
                 if (Objects.isNull(calc) || !calc.isMatched() || Objects.isNull(calc.getAmount()))
                 {
                     // 任一镜头无法准确预估时整批放行，由媒体任务统一冻结硬校验
@@ -2787,27 +3033,6 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         {
             log.warn("分镜出片余额预检异常(忽略, 交由统一冻结兜底): userId={}", userId, e);
         }
-    }
-
-    static Map<String, Object> buildVideoPrecheckBillingParams(String aspectRatio, String resolution,
-            Boolean generateAudio, Integer durationSeconds)
-    {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("duration", Objects.nonNull(durationSeconds)
-                ? durationSeconds : BILLING_FALLBACK_DURATION_SECONDS);
-        // 档位与真实下发同源；未解析出档位时退回按宽高比推断
-        if (StrUtil.isNotBlank(resolution))
-        {
-            String tier = com.aid.billing.util.ResolutionUtil.parseTier(resolution);
-            params.put("resolution", StrUtil.isNotBlank(tier) ? tier : resolution.trim());
-        }
-        else
-        {
-            params.put("resolution", com.aid.billing.util.ResolutionUtil.inferVideoResolution(aspectRatio));
-        }
-        params.put("audio", Boolean.TRUE.equals(generateAudio));
-        params.put("audioMode", Boolean.TRUE.equals(generateAudio) ? "native" : "off");
-        return params;
     }
 
     /** 构建每镜头 VideoGenJob（共享 taskId）+ 组装 VideoBatchJob 入队。返回是否入队成功。
@@ -2863,7 +3088,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
                     aspectRatio, resolution, jobDurationSeconds, generateAudio, userInputText, ps.userVideoPromptInput,
                     bizSeqBase, takeSlots, lock.key, lock.token,
                     genType, ps.lastFrameImageUrl, ps.firstImageRecordId, ps.lastImageRecordId,
-                    ps.referenceAudios, ps.providerExtraOptions, overwriteExistingFinal));
+                    ps.referenceAudios, ps.referenceVideos, ps.providerExtraOptions, overwriteExistingFinal));
         }
         VideoBatchJob batchJob = new VideoBatchJob(taskId, userId, modelCode, perShotCount, totalShots,
                 seedSuccessCount + newSubtasks, seedSuccessCount, runNo, shotJobs, new ArrayList<>(heldLocks),
@@ -3281,7 +3506,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
             funcCode = resolveFuncCodeByDirection(direction);
         }
         String resolvedModelCode = resolveModelCode(modelCode, funcCode);
-        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(resolvedModelCode);
+        AiModelConfigVo modelConfig = aiModelConfigService.selectForBusiness(resolvedModelCode, funcCode, input.path("capabilityCode").asText(null));
         if (modelConfig == null)
         {
             throw new ServiceException("模型不存在");
@@ -3330,13 +3555,16 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
                 long firstId = node.path("firstImageRecordId").asLong(0L);
                 long lastId = node.path("lastImageRecordId").asLong(0L);
                 ExplicitAudioSelection audioSelection = parseAudioSelectionSnapshot(node);
+                List<Long> referenceVideoRecordIds = parseLongArraySnapshot(
+                        node, SNAPSHOT_KEY_VIDEO_RECORD_IDS);
                 if (StrUtil.isNotBlank(firstUrl) || StrUtil.isNotBlank(lastUrl)
-                        || firstId > 0L || lastId > 0L || !audioSelection.isEmpty())
+                        || firstId > 0L || lastId > 0L || !audioSelection.isEmpty()
+                        || CollectionUtil.isNotEmpty(referenceVideoRecordIds) || !StoryboardVideoAdvancedOptions.read(node).isEmpty())
                 {
                     edgeByShot.put(storyboardId, new EdgeResolved(
                             StrUtil.trimToNull(firstUrl), firstId > 0L ? firstId : null,
                             StrUtil.trimToNull(lastUrl), lastId > 0L ? lastId : null,
-                            audioSelection));
+                            audioSelection, referenceVideoRecordIds, StoryboardVideoAdvancedOptions.read(node)));
                 }
             }
         }
@@ -3417,9 +3645,10 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
                 request.setGenerateAudio(generateAudio);
                 request.setUserInputText(userInputText);
                 EdgeResolved snapshot = edgeByShot.get(entry.getKey());
+                StoryboardVideoAdvancedOptions.restore(request, snapshot == null ? null : snapshot.videoOptions);
                 shot = prepareMultiShot(storyboard, false, request, modelConfig, userId,
                         remaining, snapshot == null ? null : snapshot.audioSelection,
-                        false, false);
+                        snapshot == null ? null : snapshot.referenceVideoRecordIds, false, false);
             }
             shots.add(shot.withDuration(recommendedDurationByShot.get(entry.getKey()),
                     durationByShot.get(entry.getKey()), durationSourceByShot.get(entry.getKey())));
@@ -3566,12 +3795,16 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
                 long firstId = an.path("firstImageRecordId").asLong(0);
                 long lastId = an.path("lastImageRecordId").asLong(0);
                 ExplicitAudioSelection audioSelection = parseAudioSelectionSnapshot(an);
+                List<Long> referenceVideoRecordIds = parseLongArraySnapshot(
+                        an, SNAPSHOT_KEY_VIDEO_RECORD_IDS);
                 if (sid > 0 && (StrUtil.isNotBlank(firstUrl) || StrUtil.isNotBlank(lastUrl)
-                        || firstId > 0 || lastId > 0 || !audioSelection.isEmpty()))
+                        || firstId > 0 || lastId > 0 || !audioSelection.isEmpty()
+                        || CollectionUtil.isNotEmpty(referenceVideoRecordIds) || !StoryboardVideoAdvancedOptions.read(an).isEmpty()))
                 {
                     edgeResolvedByShot.put(sid, new EdgeResolved(
                             StrUtil.trimToNull(firstUrl), firstId > 0 ? firstId : null,
-                            StrUtil.trimToNull(lastUrl), lastId > 0 ? lastId : null, audioSelection));
+                            StrUtil.trimToNull(lastUrl), lastId > 0 ? lastId : null,
+                            audioSelection, referenceVideoRecordIds, StoryboardVideoAdvancedOptions.read(an)));
                 }
             }
         }
@@ -3675,7 +3908,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         boolean imageLike = DIRECTION_IMAGE.equals(direction) || DIRECTION_GRID.equals(direction);
         boolean edge = DIRECTION_EDGE.equals(direction);
         String resolvedModelCode = resolveModelCode(modelCode, funcCode);
-        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(resolvedModelCode);
+        AiModelConfigVo modelConfig = aiModelConfigService.selectForBusiness(resolvedModelCode, funcCode, input.path("capabilityCode").asText(null));
         if (Objects.isNull(modelConfig)) { throw new ServiceException("模型不存在"); }
         if (imageLike && !Boolean.TRUE.equals(modelConfig.getSupportsImageInput())) { throw new ServiceException("该模型不支持图片"); }
         if (edge && !Boolean.TRUE.equals(modelConfig.getSupportsLastFrame())) { throw new ServiceException("不支持尾帧"); }
@@ -3748,8 +3981,10 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
                         r.setGenerateAudio(genAudioF);
                         r.setUserInputText(userInputF);
                         EdgeResolved snapshot = edgeResolvedByShot.get(id);
+                        StoryboardVideoAdvancedOptions.restore(r, Objects.isNull(snapshot) ? null : snapshot.videoOptions);
                         ps = prepareMultiShot(sb, false, r, modelConfig, userId, remain,
-                                Objects.isNull(snapshot) ? null : snapshot.audioSelection, true, true);
+                                Objects.isNull(snapshot) ? null : snapshot.audioSelection,
+                                Objects.isNull(snapshot) ? null : snapshot.referenceVideoRecordIds, true, true);
                     }
                     ps = ps.withDuration(recommendedDurationByShot.get(id), durationByShot.get(id),
                             durationSourceByShot.get(id));
@@ -3758,7 +3993,9 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
                     {
                         throw new ServiceException("任务数据变化");
                     }
-                    prepared.add(planned);
+                    // 报价阶段允许缺少可信媒体元数据；正式续生已完成探测后必须使用
+                    // 当前完整对象，不能继续把仅估算的 planned 快照下发到任务/计费链路。
+                    prepared.add(ps);
                 }
             }
             catch (RuntimeException e)
@@ -3833,6 +4070,11 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
                     {
                         a.put(SNAPSHOT_KEY_REFERENCE_AUDIO_IDS, er.audioSelection.referenceAudioIds);
                     }
+                    if (CollectionUtil.isNotEmpty(er.referenceVideoRecordIds))
+                    {
+                        a.put(SNAPSHOT_KEY_VIDEO_RECORD_IDS, er.referenceVideoRecordIds);
+                    }
+                    if (!er.videoOptions.isEmpty()) a.put("videoOptions", er.videoOptions);
                 }
                 allShotsOut.add(a);
             }
@@ -4015,7 +4257,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         ctx.put("executionTraceId", dispatchToken);
         MediaVideoGenerateRequest videoRequest = buildVideoMediaRequest(
                 storyboard, job.finalPrompt, job.referenceImages, job.baseImageUrl,
-                job.lastFrameImageUrl, job.referenceAudios, job.providerExtraOptions,
+                job.lastFrameImageUrl, job.referenceAudios, job.referenceVideos, job.providerExtraOptions,
                 job.modelConfig, job.userId, job.aspectRatio, job.resolution,
                 job.durationSeconds, job.generateAudio, Map.of(OPT_KEY_CTX, ctx));
         videoRequest.setBizTaskType(BIZ_TASK_TYPE);
@@ -4033,7 +4275,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
     {
         return buildVideoMediaRequest(storyboard, shot.finalPrompt, shot.referenceImages,
                 shot.baseImageUrl, shot.lastFrameImageUrl, shot.referenceAudios,
-                shot.providerExtraOptions, modelConfig, userId, aspectRatio, resolution,
+                shot.referenceVideos, shot.providerExtraOptions, modelConfig, userId, aspectRatio, resolution,
                 durationSeconds, generateAudio, extraOptions);
     }
 
@@ -4045,21 +4287,68 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
                 && Objects.equals(planned.baseImageUrl, actual.baseImageUrl)
                 && Objects.equals(planned.lastFrameImageUrl, actual.lastFrameImageUrl)
                 && Objects.equals(planned.referenceAudios, actual.referenceAudios)
+                && sameReferenceVideoSelection(planned.referenceVideos, actual.referenceVideos)
                 && Objects.equals(planned.providerExtraOptions, actual.providerExtraOptions)
                 && Objects.equals(planned.durationSeconds, actual.durationSeconds);
+    }
+
+    /**
+     * 续生报价与正式分镜准备均只读取已有服务端元数据，真实内容探测下沉媒体主链路。
+     * 来源记录、URL 或已确定元数据发生变化仍视为漂移；历史快照缺字段则允许服务端补齐。
+     */
+    private boolean sameReferenceVideoSelection(List<ReferenceVideoInput> planned,
+            List<ReferenceVideoInput> actual)
+    {
+        List<ReferenceVideoInput> quoted = planned == null ? Collections.emptyList() : planned;
+        List<ReferenceVideoInput> verified = actual == null ? Collections.emptyList() : actual;
+        if (quoted.size() != verified.size())
+        {
+            return false;
+        }
+        for (int index = 0; index < quoted.size(); index++)
+        {
+            ReferenceVideoInput left = quoted.get(index);
+            ReferenceVideoInput right = verified.get(index);
+            if (left == null || right == null
+                    || !Objects.equals(left.getRecordId(), right.getRecordId())
+                    || !Objects.equals(left.getVideoUrl(), right.getVideoUrl())
+                    || !sameKnownValue(left.getDurationMs(), right.getDurationMs())
+                    || !sameKnownValue(left.getFileSizeBytes(), right.getFileSizeBytes())
+                    || !sameKnownValue(left.getWidth(), right.getWidth())
+                    || !sameKnownValue(left.getHeight(), right.getHeight())
+                    || !sameKnownValue(left.getFormat(), right.getFormat())
+                    || !sameKnownDecimal(left.getFps(), right.getFps()))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean sameKnownValue(Object planned, Object actual)
+    {
+        return planned == null || Objects.equals(planned, actual);
+    }
+
+    private boolean sameKnownDecimal(BigDecimal planned, BigDecimal actual)
+    {
+        return planned == null || actual != null && planned.compareTo(actual) == 0;
     }
 
     /** 正式提交与只读报价共用的最终媒体请求构造器。 */
     private MediaVideoGenerateRequest buildVideoMediaRequest(
             AidStoryboard storyboard, String prompt, List<String> referenceImages,
             String baseImageUrl, String lastFrameImageUrl,
-            List<ReferenceAudioInput> referenceAudios, Map<String, Object> providerExtraOptions,
+            List<ReferenceAudioInput> referenceAudios, List<ReferenceVideoInput> referenceVideos,
+            Map<String, Object> providerExtraOptions,
             AiModelConfigVo modelConfig, Long userId, String aspectRatio, String resolution,
             Integer durationSeconds, Boolean generateAudio, Map<String, Object> extraOptions)
     {
         MediaVideoGenerateRequest request = new MediaVideoGenerateRequest();
         request.setPrompt(prompt);
         request.setModelName(modelConfig.getModelCode());
+        request.setCapabilityCode(modelConfig.getCapabilityCode());
+        request.setBusinessFuncCode(modelConfig.getBusinessFuncCode());
         request.setUserId(userId);
         request.setProjectId(storyboard.getProjectId());
         request.setEpisodeId(storyboard.getEpisodeId());
@@ -4094,6 +4383,30 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         if (CollectionUtil.isNotEmpty(referenceAudios))
         {
             request.setReferenceAudios(new ArrayList<>(referenceAudios));
+        }
+        if (CollectionUtil.isNotEmpty(referenceVideos))
+        {
+            request.setReferenceVideoRecordIds(referenceVideos.stream()
+                    .map(ReferenceVideoInput::getRecordId).toList());
+            request.setResolvedReferenceVideos(new ArrayList<>(referenceVideos));
+            options.put("referenceVideos", referenceVideos.stream()
+                    .map(ReferenceVideoInput::getVideoUrl).toList());
+            boolean durationsComplete = referenceVideos.stream().allMatch(value -> value != null
+                    && value.getDurationMs() != null && value.getDurationMs() > 0);
+            if (durationsComplete)
+            {
+                List<BigDecimal> durations = referenceVideos.stream()
+                        .map(ReferenceVideoInput::getDurationMs)
+                        .map(value -> BigDecimal.valueOf(value).movePointLeft(3).stripTrailingZeros())
+                        .toList();
+                options.put("referenceVideoDurations", durations);
+                long totalMs = referenceVideos.stream()
+                        .map(ReferenceVideoInput::getDurationMs)
+                        .mapToLong(Long::longValue)
+                        .sum();
+                int totalSeconds = Math.toIntExact(Math.floorDiv(Math.addExact(totalMs, 999L), 1000L));
+                options.put("referenceVideoSeconds", totalSeconds);
+            }
         }
         if (extraOptions != null)
         {
@@ -4140,6 +4453,8 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         final Long lastImageRecordId;
         /** 已解析参考音频。 */
         final List<ReferenceAudioInput> referenceAudios;
+        /** 已解析参考视频。 */
+        final List<ReferenceVideoInput> referenceVideos;
         /** 厂商专属扩展参数（装配策略产出，如 Vidu 主体调用 subjects），提交时并入 options */
         final Map<String, Object> providerExtraOptions;
         /** true=批量生成保持自动覆盖；false=单个生成仅在尚无主视频时自动设置。 */
@@ -4152,8 +4467,9 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
                     Integer durationSeconds, Boolean generateAudio,
                     String userInputText, String userVideoPromptInput,
                     long bizSeqBase, List<Integer> takeSlots, String lockKey, String lockToken,
-                    String genType, String lastFrameImageUrl, Long firstImageRecordId, Long lastImageRecordId,
-                    List<ReferenceAudioInput> referenceAudios, Map<String, Object> providerExtraOptions,
+                     String genType, String lastFrameImageUrl, Long firstImageRecordId, Long lastImageRecordId,
+                     List<ReferenceAudioInput> referenceAudios, List<ReferenceVideoInput> referenceVideos,
+                     Map<String, Object> providerExtraOptions,
                     boolean overwriteExistingFinal)
         {
             this.taskId = taskId;
@@ -4188,6 +4504,9 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
             this.referenceAudios = (referenceAudios == null)
                     ? java.util.Collections.emptyList()
                     : java.util.Collections.unmodifiableList(new ArrayList<>(referenceAudios));
+            this.referenceVideos = (referenceVideos == null)
+                    ? java.util.Collections.emptyList()
+                    : java.util.Collections.unmodifiableList(new ArrayList<>(referenceVideos));
             this.providerExtraOptions = (providerExtraOptions == null)
                     ? java.util.Collections.emptyMap()
                     : java.util.Collections.unmodifiableMap(new LinkedHashMap<>(providerExtraOptions));
@@ -4271,6 +4590,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         record.setDelFlag(DEL_FLAG_NORMAL);
         record.setCreateTime(DateUtils.getNowDate());
         record.setCreateBy(String.valueOf(job.userId));
+        record.setCostCredits(resolveSettledVideoCost(bizSeq, job.userId, videoUrl));
         try
         {
             aidGenRecordService.save(record);
@@ -4299,6 +4619,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         AidGenRecord existing = loadGenRecordByBizSeq(bizSeq);
         if (Objects.nonNull(existing))
         {
+            syncSettledVideoCost(existing.getId(), bizSeq, shot.userId, videoUrl);
             Long recordUserId = Objects.nonNull(existing.getUserId()) ? existing.getUserId() : shot.userId;
             markStoryboardFinalVideo(existing.getStoryboardId(), existing.getId(), recordUserId,
                     shot.overwriteExistingFinal);
@@ -4335,6 +4656,33 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         }
         Long userId = Objects.nonNull(existing.getUserId()) ? existing.getUserId() : fallbackUserId;
         markStoryboardFinalVideo(existing.getStoryboardId(), existing.getId(), userId, overwriteExistingFinal);
+    }
+
+    /** 从同一成功媒体任务读取已结算积分，不重新报价或执行扣款。 */
+    private BigDecimal resolveSettledVideoCost(long bizSeq, Long userId, String videoUrl) {
+        AidMediaTask settled = aidMediaTaskMapper.selectOne(Wrappers.<AidMediaTask>lambdaQuery()
+                .select(AidMediaTask::getActualCost)
+                .eq(AidMediaTask::getBizTaskType, BIZ_TASK_TYPE)
+                .eq(AidMediaTask::getBizTaskId, bizSeq)
+                .eq(AidMediaTask::getUserId, userId)
+                .eq(AidMediaTask::getStatus, TASK_STATUS_SUCCEEDED)
+                .eq(AidMediaTask::getOssUrl, videoUrl)
+                .isNotNull(AidMediaTask::getActualCost)
+                .orderByDesc(AidMediaTask::getId).last("LIMIT 1"));
+        return settled == null ? null : settled.getActualCost();
+    }
+
+    private void syncSettledVideoCost(Long recordId, long bizSeq, Long userId, String videoUrl) {
+        BigDecimal cost = resolveSettledVideoCost(bizSeq, userId, videoUrl);
+        if (cost == null || recordId == null) return;
+        aidGenRecordService.update(Wrappers.<AidGenRecord>lambdaUpdate()
+                .eq(AidGenRecord::getId, recordId).eq(AidGenRecord::getUserId, userId)
+                .eq(AidGenRecord::getDelFlag, DEL_FLAG_NORMAL)
+                .and(query -> query.isNull(AidGenRecord::getCostCredits)
+                        .or().ne(AidGenRecord::getCostCredits, cost))
+                .set(AidGenRecord::getCostCredits, cost)
+                .set(AidGenRecord::getUpdateTime, DateUtils.getNowDate())
+                .set(AidGenRecord::getUpdateBy, String.valueOf(userId)));
     }
 
     /** 媒体子任务终态回调（由 StoryboardVideoGenEventListener 调用）：成功幂等落库、失败计数，随后尝试收尾。 */
@@ -4390,6 +4738,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         Map<String, Object> ctx = extractCtxFromMediaTask(mt);
         if (Objects.nonNull(existing))
         {
+            syncSettledVideoCost(existing.getId(), bizSeq, mt.getUserId(), ossUrl);
             // 上下文已压缩说明该成功事件此前已消费，不再重复改动用户后续选择。
             if (CollectionUtil.isNotEmpty(ctx))
             {
@@ -4437,6 +4786,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
         record.setDelFlag(DEL_FLAG_NORMAL);
         record.setCreateTime(DateUtils.getNowDate());
         record.setCreateBy(String.valueOf(mt.getUserId()));
+        record.setCostCredits(resolveSettledVideoCost(bizSeq, mt.getUserId(), ossUrl));
         try
         {
             aidGenRecordService.save(record);
@@ -4760,7 +5110,7 @@ public class StoryboardVideoGenerationServiceImpl implements IStoryboardVideoGen
             return resolveAspectRatio(requestValue, modelConfig);
         }
         String projectValue = resolveProjectAspectRatioForBatch(storyboardIds, userId);
-        return resolveAspectRatio(projectValue, modelConfig);
+        return ModelCapabilityResolver.resolveVideoAspectRatioForProjectDefault(modelConfig, projectValue);
     }
 
     /** 读取批量中首个可访问分镜所属项目的画面比例。 */

@@ -53,6 +53,12 @@ npm run build
 
 SSE 与后台任务必须通过统一 task stream/follow/restore 体系接入；页面和弹窗不得各自创建平行轮询或独立任务状态机。
 
+### 站点头部与 SEO
+
+`components/app/PublicSiteHead.tsx` 在根布局中统一声明标题、SEO 和品牌图标；`utils/seoHead.ts` 合成路由规则与后台公开配置，并按路径合并 SEO 查询。静态预渲染保留默认标题、描述与索引规则，浏览器挂载后应用站点配置；未登记路径的 SEO 查询返回 404 时使用页面默认值。页面不得再直接增删 `document.head` 节点或重复声明同一组 Metadata，以免破坏 React 路由卸载。站点验证与 viewport 仍由 Next Metadata 管理。
+
+上述处理为纯前端逻辑，无新增后端代码；复用 `/auth/public-config` 和 `/seo/public/meta`，不改变接口契约。
+
 ### 流程画布
 
 从「我的作品」左上角的「流程画布」选择作品，或从创作流程顶部进入。电影使用作品级流程，电视剧集需选择具体分集。

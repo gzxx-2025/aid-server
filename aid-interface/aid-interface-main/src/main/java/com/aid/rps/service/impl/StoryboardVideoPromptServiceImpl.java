@@ -956,7 +956,7 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
         {
             throw new ServiceException("智能体不可用");
         }
-        AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(modelCode);
+        AiModelConfigVo modelConfig = aiModelConfigService.selectForBusiness(modelCode, helper.businessFunctionForAgent(agentCode), null);
         if (Objects.isNull(modelConfig))
         {
             throw new ServiceException("模型不可用");
@@ -1382,7 +1382,8 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
                                 // 因此 stable slot 禁止携带本轮 count/index；实际目标集合由 messages SHA 区分。
                                 "stage=video_prompt,direction=" + direction + ",item=batch",
                                 raw -> isReplayVideoOutputValid(raw, targetList, finalUnitLabel,
-                                        direction, agentCode), executionTraceId, outputTokenCap),
+                                        direction, agentCode), executionTraceId, outputTokenCap,
+                                helper.businessFunctionForAgent(agentCode)),
                         TextTaskExecutionRejectedException::new);
                 if (llmResp != null)
                 {
@@ -1701,7 +1702,7 @@ public class StoryboardVideoPromptServiceImpl implements IStoryboardVideoPromptS
             // 预冻结：整批一次按估算 token 计算（charsToTokens 仅预冻结）+ 保存可结算快照；
             // 续生与首跑走同一计费链路：rearmBillingForResume 把已完整结算（仅 SUCCESS）任务重置为新一轮 FROZEN
             // → 消费端 settleBilling 按真实 token 多退少补。
-            AiModelConfigVo modelConfig = aiModelConfigService.selectByModelCode(modelCode);
+            AiModelConfigVo modelConfig = aiModelConfigService.selectForBusiness(modelCode, helper.businessFunctionForAgent(resumeAgentCode), null);
             if (Objects.isNull(modelConfig)) { projectLockGuard.releaseIfMatch(projectLockKey, resumeProjectLockResult.getToken()); throw new ServiceException("模型不存在"); }
             AidComicProject project = projectService.selectAidComicProjectById(task.getProjectId());
             String styleType = Objects.isNull(project) ? "" : StrUtil.nullToEmpty(project.getVideoStyleType());

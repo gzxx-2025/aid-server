@@ -133,6 +133,7 @@ export function createVideoModalReferenceCore(ctx: VideoModalCtx) {
 
   function resetStoryboardReferenceState() {
     ctx.referenceImages.set([])
+    ctx.referenceVideos.set([])
     ctx.sceneImages.set([])
     ctx.characterImages.set([])
     ctx.propImages.set([])
@@ -167,9 +168,9 @@ export function createVideoModalReferenceCore(ctx: VideoModalCtx) {
     return true
   }
 
-  function validateMultiParamAssetImages(): boolean {
-    if (!collectMultiParamAssetImages().length) {
-      message.warning('多参生视频至少需要上传一张图片素材')
+  function validateMultiParamReferenceMedia(): boolean {
+    if (!collectMultiParamAssetImages().length && !ctx.referenceVideos.get().length) {
+      message.warning('多参生视频至少需要导入一张图片或一个参考视频')
       return false
     }
     return true
@@ -280,6 +281,6 @@ export function createVideoModalReferenceCore(ctx: VideoModalCtx) {
     storyboardScriptAssetGroups,
     syncResolvedPromptAssetsToImportReferences,
     validateImageToVideoReferenceImages,
-    validateMultiParamAssetImages,
+    validateMultiParamReferenceMedia,
   }
 }

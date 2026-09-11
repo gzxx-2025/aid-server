@@ -89,7 +89,7 @@ public class GeminiTextProviderClient implements TextProviderClient {
         // 业务含义：完整 URL = {base_url}{api_suffix}{model}:generateContent，与 Gemini 官方文档示例一致
         String url = buildStreamGenerateContentUrl(modelConfig.getBaseUrl(), modelConfig.getApiSuffix(), model);
         Map<String, Object> body = buildRequestBody(modelConfig, request);
-        String json = MAPPER.writeValueAsString(body);
+        String json = MAPPER.writeValueAsString(com.aid.model.definition.ModelConfiguredRequestBody.apply(modelConfig, body, request));
         log.info("Gemini 文本流式提交, url={}, model={}, contentsSize={}", url, model,
                 ((List<?>) body.getOrDefault("contents", List.of())).size());
         HttpClient client = SHARED_HTTP_CLIENT;
@@ -171,7 +171,7 @@ public class GeminiTextProviderClient implements TextProviderClient {
         Map<String, Object> body = buildRequestBody(modelConfig, request);
         String json;
         try {
-            json = MAPPER.writeValueAsString(body);
+            json = MAPPER.writeValueAsString(com.aid.model.definition.ModelConfiguredRequestBody.apply(modelConfig, body, request));
         } catch (Exception e) {
             return ProviderSubmitResult.builder().rawResponse("JSON序列化失败").build();
         }
