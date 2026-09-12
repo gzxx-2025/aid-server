@@ -17,11 +17,14 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.aid.aid.domain.AidAgent;
 import com.aid.aid.domain.AidAiModel;
+import com.aid.aid.domain.AidAiModelCapability;
 import com.aid.aid.domain.AidAiModelFuncConfig;
 import com.aid.aid.domain.AidAiProvider;
 import com.aid.aid.domain.AidAiVoiceLibrary;
 import com.aid.aid.domain.AidGenAgentPool;
 import com.aid.aid.domain.AidProjectGenConfig;
+import com.aid.aid.domain.model.ModelCapabilityDefinition;
+import com.aid.aid.mapper.AidAiModelCapabilityMapper;
 import com.aid.aid.mapper.AidProjectGenConfigMapper;
 import com.aid.aid.service.IAidAiModelFuncConfigService;
 import com.aid.aid.service.IAidAiModelService;
@@ -34,15 +37,18 @@ import com.aid.common.utils.DateUtils;
 import com.aid.orchestration.IAiOrchestrationService;
 import com.aid.orchestration.dto.ModelPoolBindingChangeRequest;
 import com.aid.orchestration.dto.ModelPoolBindingQueryRequest;
+import com.aid.orchestration.dto.ModelPoolCapabilitySelection;
 import com.aid.orchestration.dto.RetireResourceRequest;
 import com.aid.orchestration.vo.ModelPoolBindingChangeVO;
 import com.aid.orchestration.vo.ModelPoolBindingModelVO;
 import com.aid.orchestration.vo.ModelPoolBindingPoolVO;
 import com.aid.orchestration.vo.ModelPoolBindingSnapshotVO;
+import com.aid.orchestration.vo.ModelPoolCapabilityVO;
 import com.aid.orchestration.vo.OrchestrationImpactItemVO;
 import com.aid.orchestration.vo.OrchestrationImpactVO;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.alibaba.fastjson2.JSON;
 
 import cn.hutool.core.collection.CollectionUtil;
 import cn.hutool.core.util.StrUtil;
@@ -85,6 +91,9 @@ public class AiOrchestrationServiceImpl implements IAiOrchestrationService
 
     @Autowired
     private AidProjectGenConfigMapper projectGenConfigMapper;
+
+    @Autowired
+    private AidAiModelCapabilityMapper modelCapabilityMapper;
 
     @Autowired
     private IAidAiVoiceLibraryService voiceLibraryService;
@@ -227,6 +236,7 @@ public class AiOrchestrationServiceImpl implements IAiOrchestrationService
                 .collect(Collectors.toCollection(LinkedHashSet::new));
         Map<Long, AidAiModel> allModelMap = allModels.stream()
                 .collect(Collectors.toMap(AidAiModel::getId, model -> model));
+        Map<Long, List<ModelPoolCapabilityVO>> modelCapabilities = loadPoolCapabilities(existingModelIds);
         Map<Long, List<Long>> memberships = new LinkedHashMap<>();
         for (Long modelId : existingModelIds)
         {
@@ -246,13 +256,22 @@ public class AiOrchestrationServiceImpl implements IAiOrchestrationService
         {
             List<Long> poolModelIds;
             boolean valid = true;
+            int staleModelCount = 0;
             try
             {
-                poolModelIds = parseModelIdsStrict(pool.getModelIds());
-                valid = poolModelIds.stream().allMatch(modelId -> {
+                List<Long> configuredIds = parseModelIdsStrict(pool.getModelIds());
+                poolModelIds = configuredIds.stream().filter(modelId -> {
                     AidAiModel model = allModelMap.get(modelId);
                     return Objects.nonNull(model) && Objects.equals(pool.getModelType(), model.getModelType());
-                });
+                }).collect(Collectors.toList());
+                staleModelCount = configuredIds.size() - poolModelIds.size();
+                valid = configuredIds.stream().filter(allModelMap::containsKey).allMatch(modelId ->
+                        Objects.equals(pool.getModelType(), allModelMap.get(modelId).getModelType()));
+                if (staleModelCount > 0)
+                {
+                    log.warn("模型池关系快照已忽略失效模型引用: poolId={}, staleCount={}",
+                            pool.getId(), staleModelCount);
+                }
             }
             catch (ServiceException e)
             {
@@ -271,15 +290,51 @@ public class AiOrchestrationServiceImpl implements IAiOrchestrationService
             poolViews.add(ModelPoolBindingPoolVO.builder()
                     .id(pool.getId()).funcName(pool.getFuncName()).funcCode(pool.getFuncCode())
                     .modelType(pool.getModelType()).generateMode(pool.getGenerateMode()).status(pool.getStatus())
-                    .configurationValid(valid).modelIds(poolModelIds).build());
+                    .configurationValid(valid).staleModelCount(staleModelCount).modelIds(poolModelIds).build());
         }
         List<ModelPoolBindingModelVO> modelViews = models.stream()
                 .map(model -> ModelPoolBindingModelVO.builder()
                         .id(model.getId()).modelCode(model.getModelCode()).modelName(model.getModelName())
                         .modelType(model.getModelType()).generateMode(model.getGenerateMode()).status(model.getStatus())
-                        .poolIds(memberships.getOrDefault(model.getId(), Collections.emptyList())).build())
+                        .poolIds(memberships.getOrDefault(model.getId(), Collections.emptyList()))
+                        .capabilities(modelCapabilities.getOrDefault(model.getId(), Collections.emptyList())).build())
                 .collect(Collectors.toList());
         return ModelPoolBindingSnapshotVO.builder().pools(poolViews).models(modelViews).build();
+    }
+
+    private Map<Long, List<ModelPoolCapabilityVO>> loadPoolCapabilities(Set<Long> modelIds)
+    {
+        if (CollectionUtil.isEmpty(modelIds))
+        {
+            return Collections.emptyMap();
+        }
+        Map<Long, List<ModelPoolCapabilityVO>> result = new LinkedHashMap<>();
+        List<AidAiModelCapability> rows = modelCapabilityMapper.selectList(
+                Wrappers.<AidAiModelCapability>lambdaQuery()
+                        .in(AidAiModelCapability::getModelId, modelIds)
+                        .orderByAsc(AidAiModelCapability::getModelId)
+                        .orderByAsc(AidAiModelCapability::getSortOrder));
+        for (AidAiModelCapability row : rows)
+        {
+            try
+            {
+                ModelCapabilityDefinition definition = JSON.parseObject(
+                        row.getDefinitionJson(), ModelCapabilityDefinition.class);
+                result.computeIfAbsent(row.getModelId(), ignored -> new ArrayList<>()).add(
+                        ModelPoolCapabilityVO.builder()
+                                .code(definition.getCode()).label(definition.getLabel())
+                                .generateMode(definition.getGenerateMode())
+                                .enabled(Boolean.TRUE.equals(definition.getEnabled()))
+                                .defaultCapability(Boolean.TRUE.equals(definition.getDefaultCapability()))
+                                .build());
+            }
+            catch (RuntimeException e)
+            {
+                log.warn("模型池关系快照忽略无法解析的能力: modelId={}, capabilityCode={}",
+                        row.getModelId(), row.getCapabilityCode());
+            }
+        }
+        return result;
     }
 
     @Override
@@ -310,7 +365,7 @@ public class AiOrchestrationServiceImpl implements IAiOrchestrationService
             throw new ServiceException("请选择模型池");
         }
         List<AidAiModel> models = modelService.list(Wrappers.<AidAiModel>lambdaQuery()
-                .select(AidAiModel::getId, AidAiModel::getModelCode, AidAiModel::getModelType,
+                .select(AidAiModel::getId, AidAiModel::getModelCode, AidAiModel::getModelName, AidAiModel::getModelType,
                         AidAiModel::getGenerateMode, AidAiModel::getStatus)
                 .in(AidAiModel::getId, modelIds)
                 .eq(AidAiModel::getDelFlag, NORMAL));
@@ -331,6 +386,33 @@ public class AiOrchestrationServiceImpl implements IAiOrchestrationService
             throw new ServiceException("部分模型池不存在");
         }
 
+        Map<Long, Map<Long, ModelPoolCapabilitySelection>> requestedSelections = bind
+                ? normalizeCapabilitySelections(request, modelIds, poolIds) : Collections.emptyMap();
+        Map<Long, List<Long>> configuredIdsByPool = new LinkedHashMap<>();
+        Set<Long> referencedModelIds = new LinkedHashSet<>(modelIds);
+        for (AidAiModelFuncConfig pool : pools)
+        {
+            try
+            {
+                List<Long> configuredIds = parseModelIdsStrict(pool.getModelIds());
+                configuredIdsByPool.put(pool.getId(), configuredIds);
+                referencedModelIds.addAll(configuredIds);
+            }
+            catch (ServiceException e)
+            {
+                log.error("批量维护模型池失败：模型池配置异常, poolId={}", pool.getId());
+                throw new ServiceException("模型池【" + poolLabel(pool) + "】配置异常");
+            }
+        }
+        Map<Long, AidAiModel> activeModels = CollectionUtil.isEmpty(referencedModelIds)
+                ? Collections.emptyMap()
+                : modelService.list(Wrappers.<AidAiModel>lambdaQuery()
+                        .select(AidAiModel::getId, AidAiModel::getModelCode, AidAiModel::getModelName,
+                                AidAiModel::getModelType, AidAiModel::getStatus)
+                        .in(AidAiModel::getId, referencedModelIds)
+                        .eq(AidAiModel::getDelFlag, NORMAL)).stream()
+                        .collect(Collectors.toMap(AidAiModel::getId, model -> model));
+
         int changedPoolCount = 0;
         int changedRelationCount = 0;
         int unchangedRelationCount = 0;
@@ -344,19 +426,33 @@ public class AiOrchestrationServiceImpl implements IAiOrchestrationService
                     {
                         log.error("批量绑定模型池失败：类型不匹配, modelId={}, poolId={}",
                                 model.getId(), pool.getId());
-                        throw new ServiceException("模型类型不匹配");
+                        throw new ServiceException("模型【" + modelLabel(model) + "】与模型池【"
+                                + poolLabel(pool) + "】类型不匹配");
                     }
                 }
             }
-            List<Long> currentIds;
-            try
+            List<Long> configuredIds = configuredIdsByPool.getOrDefault(pool.getId(), Collections.emptyList());
+            LinkedHashSet<Long> currentIds = new LinkedHashSet<>();
+            int staleModelCount = 0;
+            for (Long currentId : configuredIds)
             {
-                currentIds = parseModelIdsStrict(pool.getModelIds());
+                AidAiModel currentModel = activeModels.get(currentId);
+                if (currentModel == null)
+                {
+                    staleModelCount++;
+                    continue;
+                }
+                if (!Objects.equals(pool.getModelType(), currentModel.getModelType()))
+                {
+                    throw new ServiceException("模型【" + modelLabel(currentModel) + "】与模型池【"
+                            + poolLabel(pool) + "】类型不匹配");
+                }
+                currentIds.add(currentId);
             }
-            catch (ServiceException e)
+            if (staleModelCount > 0)
             {
-                log.error("批量维护模型池失败：模型池配置异常, poolId={}", pool.getId());
-                throw new ServiceException("模型池配置异常");
+                log.warn("批量维护模型池时清理失效模型引用: poolId={}, staleCount={}",
+                        pool.getId(), staleModelCount);
             }
             LinkedHashSet<Long> nextIds = new LinkedHashSet<>(currentIds);
             int changedForPool = 0;
@@ -372,7 +468,7 @@ public class AiOrchestrationServiceImpl implements IAiOrchestrationService
                     unchangedRelationCount++;
                 }
             }
-            if (changedForPool == 0)
+            if (changedForPool == 0 && staleModelCount == 0)
             {
                 continue;
             }
@@ -385,7 +481,12 @@ public class AiOrchestrationServiceImpl implements IAiOrchestrationService
             next.setStatus(pool.getStatus());
             next.setModelIds(JSONUtil.toJsonStr(new ArrayList<>(nextIds)));
             validateFunctionConfig(next);
-            capabilityBindings.reconcile(next, operator);
+            Map<Long, ModelPoolCapabilitySelection> selectionsForPool = requestedSelections
+                    .getOrDefault(pool.getId(), Collections.emptyMap()).entrySet().stream()
+                    .filter(entry -> !currentIds.contains(entry.getKey()))
+                    .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue,
+                            (left, right) -> left, LinkedHashMap::new));
+            capabilityBindings.reconcile(next, operator, selectionsForPool);
             AidAiModelFuncConfig update = new AidAiModelFuncConfig();
             update.setId(pool.getId());
             update.setModelIds(next.getModelIds());
@@ -417,6 +518,48 @@ public class AiOrchestrationServiceImpl implements IAiOrchestrationService
         }
         return new ArrayList<>(ids.stream().filter(Objects::nonNull).filter(id -> id > 0)
                 .collect(Collectors.toCollection(LinkedHashSet::new)));
+    }
+
+    private Map<Long, Map<Long, ModelPoolCapabilitySelection>> normalizeCapabilitySelections(
+            ModelPoolBindingChangeRequest request, List<Long> modelIds, List<Long> poolIds)
+    {
+        if (request == null || CollectionUtil.isEmpty(request.getCapabilitySelections()))
+        {
+            return Collections.emptyMap();
+        }
+        Set<Long> allowedModels = new LinkedHashSet<>(modelIds);
+        Set<Long> allowedPools = new LinkedHashSet<>(poolIds);
+        Map<Long, Map<Long, ModelPoolCapabilitySelection>> result = new LinkedHashMap<>();
+        for (ModelPoolCapabilitySelection selection : request.getCapabilitySelections())
+        {
+            if (selection == null || !allowedModels.contains(selection.getModelId())
+                    || !allowedPools.contains(selection.getPoolId()))
+            {
+                throw new ServiceException("模型池能力选择不属于本次操作");
+            }
+            ModelPoolCapabilitySelection previous = result
+                    .computeIfAbsent(selection.getPoolId(), ignored -> new LinkedHashMap<>())
+                    .putIfAbsent(selection.getModelId(), selection);
+            if (previous != null)
+            {
+                throw new ServiceException("模型池能力选择重复");
+            }
+        }
+        return result;
+    }
+
+    private String modelLabel(AidAiModel model)
+    {
+        if (StrUtil.isNotBlank(model.getModelName())) return model.getModelName();
+        if (StrUtil.isNotBlank(model.getModelCode())) return model.getModelCode();
+        return "#" + model.getId();
+    }
+
+    private String poolLabel(AidAiModelFuncConfig pool)
+    {
+        if (StrUtil.isNotBlank(pool.getFuncName())) return pool.getFuncName();
+        if (StrUtil.isNotBlank(pool.getFuncCode())) return pool.getFuncCode();
+        return "#" + pool.getId();
     }
 
     @Override
@@ -535,9 +678,11 @@ public class AiOrchestrationServiceImpl implements IAiOrchestrationService
             {
                 throw new ServiceException("替代模型与模型池【" + pool.getFuncName() + "】类型不一致");
             }
+            pool.setModelIds(JSONUtil.toJsonStr(nextIds));
+            capabilityBindings.reconcile(pool, operator);
             AidAiModelFuncConfig update = new AidAiModelFuncConfig();
             update.setId(pool.getId());
-            update.setModelIds(JSONUtil.toJsonStr(nextIds));
+            update.setModelIds(pool.getModelIds());
             update.setUpdateBy(operator);
             update.setUpdateTime(DateUtils.getNowDate());
             functionConfigService.updateById(update);
@@ -601,7 +746,8 @@ public class AiOrchestrationServiceImpl implements IAiOrchestrationService
         }
         List<String> removedCodes = modelService.list(Wrappers.<AidAiModel>lambdaQuery()
                         .select(AidAiModel::getModelCode)
-                        .in(AidAiModel::getId, removed))
+                        .in(AidAiModel::getId, removed)
+                        .eq(AidAiModel::getDelFlag, NORMAL))
                 .stream().map(AidAiModel::getModelCode).filter(StrUtil::isNotBlank).collect(Collectors.toList());
         if (CollectionUtil.isEmpty(removedCodes))
         {
@@ -722,7 +868,8 @@ public class AiOrchestrationServiceImpl implements IAiOrchestrationService
                 Wrappers.<AidAiModelFuncConfig>lambdaQuery()
                         .select(AidAiModelFuncConfig::getId, AidAiModelFuncConfig::getFuncCode,
                                 AidAiModelFuncConfig::getFuncName, AidAiModelFuncConfig::getModelType,
-                                AidAiModelFuncConfig::getModelIds)
+                                AidAiModelFuncConfig::getGenerateMode, AidAiModelFuncConfig::getModelIds,
+                                AidAiModelFuncConfig::getStatus)
                         .eq(AidAiModelFuncConfig::getDelFlag, NORMAL));
         if (CollectionUtil.isEmpty(all))
         {

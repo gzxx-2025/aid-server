@@ -15,4 +15,7 @@ public class ModelPoolBindingChangeRequest
 
     /** 待处理模型池主键。 */
     private List<Long> poolIds;
+
+    /** 新增关系的能力选择；旧客户端省略时由服务端按唯一能力或唯一默认能力安全选择。 */
+    private List<ModelPoolCapabilitySelection> capabilitySelections;
 }

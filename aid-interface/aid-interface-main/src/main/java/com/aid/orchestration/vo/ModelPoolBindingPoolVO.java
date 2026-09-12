@@ -19,5 +19,6 @@ public class ModelPoolBindingPoolVO
     private String generateMode;
     private String status;
     private boolean configurationValid;
+    private int staleModelCount;
     private List<Long> modelIds;
 }

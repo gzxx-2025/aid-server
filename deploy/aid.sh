@@ -6052,10 +6052,28 @@ place_artifacts() { # place_artifacts <包路径>
     || die "Web 用户端 SPA 通用入口缺失: ${DATA_ROOT}/app/web-dist/200.html"
   # 升级器二进制：按本机架构从包内 updater/ 选取（在线升级能力的执行代理）
   place_updater_binary "${pkgRoot}"
-  # 增量 SQL 暂存（升级场景由 do_update 决定如何执行）
+}
+
+# 在替换任何三端产物前独立提取增量 SQL。这样即使历史迁移失败，当前正在
+# 使用的 JAR 和静态文件仍保持原状；SQL 自身必须幂等，以兼容 MySQL DDL
+# 隐式提交后重新执行的恢复场景。
+stage_release_sql() { # stage_release_sql <包路径>
+  local package="$1" tmpDir pkgRoot sub
+  tmpDir="$(mktemp -d)"
+  # shellcheck disable=SC2064
+  trap "rm -rf '${tmpDir}'; trap - RETURN" RETURN
+  tar -xzf "${package}" -C "${tmpDir}" || die "发布包解压失败: ${package}"
+  pkgRoot="${tmpDir}"
+  if [[ ! -d "${pkgRoot}/backend" ]]; then
+    sub="$(find "${tmpDir}" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+    [[ -n "${sub}" && -d "${sub}/backend" ]] && pkgRoot="${sub}"
+  fi
+  [[ -d "${pkgRoot}/backend" ]] || die "发布包结构无效，无法定位服务端产物"
+
   rm -rf "${DATA_ROOT}/packages/pending-sql"
   if [[ -d "${pkgRoot}/sql" ]]; then
-    cp -r "${pkgRoot}/sql" "${DATA_ROOT}/packages/pending-sql"
+    mkdir -p "${DATA_ROOT}/packages/pending-sql"
+    cp -r "${pkgRoot}/sql/." "${DATA_ROOT}/packages/pending-sql/"
   fi
 }
 
@@ -6703,6 +6721,8 @@ initialize_docker_managed_mysql_schema() {
   log "AID 数据库为空，导入基线 aid-init.sql..."
   docker_managed_mysql_root_exec "${rootPwd}" --default-character-set=utf8mb4 "${dbName}" < "${initSql}" \
     || { err "AID 数据库基线导入失败"; return 1; }
+  mark_sql_baseline_from_dir "${REPO_DIR}/sql" \
+    || { err "初始化数据库迁移基线失败"; return 1; }
   return 0
 }
 
@@ -6815,6 +6835,8 @@ initialize_external_mysql() {
     docker_mysql_tool mysql --default-character-set=utf8mb4 "${dbName}" < "${sqlFile}" \
       || { err "初始化 SQL 执行失败: $(basename "${sqlFile}")"; return 1; }
   done
+  mark_sql_baseline_from_dir "${REPO_DIR}/sql" \
+    || { err "初始化数据库迁移基线失败"; return 1; }
   coreTableCount="$(docker_mysql_tool mysql --batch --skip-column-names \
     --execute "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='${dbName}' AND table_name IN ('aid_config','sys_user')" 2>/dev/null | tail -n 1)" \
     || return 1
@@ -6892,6 +6914,148 @@ run_sql_file() { # run_sql_file <sql文件>
     MYSQL_PWD="$(conf_get DB_PASSWORD)" mysql --protocol=TCP --host "$(conf_get DB_HOST 127.0.0.1)" --port "$(conf_get DB_PORT 3306)" \
       --user "$(conf_get DB_USERNAME aid)" --default-character-set=utf8mb4 "$(conf_get DB_NAME aid)" < "${sqlFile}" || return 1
   fi
+  return 0
+}
+
+database_query() { # database_query <SQL>
+  local query="$1" mode
+  mode="$(detect_mode)"
+  if [[ "${mode}" == "docker" ]]; then
+    docker_mysql_tool mysql --batch --skip-column-names --default-character-set=utf8mb4 \
+      --execute "${query}" "$(env_get DB_NAME aid)"
+  else
+    MYSQL_PWD="$(conf_get DB_PASSWORD)" mysql --protocol=TCP \
+      --host "$(conf_get DB_HOST 127.0.0.1)" --port "$(conf_get DB_PORT 3306)" \
+      --user "$(conf_get DB_USERNAME aid)" --batch --skip-column-names \
+      --default-character-set=utf8mb4 --execute "${query}" "$(conf_get DB_NAME aid)"
+  fi
+}
+
+ensure_sql_history() {
+  database_query "CREATE TABLE IF NOT EXISTS aid_schema_history (
+    id BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键',
+    script_name VARCHAR(255) NOT NULL COMMENT '脚本文件名',
+    checksum CHAR(64) NOT NULL COMMENT '脚本内容SHA256',
+    status VARCHAR(16) NOT NULL COMMENT '执行状态 SUCCESS/FAILED',
+    error_message VARCHAR(500) DEFAULT NULL COMMENT '失败原因',
+    executed_at DATETIME NOT NULL COMMENT '执行时间',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_script_name (script_name)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='数据库升级脚本执行记录（升级器维护）'" >/dev/null
+}
+
+record_sql_history() { # record_sql_history <文件名> <sha256> <状态> [错误]
+  local name="$1" checksum="$2" status="$3" message="${4:-}"
+  # 文件名和状态均来自受控发布包；错误只写固定短语，避免把 mysql 输出拼接进 SQL。
+  database_query "INSERT INTO aid_schema_history(script_name,checksum,status,error_message,executed_at)
+    VALUES('${name}','${checksum}','${status}','${message}',NOW())
+    ON DUPLICATE KEY UPDATE checksum=VALUES(checksum),status=VALUES(status),
+      error_message=VALUES(error_message),executed_at=VALUES(executed_at)" >/dev/null
+}
+
+mark_sql_baseline_from_dir() { # mark_sql_baseline_from_dir <sql目录>
+  local sqlDir="$1" file name checksum
+  [[ -d "${sqlDir}" ]] || return 0
+  ensure_sql_history || return 1
+  for file in "${sqlDir}"/v*.sql; do
+    [[ -f "${file}" ]] || continue
+    name="$(basename "${file}")"
+    checksum="$(sha256_file "${file}")" || return 1
+    record_sql_history "${name}" "${checksum}" SUCCESS '' || return 1
+  done
+}
+
+sql_migration_sort_key() { # sql_migration_sort_key <SQL路径>
+  local file="$1" name major minor patch channel number rank
+  name="$(basename "${file}")"
+  if [[ "${name}" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)(-(beta|rc)\.([0-9]+))?\.sql$ ]]; then
+    major=$((10#${BASH_REMATCH[1]}))
+    minor=$((10#${BASH_REMATCH[2]}))
+    patch=$((10#${BASH_REMATCH[3]}))
+    channel="${BASH_REMATCH[5]:-}"
+    number=$((10#${BASH_REMATCH[6]:-0}))
+    case "${channel}" in
+      beta) rank=0 ;;
+      rc) rank=1 ;;
+      '') rank=3 ;;
+      *) rank=2 ;;
+    esac
+    printf '%010d.%010d.%010d.%d.%010d|%s\n' \
+      "${major}" "${minor}" "${patch}" "${rank}" "${number}" "${file}"
+    return 0
+  fi
+  # 发布包正常只包含 v<SemVer>.sql；保留兼容入口，让旧的自定义 SQL 在规范迁移之后执行。
+  printf '9999999999.9999999999.9999999999.9.9999999999|%s\n' "${file}"
+}
+
+run_sql_dir_with_history() { # run_sql_dir_with_history <sql目录>
+  local sqlDir="$1" file name checksum row recordedChecksum recordedStatus
+  local files=()
+  [[ -d "${sqlDir}" ]] || return 0
+  while IFS='|' read -r _ file; do files+=("${file}"); done < <(
+    for file in "${sqlDir}"/*.sql; do [[ -f "${file}" ]] && sql_migration_sort_key "${file}"; done | sort -t '|' -k1,1
+  )
+  (( ${#files[@]} > 0 )) || return 0
+  ensure_sql_history || return 1
+  for file in "${files[@]}"; do
+    name="$(basename "${file}")"
+    checksum="$(sha256_file "${file}")" || return 1
+    row="$(database_query "SELECT checksum,status FROM aid_schema_history WHERE script_name='${name}' LIMIT 1" 2>/dev/null || true)"
+    recordedChecksum="$(printf '%s' "${row}" | awk -F '\t' 'NR==1{print $1}')"
+    recordedStatus="$(printf '%s' "${row}" | awk -F '\t' 'NR==1{print $2}')"
+    if [[ "${recordedStatus}" == "SUCCESS" ]]; then
+      if [[ "${recordedChecksum}" != "${checksum}" ]]; then
+        warn "历史 SQL ${name} 已执行但校验和不同，按迁移记录跳过；修复内容必须使用新的迁移文件"
+      else
+        log "  跳过 ${name}（已执行）"
+      fi
+      continue
+    fi
+    log "  执行 ${name}"
+    if ! run_sql_file "${file}"; then
+      record_sql_history "${name}" "${checksum}" FAILED 'SQL execution failed' || true
+      return 1
+    fi
+    record_sql_history "${name}" "${checksum}" SUCCESS '' || return 1
+  done
+}
+
+database_schema_fingerprint() {
+  local tmp fingerprint
+  tmp="$(mktemp)"
+  {
+    database_query "SELECT TABLE_NAME,TABLE_TYPE,IFNULL(ENGINE,''),IFNULL(TABLE_COLLATION,'') FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() ORDER BY TABLE_NAME"
+    database_query "SELECT TABLE_NAME,ORDINAL_POSITION,COLUMN_NAME,COLUMN_TYPE,IS_NULLABLE,IFNULL(COLUMN_DEFAULT,'<NULL>'),EXTRA,IFNULL(CHARACTER_SET_NAME,''),IFNULL(COLLATION_NAME,'') FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() ORDER BY TABLE_NAME,ORDINAL_POSITION"
+    database_query "SELECT TABLE_NAME,INDEX_NAME,SEQ_IN_INDEX,COLUMN_NAME,NON_UNIQUE,INDEX_TYPE,IFNULL(SUB_PART,'') FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() ORDER BY TABLE_NAME,INDEX_NAME,SEQ_IN_INDEX"
+    database_query "SELECT TRIGGER_NAME,ACTION_TIMING,EVENT_MANIPULATION,EVENT_OBJECT_TABLE,ACTION_STATEMENT FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA=DATABASE() ORDER BY TRIGGER_NAME"
+    database_query "SELECT ROUTINE_NAME,ROUTINE_TYPE,DTD_IDENTIFIER,ROUTINE_DEFINITION FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA=DATABASE() ORDER BY ROUTINE_TYPE,ROUTINE_NAME"
+  } > "${tmp}" || { rm -f "${tmp}"; return 1; }
+  fingerprint="$(sha256_file "${tmp}")"
+  rm -f "${tmp}"
+  printf '%s\n' "${fingerprint}"
+}
+
+clear_database_schema() {
+  database_query "SET SESSION group_concat_max_len=16777216;
+    SET FOREIGN_KEY_CHECKS=0;
+    SELECT GROUP_CONCAT(CONCAT(CHAR(96),REPLACE(TABLE_NAME,CHAR(96),CONCAT(CHAR(96),CHAR(96))),CHAR(96)) ORDER BY TABLE_NAME SEPARATOR ',') INTO @aid_views
+      FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_TYPE='VIEW';
+    SET @aid_ddl=IF(@aid_views IS NULL,'SELECT 1',CONCAT('DROP VIEW IF EXISTS ',@aid_views));
+    PREPARE aid_stmt FROM @aid_ddl; EXECUTE aid_stmt; DEALLOCATE PREPARE aid_stmt;
+    SELECT GROUP_CONCAT(CONCAT(CHAR(96),REPLACE(TABLE_NAME,CHAR(96),CONCAT(CHAR(96),CHAR(96))),CHAR(96)) ORDER BY TABLE_NAME SEPARATOR ',') INTO @aid_tables
+      FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_TYPE='BASE TABLE';
+    SET @aid_ddl=IF(@aid_tables IS NULL,'SELECT 1',CONCAT('DROP TABLE IF EXISTS ',@aid_tables));
+    PREPARE aid_stmt FROM @aid_ddl; EXECUTE aid_stmt; DEALLOCATE PREPARE aid_stmt;
+    SET FOREIGN_KEY_CHECKS=1" >/dev/null
+}
+
+restore_database_clean() { # restore_database_clean <备份.sql.gz> <升级前结构指纹>
+  local dumpFile="$1" expectedFingerprint="$2" actualFingerprint
+  clear_database_schema || return 1
+  restore_database "${dumpFile}" || return 1
+  actualFingerprint="$(database_schema_fingerprint)" || return 1
+  [[ -n "${expectedFingerprint}" && "${actualFingerprint}" == "${expectedFingerprint}" ]] \
+    || { err "数据库恢复后结构指纹不一致，保持服务停止并请人工检查备份: ${dumpFile}"; return 1; }
   return 0
 }
 
@@ -7645,6 +7809,7 @@ do_install_manual() {
       -e "CREATE DATABASE IF NOT EXISTS \`${dbName}\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci"
     MYSQL_PWD="${dbPwd}" mysql --protocol=TCP --host "${dbHost}" --port "${dbPort}" --user "${dbUser}" \
       --default-character-set=utf8mb4 "${dbName}" < "${initSql}" || die "基线导入失败"
+    mark_sql_baseline_from_dir "${REPO_DIR}/sql" || die "初始化数据库迁移基线失败"
     ok "数据库初始化完成"
   fi
   ensure_admin_entry_code manual
@@ -7786,9 +7951,17 @@ do_upgrade_progress() {
   done
 }
 
+version_switch_incomplete() { # version_switch_incomplete <产物版本> <目标版本> <最后成功版本>
+  local artifactVersion="$1" targetVersion="$2" successfulVersion="$3"
+  [[ "${artifactVersion}" == "${targetVersion}" \
+     && "${successfulVersion}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ \
+     && "${successfulVersion}" != "${targetVersion}" ]]
+}
+
 do_update() {
   require_root
-  local mode package supplied current target comparison go backupDir dist old f targetChannel repairMode=0
+  local mode package supplied current target comparison successfulVersion go backupDir dist old targetChannel repairMode=0
+  local hasPendingSql=0 migrationStopped=0 schemaFingerprint=''
   mode="$(detect_mode)"
   [[ "${mode}" != "none" ]] || die "尚未部署，请先执行首次部署"
   ensure_no_active_version_task || return 1
@@ -7821,24 +7994,30 @@ do_update() {
     if [[ "${current}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
       comparison="$(version_compare "${target}" "${current}")"
       if [[ "${comparison}" == "0" ]]; then
-        if deployment_application_ready "${mode}"; then
-          ok "当前已是 ${RESOLVED_CHANNEL} 渠道最新版且服务运行正常: ${current}"
-          return 0
+        successfulVersion="$(state_get CURRENT_VERSION '')"
+        if version_switch_incomplete "${current}" "${target}" "${successfulVersion}"; then
+          repairMode=1
+          warn "检测到程序产物版本 ${current}，但最后成功版本仍为 ${successfulVersion}；上次升级未完成，将重新执行迁移和产物切换"
+        else
+          if deployment_application_ready "${mode}"; then
+            ok "当前已是 ${RESOLVED_CHANNEL} 渠道最新版且服务运行正常: ${current}"
+            return 0
+          fi
+          if deployment_artifacts_ready; then
+            warn "当前产物已是 ${RESOLVED_CHANNEL} 渠道最新版 ${current}，但服务未完整运行，开始执行同版本自愈启动"
+            do_restart
+            state_set DEPLOY_MODE "${mode}"
+            state_set DATA_ROOT "${DATA_ROOT}"
+            state_set CURRENT_VERSION "${current}"
+            state_set RELEASE_CHANNEL "${REQUESTED_RELEASE_CHANNEL:-$(state_get RELEASE_CHANNEL auto)}"
+            install_management_command
+            ok "同版本自愈完成，AID 服务已恢复运行"
+            print_access_info
+            return 0
+          fi
+          repairMode=1
+          warn "当前记录为最新版 ${current}，但服务未运行且程序产物不完整，将重新取得同版本发布包修复部署"
         fi
-        if deployment_artifacts_ready; then
-          warn "当前产物已是 ${RESOLVED_CHANNEL} 渠道最新版 ${current}，但服务未完整运行，开始执行同版本自愈启动"
-          do_restart
-          state_set DEPLOY_MODE "${mode}"
-          state_set DATA_ROOT "${DATA_ROOT}"
-          state_set CURRENT_VERSION "${current}"
-          state_set RELEASE_CHANNEL "${REQUESTED_RELEASE_CHANNEL:-$(state_get RELEASE_CHANNEL auto)}"
-          install_management_command
-          ok "同版本自愈完成，AID 服务已恢复运行"
-          print_access_info
-          return 0
-        fi
-        repairMode=1
-        warn "当前记录为最新版 ${current}，但服务未运行且程序产物不完整，将重新取得同版本发布包修复部署"
       fi
       if [[ "${comparison}" == "-1" ]]; then
         risk "远端版本 ${target} 低于当前版本 ${current}，自动更新绝不会执行降级"
@@ -7891,6 +8070,31 @@ do_update() {
   # 兼容早期初始化脚本留下的空访问码；已有非空访问码绝不修改。
   ensure_admin_entry_code "${mode}"
 
+  # 先独立提取并检查迁移集合。存在 SQL 时先停止业务写入，再把迁移历史表与
+  # 业务结构一起纳入快照，避免跨多个旧版本升级期间出现备份后新增数据。
+  stage_release_sql "${package}"
+  if [[ -d "${DATA_ROOT}/packages/pending-sql" ]] && ls "${DATA_ROOT}/packages/pending-sql"/*.sql >/dev/null 2>&1; then
+    hasPendingSql=1
+    if [[ "${mode}" == "docker" ]] || command -v mysql >/dev/null 2>&1; then
+      if [[ "${mode}" == "docker" ]]; then
+        docker stop aid-server >/dev/null 2>&1 || true
+        [[ "$(docker inspect --format '{{.State.Running}}' aid-server 2>/dev/null || echo false)" != "true" ]] \
+          || die "无法停止 AID 后端写入，数据库迁移未开始"
+      else
+        systemctl stop aid >/dev/null 2>&1 || true
+        ! systemctl is-active --quiet aid \
+          || die "无法停止 AID 后端写入，数据库迁移未开始"
+      fi
+      migrationStopped=1
+      ensure_sql_history || { do_restart || true; die "无法准备数据库迁移历史，升级已中止"; }
+      schemaFingerprint="$(database_schema_fingerprint)" \
+        || { do_restart || true; die "无法读取升级前数据库结构，升级已中止"; }
+      ok "已停止业务写入并建立一致性迁移快照边界"
+    else
+      die "升级包含数据库迁移，但未检测到 mysql 客户端；现有程序产物未替换"
+    fi
+  fi
+
   # 升级前自动完整备份（产物 + 数据库 + 版本标记），供菜单「回滚」还原
   backupDir="${DATA_ROOT}/backups/upgrade-$(date +%Y%m%d%H%M%S)-v${current}"
   mkdir -p "${backupDir}"
@@ -7900,7 +8104,10 @@ do_update() {
     [[ -d "${DATA_ROOT}/app/${dist}" ]] && cp -r "${DATA_ROOT}/app/${dist}" "${backupDir}/"
   done
   log "备份数据库（升级前快照）..."
-  backup_database "${backupDir}/db.sql.gz" || die "数据库备份失败，升级已中止（未做任何变更）"
+  if ! backup_database "${backupDir}/db.sql.gz"; then
+    (( migrationStopped == 0 )) || do_restart || true
+    die "数据库备份失败，升级已中止（未做任何变更）"
+  fi
   echo "${current}" > "${backupDir}/version.txt"
   ok "升级前完整备份已生成: ${backupDir}"
   # 升级备份保留最近 3 份，从旧到新清理
@@ -7908,22 +8115,22 @@ do_update() {
     rm -rf "${old}" && log "已清理过期升级备份: ${old}"
   done
 
-  place_artifacts "${package}"
-
-  # 执行包内增量 SQL（脚本通道直接顺序执行；脚本均要求幂等，重复执行无副作用；
-  # docker 模式经容器内客户端执行，手动模式需要宿主机 mysql 客户端）
-  if [[ -d "${DATA_ROOT}/packages/pending-sql" ]] && ls "${DATA_ROOT}/packages/pending-sql"/*.sql >/dev/null 2>&1; then
-    if [[ "${mode}" == "docker" ]] || command -v mysql >/dev/null 2>&1; then
-      log "执行包内增量 SQL..."
-      for f in "${DATA_ROOT}/packages/pending-sql"/*.sql; do
-        log "  执行 $(basename "${f}")"
-        run_sql_file "${f}" || die "SQL 执行失败: $(basename "${f}")（产物已更新，请处理 SQL 后重启）"
-      done
-      ok "增量 SQL 执行完成"
-    else
-      warn "无 mysql 客户端，包内增量 SQL 未执行，请人工处理: ${DATA_ROOT}/packages/pending-sql"
+  # 必须先执行数据库迁移，再切换三端程序产物；按 schema history 跳过成功脚本。
+  # 失败时清空当前 schema 后完整导回快照，防止残留新表、字段或错误的 SUCCESS 记录。
+  if (( hasPendingSql == 1 )); then
+    log "执行包内增量 SQL..."
+    if ! run_sql_dir_with_history "${DATA_ROOT}/packages/pending-sql"; then
+      err "增量 SQL 执行失败，正在恢复升级前数据库"
+      if ! restore_database_clean "${backupDir}/db.sql.gz" "${schemaFingerprint}"; then
+        die "SQL 执行失败且数据库自动恢复未通过结构校验；服务保持停止，请使用备份人工处理: ${backupDir}/db.sql.gz"
+      fi
+      do_restart || die "数据库已恢复，但原版本服务重启失败，请检查部署日志"
+      die "SQL 执行失败，数据库与原版本服务均已恢复；修复迁移后可安全重试"
     fi
+    ok "增量 SQL 执行完成"
   fi
+
+  place_artifacts "${package}"
 
   # 包中不包含用户维护的 .env；先刷新受版本控制的 Compose/Nginx/部署脚本，
   # 本次重启即可使用新版模板，同时保留已有配置与密钥。

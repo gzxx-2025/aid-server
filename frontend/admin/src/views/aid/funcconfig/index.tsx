@@ -74,7 +74,7 @@ export default function FuncconfigPage() {
 
   const resolveModelName = (id: number) => {
     const m = modelPool.find((x) => x.id === id);
-    return m ? (m.modelName || m.modelCode || `#${id}`) : `#${id}(已删除)`;
+    return m ? (m.modelName || m.modelCode || `#${id}`) : `#${id}`;
   };
 
   const openAdd = async () => {
@@ -100,11 +100,11 @@ export default function FuncconfigPage() {
     try { ids = data.modelIds ? JSON.parse(data.modelIds) : []; } catch {}
     const byId = new Map((pool || []).map((m: any) => [m.id, m]));
     const seen = new Set<number>();
-    // 池中不存在的历史模型保留占位（标记未知），避免编辑保存后悬空 ID 被静默丢弃
+    // 已删除模型不再作为可编辑关系展示；服务端与升级 SQL 会同步清理悬空引用。
     const hydrated = ids
       .filter((id) => typeof id === 'number' && id > 0 && !seen.has(id) && seen.add(id))
-      .map((id) => (byId.get(id) as PoolModel | undefined)
-        || ({ id, modelCode: `#${id}`, modelName: `未知模型#${id}`, modelType: '', _missing: true } as PoolModel));
+      .map((id) => byId.get(id) as PoolModel | undefined)
+      .filter((model): model is PoolModel => Boolean(model));
     setSelectedModels(hydrated);
     setModelBindings(data.modelBindings || []);
     setDlgTitle('修改功能配置');
@@ -159,14 +159,15 @@ export default function FuncconfigPage() {
     { title: '生成模式', dataIndex: 'generateMode', width: 130,
       render: (v: string) => v ? <Tag color="cyan" style={{ borderRadius: 6 }}>{getLabelByValue(GENERATE_MODE_OPTIONS, v, '--')}</Tag> : <span style={{ color: '#94a3b8' }}>--</span> },
     { title: '可选模型', key: 'models', render: (_: any, r: any) => {
-      const ids: number[] = r._parsedIds || [];
+      const existingIds = new Set(modelPool.map((model) => model.id));
+      const ids: number[] = (r._parsedIds || []).filter((id: number) => existingIds.has(id));
       if (!ids.length) return <span style={{ color: '#94a3b8' }}>--</span>;
       return <Space wrap size={[4, 6]}>{ids.map((id, idx) => {
         const m = modelPool.find((x) => x.id === id);
         const req = m?.inputRequirement;
-        // 已删除标红、已停用置灰，正常模型保持原有蓝色，保证池内引用状态一目了然
+        // 已删除模型由服务端和升级 SQL 清理；已停用模型继续置灰保留关系。
         const disabled = m?.status === '1';
-        const color = !m ? 'error' : disabled ? 'default' : 'geekblue';
+        const color = disabled ? 'default' : 'geekblue';
         return (
           <Tag key={idx} color={color} style={{ borderRadius: 6, margin: 0 }}>
             {resolveModelName(id)}

@@ -16,8 +16,13 @@ import (
 	"time"
 )
 
-// trustedPublicKey 由发布构建通过 -ldflags 注入，值为 Ed25519 公钥的 Base64。
-var trustedPublicKey string
+// officialManifestPublicKey 是 AID 官方发布清单的 Ed25519 验签公钥。
+// 公钥不是凭证；在源码中保留安全默认值，可确保源码构建、发行构建或第三方
+// 重新编译遗漏 -ldflags 时仍能验证官方清单。发布构建仍可通过 -ldflags 覆盖，
+// 以支持使用自有签名体系的可信发行方。
+const officialManifestPublicKey = "9Ez/VMofgjCU0CNmE6Jq8LKLNyfDQqbbvNTTGV5BYrk="
+
+var trustedPublicKey = officialManifestPublicKey
 
 // maxManifestBytes 清单大小上限，防异常源。
 const maxManifestBytes = 256 * 1024

@@ -8,6 +8,19 @@ import (
 	"testing"
 )
 
+func TestOfficialManifestPublicKeyIsEmbeddedAndValid(t *testing.T) {
+	if trustedPublicKey != officialManifestPublicKey {
+		t.Fatalf("unexpected default manifest public key")
+	}
+	decoded, err := base64.StdEncoding.DecodeString(officialManifestPublicKey)
+	if err != nil {
+		t.Fatalf("official manifest public key is not valid Base64: %v", err)
+	}
+	if len(decoded) != ed25519.PublicKeySize {
+		t.Fatalf("official manifest public key length = %d, want %d", len(decoded), ed25519.PublicKeySize)
+	}
+}
+
 func TestSecureURL(t *testing.T) {
 	for _, raw := range []string{"http://example.com/latest.json", "https://user:pass@example.com/latest.json", "https:///latest.json"} {
 		if isSecureURL(raw) {

@@ -93,6 +93,18 @@ fi
 printf 'jar\n' > "${DATA_ROOT}/app/aid-admin.jar"
 deployment_artifacts_ready
 
+# 旧脚本曾先替换 build-info 再执行 SQL。产物显示目标版本、但最后成功版本仍
+# 停在旧版时，必须识别为未完成升级，不能走“当前已是最新版”的快速返回。
+version_switch_incomplete 2.1.1 2.1.1 2.1.0
+if version_switch_incomplete 2.1.1 2.1.1 2.1.1; then
+  echo 'FAIL: completed version switch was reported as incomplete' >&2
+  exit 1
+fi
+if version_switch_incomplete 2.1.1 2.1.1 unknown; then
+  echo 'FAIL: unknown legacy state must not be treated as conclusive mismatch' >&2
+  exit 1
+fi
+
 # install/update 命中同一版本但服务不健康时，必须进入 do_restart 的完整前置
 # 检查与分阶段启动，不能打印“最新版”后直接退出。
 require_root() { :; }

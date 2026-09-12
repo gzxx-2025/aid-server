@@ -20,8 +20,6 @@ export interface PoolModel {
   inputRequirement?: string;
   providerId?: number;
   status?: string;
-  /** 池内引用的模型已被删除（占位行，仅用于保留历史配置） */
-  _missing?: boolean;
   [key: string]: any;
 }
 
@@ -52,8 +50,7 @@ const EMPTY_FILTER: PoolFilter = {
 function ModelTags({ m, providerName }: { m: PoolModel; providerName?: string }) {
   return (
     <Space size={4} wrap>
-      {m._missing && <Tag style={{ borderRadius: 6, margin: 0 }} color="error">已删除</Tag>}
-      {!m._missing && m.status === '1' && <Tag style={{ borderRadius: 6, margin: 0 }} color="default">已停用</Tag>}
+      {m.status === '1' && <Tag style={{ borderRadius: 6, margin: 0 }} color="default">已停用</Tag>}
       {m.modelType && (
         <Tag style={{ borderRadius: 6, margin: 0 }} color={getAntdTagColor(MODEL_TYPE_OPTIONS, m.modelType)}>
           {getLabelByValue(MODEL_TYPE_OPTIONS, m.modelType)}

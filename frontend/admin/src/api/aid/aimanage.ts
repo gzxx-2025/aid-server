@@ -357,7 +357,16 @@ export interface ModelPoolBindingPool {
   generateMode?: string | null;
   status: string;
   configurationValid: boolean;
+  staleModelCount: number;
   modelIds: number[];
+}
+
+export interface ModelPoolCapability {
+  code: string;
+  label: string;
+  generateMode: string;
+  enabled: boolean;
+  defaultCapability: boolean;
 }
 
 export interface ModelPoolBindingModel {
@@ -368,6 +377,14 @@ export interface ModelPoolBindingModel {
   generateMode?: string | null;
   status: string;
   poolIds: number[];
+  capabilities: ModelPoolCapability[];
+}
+
+export interface ModelPoolCapabilitySelection {
+  modelId: number;
+  poolId: number;
+  capabilityCodes: string[];
+  defaultCapabilityCode: string;
 }
 
 export interface ModelPoolBindingSnapshot {
@@ -410,20 +427,35 @@ export function getModelPoolBindings(modelIds: number[] = []) {
   }));
 }
 
-function changeModelPoolBindings(operation: 'bind' | 'unbind', modelIds: number[], poolIds: number[]) {
+function changeModelPoolBindings(
+  operation: 'bind' | 'unbind',
+  modelIds: number[],
+  poolIds: number[],
+  capabilitySelections: ModelPoolCapabilitySelection[] = []
+) {
   const normalizedModels = normalizeRequestIds(modelIds);
   const normalizedPools = normalizeRequestIds(poolIds);
-  const key = `${operation}:${normalizedModels.join(',')}:${normalizedPools.join(',')}`;
+  const normalizedSelections = [...capabilitySelections]
+    .map((selection) => ({
+      ...selection,
+      capabilityCodes: [...new Set(selection.capabilityCodes)].sort()
+    }))
+    .sort((a, b) => a.poolId - b.poolId || a.modelId - b.modelId);
+  const key = `${operation}:${normalizedModels.join(',')}:${normalizedPools.join(',')}:${JSON.stringify(normalizedSelections)}`;
   return mergePoolBindingRequest(key, () => request<ModelPoolBindingChangeResult>({
     url: `/aid/aidmodel/pool-bindings/${operation}`,
     method: 'post',
-    data: { modelIds: normalizedModels, poolIds: normalizedPools }
+    data: { modelIds: normalizedModels, poolIds: normalizedPools, capabilitySelections: normalizedSelections }
   }));
 }
 
 /** 批量绑定模型池；重复关系由服务端幂等保留。 */
-export function bindModelsToPools(modelIds: number[], poolIds: number[]) {
-  return changeModelPoolBindings('bind', modelIds, poolIds);
+export function bindModelsToPools(
+  modelIds: number[],
+  poolIds: number[],
+  capabilitySelections: ModelPoolCapabilitySelection[] = []
+) {
+  return changeModelPoolBindings('bind', modelIds, poolIds, capabilitySelections);
 }
 
 /** 批量移出模型池；重复关系由服务端幂等忽略。 */

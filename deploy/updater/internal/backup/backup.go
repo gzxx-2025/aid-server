@@ -32,6 +32,8 @@ type Snapshot struct {
 	HasWebDist   bool `json:"hasWebDist"`
 	// DBDumpFile 数据库备份文件（未启用数据库配置时为空）
 	DBDumpFile string `json:"dbDumpFile,omitempty"`
+	// DBSchemaFingerprint 用于确认失败恢复后没有残留迁移新建对象或字段。
+	DBSchemaFingerprint string `json:"dbSchemaFingerprint,omitempty"`
 }
 
 // RestoreDatabase 将快照中的数据库备份恢复到当前数据库。
@@ -42,8 +44,17 @@ func RestoreDatabase(cfg *config.Config, s *Snapshot) error {
 	if !cfg.Database.Enabled {
 		return fmt.Errorf("数据库恢复配置未启用")
 	}
-	if err := dbexec.Restore(cfg.Database, s.DBDumpFile); err != nil {
+	if err := dbexec.RestoreClean(cfg.Database, s.DBDumpFile); err != nil {
 		return err
+	}
+	if s.DBSchemaFingerprint != "" {
+		actual, err := dbexec.SchemaFingerprint(cfg.Database)
+		if err != nil {
+			return err
+		}
+		if actual != s.DBSchemaFingerprint {
+			return fmt.Errorf("数据库恢复后结构指纹不一致")
+		}
 	}
 	return nil
 }
@@ -96,11 +107,16 @@ func Create(cfg *config.Config, tag string) (snapshot *Snapshot, err error) {
 		snapshot.HasWebDist = true
 	}
 	if cfg.Database.Enabled {
+		fingerprint, err := dbexec.SchemaFingerprint(cfg.Database)
+		if err != nil {
+			return nil, fmt.Errorf("读取数据库结构失败: %w", err)
+		}
 		dumpFile := filepath.Join(dir, "database.sql")
 		if err := dbexec.Dump(cfg.Database, dumpFile); err != nil {
 			return nil, fmt.Errorf("备份数据库失败: %w", err)
 		}
 		snapshot.DBDumpFile = dumpFile
+		snapshot.DBSchemaFingerprint = fingerprint
 	}
 	// 本次备份完整落盘后才清理过期备份：备份中途失败不能折损既有备份存量
 	pruneOldBackups(backupRoot, cfg.KeepBackups)

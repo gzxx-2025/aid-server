@@ -166,6 +166,22 @@ func (r *Runner) runApply(ctx context.Context, t *Task, isRollback bool) error {
 	if err := r.closeCancellationWindow(ctx, t); err != nil {
 		return err
 	}
+	databaseChangePlanned := r.cfg.Database.Enabled && ((!isRollback && hasSQLScripts(sqlDir)) || (isRollback && rollbackScript != ""))
+	backendStopped := false
+	if databaseChangePlanned {
+		r.reportProgress(t, 60, "进入维护", "正在停止后端写入并准备一致性数据库快照")
+		if err := sysctl.StopService(r.cfg.Install.ServiceManager, r.cfg.Install.BackendService); err != nil {
+			return fmt.Errorf("进入数据库维护状态失败: %w", err)
+		}
+		backendStopped = true
+		// 迁移历史必须在备份前创建，使结构、数据和执行记录进入同一快照。
+		if err := dbexec.EnsureHistoryTable(r.cfg.Database); err != nil {
+			if startErr := startBackend(r.cfg); startErr != nil {
+				return fmt.Errorf("准备数据库迁移历史失败(%v)，恢复服务也失败(%v)", err, startErr)
+			}
+			return fmt.Errorf("准备数据库迁移历史失败: %w", err)
+		}
+	}
 
 	// 4. 备份（含可选数据库备份；数据库备份必须先于任何 SQL 变更）；
 	//    保留份数以后台「升级源配置」随任务下发的值优先，未下发时用本地配置
@@ -179,23 +195,36 @@ func (r *Runner) runApply(ctx context.Context, t *Task, isRollback bool) error {
 	r.reportProgress(t, 60, "创建备份", "正在备份三端产物、配置与数据库")
 	snapshot, err := backup.Create(r.cfg, fmt.Sprintf("%s-%s", tag, t.TargetVersion))
 	if err != nil {
+		if backendStopped {
+			if startErr := startBackend(r.cfg); startErr != nil {
+				return fmt.Errorf("备份失败(%v)，恢复原服务也失败(%v)", err, startErr)
+			}
+		}
 		return fmt.Errorf("备份失败，已中止: %w", err)
 	}
 	log.Printf("备份完成: %s", snapshot.Dir)
 	recoveryPath, err := r.createRecovery(t, snapshot)
 	if err != nil {
+		if backendStopped {
+			if startErr := startBackend(r.cfg); startErr != nil {
+				return fmt.Errorf("创建恢复记录失败(%v)，恢复原服务也失败(%v)", err, startErr)
+			}
+		}
 		return err
 	}
 	databaseDirty := false
 	r.reportProgress(t, 67, "创建备份", "升级前完整备份已创建")
 
-	// 5. 升级的增量 SQL 在停服前执行（发布规范要求增量只做加法、与旧版本代码兼容），
-	//    把停机窗口压缩到「替换文件 + 启动」；此时失败服务仍在运行，直接中止零影响。
-	//    执行记录表（aid_schema_history）保证重试与跨版本包携带旧脚本时不会重复执行。
+	// 5. 升级的增量 SQL 在停止业务写入后执行。执行记录表和业务结构已经一起
+	//    进入升级前快照，失败时先清空当前 schema 再完整恢复，不会遗留新表或假 SUCCESS。
 	if !isRollback && r.cfg.Database.Enabled && hasSQLScripts(sqlDir) {
 		r.reportProgress(t, 70, "升级数据库", "正在执行未应用的增量 SQL")
 		if err := markDatabaseDirty(recoveryPath); err != nil {
-			return fmt.Errorf("更新恢复记录失败: %w", err)
+			_ = os.Remove(recoveryPath)
+			if startErr := startBackend(r.cfg); startErr != nil {
+				return fmt.Errorf("更新恢复记录失败(%v)，恢复原服务也失败(%v)", err, startErr)
+			}
+			return fmt.Errorf("更新恢复记录失败，数据库迁移未开始: %w", err)
 		}
 		databaseDirty = true
 		count, err := dbexec.ExecuteDir(r.cfg.Database, sqlDir)
@@ -220,9 +249,12 @@ func (r *Runner) runApply(ctx context.Context, t *Task, isRollback bool) error {
 	}
 	r.reportProgress(t, 75, "准备切换", "数据库检查完成，准备切换程序版本")
 
-	// 6. 停服并替换产物；此后任何失败都走自动回滚
-	if err := sysctl.StopService(r.cfg.Install.ServiceManager, r.cfg.Install.BackendService); err != nil {
-		return r.restoreAndReport(t, snapshot, fmt.Errorf("停止服务失败: %w", err), recoveryPath, databaseDirty)
+	// 6. 停服并替换产物；数据库升级已进入维护状态时无需重复停止。
+	if !backendStopped {
+		if err := sysctl.StopService(r.cfg.Install.ServiceManager, r.cfg.Install.BackendService); err != nil {
+			return r.restoreAndReport(t, snapshot, fmt.Errorf("停止服务失败: %w", err), recoveryPath, databaseDirty)
+		}
+		backendStopped = true
 	}
 	r.reportProgress(t, 79, "切换版本", "后端已停止，正在原子替换三端产物")
 	if err := r.replaceArtifacts(packageRoot, newJar); err != nil {
@@ -255,14 +287,8 @@ func (r *Runner) runApply(ctx context.Context, t *Task, isRollback bool) error {
 	}
 	r.reportProgress(t, 92, "健康检查", "新版本后端健康检查通过")
 
-	// 8. 重启附属服务使新产物生效：Docker 静态 Web 容器、网关 Nginx 等
-	//    核心服务已健康后先提交恢复记录，避免清理失败导致下次启动误回滚。
-	if err := markRecoveryCompleted(recoveryPath); err != nil {
-		if stopErr := sysctl.StopService(r.cfg.Install.ServiceManager, r.cfg.Install.BackendService); stopErr != nil {
-			log.Printf("提交恢复记录失败后停止服务失败: %v", stopErr)
-		}
-		return r.restoreAndReport(t, snapshot, fmt.Errorf("提交升级完成状态失败: %w", err), recoveryPath, databaseDirty)
-	}
+	// 8. 刷新部署资产并重启附属服务。只有数据库、核心产物、部署模板和所有健康
+	//    检查都完成后，才能提交完成状态并删除恢复记录。
 	r.reportProgress(t, 96, "刷新部署", "正在刷新部署脚本并重启 Web 与网关服务")
 	deploymentAssetsRefreshed, refreshErr := r.refreshDeploymentAssets(packageRoot)
 	var auxErr error
@@ -279,11 +305,17 @@ func (r *Runner) runApply(ctx context.Context, t *Task, isRollback bool) error {
 	} else {
 		auxErr = restartAuxServices(r.cfg)
 	}
+	if auxErr != nil {
+		return r.restoreAndReport(t, snapshot, auxErr, recoveryPath, databaseDirty)
+	}
+	if err := markRecoveryCompleted(recoveryPath); err != nil {
+		if stopErr := sysctl.StopService(r.cfg.Install.ServiceManager, r.cfg.Install.BackendService); stopErr != nil {
+			log.Printf("提交恢复记录失败后停止服务失败: %v", stopErr)
+		}
+		return r.restoreAndReport(t, snapshot, fmt.Errorf("提交升级完成状态失败: %w", err), recoveryPath, databaseDirty)
+	}
 	if err := os.Remove(recoveryPath); err != nil && !os.IsNotExist(err) {
 		log.Printf("清理已完成任务的恢复记录失败: %v", err)
-	}
-	if auxErr != nil {
-		return auxErr
 	}
 	return nil
 }
@@ -525,7 +557,9 @@ func (r *Runner) refreshDeploymentAssets(packageRoot string) (bool, error) {
 	if config.SupportsManagedNginx(filepath.Join(sourceDir, "aid.sh")) || dirExists(filepath.Join(sourceDir, "nginx")) {
 		for _, name := range []string{"render.sh", "bootstrap.sh", "docker-start.sh", "public.conf.template", "admin.conf.template"} {
 			info, err := os.Lstat(filepath.Join(sourceDir, "nginx", name))
-			if err != nil || !info.Mode().IsRegular() { return false, fmt.Errorf("升级包缺少有效Nginx模板: %s", name) }
+			if err != nil || !info.Mode().IsRegular() {
+				return false, fmt.Errorf("升级包缺少有效Nginx模板: %s", name)
+			}
 		}
 	}
 	if err := os.MkdirAll(targetDir, 0o700); err != nil {

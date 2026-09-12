@@ -19,4 +19,5 @@ public class ModelPoolBindingModelVO
     private String generateMode;
     private String status;
     private List<Long> poolIds;
+    private List<ModelPoolCapabilityVO> capabilities;
 }

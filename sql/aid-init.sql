@@ -1876,6 +1876,58 @@ CREATE TABLE `aid_gen_record`  (
 -- ----------------------------
 
 -- ----------------------------
+-- Table structure for aid_image_moderation_log
+-- ----------------------------
+DROP TABLE IF EXISTS `aid_image_moderation_log`;
+CREATE TABLE `aid_image_moderation_log`  (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+  `user_id` bigint(20) NULL DEFAULT NULL COMMENT '上传用户ID',
+  `biz_source` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '业务来源(如storyboard_upload/common_upload)',
+  `file_url` varchar(1024) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '被审图片URL',
+  `file_md5` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT 'IMS 回传 FileMD5',
+  `suggestion` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT 'IMS 建议(Pass/Review/Block)',
+  `label` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '命中标签',
+  `sub_label` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '命中子标签',
+  `score` int(11) NULL DEFAULT NULL COMMENT '命中分值',
+  `status` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '决策状态(PASS/BLOCK/REVIEW/ERROR)',
+  `request_id` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT 'IMS RequestId',
+  `error_message` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT 'ERROR 时的错误信息',
+  `elapsed_ms` bigint(20) NULL DEFAULT NULL COMMENT '审查耗时(毫秒)',
+  `create_by` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT '' COMMENT '创建者',
+  `create_time` datetime NULL DEFAULT NULL COMMENT '创建时间',
+  `update_by` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT '' COMMENT '更新者',
+  `update_time` datetime NULL DEFAULT NULL COMMENT '更新时间',
+  `remark` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '备注',
+  PRIMARY KEY (`id`) USING BTREE,
+  INDEX `idx_user_time`(`user_id`, `create_time`) USING BTREE,
+  INDEX `idx_status_time`(`status`, `create_time`) USING BTREE,
+  INDEX `idx_md5`(`file_md5`) USING BTREE
+) ENGINE = InnoDB AUTO_INCREMENT = 1 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '图片内容安全审查日志' ROW_FORMAT = Dynamic;
+
+-- ----------------------------
+-- Records of aid_image_moderation_log
+-- ----------------------------
+
+-- ----------------------------
+-- Table structure for aid_schema_history
+-- ----------------------------
+DROP TABLE IF EXISTS `aid_schema_history`;
+CREATE TABLE `aid_schema_history`  (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT COMMENT '主键',
+  `script_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '脚本文件名',
+  `checksum` char(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '脚本内容SHA256',
+  `status` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '执行状态 SUCCESS/FAILED',
+  `error_message` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '失败原因',
+  `executed_at` datetime NOT NULL COMMENT '执行时间',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE INDEX `uk_script_name`(`script_name`) USING BTREE
+) ENGINE = InnoDB AUTO_INCREMENT = 1 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '数据库升级脚本执行记录（升级器维护）' ROW_FORMAT = Dynamic;
+
+-- ----------------------------
+-- Records of aid_schema_history
+-- ----------------------------
+
+-- ----------------------------
 -- Table structure for aid_invite_code
 -- ----------------------------
 DROP TABLE IF EXISTS `aid_invite_code`;

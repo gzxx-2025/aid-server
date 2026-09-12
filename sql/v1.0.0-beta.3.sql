@@ -5,6 +5,46 @@
 -- DDL 在 MySQL 中会隐式提交，因此放在业务数据事务之前执行。
 SET @schema_name = DATABASE();
 
+-- 兼容早期部署：部分历史库的 aid_episode_editor 早于待审成片能力创建，
+-- 不能假定它与后续 aid-init.sql 的完整表结构一致。先补齐本脚本后续 DDL、
+-- 数据回填和新版程序共同依赖的基础列；不使用 ADD COLUMN IF NOT EXISTS，
+-- 保持 MySQL 5.7 兼容。
+SELECT COUNT(*) INTO @final_video_url_exists
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = @schema_name
+  AND TABLE_NAME = 'aid_episode_editor'
+  AND COLUMN_NAME = 'final_video_url';
+SET @ddl = IF(@final_video_url_exists = 0,
+    'ALTER TABLE aid_episode_editor ADD COLUMN final_video_url varchar(1000) NULL COMMENT ''成片OSS地址(导出成功后回填)''',
+    'SELECT 1');
+PREPARE ddl_stmt FROM @ddl;
+EXECUTE ddl_stmt;
+DEALLOCATE PREPARE ddl_stmt;
+
+SELECT COUNT(*) INTO @pending_video_url_exists
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = @schema_name
+  AND TABLE_NAME = 'aid_episode_editor'
+  AND COLUMN_NAME = 'pending_video_url';
+SET @ddl = IF(@pending_video_url_exists = 0,
+    'ALTER TABLE aid_episode_editor ADD COLUMN pending_video_url varchar(1000) NULL COMMENT ''待审核成片地址(过审后转正到final_video_url)''',
+    'SELECT 1');
+PREPARE ddl_stmt FROM @ddl;
+EXECUTE ddl_stmt;
+DEALLOCATE PREPARE ddl_stmt;
+
+SELECT COUNT(*) INTO @export_fingerprint_exists
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = @schema_name
+  AND TABLE_NAME = 'aid_episode_editor'
+  AND COLUMN_NAME = 'export_fingerprint';
+SET @ddl = IF(@export_fingerprint_exists = 0,
+    'ALTER TABLE aid_episode_editor ADD COLUMN export_fingerprint varchar(64) NULL COMMENT ''最近一次导出的素材指纹(SHA-256)''',
+    'SELECT 1');
+PREPARE ddl_stmt FROM @ddl;
+EXECUTE ddl_stmt;
+DEALLOCATE PREPARE ddl_stmt;
+
 SELECT COUNT(*) INTO @final_fingerprint_exists
 FROM information_schema.COLUMNS
 WHERE TABLE_SCHEMA = @schema_name

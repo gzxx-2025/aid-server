@@ -1,6 +1,7 @@
 package dbexec
 
 import (
+	"sort"
 	"strings"
 	"testing"
 
@@ -31,5 +32,45 @@ func TestBuildDBCommandPrefersInternalContainer(t *testing.T) {
 	joined := strings.Join(cmd.Args, " ")
 	if !strings.Contains(joined, "docker exec -i -e MYSQL_PWD aid-mysql mysqldump aid") {
 		t.Fatalf("unexpected internal database command: %s", joined)
+	}
+}
+
+func TestMigrationScriptOrderFollowsReleaseSemver(t *testing.T) {
+	scripts := []string{
+		"v2.1.0.sql",
+		"v1.0.0.sql",
+		"v1.0.0-rc.2.sql",
+		"v1.0.0-beta.10.sql",
+		"v1.0.1.sql",
+		"v1.0.0-beta.2.sql",
+	}
+	sort.SliceStable(scripts, func(i, j int) bool {
+		return migrationScriptLess(scripts[i], scripts[j])
+	})
+	want := []string{
+		"v1.0.0-beta.2.sql",
+		"v1.0.0-beta.10.sql",
+		"v1.0.0-rc.2.sql",
+		"v1.0.0.sql",
+		"v1.0.1.sql",
+		"v2.1.0.sql",
+	}
+	for index := range want {
+		if scripts[index] != want[index] {
+			t.Fatalf("unexpected migration order at %d: got %q want %q (all=%v)", index, scripts[index], want[index], scripts)
+		}
+	}
+}
+
+func TestMigrationScriptOrderKeepsLegacyNamesAfterVersionedScripts(t *testing.T) {
+	scripts := []string{"custom.sql", "v1.0.0.sql", "v1.0.0-beta.1.sql"}
+	sort.SliceStable(scripts, func(i, j int) bool {
+		return migrationScriptLess(scripts[i], scripts[j])
+	})
+	want := []string{"v1.0.0-beta.1.sql", "v1.0.0.sql", "custom.sql"}
+	for index := range want {
+		if scripts[index] != want[index] {
+			t.Fatalf("unexpected migration order: got %v want %v", scripts, want)
+		}
 	}
 }

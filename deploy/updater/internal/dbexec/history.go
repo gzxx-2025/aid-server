@@ -64,6 +64,12 @@ func ensureHistoryTable(db config.Database) error {
 	return nil
 }
 
+// EnsureHistoryTable 在升级快照创建前确保迁移历史表存在，使历史记录与业务结构
+// 一起进入同一数据库备份，并在失败恢复时保持一致。
+func EnsureHistoryTable(db config.Database) error {
+	return ensureHistoryTable(db)
+}
+
 // loadHistory 读取全部执行记录，key 为脚本文件名。
 func loadHistory(db config.Database) (map[string]scriptRecord, error) {
 	output, err := runQuery(db, "SELECT script_name, checksum, status FROM aid_schema_history")

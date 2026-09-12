@@ -3,7 +3,7 @@ import { Modal, message } from 'antd';
 import {
   listProvider, getProvider, addProvider, updateProvider, updateProviderStatus, delProvider,
   listModel, getModel, addModel, updateModel, getModelPoolBindings, bindModelsToPools, unbindModelsFromPools,
-  type ModelPoolBindingSnapshot
+  type ModelPoolBindingSnapshot, type ModelPoolCapabilitySelection
 } from '@/api/aid/aimanage';
 import {
   getModelRetirementImpact,
@@ -237,7 +237,7 @@ export default function AimanagePage() {
     setPoolBindingMode(mode);
   };
 
-  const handlePoolBindingSubmit = (poolIds: number[]) => {
+  const handlePoolBindingSubmit = (poolIds: number[], capabilitySelections: ModelPoolCapabilitySelection[]) => {
     if (!poolBindingMode || poolBindingSubmitRef.current) return poolBindingSubmitRef.current || Promise.resolve();
     const operation = poolBindingMode;
     const task = (async () => {
@@ -246,7 +246,7 @@ export default function AimanagePage() {
         const pendingLoad = providerLoadRef.current;
         if (pendingLoad) await pendingLoad;
         const response: any = operation === 'bind'
-          ? await bindModelsToPools(selectedModelIds, poolIds)
+          ? await bindModelsToPools(selectedModelIds, poolIds, capabilitySelections)
           : await unbindModelsFromPools(selectedModelIds, poolIds);
         const result = response.data;
         if (result?.snapshot) setPoolSnapshot(result.snapshot);
@@ -386,7 +386,7 @@ export default function AimanagePage() {
         snapshot={poolSnapshot}
         submitting={poolBindingSubmitting}
         onCancel={() => setPoolBindingMode(null)}
-        onSubmit={(poolIds) => { void handlePoolBindingSubmit(poolIds); }}
+        onSubmit={(poolIds, capabilitySelections) => { void handlePoolBindingSubmit(poolIds, capabilitySelections); }}
       />
       <ProviderDialog
         open={providerDlg.open}
