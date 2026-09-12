@@ -47,6 +47,14 @@ public final class TextModelCapabilityValidator {
 
     private static void validateProtocolFeatures(JsonNode capability, MediaTextGenerateRequest request) {
         if (request == null) return;
+        if (request.getMessages() != null) for (int index = 0; index < request.getMessages().size(); index++) {
+            var message = request.getMessages().get(index);
+            if (message == null || !Boolean.TRUE.equals(message.getPrefix())) continue;
+            if (!bool(capability, "supportsChatPrefix") || !"assistant".equals(message.getRole())
+                    || index != request.getMessages().size() - 1 || StrUtil.isNotBlank(request.getPrompt())) {
+                throw reject(TaskErrorCode.USER_INPUT_INVALID, "对话前缀不支持");
+            }
+        }
         if (Boolean.TRUE.equals(request.getStream()) && explicitlyFalse(capability, "supportsStreaming")) {
             throw reject(TaskErrorCode.USER_INPUT_INVALID, "模型不支持流式输出");
         }

@@ -28,6 +28,10 @@ public class MediaTextGenerateRequest {
     @com.fasterxml.jackson.annotation.JsonIgnore
     private String invocationIdentity;
 
+    /** 已解析模型的单图 Token 保守估值，仅用于服务端本次报价。 */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private Integer inputImageTokenEstimate;
+
     /** 内部编排已锁定模型时禁止回退到其他模型。 */
     @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     private boolean strictModelSelection;
@@ -118,6 +122,9 @@ public class MediaTextGenerateRequest {
          * 角色：如 system、user、assistant。
          */
         private String role;
+
+        /** 对话前缀续写标记；仅声明支持的协议允许最后一条助手消息开启。 */
+        private Boolean prefix;
 
         /** 文本内容；与 parts 同时存在时作为第一个文本块。 */
         private String content;

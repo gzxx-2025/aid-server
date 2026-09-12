@@ -14,13 +14,20 @@ public final class TextToolResultSupport {
     private TextToolResultSupport() { }
 
     public static void capture(AidMediaTask task, TextMessageItem message) {
-        if (message == null || message.getToolCalls() == null || message.getToolCalls().isEmpty()) return;
+        if (message == null) return;
         try {
             var live = JSON.valueToTree(message);
-            if (live.toString().length() > 200_000) throw new ServiceException("工具上下文过长");
+            // 无函数调用的最终轮仍可携带下一轮必需的思考内容；只在当前响应内存中保留。
+            if (live.toString().length() > 4_000_000) throw new ServiceException("工具上下文过长");
+            if (message.getToolCalls() == null || message.getToolCalls().isEmpty()) {
+                if (message.getReasoningContent() != null)
+                    task.setLiveTextTurn(JSON.convertValue(live, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() { }));
+                return;
+            }
             var stored = (com.fasterxml.jackson.databind.node.ObjectNode) live.deepCopy();
             stored.remove(java.util.List.of("reasoningContent", "thinkingBlocks", "responseItems", "content", "parts"));
             String snapshot = JSON.createObjectNode().set(KEY, stored).toString();
+            if (snapshot.length() > 200_000) throw new ServiceException("工具结果过长");
             if (!snapshot.equals(MediaTaskPayloadSanitizer.sanitizeForStorage(snapshot))) throw new ServiceException("工具结果含内嵌文件");
             task.setLiveTextTurn(JSON.convertValue(live, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() { }));
             task.setResponseJson(snapshot);

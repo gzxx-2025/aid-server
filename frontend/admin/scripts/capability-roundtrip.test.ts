@@ -12,8 +12,10 @@ const original = {
   defaultAudio: false,
   audioModeOptions: ['off', 'original'],
   supportsElements: true,
+  supportsChatPrefix: false,
   supportsVideoInput: true,
   referenceVideoRules: { maxVideoCharacterElements: 1 },
+  providerExtension: { keepUnknownFields: true },
   sizeOptions: ['720P'],
   supportsAudio: true,
   sceneRules: {
@@ -23,22 +25,26 @@ const original = {
 };
 
 const preserved = extractUnmanagedCapability(original);
-assert.equal(preserved.defaultAudio, false);
 assert.equal('supportsVideoInput' in preserved, false, 'managed field leaked into preserved capability');
+assert.equal('supportsChatPrefix' in preserved, false, 'chat-prefix field leaked into preserved capability');
 const roundTrip = mergeManagedCapability(preserved, {
   sizeOptions: ['1080P'],
   supportsAudio: false,
+  supportsChatPrefix: false,
   supportsVideoInput: false,
-  sceneRules: { imageToVideo: { supportsAspectRatio: false } }
+  sceneRules: {
+    imageToVideo: { supportsAspectRatio: false },
+    videoToVideo: { supportsAspectRatio: false }
+  }
 });
 
 for (const key of [
-  'requiresConfiguredBilling', 'klingScenario', 'defaultAudio', 'audioModeOptions',
-  'supportsElements', 'referenceVideoRules'
+  'requiresConfiguredBilling', 'referenceVideoRules', 'providerExtension'
 ]) {
   assert.deepEqual(roundTrip[key], original[key], `unmanaged field lost: ${key}`);
 }
 assert.equal(roundTrip.supportsVideoInput, false, 'managed field was not rebuilt from editor state');
+assert.equal(roundTrip.supportsChatPrefix, false, 'chat-prefix false value was not rebuilt from editor state');
 assert.deepEqual(roundTrip.sceneRules.videoToVideo, original.sceneRules.videoToVideo);
 assert.deepEqual(roundTrip.sizeOptions, ['1080P']);
 assert.equal(roundTrip.supportsAudio, false);

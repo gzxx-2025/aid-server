@@ -38,6 +38,9 @@ public final class TextOutputLimitResolver {
         if (request == null) {
             return;
         }
+        request.setInputImageTokenEstimate(model != null
+                && "deepseek".equalsIgnoreCase(model.getProviderCode())
+                && TextReasoningOptionsResolver.isDeepSeekFlash(model) ? 1024 : null);
         int providerCap = resolveProviderCap(model, request.getOptions());
         int billingCeiling = billingCeiling(providerCap);
         String apiField = resolveRequestedApiField(model, request.getOptions());

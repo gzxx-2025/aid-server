@@ -20,6 +20,7 @@ import java.util.Set;
 public final class TokenDanceToolMessages {
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final int MAX_TURN_CHARS = 100_000;
+    public static final int DEEPSEEK_TURN_CHARS = 4_000_000;
     private TokenDanceToolMessages() { }
 
     public static boolean requested(MediaTextGenerateRequest request) {
@@ -29,12 +30,15 @@ public final class TokenDanceToolMessages {
                 && (!(options.get("tools") instanceof java.util.Collection<?> values) || !values.isEmpty())
                 || options.get("tool_choice") != null && !"none".equals(options.get("tool_choice")))) return true;
         return request.getMessages() != null && request.getMessages().stream().anyMatch(item -> item != null
-                && (hasCalls(item) || "tool".equalsIgnoreCase(string(item.getRole()).trim()) || item.getToolCallId() != null || item.getReasoningContent() != null
+                && (hasCalls(item) || "tool".equalsIgnoreCase(string(item.getRole()).trim()) || item.getToolCallId() != null
+                    || item.getReasoningContent() != null && !Boolean.TRUE.equals(item.getPrefix())
                     || item.getThinkingBlocks() != null || item.getResponseItems() != null));
     }
 
     public static boolean isToolTurn(AiModelConfigVo config, MediaTextGenerateRequest request) {
-        return config != null && config.getProtocol() != null && config.getProtocol().startsWith("tokendance:") && requested(request);
+        return config != null && config.getProtocol() != null
+                && (config.getProtocol().startsWith("tokendance:") || "deepseek:chat-completions".equals(config.getProtocol()))
+                && requested(request);
     }
 
     public static boolean hasCalls(TextMessageItem message) {
@@ -42,7 +46,18 @@ public final class TokenDanceToolMessages {
     }
 
     public static void validate(AiModelConfigVo config, MediaTextGenerateRequest request) {
+        validate(config, request, MAX_TURN_CHARS);
+    }
+
+    private static void validate(AiModelConfigVo config, MediaTextGenerateRequest request, int reasoningLimit) {
         if (!requested(request)) return;
+        if ("deepseek:chat-completions".equals(config.getProtocol())) {
+            AiModelConfigVo compatible = new AiModelConfigVo();
+            compatible.setCapabilityJson(config.getCapabilityJson());
+            compatible.setProtocol(TokenDanceProtocols.OPENAI_CHAT_COMPLETIONS);
+            validate(compatible, request, DEEPSEEK_TURN_CHARS);
+            return;
+        }
         if (!tree(config.getCapabilityJson()).path("supportsToolCalling").asBoolean(false))
             throw new ServiceException("模型不支持工具调用");
         if (!Set.of(TokenDanceProtocols.OPENAI_CHAT_COMPLETIONS, TokenDanceProtocols.OPENAI_RESPONSES,
@@ -62,7 +77,7 @@ public final class TokenDanceToolMessages {
                 JsonNode function = TokenDanceProtocols.OPENAI_CHAT_COMPLETIONS.equals(config.getProtocol()) ? value.path("function") : value;
                 String name = function.path("name").asText();
                 JsonNode schema = function.get(anthropic ? "input_schema" : "parameters");
-                if (!name.matches(anthropic ? "[A-Za-z0-9_-]{1,128}" : "[A-Za-z0-9_-]{1,64}") || !names.add(name)
+                if (!name.matches(anthropic || reasoningLimit == DEEPSEEK_TURN_CHARS ? "[A-Za-z0-9_-]{1,128}" : "[A-Za-z0-9_-]{1,64}") || !names.add(name)
                         || (schema == null ? anthropic : !schema.isObject())) throw new ServiceException("工具定义无效");
             }
         }
@@ -116,7 +131,7 @@ public final class TokenDanceToolMessages {
                     throw new ServiceException("思考消息协议不符");
                 for (TextThinkingBlock block : item.getThinkingBlocks()) thinking(block);
             }
-            if (string(item.getReasoningContent()).length() > MAX_TURN_CHARS) throw new ServiceException("思考上下文过长");
+            if (string(item.getReasoningContent()).length() > reasoningLimit) throw new ServiceException("思考上下文过长");
         }
         if (!pending.isEmpty()) throw new ServiceException("工具结果尚未补齐");
     }
@@ -204,14 +219,21 @@ public final class TokenDanceToolMessages {
     /** 每条流独立保存增量，只有完整终态后才将函数参数交给调用方。 */
     public static final class Accumulator {
         private final String protocol;
+        private final int characterLimit;
         private final Map<Integer, com.fasterxml.jackson.databind.node.ObjectNode> blocks = new LinkedHashMap<>();
         private final StringBuilder reasoning = new StringBuilder();
+        private final StringBuilder content = new StringBuilder();
         private JsonNode completed;
         private int chars;
-        public Accumulator(String protocol) { this.protocol = protocol; }
+        public Accumulator(String protocol) { this(protocol, MAX_TURN_CHARS); }
+        public Accumulator(String protocol, int characterLimit) {
+            this.protocol = protocol;
+            this.characterLimit = characterLimit;
+        }
         public void accept(JsonNode event) {
             if (TokenDanceProtocols.OPENAI_CHAT_COMPLETIONS.equals(protocol)) {
                 JsonNode delta = event.path("choices").path(0).path("delta");
+                if (characterLimit == DEEPSEEK_TURN_CHARS) append(content, delta.path("content").asText(""));
                 append(reasoning, delta.path("reasoning_content").asText(""));
                 for (JsonNode call : delta.path("tool_calls")) {
                     int index = call.path("index").asInt(-1);
@@ -262,6 +284,18 @@ public final class TokenDanceToolMessages {
             }
             return root == null ? null : sync(root, protocol);
         }
+
+        /** 思考工具协议在没有函数调用的轮次也需要回传完整助手上下文。 */
+        public TextMessageItem finishChatTurn() {
+            TextMessageItem message = finish();
+            if (message == null) {
+                message = new TextMessageItem();
+                message.setRole("assistant");
+                message.setReasoningContent(reasoning.toString());
+            }
+            message.setContent(content.toString());
+            return message;
+        }
         private void copy(com.fasterxml.jackson.databind.node.ObjectNode target, JsonNode source, String key) {
             if (source.hasNonNull(key)) {
                 String value = source.path(key).asText();
@@ -273,7 +307,7 @@ public final class TokenDanceToolMessages {
             count(value.length()); target.put(key, target.path(key).asText("") + value);
         }
         private void append(StringBuilder target, String value) { count(value.length()); target.append(value); }
-        private void count(int value) { chars += value; if (chars > MAX_TURN_CHARS) throw new ServiceException("工具上下文过长"); }
+        private void count(int value) { chars += value; if (chars > characterLimit) throw new ServiceException("工具上下文过长"); }
         private void requireIndex(int index) { if (index < 0 || index >= 128) throw new ServiceException("工具序号无效"); }
     }
 

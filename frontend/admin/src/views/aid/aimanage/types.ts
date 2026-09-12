@@ -190,6 +190,7 @@ export interface CapabilityModel {
   reasoningApiStyle?: string;
   supportsStreaming?: boolean;
   supportsToolCalling?: boolean;
+  supportsChatPrefix?: boolean;
   supportsStructuredOutput?: boolean;
   supportsContextCaching?: boolean;
   supportsBuiltinTools?: boolean;

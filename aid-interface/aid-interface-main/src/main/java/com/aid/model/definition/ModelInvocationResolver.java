@@ -53,8 +53,11 @@ public class ModelInvocationResolver {
             config.setInvocationBaseline(baseline);
         }
         String requested = nonblank(capabilityCode) ? capabilityCode : config.getCapabilityCode();
+        // 能力编码优先；同一生成模式可以包含对话、FIM 等多个独立能力。
+        boolean exactCapability = nonblank(requested) && all.stream()
+                .anyMatch(d -> Objects.equals(d.getCode(), requested));
         List<ModelCapabilityDefinition> candidates = all.stream().filter(d -> Boolean.TRUE.equals(d.getEnabled()))
-                .filter(d -> nonblank(requested) ? Objects.equals(d.getCode(), requested) || Objects.equals(d.getGenerateMode(), requested)
+                .filter(d -> nonblank(requested) ? Objects.equals(d.getCode(), requested) || (!exactCapability && Objects.equals(d.getGenerateMode(), requested))
                         : Boolean.TRUE.equals(d.getDefaultCapability())).toList();
         if (candidates.size() != 1) fail("模型能力不可用");
         ModelCapabilityDefinition definition = candidates.get(0);
@@ -121,7 +124,7 @@ public class ModelInvocationResolver {
         ModelParameterValidator.normalize(promptPending ? ModelParameterValidator.withDeferredPrompt(definition) : definition, parameters, true);
         // 只回写能力声明的参数，不允许配置修改用户身份或任务归属。
         for (var parameter : definition.getParameters() == null ? List.<ModelParameter>of() : definition.getParameters()) {
-            if (parameters.containsKey(parameter.getName())) BeanUtil.setProperty(request, parameter.getName(), parameters.get(parameter.getName()));
+            if (parameters.containsKey(parameter.getName())) writeParameter(request, parameter.getName(), parameters.get(parameter.getName()));
         }
         BeanUtil.setProperty(request, "capabilityCode", config.getCapabilityCode());
         BeanUtil.setProperty(request, "modelName", config.getModelCode());
@@ -136,13 +139,22 @@ public class ModelInvocationResolver {
         parameters.put("materials", ModelMaterialStatistics.fromVerifiedVideo(request));
         ModelParameterValidator.normalize(config.getResolvedDefinition(), parameters);
         for (var field : config.getResolvedDefinition().getParameters() == null ? List.<ModelParameter>of() : config.getResolvedDefinition().getParameters()) {
-            if (parameters.containsKey(field.getName())) BeanUtil.setProperty(request, field.getName(), parameters.get(field.getName()));
+            if (parameters.containsKey(field.getName())) writeParameter(request, field.getName(), parameters.get(field.getName()));
         }
     }
 
     public static void applyPresentation(Object target, Map<String, Object> presentation) {
         if (presentation == null) return;
         for (String field : PRESENTATION_FIELDS) if (presentation.containsKey(field)) BeanUtil.setProperty(target, field, presentation.get(field));
+    }
+
+    private static void writeParameter(Object request, String name, Object value) {
+        // BeanUtil 的路径赋值会直接保留 List<JSONObject>，不能恢复消息等嵌套 DTO 的泛型。
+        var field = cn.hutool.core.util.ReflectUtil.getField(request.getClass(), name);
+        if (field != null && (value instanceof Map<?, ?> || value instanceof List<?>)) {
+            value = JSON.parseObject(JSON.toJSONString(value), field.getGenericType());
+        }
+        BeanUtil.setProperty(request, name, value);
     }
 
     @SuppressWarnings("unchecked")

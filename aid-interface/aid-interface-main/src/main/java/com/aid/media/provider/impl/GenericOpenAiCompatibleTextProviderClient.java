@@ -53,14 +53,15 @@ public class GenericOpenAiCompatibleTextProviderClient implements TextProviderCl
             return;
         }
         String model = resolveEffectiveModel(modelConfig, request);
-        List<Map<String, Object>> messages = TextChatOpenAiPayloadBuilder.buildMessageMaps(modelConfig, request);
+        List<Map<String, Object>> messages = TextChatOpenAiPayloadBuilder.buildMessageMaps(modelConfig, request, supportsToolMessages());
         Map<String, Object> mergedOptions = OpenAiCompatiblePayloadResolver.mergeExtraBody(
                 modelConfig.getExtraBodyJson(), modelConfig.getModelExtraBodyJson(), request.getOptions());
         mergedOptions = TextReasoningOptionsResolver.resolveOpenAiCompatible(modelConfig, request, mergedOptions);
+        mergedOptions = normalizeProviderOptions(modelConfig, request, mergedOptions);
         // 结构化输出：模型声明支持且消息含 JSON 关键词时注入 response_format=json_object，避免格式错误
         mergedOptions = com.aid.media.provider.StructuredOutputSupport
                 .applyJsonModeIfSupported(modelConfig, messages, mergedOptions);
-        String body = com.aid.model.definition.ModelConfiguredRequestBody.applyJson(modelConfig, TextChatOpenAiPayloadBuilder.buildChatCompletionsJsonBody(model, messages, true, mergedOptions), request);
+        String body = com.aid.model.definition.ModelConfiguredRequestBody.applyJson(modelConfig, buildBody(model, messages, true, mergedOptions, request), request);
         Map<String, String> extraHeaders = OpenAiCompatiblePayloadResolver.parseExtraHeaders(
                 modelConfig.getExtraHeadersJson());
         log.info("OpenAI 兼容流式提交, providerCode={}, model={}, messagesSize={}, extraOptionsKeys={}",
@@ -68,7 +69,7 @@ public class GenericOpenAiCompatibleTextProviderClient implements TextProviderCl
                 mergedOptions == null ? 0 : mergedOptions.size());
         OpenAiStyleChatStream.postSseStream(url, apiKey,
                 modelConfig.getAuthHeader(), modelConfig.getAuthPrefix(), extraHeaders,
-                body, callbacks);
+                body, callbacks, supportsToolMessages() && com.aid.tokendance.provider.text.TokenDanceToolMessages.requested(request), supportsTextCompletions());
     }
 
     @Override
@@ -93,20 +94,40 @@ public class GenericOpenAiCompatibleTextProviderClient implements TextProviderCl
                     .build();
         }
         String model = resolveEffectiveModel(modelConfig, request);
-        List<Map<String, Object>> messages = TextChatOpenAiPayloadBuilder.buildMessageMaps(modelConfig, request);
+        List<Map<String, Object>> messages = TextChatOpenAiPayloadBuilder.buildMessageMaps(modelConfig, request, supportsToolMessages());
         Map<String, Object> mergedOptions = OpenAiCompatiblePayloadResolver.mergeExtraBody(
                 modelConfig.getExtraBodyJson(), modelConfig.getModelExtraBodyJson(), request.getOptions());
         mergedOptions = TextReasoningOptionsResolver.resolveOpenAiCompatible(modelConfig, request, mergedOptions);
+        mergedOptions = normalizeProviderOptions(modelConfig, request, mergedOptions);
         // 结构化输出：模型声明支持且消息含 JSON 关键词时注入 response_format=json_object，避免格式错误
         mergedOptions = com.aid.media.provider.StructuredOutputSupport
                 .applyJsonModeIfSupported(modelConfig, messages, mergedOptions);
-        String body = com.aid.model.definition.ModelConfiguredRequestBody.applyJson(modelConfig, TextChatOpenAiPayloadBuilder.buildChatCompletionsJsonBody(model, messages, false, mergedOptions), request);
+        String body = com.aid.model.definition.ModelConfiguredRequestBody.applyJson(modelConfig, buildBody(model, messages, false, mergedOptions, request), request);
         Map<String, String> extraHeaders = OpenAiCompatiblePayloadResolver.parseExtraHeaders(
                 modelConfig.getExtraHeadersJson());
         log.info("OpenAI 兼容非流式(NON_STREAM), providerCode={}, model={}, messagesSize={}",
                 modelConfig.getProviderCode(), model, messages.size());
         return OpenAiStyleChatStream.postJsonSync(url, apiKey,
-                modelConfig.getAuthHeader(), modelConfig.getAuthPrefix(), extraHeaders, body);
+                modelConfig.getAuthHeader(), modelConfig.getAuthPrefix(), extraHeaders, body,
+                supportsToolMessages() && com.aid.tokendance.provider.text.TokenDanceToolMessages.requested(request), supportsTextCompletions());
+    }
+
+    protected boolean supportsToolMessages() {
+        return false;
+    }
+
+    protected boolean supportsTextCompletions() {
+        return false;
+    }
+
+    protected String buildBody(String model, List<Map<String, Object>> messages, boolean stream,
+            Map<String, Object> options, MediaTextGenerateRequest request) {
+        return TextChatOpenAiPayloadBuilder.buildChatCompletionsJsonBody(model, messages, stream, options);
+    }
+
+    protected Map<String, Object> normalizeProviderOptions(AiModelConfigVo modelConfig,
+            MediaTextGenerateRequest request, Map<String, Object> options) {
+        return options;
     }
 
     @Override

@@ -878,9 +878,11 @@
 }
 
 .story-script-agent-panel__input-wrap {
+  position: relative;
   box-sizing: border-box;
   height: 122px;
   display: flex;
+  min-width: 0;
   flex-direction: column;
   border-radius: 16px;
   background: #262931;
@@ -1047,21 +1049,28 @@
   color: #8e97a5;
 }
 
-.story-script-agent-panel__input-wrap.composer-flow > .story-script-agent-panel__composer-tools {
+.story-script-agent-panel__input-wrap > .story-script-agent-panel__composer-tools {
   position: absolute;
   z-index: 3;
   right: 12px;
   bottom: 12px;
   left: 12px;
   display: flex;
+  min-width: 0;
   align-items: center;
-  justify-content: space-between;
+  flex-wrap: nowrap;
+}
+
+.story-script-agent-panel__composer-tools > .skill-picker-trigger {
+  flex: 0 0 auto;
 }
 
 .story-script-agent-panel__composer-actions {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: 8px;
+  margin-left: auto;
 }
 
 .story-script-agent-panel__send {

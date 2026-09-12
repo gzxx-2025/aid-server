@@ -27,7 +27,7 @@ const MANAGED_TOP_LEVEL_FIELDS = new Set([
   'supportsReasoning', 'supportsReasoningDisable', 'returnsReasoningContent',
   'supportsReasoningBudget', 'defaultReasoningEnabled', 'reasoningApiStyle',
   'outputTokenApiField', 'allowedReasoningLevels',
-  'supportsStreaming', 'supportsToolCalling', 'supportsStructuredOutput',
+  'supportsStreaming', 'supportsToolCalling', 'supportsChatPrefix', 'supportsStructuredOutput',
   'supportsContextCaching', 'supportsBuiltinTools',
   'defaultReasoningLevel', 'defaultReasoningBudgetTokens', 'maxReasoningBudgetTokens', 'inputModalities', 'outputModalities',
   'supportsTextInput', 'supportsImageInput', 'supportsVideoInput', 'supportsAudioInput', 'supportsDocumentInput',

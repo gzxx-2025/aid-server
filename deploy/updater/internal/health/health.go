@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -48,6 +49,7 @@ type LastTask struct {
 	Checks          map[string]CheckResult `json:"checks,omitempty"`
 	Cancellable     bool                   `json:"cancellable"`
 	CancelRequested bool                   `json:"cancelRequested"`
+	TargetVersion   string                 `json:"targetVersion,omitempty"`
 }
 
 // CheckResult 是部署配置分项诊断的脱敏结果。
@@ -101,13 +103,13 @@ func (r *Reporter) SetConfiguration(configuration *DeploymentConfiguration) {
 func NewReporter(filePath string, version string, serviceManager string) *Reporter {
 	return &Reporter{
 		filePath: filePath, version: version, serviceManager: serviceManager,
-		lastTask: loadPreviousTask(filePath),
+		lastTask: loadPreviousTask(filePath, version),
 	}
 }
 
 // loadPreviousTask 在升级器重启后保留最终任务结果。自升级会主动退出并由
 // systemd/Docker 拉起新进程，若直接清空 lastTask，页面会把刚完成的任务误判为未知。
-func loadPreviousTask(filePath string) *LastTask {
+func loadPreviousTask(filePath string, version string) *LastTask {
 	info, err := os.Stat(filePath)
 	if err != nil || !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > maxPreviousHealthBytes {
 		return nil
@@ -121,7 +123,51 @@ func loadPreviousTask(filePath string) *LastTask {
 		return nil
 	}
 	task := *previous.LastTask
+	// 自更新的文件替换不等于服务恢复：只由重新启动的进程确认实际版本。
+	if task.Action == "UPDATER_UPGRADE" {
+		target := task.TargetVersion
+		pending := task.State == TaskStateRunning && target != ""
+		if target == "" && task.State == TaskStateSuccess {
+			// 兼容旧升级器把重启提示存成最终成功消息的健康文件。
+			if _, tail, ok := strings.Cut(task.Message, " -> "); ok && strings.HasSuffix(tail, "，正在重启") {
+				target = strings.TrimSuffix(tail, "，正在重启")
+				pending = true
+			}
+		}
+		if pending {
+			task.UpdatedAt = time.Now().Format(timeLayout)
+			task.FinishedAt = task.UpdatedAt
+			task.Cancellable = false
+			if strings.TrimPrefix(version, "v") == strings.TrimPrefix(target, "v") {
+				task.State = TaskStateSuccess
+				task.Progress = 100
+				task.Phase = "升级成功"
+				task.Message = fmt.Sprintf("升级器已更新至 %s，重启完成", version)
+			} else {
+				task.State = TaskStateFailed
+				task.Phase = "版本核验失败"
+				task.Message = fmt.Sprintf("升级器重启后版本不符：预期 %s，实际 %s", target, version)
+			}
+		}
+	}
 	return &task
+}
+
+// SetRestartPending 保存自升级交接状态，等待新进程核验目标版本。
+func (r *Reporter) SetRestartPending(taskID, targetVersion string) {
+	r.mu.Lock()
+	if r.lastTask != nil && r.lastTask.TaskID == taskID && r.lastTask.Action == "UPDATER_UPGRADE" {
+		r.lastTask.State = TaskStateRunning
+		r.lastTask.TargetVersion = targetVersion
+		r.lastTask.Progress = 98
+		r.lastTask.Phase = "重启升级器"
+		r.lastTask.Message = fmt.Sprintf("新版本 %s 已就位，等待重启核验", targetVersion)
+		r.lastTask.UpdatedAt = time.Now().Format(timeLayout)
+		r.lastTask.FinishedAt = ""
+		r.lastTask.Cancellable = false
+	}
+	r.mu.Unlock()
+	r.write(StatusRunning)
 }
 
 // Start 启动心跳协程，ctx 结束时写入 STOPPED 状态。
@@ -250,6 +296,8 @@ func (r *Reporter) Flush(status string) {
 func (r *Reporter) write(status string) {
 	now := time.Now()
 	r.mu.Lock()
+	// 心跳与终态写入串行，避免旧快照覆盖重启交接结果或共享临时文件冲突。
+	defer r.mu.Unlock()
 	body := payload{
 		Status:           status,
 		Version:          r.version,
@@ -260,8 +308,6 @@ func (r *Reporter) write(status string) {
 		LastTask:         r.lastTask,
 		Configuration:    cloneConfiguration(r.configuration),
 	}
-	r.mu.Unlock()
-
 	raw, err := json.MarshalIndent(body, "", "  ")
 	if err != nil {
 		log.Printf("序列化健康文件失败: %v", err)

@@ -92,6 +92,7 @@ class AiModelBusinessServiceImplCapabilityTest {
                 null, null, null, billing, null, null);
         AidAiModel model = new AidAiModel();
         model.setModelType("text");
+        model.setLegacyAliases(List.of());
 
         AiModelVO historical = ReflectionTestUtils.invokeMethod(
                 modelService, "buildModelVo", model, "provider", null, BigDecimal.ONE);
@@ -102,6 +103,55 @@ class AiModelBusinessServiceImplCapabilityTest {
                 modelService, "buildModelVo", model, "provider", null, BigDecimal.ONE);
         assertEquals(Boolean.TRUE, free.getIsFree());
         assertEquals(BigDecimal.TEN, free.getCostCredits());
+    }
+
+    @Test
+    void projectedCapabilityReturnsOnlySupportedDefaults() {
+        AiModelVO model = new AiModelVO();
+        model.setModelType("video");
+        model.setDefaultSizeCode("1080P");
+        model.setDefaultAspectRatio("21:9");
+        model.setDefaultDurationSeconds(15);
+        CapabilityVO capability = new CapabilityVO();
+        capability.setSizeOptions(List.of("480P", "720P"));
+        capability.setDefaultSize("720p");
+        capability.setAspectRatioOptions(List.of("16:9", "9:16"));
+        capability.setDefaultAspectRatio("16:9");
+        capability.setDurationOptions(List.of(4, 5, 6));
+        capability.setDefaultDurationSeconds(5);
+        model.setCapability(capability);
+
+        ReflectionTestUtils.invokeMethod(service, "normalizeCapabilityForDisplay", model);
+
+        assertEquals("720P", model.getDefaultSizeCode());
+        assertEquals("720P", capability.getDefaultSize());
+        assertEquals("16:9", model.getDefaultAspectRatio());
+        assertEquals("16:9", capability.getDefaultAspectRatio());
+        assertEquals(5, model.getDefaultDurationSeconds());
+        assertEquals(5, capability.getDefaultDurationSeconds());
+    }
+
+    @Test
+    void projectedCapabilityFallsBackToFirstSupportedOption() {
+        AiModelVO model = new AiModelVO();
+        model.setModelType("video");
+        model.setDefaultSizeCode("1080P");
+        model.setDefaultAspectRatio("21:9");
+        model.setDefaultDurationSeconds(15);
+        CapabilityVO capability = new CapabilityVO();
+        capability.setSizeOptions(List.of("480P", "720P"));
+        capability.setDefaultSize("4K");
+        capability.setAspectRatioOptions(List.of("1:1", "16:9"));
+        capability.setDefaultAspectRatio("adaptive");
+        capability.setDurationOptions(List.of(-1, 4, 5));
+        capability.setDefaultDurationSeconds(30);
+        model.setCapability(capability);
+
+        ReflectionTestUtils.invokeMethod(service, "normalizeCapabilityForDisplay", model);
+
+        assertEquals("480P", model.getDefaultSizeCode());
+        assertEquals("1:1", model.getDefaultAspectRatio());
+        assertEquals(-1, model.getDefaultDurationSeconds());
     }
 
     private CapabilityVO parse(String json) {

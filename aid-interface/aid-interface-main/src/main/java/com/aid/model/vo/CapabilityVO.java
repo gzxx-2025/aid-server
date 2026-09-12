@@ -312,6 +312,7 @@ public class CapabilityVO implements Serializable
     /** 文本协议的通用运行能力；缺失表示沿用历史兼容行为，显式 false 才拒绝对应请求。 */
     private Boolean supportsStreaming;
     private Boolean supportsToolCalling;
+    private Boolean supportsChatPrefix;
     private Boolean supportsStructuredOutput;
     private Boolean supportsContextCaching;
     private Boolean supportsBuiltinTools;

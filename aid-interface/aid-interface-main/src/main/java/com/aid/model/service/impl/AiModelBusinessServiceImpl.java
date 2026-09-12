@@ -34,6 +34,7 @@ import com.aid.model.vo.AiModelFuncGroupVO;
 import com.aid.model.vo.AiModelVO;
 import com.aid.model.vo.CapabilityVO;
 import com.aid.media.provider.ReferenceImageLimiter;
+import com.aid.media.util.ModelCapabilityResolver;
 
 import cn.hutool.core.collection.CollectionUtil;
 import cn.hutool.core.util.StrUtil;
@@ -442,13 +443,33 @@ public class AiModelBusinessServiceImpl implements IAiModelBusinessService
         {
             cap.setAspectRatioOptions(new ArrayList<>());
         }
-        if (StrUtil.isBlank(cap.getDefaultSize()))
+        if (CollectionUtil.isEmpty(cap.getSizeOptions()))
         {
-            cap.setDefaultSize(vo.getDefaultSizeCode());
+            if (StrUtil.isBlank(cap.getDefaultSize()))
+            {
+                cap.setDefaultSize(vo.getDefaultSizeCode());
+            }
         }
-        if (StrUtil.isBlank(cap.getDefaultAspectRatio()))
+        else
         {
-            cap.setDefaultAspectRatio(vo.getDefaultAspectRatio());
+            String defaultSize = resolveSupportedOption(cap.getSizeOptions(),
+                    cap.getDefaultSize(), vo.getDefaultSizeCode());
+            cap.setDefaultSize(defaultSize);
+            vo.setDefaultSizeCode(defaultSize);
+        }
+        if (CollectionUtil.isEmpty(cap.getAspectRatioOptions()))
+        {
+            if (StrUtil.isBlank(cap.getDefaultAspectRatio()))
+            {
+                cap.setDefaultAspectRatio(vo.getDefaultAspectRatio());
+            }
+        }
+        else
+        {
+            String defaultAspectRatio = resolveSupportedOption(cap.getAspectRatioOptions(),
+                    cap.getDefaultAspectRatio(), vo.getDefaultAspectRatio());
+            cap.setDefaultAspectRatio(defaultAspectRatio);
+            vo.setDefaultAspectRatio(defaultAspectRatio);
         }
         // 参考图上下限与顶层口径对齐（顶层为归一化后的权威值）
         if (Objects.isNull(cap.getMaxReferenceImages()))
@@ -465,15 +486,22 @@ public class AiModelBusinessServiceImpl implements IAiModelBusinessService
             if (CollectionUtil.isEmpty(cap.getDurationOptions()))
             {
                 List<Integer> single = new ArrayList<>();
-                if (Objects.nonNull(vo.getDefaultDurationSeconds()))
+                Integer defaultDuration = Objects.nonNull(cap.getDefaultDurationSeconds())
+                        ? cap.getDefaultDurationSeconds() : vo.getDefaultDurationSeconds();
+                if (Objects.nonNull(defaultDuration))
                 {
-                    single.add(vo.getDefaultDurationSeconds());
+                    single.add(defaultDuration);
                 }
                 cap.setDurationOptions(single);
+                cap.setDefaultDurationSeconds(defaultDuration);
+                vo.setDefaultDurationSeconds(defaultDuration);
             }
-            if (Objects.isNull(cap.getDefaultDurationSeconds()))
+            else
             {
-                cap.setDefaultDurationSeconds(vo.getDefaultDurationSeconds());
+                Integer defaultDuration = resolveSupportedDuration(cap.getDurationOptions(),
+                        cap.getDefaultDurationSeconds(), vo.getDefaultDurationSeconds());
+                cap.setDefaultDurationSeconds(defaultDuration);
+                vo.setDefaultDurationSeconds(defaultDuration);
             }
             // 音画同出能力键必返：未配置一律视为不支持；支持时默认开启
             if (Objects.isNull(cap.getSupportsAudio()))
@@ -522,6 +550,36 @@ public class AiModelBusinessServiceImpl implements IAiModelBusinessService
                 cap.setAudioTypes(new ArrayList<>());
             }
         }
+    }
+
+    /** 选择当前业务能力实际支持的规范选项，能力默认优先，其次使用模型默认。 */
+    private String resolveSupportedOption(List<String> options, String capabilityDefault, String modelDefault)
+    {
+        String matched = ModelCapabilityResolver.matchOption(options, capabilityDefault);
+        if (StrUtil.isNotBlank(matched))
+        {
+            return matched;
+        }
+        matched = ModelCapabilityResolver.matchOption(options, modelDefault);
+        if (StrUtil.isNotBlank(matched))
+        {
+            return matched;
+        }
+        return options.stream().filter(StrUtil::isNotBlank).map(String::trim).findFirst().orElse(null);
+    }
+
+    /** 选择当前业务能力实际支持的时长默认值。 */
+    private Integer resolveSupportedDuration(List<Integer> options, Integer capabilityDefault, Integer modelDefault)
+    {
+        if (Objects.nonNull(capabilityDefault) && options.contains(capabilityDefault))
+        {
+            return capabilityDefault;
+        }
+        if (Objects.nonNull(modelDefault) && options.contains(modelDefault))
+        {
+            return modelDefault;
+        }
+        return options.stream().filter(Objects::nonNull).findFirst().orElse(null);
     }
 
     @Override

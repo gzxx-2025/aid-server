@@ -31,7 +31,7 @@ public final class TextTokenEstimator {
                 tokens = safeAdd(tokens, MESSAGE_FRAMING_TOKENS);
                 tokens = safeAdd(tokens, utf8Length(message.getRole()));
                 tokens = safeAdd(tokens, utf8Length(message.getContent()));
-                tokens = safeAdd(tokens, estimateMediaTokens(contextParts(message.getParts(), includeMedia)));
+                tokens = safeAdd(tokens, estimateMediaTokens(contextParts(message.getParts(), includeMedia), request.getInputImageTokenEstimate()));
             }
         }
         if (request.getPrompt() != null && !request.getPrompt().isBlank()) {
@@ -61,7 +61,7 @@ public final class TextTokenEstimator {
                 quarterTokens = safeAdd(quarterTokens, MESSAGE_FRAMING_TOKENS * 4L);
                 quarterTokens = safeAdd(quarterTokens, balancedQuarterTokens(message.getRole()));
                 quarterTokens = safeAdd(quarterTokens, balancedQuarterTokens(message.getContent()));
-                quarterTokens = safeAdd(quarterTokens, estimateMediaTokens(contextParts(message.getParts(), includeMedia)) * 4L);
+                quarterTokens = safeAdd(quarterTokens, estimateMediaTokens(contextParts(message.getParts(), includeMedia), request.getInputImageTokenEstimate()) * 4L);
             }
         }
         if (request.getPrompt() != null && !request.getPrompt().isBlank()) {
@@ -118,6 +118,7 @@ public final class TextTokenEstimator {
     private static String toolContext(MediaTextGenerateRequest request) {
         if (request == null) return "";
         java.util.List<Object> values = new java.util.ArrayList<>();
+        if (request.getOptions() != null && request.getOptions().get("suffix") instanceof String suffix) values.add(suffix);
         if (request.getOptions() != null && request.getOptions().get("tools") != null) values.add(request.getOptions().get("tools"));
         if (request.getMessages() != null) for (var message : request.getMessages()) {
             if (message == null) continue;
@@ -182,7 +183,7 @@ public final class TextTokenEstimator {
     }
 
     /** 多模态预授权使用保守内部估算；最终结算以供应商 usage 为准。 */
-    private static long estimateMediaTokens(List<MediaTextGenerateRequest.TextContentPart> parts) {
+    private static long estimateMediaTokens(List<MediaTextGenerateRequest.TextContentPart> parts, Integer imageEstimate) {
         if (parts == null || parts.isEmpty()) {
             return 0L;
         }
@@ -197,7 +198,8 @@ public final class TextTokenEstimator {
                 case "image" -> {
                     long pixels = part.getWidth() == null || part.getHeight() == null ? 0L
                             : (long) part.getWidth() * part.getHeight();
-                    total = safeAdd(total, pixels > 0L ? 2L + ceilDiv(pixels, 1024L) : 2048L);
+                    total = safeAdd(total, imageEstimate != null && imageEstimate > 0 ? imageEstimate
+                            : pixels > 0L ? 2L + ceilDiv(pixels, 1024L) : 2048L);
                 }
                 case "video" -> total = safeAdd(total, part.getDurationSeconds() == null
                         ? 18000L : Math.max(1L, (long) Math.ceil(part.getDurationSeconds() * 300D)));

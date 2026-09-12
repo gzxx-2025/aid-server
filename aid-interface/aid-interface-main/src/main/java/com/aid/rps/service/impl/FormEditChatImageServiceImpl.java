@@ -1276,6 +1276,16 @@ public class FormEditChatImageServiceImpl implements IFormEditChatImageService
         imageRequest.setProjectId(form.getProjectId());
         imageRequest.setEpisodeId(form.getEpisodeId());
 
+        AiModelConfigVo defaultModelConfig = aiModelConfigService.selectForBusiness(modelCode,
+                FUNC_CODE_IMAGE_EDIT, resolveImageCapability(referenceImages));
+        if (Objects.isNull(defaultModelConfig))
+        {
+            log.error("编辑弹窗生图模型配置缺失: modelCode={}", modelCode);
+            throw new RuntimeException("模型无效");
+        }
+        ModelCapabilityResolver.ImageSizeSpec sizeSpec = ModelCapabilityResolver.resolveImageSpec(
+                defaultModelConfig, size, aspectRatio);
+
         Map<String, Object> options = new HashMap<>();
         // 参考图：顶层 referenceImageUrl 固定带首张（兼容仅识别单图字段的 Provider），
         // 完整多图列表通过 options.referenceImages 下发；统一能力层会在 Provider 调用前严格校验数量上限。
@@ -1286,13 +1296,16 @@ public class FormEditChatImageServiceImpl implements IFormEditChatImageService
             imageRequest.setReferenceImageUrl(fullRefs.get(0));
             options.put("referenceImages", new ArrayList<>(fullRefs));
         }
-        // 用户显式传了 aspect_ratio → 写入 options（options 优先级高于 applier 的默认兜底）
-        options.put("aspect_ratio", aspectRatio);
+        // 固定像素尺寸已经包含比例时不再下发独立比例参数；其余模型保留显式比例优先级。
+        if (StrUtil.isNotBlank(sizeSpec.aspectRatio()))
+        {
+            options.put("aspect_ratio", sizeSpec.aspectRatio());
+        }
         // 强制单图：即便后续有人在 options 里传 n/expectedImageCount 也会被压回 1，避免误预扣
         options.put("force_single", true);
         imageRequest.setOptions(options);
 
-        imageRequest.setSize(size);
+        imageRequest.setSize(sizeSpec.size());
         imageRequest.setExpectedImageCount(1);
         // 业务任务关联：bizTaskType 保持稳定（= form_edit_chat）以便媒体任务审计 / 汇总统一；
         // bizTaskId 按 "父 taskId * 100 + indexFrom1" 编码差异化，保证 N 次调用的 requestHash 天然不同，
@@ -1300,13 +1313,6 @@ public class FormEditChatImageServiceImpl implements IFormEditChatImageService
         imageRequest.setBizTaskId(bizTaskId);
         imageRequest.setBizTaskType(TASK_TYPE_FORM_EDIT_CHAT);
 
-        AiModelConfigVo defaultModelConfig = aiModelConfigService.selectForBusiness(modelCode,
-                FUNC_CODE_IMAGE_EDIT, resolveImageCapability(referenceImages));
-        if (Objects.isNull(defaultModelConfig))
-        {
-            log.error("编辑弹窗生图模型配置缺失: modelCode={}", modelCode);
-            throw new RuntimeException("模型无效");
-        }
         // 业务池可以为同一模型绑定多个能力，必须把本次根据真实素材选中的能力带入统一媒体链路。
         // 否则报价/提交阶段会再次按功能池默认能力解析，把无参考图请求误选为图生图。
         imageRequest.setCapabilityCode(defaultModelConfig.getCapabilityCode());

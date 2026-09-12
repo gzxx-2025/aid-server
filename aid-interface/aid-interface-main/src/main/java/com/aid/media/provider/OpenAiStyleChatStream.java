@@ -1,6 +1,8 @@
 package com.aid.media.provider;
 
 import com.aid.common.constant.HttpConstants;
+import com.aid.tokendance.provider.text.TokenDanceToolMessages;
+import com.aid.tokendance.provider.common.TokenDanceProtocols;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -66,6 +68,18 @@ public final class OpenAiStyleChatStream {
     public static ProviderSubmitResult postJsonSync(String url, String apiKey,
                                                     String authHeader, String authPrefix,
                                                     Map<String, String> extraHeaders, String jsonBody) {
+        return postJsonSync(url, apiKey, authHeader, authPrefix, extraHeaders, jsonBody, false);
+    }
+
+    public static ProviderSubmitResult postJsonSync(String url, String apiKey,
+            String authHeader, String authPrefix, Map<String, String> extraHeaders,
+            String jsonBody, boolean allowTools) {
+        return postJsonSync(url, apiKey, authHeader, authPrefix, extraHeaders, jsonBody, allowTools, false);
+    }
+
+    public static ProviderSubmitResult postJsonSync(String url, String apiKey,
+            String authHeader, String authPrefix, Map<String, String> extraHeaders,
+            String jsonBody, boolean allowTools, boolean completions) {
         HttpClient client = SHARED_HTTP_CLIENT;
         HttpRequest req;
         try {
@@ -109,9 +123,10 @@ public final class OpenAiStyleChatStream {
                 String finishReason = textOrNull(choice.get("finish_reason"));
                 String finishError = TextFinishReasonSupport.openAiFailureMessage(finishReason);
                 JsonNode message = choice.path("message");
-                if (hasToolCall(message)) {
+                if (hasToolCall(message) && !allowTools) {
                     finishError = "生成方式不支持";
                 }
+                if (allowTools && "tool_calls".equals(finishReason)) finishError = null;
                 if (finishError != null) {
                     log.info("非流式文本未完整终止: url={}, finishReason={}, usage={}",
                             url, finishReason, usage);
@@ -121,10 +136,11 @@ public final class OpenAiStyleChatStream {
                             .build();
                 }
                 String text = textOrNull(message.get("content"));
+                if (completions && message.isMissingNode()) text = textOrNull(choice.get("text"));
                 String reasoning = textOrNull(message.get("reasoning_content"));
                 log.info("非流式文本响应解析: url={}, hasText={}, hasReasoning={}, usage={}", url,
                         StringUtils.isNotBlank(text), StringUtils.isNotBlank(reasoning), usage);
-                if (StringUtils.isBlank(text)) {
+                if (StringUtils.isBlank(text) && !(allowTools && hasToolCall(message))) {
                     return ProviderSubmitResult.builder()
                             .rawResponse("响应内容为空")
                             .usage(usage.isEmpty() ? null : usage)
@@ -133,6 +149,7 @@ public final class OpenAiStyleChatStream {
                 return ProviderSubmitResult.builder()
                         .directText(text)
                         .directReasoning(reasoning)
+                        .toolMessage(allowTools ? chatToolContext(root, text, reasoning) : null)
                         .rawResponse(truncateRaw(ReasoningContentSanitizer.sanitizeJson(body)))
                         .usage(usage.isEmpty() ? null : usage)
                         .build();
@@ -206,6 +223,15 @@ public final class OpenAiStyleChatStream {
         }
         ParsedTokenField rootCacheMiss = parseTokenField(usageNode, "prompt_cache_miss_tokens");
         Integer uncachedTokens = rootCacheMiss.value();
+        // DeepSeek 使用根级命中/未命中二分桶，没有独立写缓存收费桶。
+        boolean rootBuckets = rootCacheHit.present() && rootCacheMiss.present()
+                && !rootCacheHit.invalid() && !rootCacheMiss.invalid() && !cachedConflict
+                && inputTokens != null && cachedTokens != null && uncachedTokens != null
+                && (long) cachedTokens + uncachedTokens == inputTokens;
+        if (rootBuckets && !directCacheWrite.present() && cacheCreation == null) {
+            cacheWriteTokens = 0;
+            usage.put("cache_write_input_tokens", 0);
+        }
         JsonNode completionDetails = usageNode.path("completion_tokens_details");
         Integer reasoningTokens = firstNonNegativeInt(completionDetails, "reasoning_tokens");
         if (cachedTokens != null) {
@@ -215,7 +241,7 @@ public final class OpenAiStyleChatStream {
         if (cacheWriteTokens != null) {
             usage.put("cache_write_input_tokens", cacheWriteTokens);
         }
-        boolean inputBucketFieldsValid = promptDetailsObject
+        boolean inputBucketFieldsValid = (promptDetailsObject || rootBuckets)
                 && !detailCached.invalid() && !rootCacheHit.invalid() && !rootCacheMiss.invalid()
                 && !directCacheWrite.invalid() && !cacheCreationInvalid && !cachedConflict;
         boolean inputBucketsConsistent = inputBucketFieldsValid
@@ -326,6 +352,21 @@ public final class OpenAiStyleChatStream {
                                      String authHeader, String authPrefix,
                                      Map<String, String> extraHeaders,
                                      String jsonBody, TextStreamCallbacks callbacks) throws IOException {
+        postSseStream(url, apiKey, authHeader, authPrefix, extraHeaders, jsonBody, callbacks, false);
+    }
+
+    public static void postSseStream(String url, String apiKey, String authHeader, String authPrefix,
+            Map<String, String> extraHeaders, String jsonBody, TextStreamCallbacks callbacks,
+            boolean allowTools) throws IOException {
+        postSseStream(url, apiKey, authHeader, authPrefix, extraHeaders, jsonBody, callbacks, allowTools, false);
+    }
+
+    public static void postSseStream(String url, String apiKey, String authHeader, String authPrefix,
+            Map<String, String> extraHeaders, String jsonBody, TextStreamCallbacks callbacks,
+            boolean allowTools, boolean completions) throws IOException {
+        TokenDanceToolMessages.Accumulator tools = allowTools
+                ? new TokenDanceToolMessages.Accumulator(TokenDanceProtocols.OPENAI_CHAT_COMPLETIONS,
+                        TokenDanceToolMessages.DEEPSEEK_TURN_CHARS) : null;
         HttpClient client = SHARED_HTTP_CLIENT;
         HttpRequest req;
         try {
@@ -377,7 +418,7 @@ public final class OpenAiStyleChatStream {
                     sawDone.set(true);
                     break;
                 }
-                if (!emitDeltasFromChunk(data, callbacks, sawNormalFinish, terminalFailure)) {
+                if (!emitDeltasFromChunk(data, callbacks, sawNormalFinish, terminalFailure, tools, completions)) {
                     fatal.set(true);
                     break;
                 }
@@ -396,6 +437,14 @@ public final class OpenAiStyleChatStream {
             if (!sawDone.get()) {
                 log.info("文本流式上游未显式返回[DONE]，按连接结束处理");
             }
+            if (tools != null) {
+                var toolMessage = tools.finishChatTurn();
+                if (!TokenDanceToolMessages.hasCalls(toolMessage) && StringUtils.isBlank(toolMessage.getContent())) {
+                    callbacks.onError("响应内容为空", null);
+                    return;
+                }
+                if (toolMessage != null) callbacks.onToolMessage(toolMessage);
+            }
             callbacks.onComplete();
         }
     }
@@ -405,12 +454,14 @@ public final class OpenAiStyleChatStream {
      */
     private static boolean emitDeltasFromChunk(String dataJson, TextStreamCallbacks callbacks,
                                                AtomicBoolean sawNormalFinish,
-                                               AtomicReference<String> terminalFailure) {
+                                               AtomicReference<String> terminalFailure,
+                                               TokenDanceToolMessages.Accumulator tools, boolean completions) {
         if (StringUtils.isBlank(dataJson)) {
             return true;
         }
         try {
             JsonNode root = MAPPER.readTree(dataJson);
+            if (tools != null) tools.accept(root);
 
             // 先提取 usage（Qwen 等模型的最终 usage chunk 中 choices 为空，
             // 必须在 choices 判断之前解析，否则 usage 会被跳过）。
@@ -428,13 +479,14 @@ public final class OpenAiStyleChatStream {
                 JsonNode choice = choices.get(0);
                 JsonNode finishNode = choice.get("finish_reason");
                 JsonNode delta = choice.path("delta");
-                if (hasToolCall(delta)) {
+                if (hasToolCall(delta) && tools == null) {
                     terminalFailure.compareAndSet(null, "生成方式不支持");
                 }
                 if (finishNode != null && !finishNode.isNull()) {
                     String finishReason = finishNode.isTextual() ? finishNode.asText() : finishNode.toString();
                     if (!"null".equalsIgnoreCase(StringUtils.trim(finishReason))) {
                         String finishError = TextFinishReasonSupport.openAiFailureMessage(finishReason);
+                        if (tools != null && "tool_calls".equals(finishReason)) finishError = null;
                         if (finishError != null) {
                             log.info("文本流式上游未完整终止: finishReason={}", finishReason);
                             terminalFailure.compareAndSet(null, finishError);
@@ -447,6 +499,7 @@ public final class OpenAiStyleChatStream {
                     return true;
                 }
                 String content = textOrNull(delta.get("content"));
+                if (completions && delta.isMissingNode()) content = textOrNull(choice.get("text"));
                 if (StringUtils.isNotBlank(content)) {
                     callbacks.onDelta(content);
                 }
@@ -473,6 +526,18 @@ public final class OpenAiStyleChatStream {
             return n.asText();
         }
         return n.toString();
+    }
+
+    private static com.aid.media.dto.MediaTextGenerateRequest.TextMessageItem chatToolContext(
+            JsonNode root, String content, String reasoning) {
+        var message = TokenDanceToolMessages.sync(root, TokenDanceProtocols.OPENAI_CHAT_COMPLETIONS);
+        if (message == null) {
+            message = new com.aid.media.dto.MediaTextGenerateRequest.TextMessageItem();
+            message.setRole("assistant");
+            message.setContent(content);
+            message.setReasoningContent(reasoning == null ? "" : reasoning);
+        }
+        return message;
     }
 
     private static boolean hasToolCall(JsonNode messageOrDelta) {

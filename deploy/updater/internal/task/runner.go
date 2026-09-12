@@ -189,9 +189,8 @@ func (r *Runner) PollOnce() bool {
 		return true
 	}
 	if t.Action == ActionUpdaterUpgrade {
-		// 自升级成功：先落成功状态再退出进程，交由 systemd 拉起新版本
-		r.reporter.SetTask(t.TaskID, t.Action, health.TaskStateSuccess,
-			fmt.Sprintf("升级器已更新 %s -> %s，正在重启", t.SourceVersion, t.TargetVersion))
+		// 先交接目标版本；systemd/Docker 拉起的新进程核验后才报告成功。
+		r.reporter.SetRestartPending(t.TaskID, t.TargetVersion)
 		r.exitRequested = true
 		return true
 	}

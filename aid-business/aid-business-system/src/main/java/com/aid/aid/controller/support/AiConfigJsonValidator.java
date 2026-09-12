@@ -587,7 +587,9 @@ public final class AiConfigJsonValidator
                 }
             }
             Set<String> levels = new java.util.LinkedHashSet<>();
-            Set<String> supportedLevels = Set.of("minimal", "low", "medium", "high", "xhigh", "max");
+            Set<String> supportedLevels = Objects.equals("deepseek:chat-completions", model.getProtocol())
+                    ? Set.of("minimal", "low", "medium", "high", "xhigh", "max", "ultra")
+                    : Set.of("minimal", "low", "medium", "high", "xhigh", "max");
             JsonNode allowed = capability.path("allowedReasoningLevels");
             if (allowed.isArray())
             {

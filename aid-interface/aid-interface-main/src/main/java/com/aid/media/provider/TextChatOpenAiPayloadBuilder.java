@@ -35,12 +35,14 @@ public final class TextChatOpenAiPayloadBuilder {
             for (MediaTextGenerateRequest.TextMessageItem item : request.getMessages()) {
                 if (item == null || StringUtils.isBlank(item.getContent())
                         && CollectionUtil.isEmpty(item.getParts())
+                        && !Boolean.TRUE.equals(item.getPrefix())
                         && !(toolMessages && (CollectionUtil.isNotEmpty(item.getToolCalls()) || "tool".equals(item.getRole())))) {
                     continue;
                 }
                 String role = toolMessages && ("tool".equals(item.getRole()) || "developer".equals(item.getRole()))
                         ? item.getRole() : normalizeRole(item.getRole());
                 Map<String, Object> value = message(role, item);
+                if (Boolean.TRUE.equals(item.getPrefix())) value.put("prefix", true);
                 if (toolMessages) {
                     if (CollectionUtil.isNotEmpty(item.getToolCalls())) {
                         List<Map<String, Object>> calls = new ArrayList<>();

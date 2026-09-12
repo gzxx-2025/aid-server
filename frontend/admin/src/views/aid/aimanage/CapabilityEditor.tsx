@@ -383,6 +383,11 @@ export default function CapabilityEditor({ modelType, form, cap, onCapChange, on
       <Space wrap align="start">
         <div><GroupLabel text="流式输出" keyName="supportsStreaming" /><Switch checked={cap.supportsStreaming === true} onChange={(v) => updateCap({ supportsStreaming: v })} /></div>
         <div><GroupLabel text="工具调用" keyName="supportsToolCalling" /><Switch checked={cap.supportsToolCalling === true} onChange={(v) => updateCap({ supportsToolCalling: v })} /></div>
+        <div>
+          <GroupLabel text="对话前缀续写" keyName="supportsChatPrefix" />
+          <Switch aria-label="对话前缀续写" checked={cap.supportsChatPrefix === true} onChange={(v) => updateCap({ supportsChatPrefix: v })} />
+          <div className="help-text">仅在当前协议支持时开启；最后一条助手消息作为续写前缀。</div>
+        </div>
         <div><GroupLabel text="结构化输出" keyName="supportsStructuredOutput" /><Switch checked={cap.supportsStructuredOutput === true} onChange={(v) => updateCap({ supportsStructuredOutput: v })} /></div>
         <div><GroupLabel text="上下文缓存" keyName="supportsContextCaching" /><Switch checked={cap.supportsContextCaching === true} onChange={(v) => updateCap({ supportsContextCaching: v })} /></div>
         <div><GroupLabel text="内置工具" keyName="supportsBuiltinTools" /><Switch checked={cap.supportsBuiltinTools === true} onChange={(v) => updateCap({ supportsBuiltinTools: v })} /></div>

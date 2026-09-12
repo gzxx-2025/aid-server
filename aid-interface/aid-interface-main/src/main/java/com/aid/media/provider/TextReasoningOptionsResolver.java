@@ -67,7 +67,7 @@ public final class TextReasoningOptionsResolver {
         boolean levelOverridePresent = levelValue != null && StrUtil.isNotBlank(String.valueOf(levelValue));
         String level = levelOverridePresent
                 ? String.valueOf(levelValue).trim().toLowerCase(Locale.ROOT)
-                : "medium";
+                : isDeepSeekFlash(model) ? capabilityText(model, "defaultReasoningLevel", "high") : "medium";
         String style = reasoningApiStyle(model);
         switch (style) {
             case "QWEN" -> {
@@ -82,7 +82,7 @@ public final class TextReasoningOptionsResolver {
             case "DEEPSEEK" -> {
                 options.put("thinking", Map.of("type", enabled ? "enabled" : "disabled"));
                 if (enabled) {
-                    options.put("reasoning_effort", normalizeDeepSeekLevel(level));
+                    options.put("reasoning_effort", isDeepSeekFlash(model) ? normalizeDeepSeekFlashLevel(level) : normalizeDeepSeekLevel(level));
                 }
             }
             case "AGNES" -> {
@@ -407,6 +407,20 @@ public final class TextReasoningOptionsResolver {
 
     private static String normalizeDeepSeekLevel(String level) {
         return "max".equals(level) || "xhigh".equals(level) ? "max" : "high";
+    }
+
+    public static boolean isDeepSeekFlash(AiModelConfigVo model) {
+        if (model == null || !"deepseek".equalsIgnoreCase(model.getProviderCode())) return false;
+        String identity = modelIdentity(model);
+        return identity.contains("deepseek-flash") || identity.contains("deepseek-v4.1-flash");
+    }
+
+    private static String normalizeDeepSeekFlashLevel(String level) {
+        return switch (level) {
+            case "minimal", "low" -> "low";
+            case "max", "ultra" -> "max";
+            default -> "high";
+        };
     }
 
     private static String normalizeQwen38Level(String level) {

@@ -45,6 +45,18 @@ describe('story script agent panel chrome', () => {
     expect(cssSource).not.toContain('story-agent-skill-select')
   })
 
+  it('anchors the send action to the composer right edge independently of flow decoration', () => {
+    expect(cssSource).toMatch(
+      /\.story-script-agent-panel__input-wrap\s*\{[^}]*position:\s*relative/s
+    )
+    expect(cssSource).toMatch(
+      /\.story-script-agent-panel__input-wrap\s*>\s*\.story-script-agent-panel__composer-tools\s*\{[^}]*position:\s*absolute[^}]*right:\s*12px[^}]*left:\s*12px/s
+    )
+    expect(cssSource).toMatch(
+      /\.story-script-agent-panel__composer-actions\s*\{[^}]*flex:\s*0\s+0\s+auto[^}]*margin-left:\s*auto/s
+    )
+  })
+
   it('fills the story-script column so the conversation viewport owns vertical scrolling', () => {
     expect(cssSource).toMatch(
       /\.story-script-agent-panel\s*\{[^}]*display:\s*flex[^}]*flex-direction:\s*column[^}]*height:\s*100%/s

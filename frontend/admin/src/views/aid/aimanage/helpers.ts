@@ -119,6 +119,7 @@ export function parseCapabilityJsonToModel(jsonStr?: string | null): CapabilityM
     ? obj.allowedReasoningLevels.filter((value: unknown) => typeof value === 'string').map((value: string) => value.trim()).filter(Boolean) : [];
   m.supportsStreaming = typeof obj.supportsStreaming === 'boolean' ? obj.supportsStreaming : undefined;
   m.supportsToolCalling = typeof obj.supportsToolCalling === 'boolean' ? obj.supportsToolCalling : undefined;
+  m.supportsChatPrefix = typeof obj.supportsChatPrefix === 'boolean' ? obj.supportsChatPrefix : undefined;
   m.supportsStructuredOutput = typeof obj.supportsStructuredOutput === 'boolean' ? obj.supportsStructuredOutput : undefined;
   m.supportsContextCaching = typeof obj.supportsContextCaching === 'boolean' ? obj.supportsContextCaching : undefined;
   m.supportsBuiltinTools = typeof obj.supportsBuiltinTools === 'boolean' ? obj.supportsBuiltinTools : undefined;
@@ -349,6 +350,7 @@ export function buildCapabilityJsonObject(form: Model, cap: CapabilityModel): Re
         ? cap.maxReasoningBudgetTokens ?? null : null,
       ...(cap.supportsStreaming == null ? {} : { supportsStreaming: cap.supportsStreaming }),
       ...(cap.supportsToolCalling == null ? {} : { supportsToolCalling: cap.supportsToolCalling }),
+      ...(cap.supportsChatPrefix == null ? {} : { supportsChatPrefix: cap.supportsChatPrefix }),
       ...(cap.supportsStructuredOutput == null ? {} : { supportsStructuredOutput: cap.supportsStructuredOutput }),
       ...(cap.supportsContextCaching == null ? {} : { supportsContextCaching: cap.supportsContextCaching }),
       ...(cap.supportsBuiltinTools == null ? {} : { supportsBuiltinTools: cap.supportsBuiltinTools }),

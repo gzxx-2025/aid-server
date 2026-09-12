@@ -463,7 +463,7 @@ export function VideoConfigPanel({ ctx }: { ctx: VideoModalCtx }) {
                   onActiveVideoSettingKeyChange={(v) => ctx.activeMultiParamSettingKey.set(v)}
                   referenceAudios={ctx.referenceAudios.value}
                   referenceVideos={ctx.referenceVideos.value}
-                  referenceImportLabel="导入参考素材"
+                  referenceImportLabel="导入素材"
                   imageToVideoNineGridEnabled={ctx.nineGridEnabled.value}
                   imageToVideoReferenceImages={ctx.referenceImages.value}
                   imageToVideoSelectedCameraMovement={ctx.selectedCameraMovement.value}

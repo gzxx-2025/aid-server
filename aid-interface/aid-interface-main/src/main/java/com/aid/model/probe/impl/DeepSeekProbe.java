@@ -45,7 +45,8 @@ public class DeepSeekProbe extends AbstractReadOnlyProbe {
             return MODELS_PATH;
         }
         String derived = ProbeHttpSupport.deriveSiblingPath(
-                model.getApiSuffix(), MODELS_PATH, "/chat/completions", "/responses");
+                model.getApiSuffix(), MODELS_PATH, "/beta/chat/completions", "/beta/completions",
+                "/chat/completions", "/responses");
         return StrUtil.blankToDefault(derived, "/");
     }
 

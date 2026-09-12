@@ -293,6 +293,13 @@ public final class ModelCapabilityResolver {
     public static ImageSizeSpec resolveImageSpec(AiModelConfigVo modelConfig,
                                                  String requestedSize, String requestedAspectRatio) {
         String size = resolveSize(modelConfig, requestedSize);
+        JsonNode capability = Objects.isNull(modelConfig)
+                ? null : parseCapability(modelConfig.getCapabilityJson());
+        if (isExplicitPixelSize(size) && !supportsIndependentImageAspectRatio(modelConfig, capability)) {
+            validatePixelSizeRatio(size, requestedAspectRatio,
+                    Objects.isNull(modelConfig) ? null : modelConfig.getModelCode());
+            return new ImageSizeSpec(size, null);
+        }
         String aspectRatio = resolveAspectRatio(modelConfig, requestedAspectRatio);
         if (StrUtil.isNotBlank(requestedSize) || !isExplicitPixelSize(size)) {
             return new ImageSizeSpec(size, aspectRatio);
@@ -315,6 +322,51 @@ public final class ModelCapabilityResolver {
         return StrUtil.isNotBlank(size) && normalize(size).indexOf('x') >= 0;
     }
 
+    /** 固定像素尺寸已经完整表达宽高比时，不应再向不支持独立比例参数的模型下发比例字段。 */
+    private static boolean supportsIndependentImageAspectRatio(AiModelConfigVo modelConfig,
+                                                                JsonNode capability) {
+        if (Objects.nonNull(modelConfig) && Boolean.TRUE.equals(modelConfig.getSupportsAspectRatio())) {
+            return true;
+        }
+        if (Objects.nonNull(modelConfig) && Boolean.FALSE.equals(modelConfig.getSupportsAspectRatio())) {
+            return false;
+        }
+        if (Objects.nonNull(capability) && capability.has("supportsAspectRatio")) {
+            return capability.path("supportsAspectRatio").asBoolean(false);
+        }
+        // 历史模型没有能力开关时维持既有兼容语义，不能因缺字段擅自剥离参数。
+        return true;
+    }
+
+    /** 校验调用方展示比例与固定像素尺寸一致；比例为空时仅由尺寸决定输出。 */
+    private static void validatePixelSizeRatio(String size, String requestedAspectRatio, String modelCode) {
+        if (StrUtil.isBlank(requestedAspectRatio)) {
+            return;
+        }
+        String normalizedSize = normalize(size);
+        String normalizedRatio = normalize(requestedAspectRatio);
+        if (!normalizedSize.matches("\\d{2,5}x\\d{2,5}") || !isConcreteAspectRatio(normalizedRatio)) {
+            log.info("固定像素尺寸与展示比例格式无效: modelCode={}, size={}, aspectRatio={}",
+                    modelCode, size, requestedAspectRatio);
+            throw new ServiceException(MSG_ASPECT_RATIO_UNSUPPORTED);
+        }
+        String[] dimensions = normalizedSize.split("x", -1);
+        String[] ratio = normalizedRatio.split(":", -1);
+        try {
+            double sizeValue = Double.parseDouble(dimensions[0]) / Double.parseDouble(dimensions[1]);
+            double ratioValue = Double.parseDouble(ratio[0]) / Double.parseDouble(ratio[1]);
+            // 854x480 等行业标准尺寸会因像素取整与 16:9 存在极小偏差，允许 1% 以内的相对误差。
+            if (Math.abs(sizeValue - ratioValue) / ratioValue <= 0.01D) {
+                return;
+            }
+        } catch (NumberFormatException ignored) {
+            // 统一按不支持处理，避免非法值绕过业务入口校验。
+        }
+        log.info("固定像素尺寸与展示比例冲突: modelCode={}, size={}, aspectRatio={}",
+                modelCode, size, requestedAspectRatio);
+        throw new ServiceException(MSG_ASPECT_RATIO_UNSUPPORTED);
+    }
+
     /**
      * 图片档位与比例的联合解析结果。
      *
@@ -328,19 +380,27 @@ public final class ModelCapabilityResolver {
     public static void validateImageOutputSelection(AiModelConfigVo model, String size, String ratio) {
         JsonNode capability = parseCapability(model.getCapabilityJson());
         if (capability == null) throw new ServiceException("模型能力无效");
-        List<String> ratios = readOptions(capability, KEY_ASPECT_RATIO_OPTIONS);
         boolean custom = capability.path("allowCustomWH").asBoolean(false);
-        if (StrUtil.isBlank(ratio)
-                || (!ratios.isEmpty() && matchOption(ratios, ratio) == null)
-                || (ratios.isEmpty() && (!custom || !isConcreteAspectRatio(ratio)))) {
-            log.info("图片编辑比例不受支持: modelCode={}, ratio={}", model.getModelCode(), ratio);
-            throw new ServiceException(MSG_ASPECT_RATIO_UNSUPPORTED);
-        }
         List<String> sizes = readOptions(capability, KEY_SIZE_OPTIONS);
         if (StrUtil.isBlank(size) || (matchOption(sizes, size) == null
                 && !(custom && normalize(size).matches("\\d{2,5}x\\d{2,5}")))) {
             log.info("图片编辑尺寸不受支持: modelCode={}, size={}", model.getModelCode(), size);
             throw new ServiceException(MSG_SIZE_UNSUPPORTED);
+        }
+        if (StrUtil.isBlank(ratio)) {
+            log.info("图片编辑比例为空: modelCode={}", model.getModelCode());
+            throw new ServiceException(MSG_ASPECT_RATIO_UNSUPPORTED);
+        }
+        if (isExplicitPixelSize(size) && !supportsIndependentImageAspectRatio(model, capability)) {
+            validatePixelSizeRatio(size, ratio, model.getModelCode());
+            ModelCapabilityValidator.validateImage(model, size, Map.of());
+            return;
+        }
+        List<String> ratios = readOptions(capability, KEY_ASPECT_RATIO_OPTIONS);
+        if ((!ratios.isEmpty() && matchOption(ratios, ratio) == null)
+                || (ratios.isEmpty() && (!custom || !isConcreteAspectRatio(ratio)))) {
+            log.info("图片编辑比例不受支持: modelCode={}, ratio={}", model.getModelCode(), ratio);
+            throw new ServiceException(MSG_ASPECT_RATIO_UNSUPPORTED);
         }
         ModelCapabilityValidator.validateImage(model, size, Map.of("aspect_ratio", ratio));
     }

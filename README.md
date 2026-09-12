@@ -284,35 +284,39 @@ https://admin.example.com/Ab12Cd34Ef56
 
 ### 用户端创作工作台
 
-从项目创建、角色/场景资产管理，到分镜生成、画面调整、视频时间线与成片预览，用户端围绕“AI 漫画与漫剧创作”组织为连续工作流。
+从项目创建、剧本创作、流程画布、角色与场景资产管理，到分镜生成、视频、配音和成片预览，用户端围绕 AI 漫剧、AI 电影与 AI 漫画组织为连续工作流。
 
 <p align="center">
-  <img src="references/web/0.png" alt="AID 用户端登录入口" width="92%">
+  <img src="references/web/0.png" alt="AID 用户端登录与案例广场" width="92%">
 </p>
 
-| 创作首页 | 项目工作台 |
-|---------|-----------|
-| <img src="references/web/1.png" alt="用户端创作首页" width="100%"> | <img src="references/web/2.png" alt="用户端项目列表" width="100%"> |
+| 平台创作入口 | 我的作品 |
+|-------------|---------|
+| <img src="references/web/1.png" alt="AID AI 内容创作入口" width="100%"> | <img src="references/web/14.png" alt="用户端我的作品" width="100%"> |
 
-| 角色与素材选择 | 角色形象管理 |
-|---------------|-------------|
-| <img src="references/web/3.png" alt="角色与素材选择" width="100%"> | <img src="references/web/4.png" alt="角色形象管理" width="100%"> |
+| 项目配置与风格选择 | 流程化剧本创作 |
+|-------------------|---------------|
+| <img src="references/web/15.png" alt="项目配置与风格选择" width="100%"> | <img src="references/web/3.png" alt="流程化剧本创作" width="100%"> |
 
-| 场景资产管理 | 模型与参数配置 |
-|-------------|---------------|
-| <img src="references/web/5.png" alt="场景资产管理" width="100%"> | <img src="references/web/6.png" alt="模型与参数配置" width="100%"> |
+| 流程画布 | 场景与素材管理 |
+|---------|---------------|
+| <img src="references/web/2.png" alt="项目流程画布" width="100%"> | <img src="references/web/4.png" alt="场景与素材管理" width="100%"> |
 
-| 剧本分镜拆解 | 分镜任务列表 |
-|-------------|-------------|
-| <img src="references/web/7.png" alt="剧本分镜拆解" width="100%"> | <img src="references/web/8.png" alt="分镜任务列表" width="100%"> |
+| 画面编辑与参考素材 | 生成模型配置 |
+|-------------------|-------------|
+| <img src="references/web/5.png" alt="画面编辑与参考素材" width="100%"> | <img src="references/web/6.png" alt="生成模型配置" width="100%"> |
 
-| 分镜画面编辑 | 分镜文本与镜头管理 |
-|-------------|-------------------|
-| <img src="references/web/9.png" alt="分镜画面编辑" width="100%"> | <img src="references/web/10.png" alt="分镜文本与镜头管理" width="100%"> |
+| 分镜设计 | 分镜视频管理 |
+|---------|-------------|
+| <img src="references/web/7.png" alt="分镜设计与参考画面" width="100%"> | <img src="references/web/8.png" alt="分镜视频管理" width="100%"> |
 
-| 分镜图生成结果 | 配音角色选择 |
-|---------------|-------------|
-| <img src="references/web/11.png" alt="分镜图生成结果" width="100%"> | <img src="references/web/12.png" alt="配音角色选择" width="100%"> |
+| 多参数视频生成 | 音画同步管理 |
+|----------------|-------------|
+| <img src="references/web/9.png" alt="多参数视频生成" width="100%"> | <img src="references/web/10.png" alt="音画同步管理" width="100%"> |
+
+| 配音编辑 | 配音角色选择 |
+|---------|-------------|
+| <img src="references/web/11.png" alt="配音编辑与预览" width="100%"> | <img src="references/web/12.png" alt="配音角色选择" width="100%"> |
 
 <p align="center">
   <img src="references/web/13.png" alt="视频时间线与成片预览" width="92%">
@@ -334,16 +338,16 @@ https://admin.example.com/Ab12Cd34Ef56
 |---------|-------------|
 | <img src="references/manager/3.png" alt="用户管理" width="100%"> | <img src="references/manager/4.png" alt="内容详情审核" width="100%"> |
 
-| AI 模型配置 | 模型功能配置 |
+| AI 模型配置 | AI 业务编排 |
 |------------|-------------|
-| <img src="references/manager/5.png" alt="AI 模型配置" width="100%"> | <img src="references/manager/6.png" alt="模型功能配置" width="100%"> |
+| <img src="references/manager/5.png" alt="AI 模型配置" width="100%"> | <img src="references/manager/6.png" alt="模型池、智能体与策略矩阵编排" width="100%"> |
 
-| 支付与运营配置 | 供应商配置 |
-|---------------|-----------|
-| <img src="references/manager/7.png" alt="支付与运营配置" width="100%"> | <img src="references/manager/8.png" alt="供应商配置" width="100%"> |
+| 在线升级与版本说明 | 在线用户监控 |
+|-------------------|-------------|
+| <img src="references/manager/7.png" alt="在线升级与版本说明" width="100%"> | <img src="references/manager/8.png" alt="在线用户监控" width="100%"> |
 
 <p align="center">
-  <img src="references/manager/9.png" alt="在线升级配置" width="92%">
+  <img src="references/manager/9.png" alt="服务、缓存与运行资源监控" width="92%">
 </p>
 
 ## 参与贡献
